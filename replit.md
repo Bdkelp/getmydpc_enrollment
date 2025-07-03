@@ -242,6 +242,14 @@ Changelog:
   • Coverage type automatically set based on member type selection
   • Fixed RxValet selection infinite loop issue
   • Streamlined enrollment flow from 6 visible steps to 5 (coverage type auto-selected)
+- July 03, 2025: Implemented role-based access control
+  • Created separate dashboards for agents (/agent) and admins (/admin)
+  • Regular users now see "No Dashboard Access" page with customer service contact
+  • Agent dashboard includes enrollment tracking, commission reports ($50/enrollment), and CSV export
+  • Added enrolledByAgentId field to track which agent enrolled each member
+  • Test users created: admin@mypremierplans.com (admin), agent@mypremierplans.com (agent), mdkeener@gmail.com (user)
+  • Fixed authentication flow to properly handle unauthorized responses
+  • Added logout functionality to landing page and no-access pages
 ```
 
 ## User Preferences
