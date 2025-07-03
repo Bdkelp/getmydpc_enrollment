@@ -698,10 +698,10 @@ export default function Registration() {
                               return (
                                 <Card 
                                   key={plan.id} 
-                                  className={`cursor-pointer transition-all ${
+                                  className={`cursor-pointer transition-all duration-300 transform ${
                                     selectedPlanId === plan.id 
-                                      ? "border-2 border-medical-blue-600 bg-medical-blue-50" 
-                                      : "hover:shadow-md"
+                                      ? "border-2 border-green-600 bg-green-50 scale-105 shadow-lg" 
+                                      : "hover:shadow-md hover:scale-102"
                                   }`}
                                   onClick={() => setSelectedPlanId(plan.id)}
                                 >
@@ -725,7 +725,7 @@ export default function Registration() {
                                     </div>
                                     {selectedPlanId === plan.id && (
                                       <div className="mt-4 text-center">
-                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-medical-blue-100 text-medical-blue-800">
+                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
                                           Selected
                                         </span>
                                       </div>
@@ -746,8 +746,8 @@ export default function Registration() {
                             <CardContent className="p-6">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <h5 className="font-semibold text-gray-900">RxValet Prescription Savings</h5>
-                                  <p className="text-sm text-gray-600 mt-1">Save on prescription medications</p>
+                                  <h5 className="font-semibold text-gray-900">BestChoice Rx Pro Premium-5 Medication Program</h5>
+                                  <p className="text-sm text-gray-600 mt-1">Acute and ACA medications no-cost, plus 200 chronic drugs for only $5/fill</p>
                                 </div>
                                 <div className="text-right">
                                   <div className="text-xl font-bold text-green-600">
@@ -778,7 +778,7 @@ export default function Registration() {
                           <span className="font-medium">Name:</span> {form.watch("firstName")} {form.watch("middleName")} {form.watch("lastName")}
                         </div>
                         <div>
-                          <span className="font-medium">SSN:</span> ***-**-{form.watch("ssn").slice(-4)}
+                          <span className="font-medium">SSN:</span> ***-**-{form.watch("ssn")?.slice(-4) || "****"}
                         </div>
                         <div>
                           <span className="font-medium">Date of Birth:</span> {form.watch("dateOfBirth")}
@@ -814,7 +814,7 @@ export default function Registration() {
                           <span className="font-medium">Address:</span> {form.watch("address")} {form.watch("address2") && `, ${form.watch("address2")}`}, {form.watch("city")}, {form.watch("state")} {form.watch("zipCode")}
                         </div>
                         <div className="col-span-2">
-                          <span className="font-medium">Monthly Cost:</span> ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"} (RxValet)` : ""}/month
+                          <span className="font-medium">Monthly Cost:</span> ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"} (BestChoice Rx)` : ""}/month
                         </div>
                       </div>
                     </div>
