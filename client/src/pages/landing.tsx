@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Landing() {
+  const { isAuthenticated, user } = useAuth();
   const { data: plans, isLoading } = useQuery({
     queryKey: ["/api/plans"],
   });
@@ -92,17 +94,33 @@ export default function Landing() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Button 
-                variant="ghost" 
-                onClick={() => window.location.href = "/api/login"}
-              >
-                Sign In
-              </Button>
-              <Link href="/registration">
-                <Button className="medical-blue-600 hover:medical-blue-700 text-white">
-                  Get Started
-                </Button>
-              </Link>
+              {isAuthenticated ? (
+                <>
+                  <span className="text-sm text-gray-600">
+                    Welcome, {user?.firstName || user?.email}
+                  </span>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => window.location.href = "/api/logout"}
+                  >
+                    Log Out
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => window.location.href = "/api/login"}
+                  >
+                    Sign In
+                  </Button>
+                  <Link href="/registration">
+                    <Button className="medical-blue-600 hover:medical-blue-700 text-white">
+                      Get Started
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -122,11 +140,26 @@ export default function Landing() {
                 Get unlimited access to your primary care physician for one low monthly fee.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <Link href="/registration">
-                  <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
-                    Enroll Now
-                  </Button>
-                </Link>
+                {isAuthenticated ? (
+                  user?.role === "agent" || user?.role === "admin" ? (
+                    <Link href="/registration">
+                      <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
+                        Enroll New Member
+                      </Button>
+                    </Link>
+                  ) : (
+                    <div className="text-gray-600">
+                      <p>Please contact your agent to make enrollment changes.</p>
+                      <p className="font-semibold mt-2">210-512-4318</p>
+                    </div>
+                  )
+                ) : (
+                  <Link href="/registration">
+                    <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
+                      Enroll Now
+                    </Button>
+                  </Link>
+                )}
                 <Button variant="outline" size="lg" className="px-8 py-4">
                   Learn More
                 </Button>
@@ -202,17 +235,38 @@ export default function Landing() {
                         </li>
                       ))}
                     </ul>
-                    <Link href="/registration">
-                      <Button 
-                        className={`w-full ${
-                          plan.name.toLowerCase().includes("group") 
-                            ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                            : "medical-blue-600 hover:medical-blue-700 text-white"
-                        }`}
-                      >
-                        {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
-                      </Button>
-                    </Link>
+                    {isAuthenticated ? (
+                      user?.role === "agent" || user?.role === "admin" ? (
+                        <Link href="/registration">
+                          <Button 
+                            className={`w-full ${
+                              plan.name.toLowerCase().includes("group") 
+                                ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
+                                : "medical-blue-600 hover:medical-blue-700 text-white"
+                            }`}
+                          >
+                            {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
+                          </Button>
+                        </Link>
+                      ) : (
+                        <div className="text-center text-gray-600 py-3">
+                          <p className="text-sm">Contact your agent to enroll</p>
+                          <p className="font-semibold">210-512-4318</p>
+                        </div>
+                      )
+                    ) : (
+                      <Link href="/registration">
+                        <Button 
+                          className={`w-full ${
+                            plan.name.toLowerCase().includes("group") 
+                              ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
+                              : "medical-blue-600 hover:medical-blue-700 text-white"
+                          }`}
+                        >
+                          {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
+                        </Button>
+                      </Link>
+                    )}
                   </CardContent>
                 </Card>
               ))}
