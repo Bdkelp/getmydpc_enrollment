@@ -6,10 +6,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import type { Plan } from "@shared/schema";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
-  const { data: plans, isLoading } = useQuery({
+  const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ["/api/plans"],
   });
 
@@ -214,7 +215,7 @@ export default function Landing() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {plans?.map((plan: any) => (
+              {plans?.map((plan) => (
                 <Card key={plan.id} className={`relative p-8 hover:shadow-md transition-shadow ${
                   plan.name.toLowerCase().includes("family") ? "border-2 border-blue-600" : ""
                 }`}>
