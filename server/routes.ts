@@ -1,0 +1,327 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import Stripe from "stripe";
+import { storage } from "./storage";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import { z } from "zod";
+import { registrationSchema, insertPlanSchema } from "@shared/schema";
+
+let stripe: Stripe | null = null;
+
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: "2023-10-16",
+  });
+}
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth middleware
+  await setupAuth(app);
+
+  // Auth routes
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Get user's current subscription and plan
+      const subscription = await storage.getUserSubscription(userId);
+      let plan = null;
+      if (subscription) {
+        plan = await storage.getPlan(subscription.planId);
+      }
+      
+      res.json({ ...user, subscription, plan });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Public routes - Plans
+  app.get("/api/plans", async (req, res) => {
+    try {
+      const plans = await storage.getActivePlans();
+      res.json(plans);
+    } catch (error) {
+      console.error("Error fetching plans:", error);
+      res.status(500).json({ message: "Failed to fetch plans" });
+    }
+  });
+
+  app.get("/api/plans/:id", async (req, res) => {
+    try {
+      const planId = parseInt(req.params.id);
+      const plan = await storage.getPlan(planId);
+      if (!plan) {
+        return res.status(404).json({ message: "Plan not found" });
+      }
+      res.json(plan);
+    } catch (error) {
+      console.error("Error fetching plan:", error);
+      res.status(500).json({ message: "Failed to fetch plan" });
+    }
+  });
+
+  // Protected routes - User registration/profile
+  app.post("/api/registration", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = registrationSchema.parse(req.body);
+      const userId = req.user.claims.sub;
+      
+      // Update user profile with registration data
+      const user = await storage.updateUserProfile(userId, {
+        firstName: validatedData.firstName,
+        lastName: validatedData.lastName,
+        email: validatedData.email,
+        phone: validatedData.phone,
+        dateOfBirth: validatedData.dateOfBirth,
+        gender: validatedData.gender,
+        address: validatedData.address,
+        city: validatedData.city,
+        state: validatedData.state,
+        zipCode: validatedData.zipCode,
+        emergencyContactName: validatedData.emergencyContactName,
+        emergencyContactPhone: validatedData.emergencyContactPhone,
+      });
+
+      res.json(user);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      console.error("Error updating user profile:", error);
+      res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  // Stripe subscription routes
+  app.post('/api/create-subscription', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { planId } = req.body;
+      
+      if (!stripe) {
+        return res.status(503).json({ message: "Payment processing not configured" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const plan = await storage.getPlan(planId);
+      if (!plan) {
+        return res.status(400).json({ message: "Invalid plan" });
+      }
+
+      // Check if user already has an active subscription
+      const existingSubscription = await storage.getUserSubscription(userId);
+      if (existingSubscription) {
+        return res.status(400).json({ message: "User already has an active subscription" });
+      }
+
+      let customerId = user.stripeCustomerId;
+
+      // Create Stripe customer if doesn't exist
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: user.email || undefined,
+          name: `${user.firstName} ${user.lastName}`,
+          metadata: { userId },
+        });
+        customerId = customer.id;
+        await storage.updateUserStripeInfo(userId, customerId);
+      }
+
+      // Create Stripe subscription
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: plan.stripePriceId }],
+        payment_behavior: 'default_incomplete',
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        expand: ['latest_invoice.payment_intent'],
+      });
+
+      // Create subscription record in database
+      await storage.createSubscription({
+        userId,
+        planId,
+        status: "pending",
+        amount: plan.price,
+        stripeSubscriptionId: subscription.id,
+        nextBillingDate: new Date(subscription.current_period_end * 1000),
+      });
+
+      // Update user with subscription ID
+      await storage.updateUserStripeInfo(userId, customerId, subscription.id);
+
+      const paymentIntent = subscription.latest_invoice?.payment_intent as Stripe.PaymentIntent;
+      
+      res.json({
+        subscriptionId: subscription.id,
+        clientSecret: paymentIntent?.client_secret,
+      });
+    } catch (error: any) {
+      console.error("Error creating subscription:", error);
+      res.status(500).json({ message: "Error creating subscription: " + error.message });
+    }
+  });
+
+  // Stripe webhook to handle successful payments
+  app.post('/api/stripe-webhook', async (req, res) => {
+    try {
+      const sig = req.headers['stripe-signature'];
+      if (!sig) {
+        return res.status(400).json({ message: "Missing stripe signature" });
+      }
+
+      const event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET || ''
+      );
+
+      switch (event.type) {
+        case 'invoice.payment_succeeded':
+          const invoice = event.data.object as Stripe.Invoice;
+          if (invoice.subscription) {
+            // Update subscription status to active
+            const subscriptions = await storage.getActiveSubscriptions();
+            const subscription = subscriptions.find(s => s.stripeSubscriptionId === invoice.subscription);
+            if (subscription) {
+              await storage.updateSubscription(subscription.id, {
+                status: "active",
+                nextBillingDate: new Date(invoice.period_end * 1000),
+              });
+
+              // Record payment
+              await storage.createPayment({
+                userId: subscription.userId,
+                subscriptionId: subscription.id,
+                amount: (invoice.amount_paid / 100).toString(),
+                status: "succeeded",
+                stripePaymentIntentId: invoice.payment_intent as string,
+                paymentMethod: "card",
+              });
+            }
+          }
+          break;
+
+        case 'customer.subscription.deleted':
+          const deletedSubscription = event.data.object as Stripe.Subscription;
+          const subscriptions = await storage.getActiveSubscriptions();
+          const sub = subscriptions.find(s => s.stripeSubscriptionId === deletedSubscription.id);
+          if (sub) {
+            await storage.updateSubscription(sub.id, {
+              status: "cancelled",
+              endDate: new Date(),
+            });
+          }
+          break;
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error("Webhook error:", error);
+      res.status(400).json({ message: "Webhook error" });
+    }
+  });
+
+  // User dashboard routes
+  app.get("/api/user/payments", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const payments = await storage.getUserPayments(userId);
+      res.json(payments);
+    } catch (error) {
+      console.error("Error fetching payments:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  app.get("/api/user/family-members", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const members = await storage.getFamilyMembers(userId);
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching family members:", error);
+      res.status(500).json({ message: "Failed to fetch family members" });
+    }
+  });
+
+  // Admin routes
+  app.get("/api/admin/users", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const users = await storage.getAllUsers(limit, offset);
+      const totalCount = await storage.getUsersCount();
+      
+      res.json({ users, totalCount });
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.get("/api/admin/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const revenueStats = await storage.getRevenueStats();
+      const subscriptionStats = await storage.getSubscriptionStats();
+      const totalUsers = await storage.getUsersCount();
+      
+      res.json({
+        totalUsers,
+        ...revenueStats,
+        subscriptions: subscriptionStats,
+      });
+    } catch (error) {
+      console.error("Error fetching admin stats:", error);
+      res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  app.post("/api/admin/plans", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const validatedData = insertPlanSchema.parse(req.body);
+      const plan = await storage.createPlan(validatedData);
+      res.json(plan);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      console.error("Error creating plan:", error);
+      res.status(500).json({ message: "Failed to create plan" });
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
