@@ -216,6 +216,12 @@ Changelog:
   • Payment integration framework
   • Database schema with sample DPC plans
   • Responsive medical-themed UI
+- July 03, 2025: Enhanced enrollment process
+  • Updated member types: Member only, Member/Spouse, Member Children, Family
+  • Made employment fields optional for individual enrollments
+  • Coverage type automatically set based on member type selection
+  • Fixed RxValet selection infinite loop issue
+  • Streamlined enrollment flow from 6 visible steps to 5 (coverage type auto-selected)
 ```
 
 ## User Preferences

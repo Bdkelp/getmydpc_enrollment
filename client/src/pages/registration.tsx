@@ -753,7 +753,11 @@ export default function Registration() {
                                   <div className="text-xl font-bold text-green-600">
                                     +${coverageType === "Family" ? "21" : "19"}/mo
                                   </div>
-                                  <Checkbox checked={addRxValet} className="mt-2" />
+                                  {addRxValet && (
+                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 mt-2">
+                                      Selected
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </CardContent>
