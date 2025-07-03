@@ -139,11 +139,26 @@ export default function Registration() {
         });
         setLocation("/family-enrollment");
       } else {
-        toast({
-          title: "Registration Complete",
-          description: "Your information has been saved. Proceeding to payment...",
-        });
-        setLocation("/payment");
+        // Check if Stripe is configured
+        if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
+          toast({
+            title: "Registration Complete",
+            description: "Your information has been saved. Payment processing is being configured.",
+            variant: "default",
+          });
+          // Store registration info for later
+          sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
+          sessionStorage.setItem("addRxValet", addRxValet.toString());
+          sessionStorage.setItem("totalMonthlyPrice", (selectedPlan ? 
+            parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0).toString());
+          setLocation("/payment");
+        } else {
+          toast({
+            title: "Registration Complete",
+            description: "Your information has been saved. Proceeding to payment...",
+          });
+          setLocation("/payment");
+        }
       }
     },
     onError: (error) => {
@@ -814,7 +829,14 @@ export default function Registration() {
                           <span className="font-medium">Address:</span> {form.watch("address")} {form.watch("address2") && `, ${form.watch("address2")}`}, {form.watch("city")}, {form.watch("state")} {form.watch("zipCode")}
                         </div>
                         <div className="col-span-2">
-                          <span className="font-medium">Monthly Cost:</span> ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"} (BestChoice Rx)` : ""}/month
+                          <span className="font-medium">Monthly Cost:</span> 
+                          <span className="text-lg font-semibold">
+                            ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"}` : ""} = 
+                            <span className="text-green-600">
+                              ${(selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)}/month
+                            </span>
+                          </span>
+                          {addRxValet && <span className="block text-sm text-gray-600 mt-1">Includes BestChoice Rx Pro Premium-5</span>}
                         </div>
                       </div>
                     </div>
@@ -836,6 +858,129 @@ export default function Registration() {
                               <FormLabel className="text-sm">
                                 I agree to the Terms of Service and Privacy Policy *
                               </FormLabel>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const privacyHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Premier Plans - Notice of Privacy Practices</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+    h1 { color: #1a365d; border-bottom: 2px solid #1a365d; padding-bottom: 10px; }
+    h2 { color: #2c5282; margin-top: 30px; }
+    strong { color: #2d3748; }
+    hr { margin: 30px 0; border: 1px solid #e2e8f0; }
+    .header-info { text-align: center; margin-bottom: 30px; }
+    @media print { body { margin: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="header-info">
+    <h1>My Premier Plans — Notice of Privacy Practices</h1>
+    <p><strong>Your Information. Your Rights. Our Responsibilities.</strong></p>
+    <p>This notice describes how medical information about you may be used and disclosed, and how you can get access to this information. Please review it carefully.</p>
+    <p><strong>My Premier Plans</strong><br>
+    4132 N 23rd Street<br>
+    www.mypremierplans.com | info@mypremierplans.com | 210-512-4318</p>
+  </div>
+  <hr>
+  <h2>Your Rights</h2>
+  <p>When it comes to your health information, you have certain rights. This section explains those rights and our responsibilities to support them:</p>
+  <ul>
+    <li><strong>Get a copy of your health and claims records</strong><br>You may ask to see or get a copy of your records. We will provide a copy or summary within 30 days of your request and may charge a reasonable, cost-based fee.</li>
+    <li><strong>Correct your health and claims records</strong><br>You may ask us to correct records if you believe they are incorrect or incomplete. We may decline your request, but will explain why in writing within 60 days.</li>
+    <li><strong>Request confidential communications</strong><br>You can request we contact you in a specific way (e.g., home or office phone) or send mail to a different address. We will honor reasonable requests and must say yes if you indicate danger if we do not.</li>
+    <li><strong>Ask us to limit what we use or share</strong><br>You can ask us not to use or share certain health information. We are not required to agree, and may say no if it affects your care.</li>
+    <li><strong>Get a list of who we've shared your information with</strong><br>You can request an accounting of disclosures made within six years prior to your request, excluding certain routine disclosures. One accounting per year is free; additional requests may incur a reasonable, cost-based fee.</li>
+    <li><strong>Get a copy of this privacy notice</strong><br>You may request a paper copy at any time, even if you agreed to receive it electronically.</li>
+    <li><strong>Choose someone to act for you</strong><br>If you have a legal guardian or someone with medical power of attorney, they may exercise your rights on your behalf. We will confirm their authority before proceeding.</li>
+    <li><strong>File a complaint if you feel your rights are violated</strong><br>Contact us or file a complaint with the U.S. Department of Health and Human Services Office for Civil Rights:<br>
+    200 Independence Avenue, S.W., Washington, D.C. 20201<br>
+    1-877-696-6775<br>
+    www.hhs.gov/ocr/privacy/hipaa/complaints/<br>
+    We will not retaliate against you for filing a complaint.</li>
+  </ul>
+  <h2>Your Choices</h2>
+  <p>For certain health information, you have the right to tell us how to share it. If you have a clear preference, let us know and we will follow your instructions.</p>
+  <p>You have the right and choice to tell us to:</p>
+  <ul>
+    <li>Share information with family, close friends, or others involved in payment for your care</li>
+    <li>Share information in a disaster relief situation</li>
+  </ul>
+  <p>If you cannot tell us your preference (for example, if you are unconscious), we may share your information if we believe it is in your best interest.</p>
+  <p><strong>We never share your information without written permission for:</strong></p>
+  <ul>
+    <li>Marketing purposes</li>
+    <li>Sale of your information</li>
+  </ul>
+  <h2>Our Uses and Disclosures</h2>
+  <p>We typically use or share your health information in these ways:</p>
+  <ul>
+    <li><strong>Help manage your health care treatment</strong><br>We share your information with professionals treating you.<br><em>Example:</em> A doctor shares your treatment plan with us for coordinating additional services.</li>
+    <li><strong>Run our organization</strong><br>We use and disclose your information to operate our organization and contact you when necessary. We cannot use genetic information to determine coverage or cost of coverage (except for long-term care plans).<br><em>Example:</em> We use your information to develop better services.</li>
+    <li><strong>Pay for your health services</strong><br>We can use and disclose your information to pay for services.<br><em>Example:</em> We coordinate payment with your health plan for a doctor visit.</li>
+    <li><strong>Administer your plan</strong><br>We may disclose your information to your health plan sponsor for plan administration.<br><em>Example:</em> Your employer contracts with us, and we provide certain statistics to explain premiums.</li>
+  </ul>
+  <p><strong>How else can we share your information?</strong><br>
+  We are allowed or required to share your information in other ways that contribute to the public good, after meeting certain legal conditions.</p>
+  <ul>
+    <li><strong>Help with public health and safety</strong><br>
+    - Prevent disease<br>
+    - Help with product recalls<br>
+    - Report adverse reactions<br>
+    - Report suspected abuse or neglect<br>
+    - Prevent or reduce serious threats to health or safety</li>
+    <li><strong>Do research</strong><br>We can use or share your information for health research.</li>
+    <li><strong>Comply with the law</strong><br>We share information as required by state or federal laws, including compliance reviews by HHS.</li>
+    <li><strong>Organ and tissue donation / medical examiners / funeral directors</strong><br>We can share information with organ procurement organizations or with coroners, medical examiners, or funeral directors upon death.</li>
+    <li><strong>Workers' compensation, law enforcement, and other government requests</strong><br>We may share information:<br>
+    - For workers' compensation claims<br>
+    - With law enforcement<br>
+    - With health oversight agencies<br>
+    - For military, national security, or presidential protective services</li>
+    <li><strong>Respond to lawsuits and legal actions</strong><br>We can share information in response to a court or administrative order, or a subpoena.</li>
+  </ul>
+  <p><strong>We never market or sell personal information.</strong><br>
+  No mobile information will be shared with third parties/affiliates for marketing or promotional purposes.</p>
+  <h2>Our Responsibilities</h2>
+  <ul>
+    <li>We are required by law to maintain the privacy and security of your protected health information.</li>
+    <li>We will inform you promptly if a breach occurs that may have compromised your information.</li>
+    <li>We must follow the privacy practices described in this notice and provide you a copy of it.</li>
+    <li>We will not use or share your information other than as described here unless you authorize us in writing. You may revoke authorization at any time in writing.</li>
+  </ul>
+  <h2>Changes to This Notice</h2>
+  <p>We may change the terms of this notice at any time. Changes will apply to all information we have about you. The new notice will be available upon request, on our website, and we will mail a copy to you.</p>
+  <h2>Covered Organizations</h2>
+  <p>This Notice of Privacy Practices applies to:</p>
+  <ul>
+    <li><strong>My Premier Plans</strong></li>
+    <li><strong>Healthcare2U, LLC (Healthcare2U Physician Services, NPHO)</strong></li>
+  </ul>
+  <h2>Questions or Complaints?</h2>
+  <p>Contact our Compliance Officer:<br>
+  privacy@healthc2u.com | 512-900-8900</p>
+  <p>or</p>
+  <p><strong>My Premier Plans</strong><br>
+  www.mypremierplans.com | info@mypremierplans.com | 210-512-4318</p>
+</body>
+</html>`;
+                                  const blob = new Blob([privacyHtml], { type: 'text/html' });
+                                  const url = window.URL.createObjectURL(blob);
+                                  const link = document.createElement('a');
+                                  link.href = url;
+                                  link.download = 'MyPremierPlans-Privacy-Practices.html';
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  window.URL.revokeObjectURL(url);
+                                }}
+                                className="text-xs text-medical-blue-600 hover:text-medical-blue-700 underline"
+                              >
+                                Download Privacy Notice
+                              </button>
                             </div>
                             <FormMessage />
                           </FormItem>
