@@ -31,11 +31,13 @@ export const users = pgTable("users", {
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
+  middleName: varchar("middle_name"),
   profileImageUrl: varchar("profile_image_url"),
   phone: varchar("phone"),
   dateOfBirth: varchar("date_of_birth"),
   gender: varchar("gender"),
   address: text("address"),
+  address2: text("address2"),
   city: varchar("city"),
   state: varchar("state"),
   zipCode: varchar("zip_code"),
@@ -45,6 +47,13 @@ export const users = pgTable("users", {
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   role: varchar("role").default("user"), // user, admin, agent
   isActive: boolean("is_active").default(true),
+  // Employment information
+  employerName: varchar("employer_name"),
+  divisionName: varchar("division_name"),
+  memberType: varchar("member_type"), // employee, spouse, dependent
+  ssn: varchar("ssn"), // encrypted
+  dateOfHire: varchar("date_of_hire"),
+  planStartDate: varchar("plan_start_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -98,9 +107,20 @@ export const familyMembers = pgTable("family_members", {
   primaryUserId: varchar("primary_user_id").references(() => users.id).notNull(),
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
+  middleName: varchar("middle_name"),
   dateOfBirth: varchar("date_of_birth"),
   gender: varchar("gender"),
+  ssn: varchar("ssn"), // encrypted
+  email: varchar("email"),
+  phone: varchar("phone"),
   relationship: varchar("relationship"), // spouse, child, parent, etc
+  memberType: varchar("member_type").notNull(), // spouse, dependent
+  address: text("address"),
+  address2: text("address2"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zipCode: varchar("zip_code"),
+  planStartDate: varchar("plan_start_date"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -162,18 +182,31 @@ export const insertFamilyMemberSchema = createInsertSchema(familyMembers).omit({
 
 // Registration schema for multi-step form
 export const registrationSchema = z.object({
+  // Personal information
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
+  middleName: z.string().optional(),
+  ssn: z.string().min(9, "SSN is required").max(9, "SSN must be 9 digits"),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
   gender: z.string().optional(),
+  // Address information
   address: z.string().min(1, "Address is required"),
+  address2: z.string().optional(),
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
+  // Employment information
+  employerName: z.string().min(1, "Employer name is required"),
+  divisionName: z.string().optional(),
+  dateOfHire: z.string().min(1, "Date of hire is required"),
+  memberType: z.string().min(1, "Member type is required"),
+  planStartDate: z.string().min(1, "Plan start date is required"),
+  // Emergency contact
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
+  // Plan selection
   planId: z.number().min(1, "Plan selection is required"),
   termsAccepted: z.boolean().refine(val => val === true, "Terms must be accepted"),
   communicationsConsent: z.boolean().default(false),

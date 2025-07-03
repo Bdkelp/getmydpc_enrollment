@@ -76,14 +76,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.updateUserProfile(userId, {
         firstName: validatedData.firstName,
         lastName: validatedData.lastName,
+        middleName: validatedData.middleName,
+        ssn: validatedData.ssn, // Should be encrypted in production
         email: validatedData.email,
         phone: validatedData.phone,
         dateOfBirth: validatedData.dateOfBirth,
         gender: validatedData.gender,
         address: validatedData.address,
+        address2: validatedData.address2,
         city: validatedData.city,
         state: validatedData.state,
         zipCode: validatedData.zipCode,
+        employerName: validatedData.employerName,
+        divisionName: validatedData.divisionName,
+        dateOfHire: validatedData.dateOfHire,
+        memberType: validatedData.memberType,
+        planStartDate: validatedData.planStartDate,
         emergencyContactName: validatedData.emergencyContactName,
         emergencyContactPhone: validatedData.emergencyContactPhone,
       });
@@ -95,6 +103,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Error updating user profile:", error);
       res.status(500).json({ message: "Failed to update profile" });
+    }
+  });
+
+  // Family member enrollment
+  app.post('/api/family-enrollment', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { members } = req.body;
+      
+      if (!members || !Array.isArray(members)) {
+        return res.status(400).json({ message: "Invalid family member data" });
+      }
+      
+      // Add each family member
+      for (const member of members) {
+        await storage.addFamilyMember({
+          primaryUserId: userId,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          middleName: member.middleName,
+          dateOfBirth: member.dateOfBirth,
+          gender: member.gender,
+          ssn: member.ssn, // Should be encrypted in production
+          email: member.email,
+          phone: member.phone,
+          relationship: member.relationship,
+          memberType: member.memberType,
+          address: member.address,
+          address2: member.address2,
+          city: member.city,
+          state: member.state,
+          zipCode: member.zipCode,
+          planStartDate: member.planStartDate,
+        });
+      }
+      
+      res.json({ message: "Family members enrolled successfully" });
+    } catch (error) {
+      console.error("Family enrollment error:", error);
+      res.status(500).json({ message: "Failed to enroll family members" });
     }
   });
 

@@ -132,10 +132,16 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 - Responsive design with medical blue theme
 
 **User Registration & Enrollment Flow**
-- Multi-step registration form with progress indicator
-- Personal information collection (name, email, phone, DOB, address)
-- Plan selection with pricing display
-- Emergency contact information
+- Multi-step registration form (6 steps) with progress indicator
+- Comprehensive data collection:
+  • Personal: name (first/middle/last), SSN, DOB, gender, member type
+  • Employment: employer name, division, date of hire, plan start date
+  • Contact: email, phone, address (2 lines), city, state, ZIP
+  • Emergency contact information
+- Coverage type selection (Individual, Couple, Parent/Child, Family)
+- Plan tier selection (Base, Plus, Elite) with correct pricing
+- Family member enrollment for non-individual plans
+- RxValet prescription add-on option
 - Terms acceptance and communication consent
 - Form validation with Zod schemas
 

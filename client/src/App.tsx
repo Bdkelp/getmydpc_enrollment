@@ -9,6 +9,7 @@ import Registration from "@/pages/registration";
 import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import Payment from "@/pages/payment";
+import FamilyEnrollment from "@/pages/family-enrollment";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -20,6 +21,7 @@ function Router() {
         <>
           <Route path="/" component={Landing} />
           <Route path="/registration" component={Registration} />
+          <Route path="/family-enrollment" component={FamilyEnrollment} />
           <Route path="/payment" component={Payment} />
         </>
       ) : (
@@ -27,6 +29,7 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/registration" component={Registration} />
+          <Route path="/family-enrollment" component={FamilyEnrollment} />
           <Route path="/payment" component={Payment} />
           <Route path="/admin" component={Admin} />
         </>

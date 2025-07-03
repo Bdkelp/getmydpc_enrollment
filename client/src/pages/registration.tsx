@@ -18,18 +18,31 @@ import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 const registrationSchema = z.object({
+  // Personal information
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
+  middleName: z.string().optional(),
+  ssn: z.string().min(9, "SSN is required").max(9, "SSN must be 9 digits"),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
   gender: z.string().optional(),
+  // Address information
   address: z.string().min(1, "Address is required"),
+  address2: z.string().optional(),
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
+  // Employment information
+  employerName: z.string().min(1, "Employer name is required"),
+  divisionName: z.string().optional(),
+  dateOfHire: z.string().min(1, "Date of hire is required"),
+  memberType: z.string().min(1, "Member type is required"),
+  planStartDate: z.string().min(1, "Plan start date is required"),
+  // Emergency contact
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
+  // Plan selection
   planId: z.number().min(1, "Plan selection is required"),
   termsAccepted: z.boolean().refine(val => val === true, "Terms must be accepted"),
   communicationsConsent: z.boolean().default(false),
@@ -71,14 +84,22 @@ export default function Registration() {
     defaultValues: {
       firstName: "",
       lastName: "",
+      middleName: "",
+      ssn: "",
       email: "",
       phone: "",
       dateOfBirth: "",
       gender: "",
       address: "",
+      address2: "",
       city: "",
       state: "",
       zipCode: "",
+      employerName: "",
+      divisionName: "",
+      dateOfHire: "",
+      memberType: "employee",
+      planStartDate: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
       planId: 0,
@@ -99,11 +120,31 @@ export default function Registration() {
       await apiRequest("POST", "/api/registration", submissionData);
     },
     onSuccess: () => {
-      toast({
-        title: "Registration Complete",
-        description: "Your information has been saved. Proceeding to payment...",
-      });
-      setLocation("/payment");
+      // Store primary address for family member enrollment
+      const addressData = {
+        address: form.getValues("address"),
+        address2: form.getValues("address2"),
+        city: form.getValues("city"),
+        state: form.getValues("state"),
+        zipCode: form.getValues("zipCode"),
+      };
+      sessionStorage.setItem("primaryAddress", JSON.stringify(addressData));
+      sessionStorage.setItem("coverageType", coverageType);
+      
+      // Redirect to family enrollment if needed
+      if (coverageType !== "Member Only") {
+        toast({
+          title: "Primary Member Registered",
+          description: "Now add your family members to complete enrollment.",
+        });
+        setLocation("/family-enrollment");
+      } else {
+        toast({
+          title: "Registration Complete",
+          description: "Your information has been saved. Proceeding to payment...",
+        });
+        setLocation("/payment");
+      }
     },
     onError: (error) => {
       if (isUnauthorizedError(error)) {
@@ -181,22 +222,24 @@ export default function Registration() {
         <Card className="p-8">
           <CardContent className="p-0">
             {/* Progress Indicator */}
-            <ProgressIndicator currentStep={currentStep} totalSteps={5} />
+            <ProgressIndicator currentStep={currentStep} totalSteps={6} />
 
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 {currentStep === 1 && "Personal Information"}
-                {currentStep === 2 && "Address Information"}
-                {currentStep === 3 && "Coverage Type"}
-                {currentStep === 4 && "Select Your Plan"}
-                {currentStep === 5 && "Review & Terms"}
+                {currentStep === 2 && "Employment Information"}
+                {currentStep === 3 && "Address Information"}
+                {currentStep === 4 && "Coverage Type"}
+                {currentStep === 5 && "Select Your Plan"}
+                {currentStep === 6 && "Review & Terms"}
               </h1>
               <p className="text-gray-600">
                 {currentStep === 1 && "Tell us about yourself"}
-                {currentStep === 2 && "Where can we reach you?"}
-                {currentStep === 3 && "Who will be covered under your plan?"}
-                {currentStep === 4 && "Choose your healthcare plan level"}
-                {currentStep === 5 && "Review your information and accept terms"}
+                {currentStep === 2 && "Tell us about your employer"}
+                {currentStep === 3 && "Where can we reach you?"}
+                {currentStep === 4 && "Who will be covered under your plan?"}
+                {currentStep === 5 && "Choose your healthcare plan level"}
+                {currentStep === 6 && "Review your information and accept terms"}
               </p>
             </div>
 
@@ -204,7 +247,7 @@ export default function Registration() {
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {currentStep === 1 && (
                   <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <FormField
                         control={form.control}
                         name="firstName"
@@ -213,6 +256,19 @@ export default function Registration() {
                             <FormLabel>First Name *</FormLabel>
                             <FormControl>
                               <Input placeholder="John" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="middleName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Middle Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="A" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -265,6 +321,24 @@ export default function Registration() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <FormField
                         control={form.control}
+                        name="ssn"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Social Security Number *</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="password" 
+                                placeholder="123456789" 
+                                maxLength={9}
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
                         name="dateOfBirth"
                         render={({ field }) => (
                           <FormItem>
@@ -276,6 +350,9 @@ export default function Registration() {
                           </FormItem>
                         )}
                       />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <FormField
                         control={form.control}
                         name="gender"
@@ -299,11 +376,95 @@ export default function Registration() {
                           </FormItem>
                         )}
                       />
+                      <FormField
+                        control={form.control}
+                        name="memberType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Member Type *</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Member Type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="employee">Employee</SelectItem>
+                                <SelectItem value="spouse">Spouse</SelectItem>
+                                <SelectItem value="dependent">Dependent</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     </div>
                   </div>
                 )}
 
                 {currentStep === 2 && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <FormField
+                        control={form.control}
+                        name="employerName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Employer Name *</FormLabel>
+                            <FormControl>
+                              <Input placeholder="ABC Corporation" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="divisionName"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Division Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Sales Division" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <FormField
+                        control={form.control}
+                        name="dateOfHire"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Date of Hire *</FormLabel>
+                            <FormControl>
+                              <Input type="date" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="planStartDate"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Plan Start Date *</FormLabel>
+                            <FormControl>
+                              <Input type="date" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 3 && (
                   <div className="space-y-6">
                     <FormField
                       control={form.control}
@@ -313,6 +474,20 @@ export default function Registration() {
                           <FormLabel>Street Address *</FormLabel>
                           <FormControl>
                             <Input placeholder="123 Main Street" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <FormField
+                      control={form.control}
+                      name="address2"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Address Line 2</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Apt 4B" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -406,7 +581,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 3 && (
+                {currentStep === 4 && (
                   <div className="space-y-6">
                     <div className="mb-4">
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Choose Your Coverage Type</h3>
@@ -450,7 +625,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 4 && (
+                {currentStep === 5 && (
                   <div className="space-y-6">
                     {plansLoading ? (
                       <div className="flex justify-center">
@@ -552,14 +727,20 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 5 && (
+                {currentStep === 6 && (
                   <div className="space-y-6">
                     {/* Review Information */}
                     <div className="bg-gray-50 rounded-lg p-6">
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Review Your Information</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                         <div>
-                          <span className="font-medium">Name:</span> {form.watch("firstName")} {form.watch("lastName")}
+                          <span className="font-medium">Name:</span> {form.watch("firstName")} {form.watch("middleName")} {form.watch("lastName")}
+                        </div>
+                        <div>
+                          <span className="font-medium">SSN:</span> ***-**-{form.watch("ssn").slice(-4)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Date of Birth:</span> {form.watch("dateOfBirth")}
                         </div>
                         <div>
                           <span className="font-medium">Email:</span> {form.watch("email")}
@@ -568,12 +749,30 @@ export default function Registration() {
                           <span className="font-medium">Phone:</span> {form.watch("phone")}
                         </div>
                         <div>
+                          <span className="font-medium">Member Type:</span> {form.watch("memberType")}
+                        </div>
+                        <div>
+                          <span className="font-medium">Employer:</span> {form.watch("employerName")}
+                        </div>
+                        <div>
+                          <span className="font-medium">Division:</span> {form.watch("divisionName") || "N/A"}
+                        </div>
+                        <div>
+                          <span className="font-medium">Date of Hire:</span> {form.watch("dateOfHire")}
+                        </div>
+                        <div>
+                          <span className="font-medium">Plan Start Date:</span> {form.watch("planStartDate")}
+                        </div>
+                        <div>
                           <span className="font-medium">Coverage Type:</span> {coverageType}
                         </div>
                         <div>
                           <span className="font-medium">Selected Plan:</span> {selectedPlan?.name}
                         </div>
-                        <div>
+                        <div className="col-span-2">
+                          <span className="font-medium">Address:</span> {form.watch("address")} {form.watch("address2") && `, ${form.watch("address2")}`}, {form.watch("city")}, {form.watch("state")} {form.watch("zipCode")}
+                        </div>
+                        <div className="col-span-2">
                           <span className="font-medium">Monthly Cost:</span> ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"} (RxValet)` : ""}/month
                         </div>
                       </div>
@@ -637,12 +836,12 @@ export default function Registration() {
                     Back
                   </Button>
                   
-                  {currentStep < 5 ? (
+                  {currentStep < 6 ? (
                     <Button 
                       type="button" 
                       className="flex-1 medical-blue-600 hover:medical-blue-700"
                       onClick={handleNextStep}
-                      disabled={(currentStep === 3 && !coverageType) || (currentStep === 4 && !selectedPlanId)}
+                      disabled={(currentStep === 4 && !coverageType) || (currentStep === 5 && !selectedPlanId)}
                     >
                       Continue
                     </Button>
