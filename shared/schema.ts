@@ -197,10 +197,10 @@ export const registrationSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
-  // Employment information
-  employerName: z.string().min(1, "Employer name is required"),
+  // Employment information (required for group enrollments only)
+  employerName: z.string().optional(),
   divisionName: z.string().optional(),
-  dateOfHire: z.string().min(1, "Date of hire is required"),
+  dateOfHire: z.string().optional(),
   memberType: z.string().min(1, "Member type is required"),
   planStartDate: z.string().min(1, "Plan start date is required"),
   // Emergency contact

@@ -54,7 +54,7 @@ export default function Registration() {
   const [, setLocation] = useLocation();
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
-  const [coverageType, setCoverageType] = useState<string>("");
+  const [coverageType, setCoverageType] = useState<string>("Member Only");
   const [addRxValet, setAddRxValet] = useState(false);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
@@ -98,7 +98,7 @@ export default function Registration() {
       employerName: "",
       divisionName: "",
       dateOfHire: "",
-      memberType: "employee",
+      memberType: "member-only",
       planStartDate: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
@@ -169,25 +169,42 @@ export default function Registration() {
   const handleNextStep = () => {
     if (currentStep === 1) {
       // Validate personal information
-      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth'] as const;
+      const personalFields = ['firstName', 'lastName', 'middleName', 'ssn', 'email', 'phone', 'dateOfBirth', 'memberType'] as const;
       form.trigger(personalFields).then((isValid) => {
         if (isValid) setCurrentStep(2);
       });
     } else if (currentStep === 2) {
+      // Validate employment information - only if in group enrollment
+      const isGroupEnrollment = form.getValues('memberType') !== 'member-only';
+      if (isGroupEnrollment) {
+        const employmentFields = ['employerName', 'dateOfHire', 'planStartDate'] as const;
+        form.trigger(employmentFields).then((isValid) => {
+          if (isValid) setCurrentStep(3);
+        });
+      } else {
+        // Skip validation for individual enrollment
+        setCurrentStep(3);
+      }
+    } else if (currentStep === 3) {
       // Validate address information
       const addressFields = ['address', 'city', 'state', 'zipCode'] as const;
       form.trigger(addressFields).then((isValid) => {
-        if (isValid) setCurrentStep(3);
+        // Skip coverage type selection (step 4) since it's auto-set from member type
+        if (isValid) setCurrentStep(5);
       });
-    } else if (currentStep === 3 && selectedPlanId) {
-      // Set plan ID and proceed to final step
+    } else if (currentStep === 5 && selectedPlanId) {
+      // Plan selected, move to review
       form.setValue('planId', selectedPlanId);
-      setCurrentStep(4);
+      setCurrentStep(6);
     }
   };
 
   const handlePrevStep = () => {
-    if (currentStep > 1) {
+    if (currentStep === 6) {
+      setCurrentStep(5);
+    } else if (currentStep === 5) {
+      setCurrentStep(3); // Skip step 4 (coverage type)
+    } else if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
   };
@@ -382,16 +399,30 @@ export default function Registration() {
                         render={({ field }) => (
                           <FormItem>
                             <FormLabel>Member Type *</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select 
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                // Automatically set coverage type based on member type
+                                const coverageMap: { [key: string]: string } = {
+                                  'member-only': 'Member Only',
+                                  'member-spouse': 'Member/Spouse',
+                                  'member-children': 'Member/Child',
+                                  'family': 'Family'
+                                };
+                                setCoverageType(coverageMap[value] || '');
+                              }} 
+                              defaultValue={field.value}
+                            >
                               <FormControl>
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select Member Type" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                <SelectItem value="employee">Employee</SelectItem>
-                                <SelectItem value="spouse">Spouse</SelectItem>
-                                <SelectItem value="dependent">Dependent</SelectItem>
+                                <SelectItem value="member-only">Member only</SelectItem>
+                                <SelectItem value="member-spouse">Member/Spouse</SelectItem>
+                                <SelectItem value="member-children">Member Children</SelectItem>
+                                <SelectItem value="family">Family</SelectItem>
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -410,7 +441,10 @@ export default function Registration() {
                         name="employerName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Employer Name *</FormLabel>
+                            <FormLabel>
+                              Employer Name {form.watch("memberType") !== "member-only" && "*"}
+                              {form.watch("memberType") === "member-only" && " (Optional for individual enrollments)"}
+                            </FormLabel>
                             <FormControl>
                               <Input placeholder="ABC Corporation" {...field} />
                             </FormControl>
@@ -439,7 +473,10 @@ export default function Registration() {
                         name="dateOfHire"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Date of Hire *</FormLabel>
+                            <FormLabel>
+                              Date of Hire {form.watch("memberType") !== "member-only" && "*"}
+                              {form.watch("memberType") === "member-only" && " (Optional for individual enrollments)"}
+                            </FormLabel>
                             <FormControl>
                               <Input type="date" {...field} />
                             </FormControl>
