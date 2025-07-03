@@ -41,6 +41,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Middleware to check if user is agent or admin
+  const isAgentOrAdmin = async (req: any, res: any, next: any) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    
+    const user = await storage.getUser(userId);
+    if (!user || (user.role !== 'agent' && user.role !== 'admin')) {
+      return res.status(403).json({ message: "Access denied. Agent or admin role required." });
+    }
+    
+    req.userRole = user.role;
+    next();
+  };
+
+  // Middleware to check if user is admin
+  const isAdmin = async (req: any, res: any, next: any) => {
+    const userId = req.user?.claims?.sub;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    
+    const user = await storage.getUser(userId);
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ message: "Access denied. Admin role required." });
+    }
+    
+    next();
+  };
+
   // Public routes - Plans
   app.get("/api/plans", async (req, res) => {
     try {
@@ -72,6 +103,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = registrationSchema.parse(req.body);
       const userId = req.user.claims.sub;
       
+      // Get the current user (agent) to track who enrolled this member
+      const currentUser = await storage.getUser(userId);
+      const agentId = currentUser?.role === 'agent' ? userId : undefined;
+      
       // Update user profile with registration data
       const user = await storage.updateUserProfile(userId, {
         firstName: validatedData.firstName,
@@ -94,6 +129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         planStartDate: validatedData.planStartDate,
         emergencyContactName: validatedData.emergencyContactName,
         emergencyContactPhone: validatedData.emergencyContactPhone,
+        enrolledByAgentId: agentId,
       });
 
       res.json(user);
@@ -143,6 +179,114 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Family enrollment error:", error);
       res.status(500).json({ message: "Failed to enroll family members" });
+    }
+  });
+
+  // Agent routes
+  app.get("/api/agent/stats", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = req.user.claims.sub;
+      
+      // Get enrollments created by this agent
+      const enrollments = await storage.getAgentEnrollments(agentId);
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // Calculate stats
+      const monthlyEnrollments = enrollments.filter((e: any) => 
+        new Date(e.createdAt) >= monthStart
+      );
+      
+      // Commission calculation (example: $50 per enrollment)
+      const COMMISSION_PER_ENROLLMENT = 50;
+      const totalCommission = enrollments.length * COMMISSION_PER_ENROLLMENT;
+      const monthlyCommission = monthlyEnrollments.length * COMMISSION_PER_ENROLLMENT;
+      
+      res.json({
+        totalEnrollments: enrollments.length,
+        monthlyEnrollments: monthlyEnrollments.length,
+        totalCommission,
+        monthlyCommission,
+        activeLeads: 0, // Placeholder for future lead tracking
+        conversionRate: 0, // Placeholder for future analytics
+        leads: [] // Placeholder for future lead management
+      });
+    } catch (error) {
+      console.error("Agent stats error:", error);
+      res.status(500).json({ message: "Failed to fetch agent stats" });
+    }
+  });
+
+  app.get("/api/agent/enrollments", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = req.user.claims.sub;
+      const { startDate, endDate } = req.query;
+      
+      const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
+      
+      // Format enrollments with plan details
+      const formattedEnrollments = await Promise.all(enrollments.map(async (user: any) => {
+        const subscription = await storage.getUserSubscription(user.id);
+        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        
+        return {
+          id: user.id,
+          createdAt: user.createdAt,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          planName: plan?.name || 'No Plan',
+          memberType: user.memberType,
+          monthlyPrice: plan?.price || 0,
+          commission: 50, // Fixed commission per enrollment
+          status: subscription?.status || 'pending'
+        };
+      }));
+      
+      res.json(formattedEnrollments);
+    } catch (error) {
+      console.error("Agent enrollments error:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
+    }
+  });
+
+  app.post("/api/agent/export-enrollments", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = req.user.claims.sub;
+      const { startDate, endDate } = req.body;
+      
+      const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
+      
+      // Create CSV content
+      const headers = ['Date', 'First Name', 'Last Name', 'Email', 'Phone', 'Plan', 'Member Type', 'Monthly Price', 'Commission', 'Status'];
+      const rows = await Promise.all(enrollments.map(async (user: any) => {
+        const subscription = await storage.getUserSubscription(user.id);
+        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        
+        return [
+          new Date(user.createdAt).toLocaleDateString(),
+          user.firstName,
+          user.lastName,
+          user.email || '',
+          user.phone || '',
+          plan?.name || 'No Plan',
+          user.memberType || '',
+          plan?.price || '0',
+          '50', // Commission
+          subscription?.status || 'pending'
+        ];
+      }));
+      
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=enrollments-${startDate}-to-${endDate}.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ message: "Failed to export enrollments" });
     }
   });
 

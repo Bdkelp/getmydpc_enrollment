@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,33 +8,73 @@ import Landing from "@/pages/landing";
 import Registration from "@/pages/registration";
 import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
+import AgentDashboard from "@/pages/agent-dashboard";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import NotFound from "@/pages/not-found";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  // Role-based routing
+  const getDefaultRoute = () => {
+    if (!isAuthenticated) return "/";
+    if (user?.role === "admin") return "/admin";
+    if (user?.role === "agent") return "/agent";
+    return "/no-access"; // Regular users don't get dashboard access
+  };
 
   return (
     <Switch>
-      {isLoading || !isAuthenticated ? (
+      {isLoading ? (
+        <Route path="*" component={() => <div className="min-h-screen flex items-center justify-center">Loading...</div>} />
+      ) : !isAuthenticated ? (
         <>
           <Route path="/" component={Landing} />
-          <Route path="/registration" component={Registration} />
-          <Route path="/family-enrollment" component={FamilyEnrollment} />
-          <Route path="/payment" component={Payment} />
+          <Route path="*" component={() => <Redirect to="/" />} />
         </>
       ) : (
         <>
-          <Route path="/" component={Dashboard} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/registration" component={Registration} />
-          <Route path="/family-enrollment" component={FamilyEnrollment} />
-          <Route path="/payment" component={Payment} />
-          <Route path="/admin" component={Admin} />
+          {/* Redirect root to role-based dashboard */}
+          <Route path="/" component={() => <Redirect to={getDefaultRoute()} />} />
+          
+          {/* Agent routes */}
+          {user?.role === "agent" && (
+            <>
+              <Route path="/agent" component={AgentDashboard} />
+              <Route path="/registration" component={Registration} />
+              <Route path="/family-enrollment" component={FamilyEnrollment} />
+              <Route path="/payment" component={Payment} />
+            </>
+          )}
+          
+          {/* Admin routes */}
+          {user?.role === "admin" && (
+            <>
+              <Route path="/admin" component={Admin} />
+              <Route path="/agent" component={AgentDashboard} />
+              <Route path="/registration" component={Registration} />
+              <Route path="/family-enrollment" component={FamilyEnrollment} />
+              <Route path="/payment" component={Payment} />
+            </>
+          )}
+          
+          {/* Regular user (no dashboard access) */}
+          {user?.role === "user" && (
+            <Route path="/no-access" component={() => (
+              <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                  <h1 className="text-2xl font-bold mb-4">No Dashboard Access</h1>
+                  <p className="text-gray-600 mb-4">Please contact your agent or call customer service for assistance.</p>
+                  <p className="text-lg font-semibold">210-512-4318</p>
+                </div>
+              </div>
+            )} />
+          )}
+          
+          <Route component={NotFound} />
         </>
       )}
-      <Route component={NotFound} />
     </Switch>
   );
 }

@@ -16,7 +16,7 @@ import {
   type InsertFamilyMember,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or, like, count } from "drizzle-orm";
+import { eq, desc, and, or, like, count, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
   // User operations (required for Replit Auth)
@@ -52,6 +52,9 @@ export interface IStorage {
   getUsersCount(): Promise<number>;
   getRevenueStats(): Promise<{ totalRevenue: number; monthlyRevenue: number }>;
   getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }>;
+  
+  // Agent operations
+  getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -241,6 +244,19 @@ export class DatabaseStorage implements IStorage {
       pending: pendingCount[0]?.count || 0,
       cancelled: cancelledCount[0]?.count || 0,
     };
+  }
+
+  async getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+    const conditions = [eq(users.enrolledByAgentId, agentId)];
+    
+    if (startDate && endDate) {
+      conditions.push(
+        gte(users.createdAt, new Date(startDate)),
+        lte(users.createdAt, new Date(endDate))
+      );
+    }
+    
+    return await db.select().from(users).where(and(...conditions));
   }
 }
 

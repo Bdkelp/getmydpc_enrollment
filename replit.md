@@ -120,6 +120,26 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 - CDN-ready static asset structure
 - Docker/Kubernetes deployment ready
 
+## Role-Based Access Control
+
+### User Roles
+- **Admin**: Full system access, can view all enrollments, manage plans, access analytics
+- **Agent**: Can enroll new members, view their own enrollments, track commissions, export enrollment data
+- **User** (Regular Member): No dashboard access, must contact agent or customer service for changes
+
+### Access Rules
+- Agents are automatically redirected to `/agent` dashboard
+- Admins are automatically redirected to `/admin` dashboard
+- Regular users see a "No Dashboard Access" page with customer service contact information
+- Only agents and admins can access the enrollment flow
+
+### Agent Features
+- Track total enrollments and monthly enrollments
+- View commission earnings ($50 per enrollment)
+- Export enrollment data as CSV for submission to MPP
+- View and manage leads (placeholder for future implementation)
+- Filter enrollments by date range
+
 ## Current MVP Implementation Status
 
 ### ✅ Completed Features

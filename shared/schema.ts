@@ -47,6 +47,7 @@ export const users = pgTable("users", {
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   role: varchar("role").default("user"), // user, admin, agent
   isActive: boolean("is_active").default(true),
+  enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
   // Employment information
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
