@@ -66,7 +66,13 @@ function Router() {
                 <div className="text-center">
                   <h1 className="text-2xl font-bold mb-4">No Dashboard Access</h1>
                   <p className="text-gray-600 mb-4">Please contact your agent or call customer service for assistance.</p>
-                  <p className="text-lg font-semibold">210-512-4318</p>
+                  <p className="text-lg font-semibold mb-6">210-512-4318</p>
+                  <a 
+                    href="/api/logout" 
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-medical-600 hover:bg-medical-700"
+                  >
+                    Log Out
+                  </a>
                 </div>
               </div>
             )} />
