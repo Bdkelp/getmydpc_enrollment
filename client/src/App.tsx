@@ -27,16 +27,24 @@ function Router() {
     return "/no-access"; // Regular users don't get dashboard access
   };
 
+  // Show landing page if not loading and not authenticated
+  if (!isLoading && !isAuthenticated) {
+    return (
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route path="*" component={() => <Redirect to="/" />} />
+      </Switch>
+    );
+  }
+
+  // Show loading only if actually loading
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+
   return (
     <Switch>
-      {isLoading ? (
-        <Route path="*" component={() => <div className="min-h-screen flex items-center justify-center">Loading...</div>} />
-      ) : !isAuthenticated ? (
-        <>
-          <Route path="/" component={Landing} />
-          <Route path="*" component={() => <Redirect to="/" />} />
-        </>
-      ) : (
+      {isAuthenticated && (
         <>
           {/* Redirect root to role-based dashboard */}
           <Route path="/" component={() => <Redirect to={getDefaultRoute()} />} />
