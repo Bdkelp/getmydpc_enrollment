@@ -855,14 +855,14 @@ export default function Registration() {
                               {addRxValet && <span> + RxValet: ${coverageType === "Family" ? "21" : "19"}</span>}
                             </div>
                             <div className="text-sm">
-                              Subtotal: ${(selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)}
+                              Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)).toFixed(2)}
                             </div>
                             <div className="text-sm">
-                              Processing Fee (4%): ${(((selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
+                              Processing Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
                             </div>
                             <div className="text-lg font-semibold border-t pt-1">
                               Total Monthly: <span className="text-green-600">
-                                ${(((selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 1.04).toFixed(2)}/month
+                                ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 1.04).toFixed(2)}/month
                               </span>
                             </div>
                           </div>
