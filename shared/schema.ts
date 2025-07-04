@@ -81,6 +81,8 @@ export const subscriptions = pgTable("subscriptions", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   planId: integer("plan_id").references(() => plans.id).notNull(),
   status: varchar("status").notNull(), // active, cancelled, suspended, pending
+  pendingReason: varchar("pending_reason"), // payment_required, verification_needed, missing_documents, agent_review
+  pendingDetails: text("pending_details"), // Additional details about why it's pending
   startDate: timestamp("start_date").defaultNow(),
   endDate: timestamp("end_date"),
   nextBillingDate: timestamp("next_billing_date"),
@@ -100,6 +102,20 @@ export const payments = pgTable("payments", {
   stripePaymentIntentId: varchar("stripe_payment_intent_id").unique(),
   stripeChargeId: varchar("stripe_charge_id"),
   paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Enrollment modifications audit table
+export const enrollmentModifications = pgTable("enrollment_modifications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  subscriptionId: integer("subscription_id").references(() => subscriptions.id),
+  modifiedBy: varchar("modified_by").references(() => users.id).notNull(), // Agent or admin who made the change
+  changeType: varchar("change_type").notNull(), // plan_change, info_update, status_change, etc.
+  changeDetails: jsonb("change_details"), // JSON with before/after values
+  consentType: varchar("consent_type"), // verbal, written, email
+  consentNotes: text("consent_notes"), // Details about how consent was obtained
+  consentDate: timestamp("consent_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

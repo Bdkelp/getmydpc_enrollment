@@ -4,6 +4,7 @@ import {
   subscriptions,
   payments,
   familyMembers,
+  enrollmentModifications,
   type User,
   type UpsertUser,
   type Plan,
@@ -55,6 +56,9 @@ export interface IStorage {
   
   // Agent operations
   getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]>;
+  
+  // Enrollment modification operations
+  recordEnrollmentModification(data: any): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -257,6 +261,19 @@ export class DatabaseStorage implements IStorage {
     }
     
     return await db.select().from(users).where(and(...conditions));
+  }
+  
+  async recordEnrollmentModification(data: any): Promise<void> {
+    await db.insert(enrollmentModifications).values({
+      userId: data.userId,
+      subscriptionId: data.subscriptionId,
+      modifiedBy: data.modifiedBy,
+      changeType: data.changeType,
+      changeDetails: data.changeDetails,
+      consentType: data.consentType,
+      consentNotes: data.consentNotes,
+      consentDate: data.consentDate,
+    });
   }
 }
 

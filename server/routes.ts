@@ -238,7 +238,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           memberType: user.memberType,
           monthlyPrice: plan?.price || 0,
           commission: 50, // Fixed commission per enrollment
-          status: subscription?.status || 'pending'
+          status: subscription?.status || 'pending',
+          pendingReason: subscription?.pendingReason,
+          pendingDetails: subscription?.pendingDetails,
+          subscriptionId: subscription?.id
         };
       }));
       
@@ -293,6 +296,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Export error:", error);
       res.status(500).json({ message: "Failed to export enrollments" });
+    }
+  });
+
+  // Resolve pending enrollment with consent
+  app.put("/api/enrollment/:userId/resolve", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const { subscriptionId, consentType, consentNotes } = req.body;
+      const modifiedBy = req.user.claims.sub;
+
+      // Update subscription status to active
+      await storage.updateSubscription(subscriptionId, {
+        status: 'active',
+        pendingReason: null,
+        pendingDetails: null,
+      });
+
+      // Record the modification with consent
+      await storage.recordEnrollmentModification({
+        userId,
+        subscriptionId,
+        modifiedBy,
+        changeType: 'status_change',
+        changeDetails: {
+          before: { status: 'pending' },
+          after: { status: 'active' }
+        },
+        consentType,
+        consentNotes,
+        consentDate: new Date(),
+      });
+
+      res.json({ message: "Enrollment resolved successfully" });
+    } catch (error) {
+      console.error("Error resolving enrollment:", error);
+      res.status(500).json({ message: "Failed to resolve enrollment" });
     }
   });
 

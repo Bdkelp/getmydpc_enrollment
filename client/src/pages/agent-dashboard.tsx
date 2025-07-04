@@ -8,8 +8,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp } from "lucide-react";
+import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -31,6 +41,9 @@ interface Enrollment {
   monthlyPrice: number;
   commission: number;
   status: string;
+  pendingReason?: string;
+  pendingDetails?: string;
+  subscriptionId?: number;
 }
 
 export default function AgentDashboard() {
@@ -41,6 +54,10 @@ export default function AgentDashboard() {
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
+  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [consentType, setConsentType] = useState<string>("");
+  const [consentNotes, setConsentNotes] = useState<string>("");
 
   // Get agent stats
   const { data: stats, isLoading: statsLoading } = useQuery<AgentStats>({
@@ -88,6 +105,50 @@ export default function AgentDashboard() {
 
   const handleNewEnrollment = () => {
     setLocation("/registration");
+  };
+
+  const handlePendingClick = (enrollment: Enrollment) => {
+    setSelectedEnrollment(enrollment);
+    setShowPendingDialog(true);
+  };
+
+  const handleResolvePending = async () => {
+    if (!selectedEnrollment || !consentType || !consentNotes) {
+      toast({
+        title: "Missing Information",
+        description: "Please provide consent type and notes before proceeding.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await apiRequest("PUT", `/api/enrollment/${selectedEnrollment.id}/resolve`, {
+        subscriptionId: selectedEnrollment.subscriptionId,
+        consentType,
+        consentNotes,
+        modifiedBy: user?.id,
+      });
+
+      toast({
+        title: "Enrollment Updated",
+        description: "The enrollment has been resolved with member consent.",
+      });
+
+      setShowPendingDialog(false);
+      setSelectedEnrollment(null);
+      setConsentType("");
+      setConsentNotes("");
+      
+      // Refresh enrollments
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments"] });
+    } catch (error) {
+      toast({
+        title: "Update Failed", 
+        description: "Failed to update enrollment. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (statsLoading || enrollmentsLoading) {
@@ -224,7 +285,11 @@ export default function AgentDashboard() {
                 </thead>
                 <tbody>
                   {enrollments?.map((enrollment: any) => (
-                    <tr key={enrollment.id} className="border-b hover:bg-gray-50">
+                    <tr 
+                      key={enrollment.id} 
+                      className={`border-b hover:bg-gray-50 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
+                      onClick={() => enrollment.status === 'pending' && handlePendingClick(enrollment)}
+                    >
                       <td className="py-2">{format(new Date(enrollment.createdAt), "MM/dd/yyyy")}</td>
                       <td className="py-2">{enrollment.firstName} {enrollment.lastName}</td>
                       <td className="py-2">{enrollment.planName}</td>
@@ -238,6 +303,9 @@ export default function AgentDashboard() {
                             : 'bg-yellow-100 text-yellow-800'
                         }`}>
                           {enrollment.status}
+                          {enrollment.status === 'pending' && (
+                            <span className="ml-1">ⓘ</span>
+                          )}
                         </span>
                       </td>
                     </tr>
@@ -277,6 +345,94 @@ export default function AgentDashboard() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Pending Enrollment Dialog */}
+      <Dialog open={showPendingDialog} onOpenChange={setShowPendingDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+              Pending Enrollment Details
+            </DialogTitle>
+            <DialogDescription>
+              Review why this enrollment is pending and record member consent for any changes.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedEnrollment && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h4 className="font-semibold mb-2">Member Information</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="font-medium">Name:</span> {selectedEnrollment.firstName} {selectedEnrollment.lastName}</div>
+                  <div><span className="font-medium">Plan:</span> {selectedEnrollment.planName}</div>
+                  <div><span className="font-medium">Type:</span> {selectedEnrollment.memberType}</div>
+                  <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.monthlyPrice}</div>
+                </div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
+                <h4 className="font-semibold mb-2 text-yellow-800">Pending Reason</h4>
+                <p className="text-sm">
+                  <span className="font-medium">Status:</span> {selectedEnrollment.pendingReason || "Payment Required"}
+                </p>
+                {selectedEnrollment.pendingDetails && (
+                  <p className="text-sm mt-2">
+                    <span className="font-medium">Details:</span> {selectedEnrollment.pendingDetails}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold">Record Member Consent</h4>
+                <div>
+                  <label className="text-sm font-medium">Consent Type *</label>
+                  <Select value={consentType} onValueChange={setConsentType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select consent type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="verbal">Verbal Consent</SelectItem>
+                      <SelectItem value="written">Written Consent</SelectItem>
+                      <SelectItem value="email">Email Consent</SelectItem>
+                      <SelectItem value="recorded">Recorded Call</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium">Consent Notes *</label>
+                  <Textarea
+                    value={consentNotes}
+                    onChange={(e) => setConsentNotes(e.target.value)}
+                    placeholder="Describe how consent was obtained, what was discussed, and any specific member requests..."
+                    rows={4}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div className="bg-blue-50 p-3 rounded text-sm">
+                  <p className="font-medium text-blue-800">Important:</p>
+                  <p className="text-blue-700">Once submitted, enrollment modifications cannot be altered without new member consent.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPendingDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleResolvePending}
+              disabled={!consentType || !consentNotes}
+              className="bg-medical-blue-600 hover:bg-medical-blue-700"
+            >
+              Resolve with Consent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
