@@ -8,7 +8,7 @@ interface AuthUser extends Omit<User, 'role'> {
 }
 
 export function useAuth() {
-  const { data: user, isLoading } = useQuery<AuthUser | null>({
+  const { data: user, isLoading, error } = useQuery<AuthUser | null>({
     queryKey: ["/api/auth/user"],
     queryFn: async () => {
       const res = await fetch("/api/auth/user", {
@@ -26,11 +26,13 @@ export function useAuth() {
       return res.json();
     },
     retry: false,
+    staleTime: 0,
+    gcTime: 0,
   });
 
   return {
     user,
-    isLoading,
+    isLoading: isLoading && !error,
     isAuthenticated: !!user,
   };
 }
