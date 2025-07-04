@@ -75,6 +75,7 @@ export default function Payment() {
   const [, setLocation] = useLocation();
   const [clientSecret, setClientSecret] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const [isMockPayment, setIsMockPayment] = useState(false);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -233,14 +234,62 @@ export default function Payment() {
                         <PaymentForm clientSecret={clientSecret} selectedPlan={selectedPlan} />
                       </Elements>
                     ) : (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-                        <h3 className="text-lg font-semibold text-yellow-800 mb-2">Payment Configuration Required</h3>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                        <h3 className="text-lg font-semibold text-yellow-800 mb-2">Mock Payment (Testing Mode)</h3>
                         <p className="text-yellow-700 mb-4">
-                          Stripe payment processing is not yet configured. Please contact your administrator to set up payment processing.
+                          Stripe is not configured. Using mock payment for testing.
                         </p>
-                        <p className="text-sm text-yellow-600">
-                          This is a demo of the platform. Once Stripe keys are configured, customers will be able to complete their subscription payments here.
-                        </p>
+                        
+                        <div className="space-y-4 mt-6">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Card Number</label>
+                            <input
+                              type="text"
+                              placeholder="4242 4242 4242 4242"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                              disabled
+                            />
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
+                              <input
+                                type="text"
+                                placeholder="12/25"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                disabled
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">CVC</label>
+                              <input
+                                type="text"
+                                placeholder="123"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                disabled
+                              />
+                            </div>
+                          </div>
+                          
+                          <Button
+                            type="button"
+                            className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
+                            onClick={() => {
+                              setIsMockPayment(true);
+                              setTimeout(() => {
+                                toast({
+                                  title: "Mock Payment Successful",
+                                  description: "Enrollment complete! Redirecting to agent dashboard...",
+                                });
+                                setLocation("/agent");
+                              }, 1500);
+                            }}
+                            disabled={isMockPayment}
+                          >
+                            {isMockPayment ? <LoadingSpinner /> : `Complete Mock Payment - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -258,6 +307,18 @@ export default function Payment() {
                       <span className="text-gray-900">${selectedPlan?.price || "0"}.00</span>
                     </div>
                     
+                    {sessionStorage.getItem("addRxValet") === "true" && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-700">RxValet Add-on</span>
+                        <span className="text-gray-900">$19.00</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex justify-between text-sm text-gray-600">
+                      <span>Processing Fee (4%)</span>
+                      <span className="text-gray-900">${((parseFloat(selectedPlan?.price || "0") + (sessionStorage.getItem("addRxValet") === "true" ? 19 : 0)) * 0.04).toFixed(2)}</span>
+                    </div>
+                    
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Setup Fee</span>
                       <span className="text-green-600">Free</span>
@@ -266,10 +327,10 @@ export default function Payment() {
                     <div className="border-t border-gray-200 pt-4">
                       <div className="flex justify-between text-lg font-bold">
                         <span>Total Due Today</span>
-                        <span className="text-medical-blue-600">${selectedPlan?.price || "0"}.00</span>
+                        <span className="text-medical-blue-600">${sessionStorage.getItem("totalMonthlyPrice") || "0"}</span>
                       </div>
                       <p className="text-sm text-gray-600 mt-2">
-                        Recurring monthly charge: ${selectedPlan?.price || "0"}.00
+                        Recurring monthly charge: ${sessionStorage.getItem("totalMonthlyPrice") || "0"}
                       </p>
                     </div>
                   </div>

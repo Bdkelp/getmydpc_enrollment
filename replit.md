@@ -250,6 +250,13 @@ Changelog:
   • Test users created: admin@mypremierplans.com (admin), agent@mypremierplans.com (agent), mdkeener@gmail.com (user)
   • Fixed authentication flow to properly handle unauthorized responses
   • Added logout functionality to landing page and no-access pages
+- July 03, 2025: Enhanced enrollment and payment flow
+  • Fixed price calculations to properly include 4% processing fee across all plans and add-ons
+  • Added detailed price breakdown in enrollment review showing subtotal, processing fee, and total
+  • Fixed "Complete Registration" button by properly passing planId to submission
+  • Created mock payment flow for testing without Stripe configuration
+  • Mock payment automatically redirects to agent dashboard after simulated payment
+  • All pricing now consistently shows total with fees included
 ```
 
 ## User Preferences

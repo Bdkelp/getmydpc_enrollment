@@ -110,12 +110,15 @@ export default function Registration() {
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
+      const subtotal = selectedPlan ? 
+        parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
+      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% processing fee
+      
       const submissionData = {
         ...data,
         coverageType,
         addRxValet,
-        totalMonthlyPrice: selectedPlan ? 
-          parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0
+        totalMonthlyPrice: parseFloat(totalWithFees)
       };
       await apiRequest("POST", "/api/registration", submissionData);
     },
@@ -147,10 +150,21 @@ export default function Registration() {
             variant: "default",
           });
           // Store registration info for later
+          const isFamily = coverageType === "Family";
+          const rxValetPrice = isFamily ? 21 : 19;
+          const subtotal = selectedPlan ? 
+            parseFloat(selectedPlan.price) + (addRxValet ? rxValetPrice : 0) : 0;
+          const totalWithFees = (subtotal * 1.04).toFixed(2);
+          
           sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
           sessionStorage.setItem("addRxValet", addRxValet.toString());
-          sessionStorage.setItem("totalMonthlyPrice", (selectedPlan ? 
-            parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0).toString());
+          sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
+          
+          // For testing, we'll use a mock payment flow
+          toast({
+            title: "Registration Complete",
+            description: "Redirecting to mock payment for testing...",
+          });
           setLocation("/payment");
         } else {
           toast({
@@ -225,7 +239,12 @@ export default function Registration() {
   };
 
   const onSubmit = (data: RegistrationForm) => {
-    registrationMutation.mutate(data);
+    // Add the selected plan ID to the form data
+    const submissionData = {
+      ...data,
+      planId: selectedPlanId!,
+    };
+    registrationMutation.mutate(submissionData);
   };
 
   if (authLoading) {
@@ -829,13 +848,24 @@ export default function Registration() {
                           <span className="font-medium">Address:</span> {form.watch("address")} {form.watch("address2") && `, ${form.watch("address2")}`}, {form.watch("city")}, {form.watch("state")} {form.watch("zipCode")}
                         </div>
                         <div className="col-span-2">
-                          <span className="font-medium">Monthly Cost:</span> 
-                          <span className="text-lg font-semibold">
-                            ${selectedPlan?.price}{addRxValet ? ` + $${coverageType === "Family" ? "21" : "19"}` : ""} = 
-                            <span className="text-green-600">
-                              ${(selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)}/month
-                            </span>
-                          </span>
+                          <span className="font-medium">Monthly Cost Breakdown:</span> 
+                          <div className="mt-2 space-y-1">
+                            <div className="text-sm">
+                              Plan: ${selectedPlan?.price}
+                              {addRxValet && <span> + RxValet: ${coverageType === "Family" ? "21" : "19"}</span>}
+                            </div>
+                            <div className="text-sm">
+                              Subtotal: ${(selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)}
+                            </div>
+                            <div className="text-sm">
+                              Processing Fee (4%): ${(((selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
+                            </div>
+                            <div className="text-lg font-semibold border-t pt-1">
+                              Total Monthly: <span className="text-green-600">
+                                ${(((selectedPlan?.price || 0) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 1.04).toFixed(2)}/month
+                              </span>
+                            </div>
+                          </div>
                           {addRxValet && <span className="block text-sm text-gray-600 mt-1">Includes BestChoice Rx Pro Premium-5</span>}
                         </div>
                       </div>
