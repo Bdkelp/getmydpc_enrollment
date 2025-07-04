@@ -36,7 +36,7 @@ const PaymentForm = ({ clientSecret, selectedPlan }: { clientSecret: string; sel
     const { error } = await stripe.confirmPayment({
       elements,
       confirmParams: {
-        return_url: `${window.location.origin}/dashboard`,
+        return_url: `${window.location.origin}/confirmation`,
       },
     });
 
@@ -280,9 +280,9 @@ export default function Payment() {
                               setTimeout(() => {
                                 toast({
                                   title: "Mock Payment Successful",
-                                  description: "Enrollment complete! Redirecting to agent dashboard...",
+                                  description: "Enrollment complete! Redirecting to confirmation...",
                                 });
-                                setLocation("/agent");
+                                setLocation("/confirmation");
                               }, 1500);
                             }}
                             disabled={isMockPayment}
@@ -353,7 +353,7 @@ export default function Payment() {
                     <ul className="space-y-1">
                       <li className="flex items-center">
                         <Check className="h-4 w-4 text-green-500 mr-2" />
-                        Cancel anytime with 30 days notice
+                        Cancel anytime with 45 days written notice
                       </li>
                       <li className="flex items-center">
                         <Check className="h-4 w-4 text-green-500 mr-2" />
@@ -368,6 +368,25 @@ export default function Payment() {
                         Automatic renewal unless cancelled
                       </li>
                     </ul>
+                  </div>
+                  
+                  {/* Membership Enrollment Disclosure */}
+                  <div className="mt-6 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                    <h4 className="text-sm font-semibold text-amber-900 mb-2">Important Membership Disclosures</h4>
+                    <div className="space-y-2 text-xs text-amber-800">
+                      <p>
+                        <strong>Recurring Billing:</strong> This is a recurring monthly membership, not insurance, and benefits are active only when payments are current.
+                      </p>
+                      <p>
+                        <strong>Payment Authorization:</strong> By enrolling, you authorize My Premier Plans to charge your payment method on file for your recurring monthly membership fee, beginning today and recurring monthly thereafter until you cancel in writing with 45 days' notice.
+                      </p>
+                      <p>
+                        <strong>NSF Fee:</strong> If a payment is returned or declined, your membership will be suspended, and a $35 NSF fee may apply under Texas law.
+                      </p>
+                      <p>
+                        <strong>Cancellation:</strong> You may cancel in writing with 45 days' notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>

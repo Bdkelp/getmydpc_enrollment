@@ -1,0 +1,50 @@
+## Membership Enrollment & Disclosure Summary
+
+**Step 1: Explain Recurring Billing**
+
+- Inform the enrollee that membership is billed on a **recurring monthly** basis until canceled.
+- Confirm that membership is **not** insurance and does not satisfy federal or state insurance mandates.
+- Example script:  
+  > *“This is a recurring monthly membership, not insurance, and benefits are active only when payments are current.”*
+
+---
+
+**Step 2: Explain Payment Authorization**
+
+- Confirm the enrollee understands they are authorizing My Premier Plans to charge their provided payment method each month.
+- Example script:  
+  > *“By enrolling, you authorize My Premier Plans to charge your payment method on file for your recurring monthly membership fee, beginning on [DATE] and recurring monthly thereafter until you cancel in writing with 45 days’ notice.”*
+
+---
+
+**Step 3: Explain NSF Fee and Payment Failures**
+
+- Inform the enrollee there is a **$35 NSF fee** for any returned or rejected payments under Texas law.
+- Let them know if their payment fails, membership will be suspended until the balance is paid.
+- Example script:  
+  > *“If a payment is returned or declined, your membership will be suspended, and a $35 NSF fee may apply.”*
+
+---
+
+**Step 4: Explain Cancellation & Restart**
+
+- Confirm they can cancel **at any time** with 45 days’ written notice, no long-term contract, no penalties.
+- Benefits will stop if the plan is canceled or unfunded for any month.
+- Example script:  
+  > *“You may cancel in writing with 45 days’ notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.”*
+
+---
+
+**Step 5: Obtain Explicit Consent**
+
+- Ask the member to confirm their understanding and agreement.
+- Example script:  
+  > *“Do you agree to these terms and authorize this monthly charge to your payment method on file?”*
+
+- If online: provide a checkbox  
+  - *“I agree to the terms above and authorize monthly payments.”*
+- If phone: record “Yes, I agree.”
+
+---
+
+**Done. Save this confirmation in your CRM or enrollment file.**

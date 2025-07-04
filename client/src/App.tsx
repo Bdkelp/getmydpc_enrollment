@@ -11,6 +11,7 @@ import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
+import Confirmation from "@/pages/confirmation";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -45,6 +46,7 @@ function Router() {
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />
+              <Route path="/confirmation" component={Confirmation} />
             </>
           )}
           

@@ -257,6 +257,12 @@ Changelog:
   • Created mock payment flow for testing without Stripe configuration
   • Mock payment automatically redirects to agent dashboard after simulated payment
   • All pricing now consistently shows total with fees included
+  • Added membership enrollment disclosure to payment page with terms about:
+    - Recurring billing, payment authorization, NSF fees ($35), cancellation (45 days notice)
+  • Created comprehensive confirmation page displaying after successful payment with:
+    - Member details, plan features, payment confirmation, transaction ID
+    - Billing dates, contact information, and next steps
+  • Updated payment flow to route through confirmation page before dashboard
 ```
 
 ## User Preferences
