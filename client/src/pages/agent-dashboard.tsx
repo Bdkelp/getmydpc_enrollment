@@ -113,7 +113,7 @@ export default function AgentDashboard() {
             <div className="flex items-center space-x-4">
               <Button
                 onClick={handleNewEnrollment}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700"
+                className="bg-green-600 hover:bg-green-700 text-white shadow-lg animate-pulse-slow"
               >
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
