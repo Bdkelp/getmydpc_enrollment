@@ -94,7 +94,7 @@ export default function Payment() {
     }
   }, [isAuthenticated, authLoading, toast]);
 
-  const { data: plans } = useQuery({
+  const { data: plans = [] } = useQuery<any[]>({
     queryKey: ["/api/plans"],
     enabled: isAuthenticated,
   });

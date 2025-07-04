@@ -49,7 +49,7 @@ export default function Confirmation() {
     sessionStorage.removeItem("primaryAddress");
   }, [user, setLocation]);
 
-  const { data: plans } = useQuery({
+  const { data: plans = [] } = useQuery<any[]>({
     queryKey: ["/api/plans"],
     enabled: isAuthenticated && !!membershipData,
   });

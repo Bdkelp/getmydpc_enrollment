@@ -22,7 +22,7 @@ const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  ssn: z.string().optional(),
+  ssn: z.string().optional().transform(val => val === "" ? undefined : val),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
@@ -49,23 +49,9 @@ const registrationSchema = z.object({
   // Privacy notice acknowledgment
   privacyNoticeAcknowledged: z.boolean().refine(val => val === true, "You must acknowledge the privacy notice"),
 }).superRefine((data, ctx) => {
-  // Make employer fields required only for "member-only" selection
-  if (data.memberType === "member-only") {
-    if (!data.employerName || data.employerName.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Employer name is required for individual plans",
-        path: ["employerName"],
-      });
-    }
-    if (!data.dateOfHire || data.dateOfHire.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Date of hire is required for individual plans",
-        path: ["dateOfHire"],
-      });
-    }
-  }
+  // Make employer fields required only for group/employer plans (not individual)
+  // For now, all employer fields are optional since we don't have a clear indicator for group plans
+  // This can be enhanced later when group plan functionality is added
 });
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
@@ -118,7 +104,7 @@ export default function Registration() {
       employerName: "",
       divisionName: "",
       dateOfHire: "",
-      memberType: "member-only",
+      memberType: "Member Only",
       planStartDate: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
