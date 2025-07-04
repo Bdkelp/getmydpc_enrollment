@@ -22,7 +22,7 @@ const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  ssn: z.string().min(9, "SSN is required").max(9, "SSN must be 9 digits"),
+  ssn: z.string().optional(),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
@@ -219,7 +219,7 @@ export default function Registration() {
   const handleNextStep = () => {
     if (currentStep === 1) {
       // Validate personal information
-      const personalFields = ['firstName', 'lastName', 'middleName', 'ssn', 'email', 'phone', 'dateOfBirth', 'memberType'] as const;
+      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'memberType'] as const;
       form.trigger(personalFields).then((isValid) => {
         if (isValid) setCurrentStep(2);
       });
@@ -413,11 +413,11 @@ export default function Registration() {
                         name="ssn"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Social Security Number *</FormLabel>
+                            <FormLabel>Social Security Number (Optional)</FormLabel>
                             <FormControl>
                               <Input 
                                 type="password" 
-                                placeholder="123456789" 
+                                placeholder="123456789 (Optional)" 
                                 maxLength={9}
                                 {...field} 
                               />
