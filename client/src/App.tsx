@@ -17,6 +17,8 @@ import NotFound from "@/pages/not-found";
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
+  console.log('Router state:', { isAuthenticated, isLoading, user });
+
   // Role-based routing
   const getDefaultRoute = () => {
     if (!isAuthenticated) return "/";
