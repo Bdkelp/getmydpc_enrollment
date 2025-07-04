@@ -33,10 +33,10 @@ const registrationSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
-  // Employment information
-  employerName: z.string().min(1, "Employer name is required"),
+  // Employment information (optional for non-individual plans)
+  employerName: z.string().optional(),
   divisionName: z.string().optional(),
-  dateOfHire: z.string().min(1, "Date of hire is required"),
+  dateOfHire: z.string().optional(),
   memberType: z.string().min(1, "Member type is required"),
   planStartDate: z.string().min(1, "Plan start date is required"),
   // Emergency contact
@@ -46,6 +46,26 @@ const registrationSchema = z.object({
   planId: z.number().min(1, "Plan selection is required"),
   termsAccepted: z.boolean().refine(val => val === true, "Terms must be accepted"),
   communicationsConsent: z.boolean().default(false),
+  // Privacy notice acknowledgment
+  privacyNoticeAcknowledged: z.boolean().refine(val => val === true, "You must acknowledge the privacy notice"),
+}).superRefine((data, ctx) => {
+  // Make employer fields required only for "member-only" selection
+  if (data.memberType === "member-only") {
+    if (!data.employerName || data.employerName.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Employer name is required for individual plans",
+        path: ["employerName"],
+      });
+    }
+    if (!data.dateOfHire || data.dateOfHire.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Date of hire is required for individual plans",
+        path: ["dateOfHire"],
+      });
+    }
+  }
 });
 
 type RegistrationForm = z.infer<typeof registrationSchema>;
@@ -105,6 +125,7 @@ export default function Registration() {
       planId: 0,
       termsAccepted: false,
       communicationsConsent: false,
+      privacyNoticeAcknowledged: false,
     },
   });
 
@@ -203,16 +224,21 @@ export default function Registration() {
         if (isValid) setCurrentStep(2);
       });
     } else if (currentStep === 2) {
-      // Validate employment information - only if in group enrollment
-      const isGroupEnrollment = form.getValues('memberType') !== 'member-only';
-      if (isGroupEnrollment) {
+      // Validate employment information - only required for member-only
+      const memberType = form.getValues('memberType');
+      const planStartField = ['planStartDate'] as const;
+      
+      if (memberType === 'member-only') {
+        // For individual plans, employer fields are required
         const employmentFields = ['employerName', 'dateOfHire', 'planStartDate'] as const;
         form.trigger(employmentFields).then((isValid) => {
           if (isValid) setCurrentStep(3);
         });
       } else {
-        // Skip validation for individual enrollment
-        setCurrentStep(3);
+        // For family plans, only plan start date is required
+        form.trigger(planStartField).then((isValid) => {
+          if (isValid) setCurrentStep(3);
+        });
       }
     } else if (currentStep === 3) {
       // Validate address information
@@ -225,6 +251,18 @@ export default function Registration() {
       // Plan selected, move to review
       form.setValue('planId', selectedPlanId);
       setCurrentStep(6);
+    } else if (currentStep === 6) {
+      // Validate all checkboxes before allowing submission
+      const checkboxFields = ['termsAccepted', 'privacyNoticeAcknowledged', 'communicationsConsent'] as const;
+      form.trigger(checkboxFields).then((isValid) => {
+        if (!isValid) {
+          toast({
+            title: "Please complete all required acknowledgments",
+            description: "You must accept the terms and acknowledge the privacy notice before proceeding.",
+            variant: "destructive",
+          });
+        }
+      });
     }
   };
 
@@ -1011,6 +1049,27 @@ export default function Registration() {
                               >
                                 Download Privacy Notice
                               </button>
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={form.control}
+                        name="privacyNoticeAcknowledged"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="text-sm">
+                                I acknowledge that I have received and reviewed the Notice of Privacy Practices *
+                              </FormLabel>
                             </div>
                             <FormMessage />
                           </FormItem>
