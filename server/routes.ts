@@ -256,13 +256,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
       
+      // Get agent info for the export
+      const agent = await storage.getUser(agentId);
+      const agentNumber = agent?.agentNumber || 'Not Assigned';
+      
       // Create CSV content
-      const headers = ['Date', 'First Name', 'Last Name', 'Email', 'Phone', 'Plan', 'Member Type', 'Monthly Price', 'Commission', 'Status'];
+      const headers = ['Agent Number', 'Agent Name', 'Date', 'First Name', 'Last Name', 'Email', 'Phone', 'Plan', 'Member Type', 'Monthly Price', 'Commission', 'Status'];
       const rows = await Promise.all(enrollments.map(async (user: any) => {
         const subscription = await storage.getUserSubscription(user.id);
         const plan = subscription ? await storage.getPlan(subscription.planId) : null;
         
         return [
+          agentNumber,
+          `${agent?.firstName || ''} ${agent?.lastName || ''}`.trim() || 'Unknown',
           new Date(user.createdAt).toLocaleDateString(),
           user.firstName,
           user.lastName,

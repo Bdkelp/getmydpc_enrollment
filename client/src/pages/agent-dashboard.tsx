@@ -106,7 +106,9 @@ export default function AgentDashboard() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
-              <span className="ml-4 text-sm text-gray-500">Welcome back, {user?.firstName}</span>
+              <span className="ml-4 text-sm text-gray-500">
+                Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
+              </span>
             </div>
             <div className="flex items-center space-x-4">
               <Button
