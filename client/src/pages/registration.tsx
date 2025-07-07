@@ -262,7 +262,16 @@ export default function Registration() {
     } else if (currentStep === 5) {
       // Children info completed, go to plan selection
       setCurrentStep(6);
-    } else if (currentStep === 6 && selectedPlanId) {
+    } else if (currentStep === 6) {
+      // Check if plan is selected
+      if (!selectedPlanId) {
+        toast({
+          title: "Please select a plan",
+          description: "You must choose a healthcare plan before continuing.",
+          variant: "destructive",
+        });
+        return;
+      }
       // Plan selected, move to review
       form.setValue('planId', selectedPlanId);
       setCurrentStep(7);
@@ -985,18 +994,13 @@ export default function Registration() {
                     })}
                     
                     {/* Add child button */}
-                    {(coverageType === "Member/Child" && familyMembers.filter(m => m.relationship === "child").length < 1) ||
-                     (coverageType === "Family" && familyMembers.filter(m => m.relationship === "child").length < 4) ? (
+                    {familyMembers.filter(m => m.relationship === "child").length < 5 ? (
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => {
                           const newChild = { relationship: "child" };
-                          if (coverageType === "Member/Child") {
-                            setFamilyMembers([newChild]);
-                          } else {
-                            setFamilyMembers([...familyMembers, newChild]);
-                          }
+                          setFamilyMembers([...familyMembers, newChild]);
                         }}
                         className="w-full"
                       >
@@ -1007,7 +1011,7 @@ export default function Registration() {
                     
                     <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> You can add up to {coverageType === "Member/Child" ? "1 child" : "4 children"} to your plan.
+                        <strong>Note:</strong> You can add up to 5 children to your plan.
                       </p>
                     </div>
                   </div>
@@ -1027,8 +1031,13 @@ export default function Registration() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           {(() => {
+                            if (!plans || plans.length === 0) {
+                              console.log("No plans available");
+                              return [];
+                            }
+                            
                             const filteredPlans = plans
-                              ?.filter((plan: any) => {
+                              .filter((plan: any) => {
                                 // Map coverage types to plan name patterns
                                 const coverageMapping: { [key: string]: string[] } = {
                                   "Member Only": ["Member Only", "Mem Only"],
@@ -1038,16 +1047,18 @@ export default function Registration() {
                                 };
                                 
                                 const patterns = coverageMapping[coverageType] || [];
-                                return patterns.some(pattern => plan.name.includes(pattern));
+                                const matches = patterns.some(pattern => plan.name.includes(pattern));
+                                console.log(`Plan "${plan.name}" matches "${coverageType}": ${matches}`);
+                                return matches;
                               });
                             
                             console.log("Coverage Type:", coverageType);
-                            console.log("Available plans:", plans?.map((p: any) => p.name));
-                            console.log("Filtered plans:", filteredPlans?.map((p: any) => p.name));
+                            console.log("Available plans:", plans.map((p: any) => p.name));
+                            console.log("Filtered plans:", filteredPlans.map((p: any) => p.name));
                             
-                            return filteredPlans;
+                            return filteredPlans || [];
                           })()
-                            .filter((plan: any) => {
+                            ?.filter((plan: any) => {
                               if (plan.name.includes("Base")) return true;
                               if (plan.name.includes("Plus") || plan.name.includes("+")) return true;
                               if (plan.name.includes("Elite")) return true;
