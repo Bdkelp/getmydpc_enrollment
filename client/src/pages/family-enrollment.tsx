@@ -18,7 +18,7 @@ const familyMemberSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  ssn: z.string().min(9, "SSN is required").max(9, "SSN must be 9 digits"),
+  ssn: z.string().optional(),  // Made SSN optional per user request
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional(),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
@@ -94,6 +94,12 @@ export default function FamilyEnrollment() {
     const updatedMembers = [...members];
     updatedMembers[currentMember] = data;
     setMembers(updatedMembers);
+    
+    // Show a toast to confirm member was saved
+    toast({
+      title: "Family Member Saved",
+      description: `${data.firstName} ${data.lastName} has been added.`,
+    });
     
     if (currentMember < maxMembers - 1) {
       setCurrentMember(currentMember + 1);
@@ -474,22 +480,36 @@ export default function FamilyEnrollment() {
                     Back to Registration
                   </Button>
                   
-                  {currentMember < maxMembers - 1 ? (
-                    <Button 
-                      type="submit"
-                      className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700"
-                    >
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Save & Add Another
-                    </Button>
-                  ) : (
+                  {/* Always show Save button if form has data */}
+                  <Button 
+                    type="submit"
+                    className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700"
+                  >
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    {currentMember < maxMembers - 1 ? "Save & Add Another" : "Save Member"}
+                  </Button>
+                  
+                  {/* Show Continue button if we have at least one family member OR current form has data */}
+                  {(members.filter(m => m).length > 0 || form.formState.isDirty) && (
                     <Button 
                       type="button" 
-                      onClick={handleSubmit}
-                      className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700"
+                      onClick={() => {
+                        // If current form has data, save it first
+                        if (form.formState.isDirty) {
+                          const currentData = form.getValues();
+                          const allMembers = [...members];
+                          allMembers[currentMember] = currentData;
+                          enrollmentMutation.mutate(allMembers.filter(m => m));
+                        } else {
+                          // Otherwise just submit saved members
+                          handleSubmit();
+                        }
+                      }}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
                       disabled={enrollmentMutation.isPending}
                     >
-                      {enrollmentMutation.isPending ? <LoadingSpinner /> : "Complete Family Enrollment"}
+                      {enrollmentMutation.isPending ? <LoadingSpinner /> : 
+                        form.formState.isDirty ? "Save Current & Continue to Payment" : "Continue to Payment"}
                     </Button>
                   )}
                 </div>
