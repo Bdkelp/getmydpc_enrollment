@@ -204,7 +204,7 @@ export const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  ssn: z.string().min(9, "SSN is required").max(9, "SSN must be 9 digits"),
+  ssn: z.string().optional(),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
