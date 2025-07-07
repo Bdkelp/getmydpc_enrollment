@@ -102,8 +102,18 @@ export default function Payment() {
   // Load stored plan ID from registration
   useEffect(() => {
     const storedPlanId = sessionStorage.getItem("selectedPlanId");
-    if (storedPlanId && !selectedPlanId) {
-      setSelectedPlanId(parseInt(storedPlanId));
+    console.log("Loading stored plan ID from session:", storedPlanId);
+    if (storedPlanId) {
+      const planId = parseInt(storedPlanId);
+      console.log("Setting selected plan ID to:", planId);
+      setSelectedPlanId(planId);
+    } else {
+      console.error("No plan ID found in session storage!");
+      toast({
+        title: "No Plan Selected",
+        description: "Please go back to registration and select a plan.",
+        variant: "destructive",
+      });
     }
   }, []);
 
@@ -135,15 +145,20 @@ export default function Payment() {
     },
   });
 
-  // Auto-select individual plan if none selected
+  // Load the stored plan ID and validate it exists
   useEffect(() => {
-    if (plans && plans.length > 0 && !selectedPlanId) {
-      const individualPlan = plans.find((plan: any) => 
-        plan.name.toLowerCase().includes("individual")
-      ) || plans[0];
-      
-      setSelectedPlanId(individualPlan.id);
-      createSubscriptionMutation.mutate(individualPlan.id);
+    if (plans && plans.length > 0 && selectedPlanId) {
+      const planExists = plans.find((plan: any) => plan.id === selectedPlanId);
+      if (planExists) {
+        console.log("Using selected plan:", planExists.name, "ID:", planExists.id);
+      } else {
+        console.error("Selected plan ID not found:", selectedPlanId);
+        toast({
+          title: "Plan Not Found",
+          description: "The selected plan is no longer available. Please go back and select a different plan.",
+          variant: "destructive",
+        });
+      }
     }
   }, [plans, selectedPlanId]);
 
@@ -160,6 +175,19 @@ export default function Payment() {
   }
 
   const selectedPlan = plans?.find((plan: any) => plan.id === selectedPlanId);
+  
+  // Debug session storage
+  console.log("Payment page debug:", {
+    selectedPlanId,
+    selectedPlan: selectedPlan?.name,
+    allSessionStorage: {
+      selectedPlanId: sessionStorage.getItem("selectedPlanId"),
+      coverageType: sessionStorage.getItem("coverageType"),
+      totalMonthlyPrice: sessionStorage.getItem("totalMonthlyPrice"),
+      basePlanPrice: sessionStorage.getItem("basePlanPrice"),
+    },
+    availablePlans: plans?.map((p: any) => ({ id: p.id, name: p.name }))
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">

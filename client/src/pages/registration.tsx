@@ -141,6 +141,29 @@ export default function Registration() {
       sessionStorage.setItem("primaryAddress", JSON.stringify(addressData));
       sessionStorage.setItem("coverageType", coverageType);
       
+      // Always store registration info for payment
+      const isFamily = coverageType === "Family";
+      const rxValetPrice = isFamily ? 21 : 19;
+      const subtotal = selectedPlan ? 
+        parseFloat(selectedPlan.price) + (addRxValet ? rxValetPrice : 0) : 0;
+      const processingFee = (subtotal * 0.04).toFixed(2);
+      const totalWithFees = (subtotal * 1.04).toFixed(2);
+      
+      sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
+      sessionStorage.setItem("addRxValet", addRxValet.toString());
+      sessionStorage.setItem("rxValet", addRxValet ? "yes" : "no");
+      sessionStorage.setItem("basePlanPrice", selectedPlan?.price || "0");
+      sessionStorage.setItem("subtotal", subtotal.toFixed(2));
+      sessionStorage.setItem("processingFee", processingFee);
+      sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
+      
+      console.log("Storing plan info:", {
+        selectedPlanId,
+        selectedPlanName: selectedPlan?.name,
+        coverageType,
+        totalMonthlyPrice: totalWithFees
+      });
+      
       // Redirect to family enrollment if needed
       if (coverageType !== "Member Only") {
         toast({
@@ -149,21 +172,6 @@ export default function Registration() {
         });
         setLocation("/family-enrollment");
       } else {
-        // Store registration info for payment
-        const isFamily = coverageType === "Family";
-        const rxValetPrice = isFamily ? 21 : 19;
-        const subtotal = selectedPlan ? 
-          parseFloat(selectedPlan.price) + (addRxValet ? rxValetPrice : 0) : 0;
-        const processingFee = (subtotal * 0.04).toFixed(2);
-        const totalWithFees = (subtotal * 1.04).toFixed(2);
-        
-        sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
-        sessionStorage.setItem("addRxValet", addRxValet.toString());
-        sessionStorage.setItem("rxValet", addRxValet ? "yes" : "no");
-        sessionStorage.setItem("basePlanPrice", selectedPlan?.price || "0");
-        sessionStorage.setItem("subtotal", subtotal.toFixed(2));
-        sessionStorage.setItem("processingFee", processingFee);
-        sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
         
         // Check if Stripe is configured
         if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
