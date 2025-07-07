@@ -68,6 +68,7 @@ function Router() {
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />
+              <Route path="/confirmation" component={Confirmation} />
             </>
           )}
           

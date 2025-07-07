@@ -297,30 +297,40 @@ export default function Payment() {
                               return;
                             }
                             
+                            console.log("Starting mock payment with plan ID:", selectedPlanId);
                             setIsMockPayment(true);
                             try {
                               // Call mock payment endpoint
                               const response = await apiRequest("POST", "/api/mock-payment", {
                                 planId: selectedPlanId
                               });
+                              
+                              if (!response.ok) {
+                                const errorText = await response.text();
+                                console.error("Mock payment error response:", errorText);
+                                throw new Error(`Server error: ${response.status}`);
+                              }
+                              
                               const data = await response.json();
+                              console.log("Mock payment response:", data);
                               
                               if (data.success) {
                                 toast({
                                   title: "Mock Payment Successful",
                                   description: "Enrollment complete! Redirecting to confirmation...",
                                 });
+                                console.log("Redirecting to confirmation page...");
                                 setTimeout(() => {
                                   setLocation("/confirmation");
                                 }, 1500);
                               } else {
-                                throw new Error("Payment failed");
+                                throw new Error(data.message || "Payment failed");
                               }
-                            } catch (error) {
+                            } catch (error: any) {
                               console.error("Mock payment error:", error);
                               toast({
                                 title: "Payment Failed",
-                                description: "There was an error processing your payment. Please try again.",
+                                description: error.message || "There was an error processing your payment. Please try again.",
                                 variant: "destructive",
                               });
                               setIsMockPayment(false);
