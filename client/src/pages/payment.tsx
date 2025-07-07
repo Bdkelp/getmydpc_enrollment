@@ -99,6 +99,14 @@ export default function Payment() {
     enabled: isAuthenticated,
   });
 
+  // Load stored plan ID from registration
+  useEffect(() => {
+    const storedPlanId = sessionStorage.getItem("selectedPlanId");
+    if (storedPlanId && !selectedPlanId) {
+      setSelectedPlanId(parseInt(storedPlanId));
+    }
+  }, []);
+
   const createSubscriptionMutation = useMutation({
     mutationFn: async (planId: number) => {
       const response = await apiRequest("POST", "/api/create-subscription", { planId });
@@ -275,17 +283,46 @@ export default function Payment() {
                           <Button
                             type="button"
                             className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
-                            onClick={() => {
-                              setIsMockPayment(true);
-                              setTimeout(() => {
+                            onClick={async () => {
+                              if (!selectedPlanId) {
                                 toast({
-                                  title: "Mock Payment Successful",
-                                  description: "Enrollment complete! Redirecting to confirmation...",
+                                  title: "No Plan Selected",
+                                  description: "Please select a plan first.",
+                                  variant: "destructive",
                                 });
-                                setLocation("/confirmation");
-                              }, 1500);
+                                return;
+                              }
+                              
+                              setIsMockPayment(true);
+                              try {
+                                // Call mock payment endpoint
+                                const response = await apiRequest("POST", "/api/mock-payment", {
+                                  planId: selectedPlanId
+                                });
+                                const data = await response.json();
+                                
+                                if (data.success) {
+                                  toast({
+                                    title: "Mock Payment Successful",
+                                    description: "Enrollment complete! Redirecting to confirmation...",
+                                  });
+                                  setTimeout(() => {
+                                    setLocation("/confirmation");
+                                  }, 1500);
+                                } else {
+                                  throw new Error("Payment failed");
+                                }
+                              } catch (error) {
+                                console.error("Mock payment error:", error);
+                                toast({
+                                  title: "Payment Failed",
+                                  description: "There was an error processing your payment. Please try again.",
+                                  variant: "destructive",
+                                });
+                                setIsMockPayment(false);
+                              }
                             }}
-                            disabled={isMockPayment}
+                            disabled={isMockPayment || !selectedPlanId}
                           >
                             {isMockPayment ? <LoadingSpinner /> : `Complete Mock Payment - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
                           </Button>

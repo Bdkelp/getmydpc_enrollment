@@ -72,6 +72,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
+  // Mock payment endpoint for testing
+  app.post("/api/mock-payment", isAuthenticated, async (req: any, res) => {
+    try {
+      const { planId } = req.body;
+      const userId = req.user.claims.sub;
+      
+      if (!planId) {
+        return res.status(400).json({ message: "Plan ID is required" });
+      }
+      
+      // Get plan details
+      const plan = await storage.getPlan(planId);
+      if (!plan) {
+        return res.status(404).json({ message: "Plan not found" });
+      }
+      
+      // Create subscription
+      const subscription = await storage.createSubscription({
+        userId,
+        planId,
+        status: "active",
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        cancelAtPeriodEnd: false,
+      });
+      
+      // Create payment record
+      const payment = await storage.createPayment({
+        userId,
+        subscriptionId: subscription.id,
+        amount: parseFloat(plan.price),
+        currency: "usd",
+        status: "succeeded",
+        stripePaymentIntentId: `mock_${Date.now()}`, // Mock payment ID
+      });
+      
+      res.json({
+        success: true,
+        subscriptionId: subscription.id,
+        paymentId: payment.id,
+      });
+    } catch (error) {
+      console.error("Error processing mock payment:", error);
+      res.status(500).json({ message: "Failed to process mock payment" });
+    }
+  });
+
   // Public routes - Plans
   app.get("/api/plans", async (req, res) => {
     try {
