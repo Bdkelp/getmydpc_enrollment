@@ -180,48 +180,128 @@ export default function Payment() {
               <div>
                 {!clientSecret ? (
                   <div className="space-y-6">
-                    {/* Plan Selection */}
-                    <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                      <h3 className="font-semibold text-gray-900 mb-4">Select Your Plan</h3>
-                      <div className="space-y-3">
-                        {plans?.map((plan: any) => (
-                          <label 
-                            key={plan.id}
-                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                              selectedPlanId === plan.id 
-                                ? "border-blue-600 bg-blue-50" 
-                                : "border-gray-300 hover:bg-gray-50"
-                            }`}
-                          >
-                            <div className="flex items-center">
-                              <input
-                                type="radio"
-                                name="plan"
-                                value={plan.id}
-                                checked={selectedPlanId === plan.id}
-                                onChange={() => {
-                                  setSelectedPlanId(plan.id);
-                                  createSubscriptionMutation.mutate(plan.id);
-                                }}
-                                className="mr-3 text-blue-600"
-                              />
-                              <div>
-                                <div className="font-medium text-gray-900">{plan.name}</div>
-                                {plan.description && (
-                                  <div className="text-sm text-gray-600">{plan.description}</div>
-                                )}
-                              </div>
+                    {/* Selected Plan Display */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
+                      <h3 className="font-semibold text-gray-900 mb-4">Your Selected Plan</h3>
+                      {selectedPlan ? (
+                        <div>
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h4 className="text-xl font-bold text-gray-900">{selectedPlan.name}</h4>
+                              {selectedPlan.description && (
+                                <p className="text-gray-600 mt-1">{selectedPlan.description}</p>
+                              )}
                             </div>
-                            <div className="font-bold text-blue-600">${plan.price}/mo</div>
-                          </label>
-                        ))}
-                      </div>
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-medical-blue-600">
+                                ${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}
+                              </div>
+                              <div className="text-sm text-gray-600">per month</div>
+                            </div>
+                          </div>
+                          
+                          {/* Price Breakdown */}
+                          <div className="border-t border-blue-200 pt-4 space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span>Base Plan</span>
+                              <span>${selectedPlan.price}</span>
+                            </div>
+                            {sessionStorage.getItem("coverageType") !== "Member only" && (
+                              <div className="flex justify-between text-sm">
+                                <span>Family Members</span>
+                                <span>Included in plan</span>
+                              </div>
+                            )}
+                            {sessionStorage.getItem("rxValet") === "yes" && (
+                              <div className="flex justify-between text-sm">
+                                <span>RxValet Add-on</span>
+                                <span>$10</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-sm">
+                              <span>Processing Fee (4%)</span>
+                              <span>${sessionStorage.getItem("processingFee") || "0"}</span>
+                            </div>
+                            <div className="flex justify-between font-bold pt-2 border-t">
+                              <span>Total</span>
+                              <span>${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}</span>
+                            </div>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            className="mt-4 text-sm text-medical-blue-600 hover:text-medical-blue-700 underline"
+                            onClick={() => setLocation("/registration")}
+                          >
+                            Change plan selection
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-gray-600">No plan selected. Please go back to registration.</p>
+                      )}
                     </div>
 
                     {createSubscriptionMutation.isPending && (
                       <div className="flex justify-center">
                         <LoadingSpinner />
                         <span className="ml-2">Setting up payment...</span>
+                      </div>
+                    )}
+                    
+                    {/* Mock Payment Button - Show when no Stripe configured */}
+                    {!stripePromise && selectedPlan && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                        <h3 className="text-lg font-semibold text-yellow-800 mb-2">Mock Payment (Testing Mode)</h3>
+                        <p className="text-yellow-700 mb-4">
+                          Stripe is not configured. Using mock payment for testing.
+                        </p>
+                        
+                        <Button
+                          type="button"
+                          className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
+                          onClick={async () => {
+                            if (!selectedPlanId) {
+                              toast({
+                                title: "No Plan Selected",
+                                description: "Please select a plan first.",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            
+                            setIsMockPayment(true);
+                            try {
+                              // Call mock payment endpoint
+                              const response = await apiRequest("POST", "/api/mock-payment", {
+                                planId: selectedPlanId
+                              });
+                              const data = await response.json();
+                              
+                              if (data.success) {
+                                toast({
+                                  title: "Mock Payment Successful",
+                                  description: "Enrollment complete! Redirecting to confirmation...",
+                                });
+                                setTimeout(() => {
+                                  setLocation("/confirmation");
+                                }, 1500);
+                              } else {
+                                throw new Error("Payment failed");
+                              }
+                            } catch (error) {
+                              console.error("Mock payment error:", error);
+                              toast({
+                                title: "Payment Failed",
+                                description: "There was an error processing your payment. Please try again.",
+                                variant: "destructive",
+                              });
+                              setIsMockPayment(false);
+                            }
+                          }}
+                          disabled={isMockPayment || !selectedPlanId}
+                        >
+                          {isMockPayment ? <LoadingSpinner /> : `Complete Mock Payment - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
+                        </Button>
                       </div>
                     )}
                   </div>

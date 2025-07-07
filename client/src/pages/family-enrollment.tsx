@@ -75,6 +75,18 @@ export default function FamilyEnrollment() {
       await apiRequest("POST", "/api/family-enrollment", { members: familyMembers });
     },
     onSuccess: () => {
+      // Update pricing information in session storage
+      const basePlanPrice = parseFloat(sessionStorage.getItem("basePlanPrice") || "0");
+      const hasRxValet = sessionStorage.getItem("rxValet") === "yes";
+      const rxValetPrice = coverageType === "Family" ? 21 : 19;
+      const subtotal = basePlanPrice + (hasRxValet ? rxValetPrice : 0);
+      const processingFee = (subtotal * 0.04).toFixed(2);
+      const totalWithFees = (subtotal * 1.04).toFixed(2);
+      
+      sessionStorage.setItem("subtotal", subtotal.toFixed(2));
+      sessionStorage.setItem("processingFee", processingFee);
+      sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
+      
       toast({
         title: "Family Members Enrolled",
         description: "Family members have been successfully added to your plan.",
