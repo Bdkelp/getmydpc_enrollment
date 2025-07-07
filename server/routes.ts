@@ -192,6 +192,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enrolledByAgentId: agentId,
       });
 
+      // Add family members if any
+      const familyMembers = (req.body as any).familyMembers || [];
+      for (const member of familyMembers) {
+        await storage.addFamilyMember({
+          primaryUserId: userId,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          middleName: member.middleName,
+          dateOfBirth: member.dateOfBirth,
+          gender: member.gender,
+          ssn: member.ssn,
+          email: member.email,
+          phone: member.phone,
+          relationship: member.relationship,
+          memberType: member.relationship === "spouse" ? "spouse" : "dependent",
+          planStartDate: validatedData.planStartDate,
+          isActive: true,
+        });
+      }
+
       res.json(user);
     } catch (error) {
       if (error instanceof z.ZodError) {

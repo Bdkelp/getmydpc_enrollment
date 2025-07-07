@@ -16,6 +16,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { Plus } from "lucide-react";
 
 const registrationSchema = z.object({
   // Personal information
@@ -62,6 +63,8 @@ export default function Registration() {
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [coverageType, setCoverageType] = useState<string>("Member Only");
   const [addRxValet, setAddRxValet] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
+  const [currentFamilyMemberIndex, setCurrentFamilyMemberIndex] = useState(0);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -125,7 +128,8 @@ export default function Registration() {
         ...data,
         coverageType,
         addRxValet,
-        totalMonthlyPrice: parseFloat(totalWithFees)
+        totalMonthlyPrice: parseFloat(totalWithFees),
+        familyMembers: familyMembers
       };
       await apiRequest("POST", "/api/registration", submissionData);
     },
@@ -140,6 +144,7 @@ export default function Registration() {
       };
       sessionStorage.setItem("primaryAddress", JSON.stringify(addressData));
       sessionStorage.setItem("coverageType", coverageType);
+      sessionStorage.setItem("familyMembers", JSON.stringify(familyMembers));
       
       // Always store registration info for payment
       const isFamily = coverageType === "Family";
@@ -236,14 +241,32 @@ export default function Registration() {
       // Validate address information
       const addressFields = ['address', 'city', 'state', 'zipCode'] as const;
       form.trigger(addressFields).then((isValid) => {
-        // Skip coverage type selection (step 4) since it's auto-set from member type
-        if (isValid) setCurrentStep(5);
+        if (isValid) {
+          // Check if we need to collect family members
+          if (coverageType === "Member/Spouse" || coverageType === "Family") {
+            setCurrentStep(4); // Go to spouse info
+          } else if (coverageType === "Member/Child") {
+            setCurrentStep(5); // Go to children info
+          } else {
+            setCurrentStep(6); // Go to plan selection
+          }
+        }
       });
-    } else if (currentStep === 5 && selectedPlanId) {
+    } else if (currentStep === 4) {
+      // Spouse info completed, check if we need children info
+      if (coverageType === "Family") {
+        setCurrentStep(5); // Go to children info
+      } else {
+        setCurrentStep(6); // Go to plan selection
+      }
+    } else if (currentStep === 5) {
+      // Children info completed, go to plan selection
+      setCurrentStep(6);
+    } else if (currentStep === 6 && selectedPlanId) {
       // Plan selected, move to review
       form.setValue('planId', selectedPlanId);
-      setCurrentStep(6);
-    } else if (currentStep === 6) {
+      setCurrentStep(7);
+    } else if (currentStep === 7) {
       // Validate all checkboxes before allowing submission
       const checkboxFields = ['termsAccepted', 'privacyNoticeAcknowledged', 'communicationsConsent'] as const;
       form.trigger(checkboxFields).then((isValid) => {
@@ -259,10 +282,26 @@ export default function Registration() {
   };
 
   const handlePrevStep = () => {
-    if (currentStep === 6) {
-      setCurrentStep(5);
+    if (currentStep === 7) {
+      setCurrentStep(6); // Go back to plan selection
+    } else if (currentStep === 6) {
+      // Go back from plan selection
+      if (coverageType === "Family" || coverageType === "Member/Child") {
+        setCurrentStep(5); // Go back to children info
+      } else if (coverageType === "Member/Spouse") {
+        setCurrentStep(4); // Go back to spouse info
+      } else {
+        setCurrentStep(3); // Go back to address
+      }
     } else if (currentStep === 5) {
-      setCurrentStep(3); // Skip step 4 (coverage type)
+      // Go back from children info
+      if (coverageType === "Family") {
+        setCurrentStep(4); // Go back to spouse info
+      } else {
+        setCurrentStep(3); // Go back to address
+      }
+    } else if (currentStep === 4) {
+      setCurrentStep(3); // Go back to address
     } else if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
@@ -303,24 +342,26 @@ export default function Registration() {
         <Card className="p-8">
           <CardContent className="p-0">
             {/* Progress Indicator */}
-            <ProgressIndicator currentStep={currentStep} totalSteps={6} />
+            <ProgressIndicator currentStep={currentStep} totalSteps={7} />
 
             <div className="mb-8">
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
                 {currentStep === 1 && "Personal Information"}
                 {currentStep === 2 && "Employment Information"}
                 {currentStep === 3 && "Address Information"}
-                {currentStep === 4 && "Coverage Type"}
-                {currentStep === 5 && "Select Your Plan"}
-                {currentStep === 6 && "Review & Terms"}
+                {currentStep === 4 && "Spouse Information"}
+                {currentStep === 5 && "Children Information"}
+                {currentStep === 6 && "Select Your Plan"}
+                {currentStep === 7 && "Review & Terms"}
               </h1>
               <p className="text-gray-600">
                 {currentStep === 1 && "Tell us about yourself"}
                 {currentStep === 2 && "Tell us about your employer"}
                 {currentStep === 3 && "Where can we reach you?"}
-                {currentStep === 4 && "Who will be covered under your plan?"}
-                {currentStep === 5 && "Choose your healthcare plan level"}
-                {currentStep === 6 && "Review your information and accept terms"}
+                {currentStep === 4 && "Tell us about your spouse"}
+                {currentStep === 5 && "Tell us about your children"}
+                {currentStep === 6 && "Choose your healthcare plan level"}
+                {currentStep === 7 && "Review your information and accept terms"}
               </p>
             </div>
 
@@ -685,48 +726,294 @@ export default function Registration() {
                 {currentStep === 4 && (
                   <div className="space-y-6">
                     <div className="mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Choose Your Coverage Type</h3>
-                      <p className="text-sm text-gray-600">Select who will be covered under your plan</p>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Spouse Information</h3>
+                      <p className="text-sm text-gray-600">Please provide information about your spouse</p>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {[
-                        { value: "Member Only", label: "Individual", description: "Coverage for one person" },
-                        { value: "Member/Spouse", label: "Couple", description: "Coverage for you and your spouse" },
-                        { value: "Member/Child", label: "Parent & Child", description: "Coverage for you and one child" },
-                        { value: "Family", label: "Family", description: "Coverage for your entire family (up to 6 members)" }
-                      ].map((option) => (
-                        <Card
-                          key={option.value}
-                          className={`cursor-pointer transition-all ${
-                            coverageType === option.value
-                              ? "border-2 border-medical-blue-600 bg-medical-blue-50"
-                              : "hover:shadow-md"
-                          }`}
-                          onClick={() => setCoverageType(option.value)}
-                        >
-                          <CardContent className="p-6">
-                            <h4 className="text-lg font-semibold text-gray-900 mb-2">{option.label}</h4>
-                            <p className="text-sm text-gray-600">{option.description}</p>
-                            {coverageType === option.value && (
-                              <div className="mt-4">
-                                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-medical-blue-100 text-medical-blue-800">
-                                  Selected
-                                </span>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                    <div className="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
-                      <p className="text-sm text-amber-800">
-                        <strong>Important:</strong> MyPremierPlans is a Direct Primary Care (DPC) membership. It is not health insurance and does not satisfy ACA minimum essential coverage requirements.
-                      </p>
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">First Name *</label>
+                          <Input 
+                            placeholder="Jane" 
+                            value={familyMembers[0]?.firstName || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].firstName = e.target.value;
+                              updated[0].relationship = "spouse";
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</label>
+                          <Input 
+                            placeholder="M" 
+                            value={familyMembers[0]?.middleName || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].middleName = e.target.value;
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Last Name *</label>
+                          <Input 
+                            placeholder="Doe" 
+                            value={familyMembers[0]?.lastName || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].lastName = e.target.value;
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth *</label>
+                          <Input 
+                            type="date" 
+                            value={familyMembers[0]?.dateOfBirth || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].dateOfBirth = e.target.value;
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                          <Select 
+                            value={familyMembers[0]?.gender || ""} 
+                            onValueChange={(value) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].gender = value;
+                              setFamilyMembers(updated);
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select Gender" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="male">Male</SelectItem>
+                              <SelectItem value="female">Female</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">SSN (Optional)</label>
+                          <Input 
+                            type="password" 
+                            placeholder="123456789 (Optional)" 
+                            maxLength={9}
+                            value={familyMembers[0]?.ssn || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].ssn = e.target.value;
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Phone (Optional)</label>
+                          <Input 
+                            type="tel" 
+                            placeholder="(555) 123-4567" 
+                            value={familyMembers[0]?.phone || ""} 
+                            onChange={(e) => {
+                              const updated = [...familyMembers];
+                              if (!updated[0]) updated[0] = {};
+                              updated[0].phone = e.target.value;
+                              setFamilyMembers(updated);
+                            }}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {currentStep === 5 && (
+                  <div className="space-y-6">
+                    <div className="mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Children Information</h3>
+                      <p className="text-sm text-gray-600">Please provide information about your children</p>
+                    </div>
+                    
+                    {/* Children list */}
+                    {familyMembers.filter((m, i) => i > 0 || (i === 0 && m.relationship !== "spouse")).map((child, index) => {
+                      const childIndex = familyMembers.indexOf(child);
+                      return (
+                        <div key={index} className="border border-gray-200 rounded-lg p-6 relative">
+                          <h4 className="text-md font-semibold text-gray-900 mb-4">Child {index + 1}</h4>
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">First Name *</label>
+                                <Input 
+                                  placeholder="John" 
+                                  value={child.firstName || ""} 
+                                  onChange={(e) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      firstName: e.target.value,
+                                      relationship: "child"
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</label>
+                                <Input 
+                                  placeholder="M" 
+                                  value={child.middleName || ""} 
+                                  onChange={(e) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      middleName: e.target.value
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Last Name *</label>
+                                <Input 
+                                  placeholder="Doe" 
+                                  value={child.lastName || ""} 
+                                  onChange={(e) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      lastName: e.target.value
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth *</label>
+                                <Input 
+                                  type="date" 
+                                  value={child.dateOfBirth || ""} 
+                                  onChange={(e) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      dateOfBirth: e.target.value
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                                <Select 
+                                  value={child.gender || ""} 
+                                  onValueChange={(value) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      gender: value
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select Gender" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="male">Male</SelectItem>
+                                    <SelectItem value="female">Female</SelectItem>
+                                    <SelectItem value="other">Other</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">SSN (Optional)</label>
+                                <Input 
+                                  type="password" 
+                                  placeholder="123456789 (Optional)" 
+                                  maxLength={9}
+                                  value={child.ssn || ""} 
+                                  onChange={(e) => {
+                                    const updated = [...familyMembers];
+                                    updated[childIndex] = {
+                                      ...updated[childIndex],
+                                      ssn: e.target.value
+                                    };
+                                    setFamilyMembers(updated);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          {/* Remove child button */}
+                          {familyMembers.filter(m => m.relationship === "child").length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute top-4 right-4 text-red-600 hover:text-red-700"
+                              onClick={() => {
+                                const updated = familyMembers.filter((_, i) => i !== childIndex);
+                                setFamilyMembers(updated);
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Add child button */}
+                    {(coverageType === "Member/Child" && familyMembers.filter(m => m.relationship === "child").length < 1) ||
+                     (coverageType === "Family" && familyMembers.filter(m => m.relationship === "child").length < 4) ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const newChild = { relationship: "child" };
+                          if (coverageType === "Member/Child") {
+                            setFamilyMembers([newChild]);
+                          } else {
+                            setFamilyMembers([...familyMembers, newChild]);
+                          }
+                        }}
+                        className="w-full"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Child
+                      </Button>
+                    ) : null}
+                    
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> You can add up to {coverageType === "Member/Child" ? "1 child" : "4 children"} to your plan.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 6 && (
                   <div className="space-y-6">
                     {plansLoading ? (
                       <div className="flex justify-center">
@@ -854,7 +1141,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 6 && (
+                {currentStep === 7 && (
                   <div className="space-y-6">
                     {/* Review Information */}
                     <div className="bg-gray-50 rounded-lg p-6">
@@ -899,6 +1186,25 @@ export default function Registration() {
                         <div className="col-span-2">
                           <span className="font-medium">Address:</span> {form.watch("address")} {form.watch("address2") && `, ${form.watch("address2")}`}, {form.watch("city")}, {form.watch("state")} {form.watch("zipCode")}
                         </div>
+                      </div>
+                      
+                      {/* Family Members */}
+                      {familyMembers.length > 0 && (
+                        <div className="mt-4 pt-4 border-t">
+                          <h4 className="font-semibold text-gray-900 mb-2">Family Members</h4>
+                          <div className="space-y-2">
+                            {familyMembers.map((member, index) => (
+                              <div key={index} className="text-sm">
+                                <span className="font-medium">{member.relationship === "spouse" ? "Spouse" : `Child ${index + 1}`}:</span>{" "}
+                                {member.firstName} {member.middleName} {member.lastName} - DOB: {member.dateOfBirth}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Monthly Cost */}
+                      <div className="mt-4 pt-4 border-t">
                         <div className="col-span-2">
                           <span className="font-medium">Monthly Cost Breakdown:</span> 
                           <div className="mt-2 space-y-1">
@@ -1125,12 +1431,12 @@ export default function Registration() {
                     Back
                   </Button>
                   
-                  {currentStep < 6 ? (
+                  {currentStep < 7 ? (
                     <Button 
                       type="button" 
                       className="flex-1 medical-blue-600 hover:medical-blue-700"
                       onClick={handleNextStep}
-                      disabled={(currentStep === 4 && !coverageType) || (currentStep === 5 && !selectedPlanId)}
+                      disabled={currentStep === 6 && !selectedPlanId}
                     >
                       Continue
                     </Button>
