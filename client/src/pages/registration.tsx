@@ -731,8 +731,27 @@ export default function Registration() {
                           <p className="text-sm text-gray-600">Choose the plan level that best fits your healthcare needs</p>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          {plans
-                            ?.filter((plan: any) => plan.name.includes(coverageType))
+                          {(() => {
+                            const filteredPlans = plans
+                              ?.filter((plan: any) => {
+                                // Map coverage types to plan name patterns
+                                const coverageMapping: { [key: string]: string[] } = {
+                                  "Member Only": ["Member Only", "Mem Only"],
+                                  "Member/Spouse": ["Member/Spouse", "Mem/Spouse"],
+                                  "Member/Child": ["Member/Child", "Mem/Child", "Parent/Child"],
+                                  "Family": ["Family"]
+                                };
+                                
+                                const patterns = coverageMapping[coverageType] || [];
+                                return patterns.some(pattern => plan.name.includes(pattern));
+                              });
+                            
+                            console.log("Coverage Type:", coverageType);
+                            console.log("Available plans:", plans?.map((p: any) => p.name));
+                            console.log("Filtered plans:", filteredPlans?.map((p: any) => p.name));
+                            
+                            return filteredPlans;
+                          })()
                             .filter((plan: any) => {
                               if (plan.name.includes("Base")) return true;
                               if (plan.name.includes("Plus") || plan.name.includes("+")) return true;
@@ -759,7 +778,10 @@ export default function Registration() {
                                       ? "border-2 border-green-600 bg-green-50 scale-105 shadow-lg" 
                                       : "hover:shadow-md hover:scale-102"
                                   }`}
-                                  onClick={() => setSelectedPlanId(plan.id)}
+                                  onClick={() => {
+                                    console.log("Selected plan:", plan.name, "ID:", plan.id);
+                                    setSelectedPlanId(plan.id);
+                                  }}
                                 >
                                   <CardContent className="p-6">
                                     <div className="text-center mb-4">
