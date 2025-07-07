@@ -5,13 +5,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Check, CheckCircle2, FileText, Phone, Mail, Globe } from "lucide-react";
+import { Check, CheckCircle2, FileText, Phone, Mail, Globe, Download, Send, Printer } from "lucide-react";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Confirmation() {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [membershipData, setMembershipData] = useState<any>(null);
+  const { toast } = useToast();
 
   // Get stored enrollment data
   useEffect(() => {
@@ -20,33 +22,53 @@ export default function Confirmation() {
     const addRxValet = sessionStorage.getItem("addRxValet") === "true";
     const coverageType = sessionStorage.getItem("coverageType");
 
-    if (!planId || !user) {
-      setLocation("/");
+    console.log("Confirmation page - Loading data from session:", { planId, totalPrice, coverageType, user });
+
+    if (!planId) {
+      console.error("No plan ID found in session storage");
+      toast({
+        title: "Session Expired",
+        description: "Please start the enrollment process again.",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        setLocation("/");
+      }, 2000);
       return;
     }
 
-    // Generate a mock transaction ID
-    const transactionId = `MPP${Date.now()}`;
+    if (!user) {
+      console.error("No user data available");
+      return;
+    }
+
+    // Generate a unique customer number and transaction ID
+    const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
+    const transactionId = `TXN${Date.now()}`;
     const today = new Date();
     const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
     setMembershipData({
       memberId: `MPP${user.id}`,
+      customerNumber,
       transactionId,
       billingDate: today,
       nextBillingDate: nextMonth,
       totalPrice,
       addRxValet,
       coverageType,
-      planId: parseInt(planId)
+      planId: parseInt(planId),
+      enrollmentDate: today
     });
 
-    // Clear session storage
-    sessionStorage.removeItem("selectedPlanId");
-    sessionStorage.removeItem("totalMonthlyPrice");
-    sessionStorage.removeItem("addRxValet");
-    sessionStorage.removeItem("coverageType");
-    sessionStorage.removeItem("primaryAddress");
+    // Clear session storage after setting membership data
+    setTimeout(() => {
+      sessionStorage.removeItem("selectedPlanId");
+      sessionStorage.removeItem("totalMonthlyPrice");
+      sessionStorage.removeItem("addRxValet");
+      sessionStorage.removeItem("coverageType");
+      sessionStorage.removeItem("primaryAddress");
+    }, 1000);
   }, [user, setLocation]);
 
   const { data: plans = [] } = useQuery<any[]>({
@@ -74,16 +96,104 @@ export default function Confirmation() {
     ...(membershipData.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
   ] : [];
 
+  // Print function
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Download function (creates a downloadable HTML file)
+  const handleDownload = () => {
+    const element = document.getElementById('confirmation-content');
+    if (!element) return;
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MyPremierPlans Enrollment Confirmation - ${membershipData.customerNumber}</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+    .header { text-align: center; border-bottom: 2px solid #1e3a8a; padding-bottom: 20px; margin-bottom: 20px; }
+    .success { color: #16a34a; }
+    .section { margin: 20px 0; padding: 20px; background: #f3f4f6; border-radius: 8px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .label { color: #6b7280; font-size: 14px; }
+    .value { font-weight: bold; margin-bottom: 10px; }
+    .footer { margin-top: 40px; text-align: center; font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  ${element.innerHTML}
+  <div class="footer">
+    <p>This document serves as proof of enrollment with MyPremierPlans.</p>
+    <p>Downloaded on ${new Date().toLocaleString()}</p>
+  </div>
+</body>
+</html>`;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `MPP_Enrollment_${membershipData.customerNumber}_${format(new Date(), 'yyyyMMdd')}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "Download Complete",
+      description: "Your enrollment confirmation has been downloaded.",
+    });
+  };
+
+  // Email function (simulated)
+  const handleEmail = () => {
+    // In a real implementation, this would call an API endpoint to send an email
+    toast({
+      title: "Email Requested",
+      description: "Your enrollment confirmation will be emailed to your registered address shortly.",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <Card className="p-8">
-          <CardContent className="p-0">
+          <CardContent className="p-0" id="confirmation-content">
             {/* Success Header */}
             <div className="text-center mb-8">
               <CheckCircle2 className="h-16 w-16 text-green-600 mx-auto mb-4" />
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Membership Enrollment Confirmed!</h1>
               <p className="text-gray-600">Your enrollment has been successfully processed.</p>
+              <p className="text-lg font-semibold text-medical-blue-600 mt-2">Customer Number: {membershipData.customerNumber}</p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap justify-center gap-4 mb-8">
+              <Button 
+                onClick={handleDownload}
+                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Confirmation
+              </Button>
+              <Button 
+                onClick={handlePrint}
+                variant="outline"
+                className="border-medical-blue-600 text-medical-blue-600 hover:bg-medical-blue-50"
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                Print
+              </Button>
+              <Button 
+                onClick={handleEmail}
+                variant="outline"
+                className="border-medical-blue-600 text-medical-blue-600 hover:bg-medical-blue-50"
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Email Confirmation
+              </Button>
             </div>
 
             {/* Membership Summary */}
@@ -96,8 +206,16 @@ export default function Confirmation() {
                   <p className="font-medium">{user?.firstName} {user?.lastName}</p>
                 </div>
                 <div>
+                  <p className="text-sm text-gray-600">Customer Number</p>
+                  <p className="font-medium">{membershipData.customerNumber}</p>
+                </div>
+                <div>
                   <p className="text-sm text-gray-600">Member ID</p>
                   <p className="font-medium">{membershipData.memberId}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Enrollment Date</p>
+                  <p className="font-medium">{format(membershipData.enrollmentDate, "MMMM d, yyyy")}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Plan Name</p>
@@ -207,8 +325,47 @@ export default function Confirmation() {
                 Print Confirmation
               </Button>
             </div>
+
+            {/* Important Notice */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6">
+              <h3 className="text-lg font-semibold text-yellow-800 mb-2">Important Information</h3>
+              <p className="text-sm text-yellow-700 mb-2">
+                Please save this confirmation for your records. Your MyPremierPlans customer number is <strong>{membershipData.customerNumber}</strong>.
+              </p>
+              <p className="text-sm text-yellow-700">
+                You will need this number when scheduling appointments or contacting customer service.
+              </p>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="text-center pt-6 border-t">
+              <Button 
+                onClick={() => {
+                  const defaultRoute = user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/";
+                  setLocation(defaultRoute);
+                }}
+                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+              >
+                Go to Dashboard
+              </Button>
+            </div>
           </CardContent>
         </Card>
+
+        {/* Print Styles */}
+        <style jsx>{`
+          @media print {
+            .no-print {
+              display: none !important;
+            }
+            body {
+              font-size: 12pt;
+            }
+            #confirmation-content {
+              padding: 20px;
+            }
+          }
+        `}</style>
       </div>
     </div>
   );

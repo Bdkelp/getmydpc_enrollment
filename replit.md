@@ -271,6 +271,18 @@ Changelog:
   • Fixed pricing calculations to properly handle family plans with spouse/children
   • Added mock payment button to complete enrollment without Stripe configuration
   • Added debugging logs to track plan selection issues
+- July 07, 2025: Fixed payment and confirmation page issues
+  • Fixed double decimal display issue ($119.00.00 → $119.00)
+  • Fixed mock payment endpoint 500 error by using correct data types for database decimal fields
+  • Enhanced confirmation page to serve as official enrollment proof with:
+    - Unique customer number generation (MPP2025 + 6-digit user ID)
+    - Download functionality (saves as HTML file)
+    - Print functionality with proper print styles
+    - Email functionality (currently shows notification)
+    - Complete enrollment details including customer number, member ID, enrollment date
+    - Professional layout suitable for company records
+  • Fixed confirmation page redirect issue - now properly displays after mock payment
+  • Added "Go to Dashboard" button that routes based on user role
 ```
 
 ## User Preferences
