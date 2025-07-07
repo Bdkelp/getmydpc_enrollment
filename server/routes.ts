@@ -78,6 +78,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { planId } = req.body;
       const userId = req.user.claims.sub;
       
+      console.log("Mock payment request:", { planId, userId });
+      
       if (!planId) {
         return res.status(400).json({ message: "Plan ID is required" });
       }
@@ -85,37 +87,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get plan details
       const plan = await storage.getPlan(planId);
       if (!plan) {
+        console.error("Plan not found:", planId);
         return res.status(404).json({ message: "Plan not found" });
       }
+      
+      console.log("Plan details:", { id: plan.id, name: plan.name, price: plan.price });
+      
+      // Get total price from session storage (includes processing fees and add-ons)
+      const planPrice = parseFloat(plan.price);
+      const totalPrice = planPrice * 1.04; // Include 4% processing fee
       
       // Create subscription
       const subscription = await storage.createSubscription({
         userId,
         planId,
         status: "active",
-        currentPeriodStart: new Date(),
-        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        cancelAtPeriodEnd: false,
+        amount: totalPrice, // Pass as number, not string
+        startDate: new Date(),
+        nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
       });
+      
+      console.log("Subscription created:", subscription.id);
       
       // Create payment record
       const payment = await storage.createPayment({
         userId,
         subscriptionId: subscription.id,
-        amount: parseFloat(plan.price),
-        currency: "usd",
+        amount: totalPrice, // Pass as number, not string
         status: "succeeded",
         stripePaymentIntentId: `mock_${Date.now()}`, // Mock payment ID
       });
+      
+      console.log("Payment created:", payment.id);
       
       res.json({
         success: true,
         subscriptionId: subscription.id,
         paymentId: payment.id,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error processing mock payment:", error);
-      res.status(500).json({ message: "Failed to process mock payment" });
+      console.error("Error stack:", error.stack);
+      res.status(500).json({ message: "Failed to process mock payment: " + error.message });
     }
   });
 

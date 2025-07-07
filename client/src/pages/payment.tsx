@@ -459,7 +459,7 @@ export default function Payment() {
                   <div className="space-y-4">
                     <div className="flex justify-between">
                       <span className="text-gray-700">{selectedPlan?.name || "Plan"}</span>
-                      <span className="text-gray-900">${selectedPlan?.price || "0"}.00</span>
+                      <span className="text-gray-900">${selectedPlan?.price || "0.00"}</span>
                     </div>
                     
                     {sessionStorage.getItem("addRxValet") === "true" && (
