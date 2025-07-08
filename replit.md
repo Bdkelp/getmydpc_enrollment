@@ -290,6 +290,14 @@ Changelog:
   • All coverage types (Member only, Mem/Spouse, Mem/Children, Family) now go directly to payment after registration
   • Family member data from steps 4 and 5 is now properly included in registration submission
   • Improved user experience by removing unnecessary extra page in enrollment flow
+- July 08, 2025: Landing page updates and branding improvements
+  • Added Contact Us hyperlink in navigation to https://www.mypremierplans.com/contactus
+  • Updated 24/7 Access text to include Patient Advocate Line (PAL) and mobile app
+  • Changed hero image from brain scan to happy family with doctor consultation
+  • Learn More button now links to https://mypremierplans.com
+  • Created contact form modal for lead capture (sends to info@mypremierplans.com)
+  • All CTA buttons (Get Started, Enroll Now, Select Plan) now open contact form modal
+  • Integrated MyPremierPlans logo into navigation bar replacing heart icon
 ```
 
 ## User Preferences
