@@ -144,7 +144,7 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ### Agent Features
 - Track total enrollments and monthly enrollments
-- View commission earnings ($50 per enrollment)
+- View commission earnings (varies by plan: Base $9-17, Plus/Elite $20-40, +$2.50 for Rx)
 - Export enrollment data as CSV for submission to MPP
 - View and manage leads (placeholder for future implementation)
 - Filter enrollments by date range

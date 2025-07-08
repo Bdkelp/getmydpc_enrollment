@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { z } from "zod";
 import { registrationSchema, insertPlanSchema } from "@shared/schema";
+import { calculateEnrollmentCommission } from "./utils/commission";
 
 let stripe: Stripe | null = null;
 
@@ -277,10 +278,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         new Date(e.createdAt) >= monthStart
       );
       
-      // Commission calculation (example: $50 per enrollment)
-      const COMMISSION_PER_ENROLLMENT = 50;
-      const totalCommission = enrollments.length * COMMISSION_PER_ENROLLMENT;
-      const monthlyCommission = monthlyEnrollments.length * COMMISSION_PER_ENROLLMENT;
+      // Calculate commissions with new structure
+      const enrollmentDetails = await Promise.all(enrollments.map(async (user: any) => {
+        const subscription = await storage.getUserSubscription(user.id);
+        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        return {
+          planName: plan?.name || '',
+          memberType: user.memberType || 'member',
+          hasRx: user.hasRxValet || false
+        };
+      }));
+      
+      const monthlyEnrollmentDetails = await Promise.all(monthlyEnrollments.map(async (user: any) => {
+        const subscription = await storage.getUserSubscription(user.id);
+        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        return {
+          planName: plan?.name || '',
+          memberType: user.memberType || 'member',
+          hasRx: user.hasRxValet || false
+        };
+      }));
+      
+      const totalCommission = enrollmentDetails.reduce((total, enrollment) => {
+        return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
+      }, 0);
+      
+      const monthlyCommission = monthlyEnrollmentDetails.reduce((total, enrollment) => {
+        return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
+      }, 0);
       
       res.json({
         totalEnrollments: enrollments.length,
@@ -317,7 +342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           planName: plan?.name || 'No Plan',
           memberType: user.memberType,
           monthlyPrice: plan?.price || 0,
-          commission: 50, // Fixed commission per enrollment
+          commission: calculateEnrollmentCommission(plan?.name || '', user.memberType || 'member', user.hasRxValet || false),
           status: subscription?.status || 'pending',
           pendingReason: subscription?.pendingReason,
           pendingDetails: subscription?.pendingDetails,
@@ -360,7 +385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           plan?.name || 'No Plan',
           user.memberType || '',
           plan?.price || '0',
-          '50', // Commission
+          calculateEnrollmentCommission(plan?.name || '', user.memberType || 'member', user.hasRxValet || false).toFixed(2),
           subscription?.status || 'pending'
         ];
       }));
