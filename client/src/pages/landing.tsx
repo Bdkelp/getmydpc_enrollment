@@ -8,6 +8,7 @@ import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
+import heroImage from "@assets/enrollment dr image_1752013719087.jpg";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
@@ -175,9 +176,10 @@ export default function Landing() {
             </div>
             <div className="lg:pl-8">
               <img 
-                src="https://images.unsplash.com/photo-1602452920335-6a132309c7c8?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
-                alt="Happy family with doctor in medical consultation" 
-                className="rounded-xl shadow-lg w-full h-auto"
+                src={heroImage} 
+                alt="Doctor consultation with patient" 
+                className="rounded-xl shadow-lg w-full h-auto object-cover"
+                style={{ maxHeight: "600px" }}
               />
             </div>
           </div>
