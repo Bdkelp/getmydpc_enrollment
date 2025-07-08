@@ -125,7 +125,16 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 ### User Roles
 - **Admin**: Full system access, can view all enrollments, manage plans, access analytics
 - **Agent**: Can enroll new members, view their own enrollments, track commissions, export enrollment data
-- **User** (Regular Member): No dashboard access, must contact agent or customer service for changes
+- **User** (Regular Member): Currently no dashboard access (Phase 1). Future: self-enrollment capability (Phase 2)
+
+### Enrollment Strategy (Phased Approach)
+- **Phase 1 (Current)**: Agent-only enrollment for testing and quality control
+- **Phase 2 (Planned)**: Hybrid model with both agent and self-enrollment
+  - Self-enrolled members will be tagged for tracking
+  - Agents maintain their commission structure
+  - Lead capture continues for both channels
+- **Scaling Plan**: Starting with <10 agents, scaling to several hundred agents
+- **Note**: DPC non-insurance product, not regulated by Department of Insurance
 
 ### Access Rules
 - Agents are automatically redirected to `/agent` dashboard
