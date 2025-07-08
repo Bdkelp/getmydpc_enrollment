@@ -169,29 +169,20 @@ export default function Registration() {
         totalMonthlyPrice: totalWithFees
       });
       
-      // Redirect to family enrollment if needed
-      if (coverageType !== "Member Only") {
+      // Always go directly to payment now that family members are included in registration
+      // Check if Stripe is configured
+      if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
         toast({
-          title: "Primary Member Registered",
-          description: "Now add your family members to complete enrollment.",
+          title: "Registration Complete",
+          description: "Redirecting to mock payment for testing...",
         });
-        setLocation("/family-enrollment");
       } else {
-        
-        // Check if Stripe is configured
-        if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-          toast({
-            title: "Registration Complete",
-            description: "Redirecting to mock payment for testing...",
-          });
-        } else {
-          toast({
-            title: "Registration Complete",
-            description: "Your information has been saved. Proceeding to payment...",
-          });
-        }
-        setLocation("/payment");
+        toast({
+          title: "Registration Complete",
+          description: "Your information has been saved. Proceeding to payment...",
+        });
       }
+      setLocation("/payment");
     },
     onError: (error) => {
       if (isUnauthorizedError(error)) {
@@ -317,10 +308,11 @@ export default function Registration() {
   };
 
   const onSubmit = (data: RegistrationForm) => {
-    // Add the selected plan ID to the form data
+    // Add the selected plan ID and family members to the form data
     const submissionData = {
       ...data,
       planId: selectedPlanId!,
+      familyMembers: familyMembers.filter(member => member && member.firstName), // Include only valid family members
     };
     registrationMutation.mutate(submissionData);
   };

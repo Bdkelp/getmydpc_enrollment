@@ -283,6 +283,13 @@ Changelog:
     - Professional layout suitable for company records
   • Fixed confirmation page redirect issue - now properly displays after mock payment
   • Added "Go to Dashboard" button that routes based on user role
+- July 08, 2025: Fixed redundant family member enrollment issue
+  • Eliminated duplicate family member data collection during enrollment
+  • Modified registration flow to submit family members with primary member data
+  • Removed redirect to family-enrollment page for family plans
+  • All coverage types (Member only, Mem/Spouse, Mem/Children, Family) now go directly to payment after registration
+  • Family member data from steps 4 and 5 is now properly included in registration submission
+  • Improved user experience by removing unnecessary extra page in enrollment flow
 ```
 
 ## User Preferences
