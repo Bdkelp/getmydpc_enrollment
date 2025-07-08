@@ -8,7 +8,6 @@ import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
-import logoImage from "@assets/Logo-02_1752012314123.png";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
@@ -85,11 +84,8 @@ export default function Landing() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <div className="flex-shrink-0 flex items-center">
-                <img 
-                  src={logoImage} 
-                  alt="MyPremierPlans" 
-                  className="h-10 w-auto"
-                />
+                <Heart className="text-medical-blue-600 h-8 w-8 mr-3" />
+                <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
               </div>
               <div className="hidden md:block ml-10">
                 <div className="flex items-baseline space-x-4">
