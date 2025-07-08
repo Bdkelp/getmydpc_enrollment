@@ -6,10 +6,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ["/api/plans"],
   });
@@ -23,7 +25,7 @@ export default function Landing() {
     {
       icon: Clock,
       title: "24/7 Access",
-      description: "Text, call, or email your doctor anytime. Same-day appointments available when you need care.",
+      description: "Use the Patient advocate line (PAL) or the mobile app to access care when you need it. Same-day or next day appointments available when you need care.",
     },
     {
       icon: UserCheck,
@@ -90,7 +92,7 @@ export default function Landing() {
                   <a href="#home" className="text-medical-blue-600 px-3 py-2 text-sm font-medium">Home</a>
                   <a href="#plans" className="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm font-medium">Plans</a>
                   <a href="#about" className="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm font-medium">About DPC</a>
-                  <a href="#contact" className="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm font-medium">Contact</a>
+                  <a href="https://www.mypremierplans.com/contactus" target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-700 px-3 py-2 text-sm font-medium">Contact Us</a>
                 </div>
               </div>
             </div>
@@ -115,11 +117,12 @@ export default function Landing() {
                   >
                     Sign In
                   </Button>
-                  <Link href="/registration">
-                    <Button className="medical-blue-600 hover:medical-blue-700 text-white">
-                      Get Started
-                    </Button>
-                  </Link>
+                  <Button 
+                    className="medical-blue-600 hover:medical-blue-700 text-white"
+                    onClick={() => setIsContactModalOpen(true)}
+                  >
+                    Get Started
+                  </Button>
                 </>
               )}
             </div>
@@ -155,21 +158,25 @@ export default function Landing() {
                     </div>
                   )
                 ) : (
-                  <Link href="/registration">
-                    <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
-                      Enroll Now
-                    </Button>
-                  </Link>
+                  <Button 
+                    size="lg" 
+                    className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4"
+                    onClick={() => setIsContactModalOpen(true)}
+                  >
+                    Enroll Now
+                  </Button>
                 )}
-                <Button variant="outline" size="lg" className="px-8 py-4">
-                  Learn More
-                </Button>
+                <a href="https://mypremierplans.com" target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="lg" className="px-8 py-4">
+                    Learn More
+                  </Button>
+                </a>
               </div>
             </div>
             <div className="lg:pl-8">
               <img 
-                src="https://images.unsplash.com/photo-1559757148-5c350d0d3c56?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
-                alt="Doctor consulting with patient in modern clinic" 
+                src="https://images.unsplash.com/photo-1602452920335-6a132309c7c8?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&h=600" 
+                alt="Happy family with doctor in medical consultation" 
                 className="rounded-xl shadow-lg w-full h-auto"
               />
             </div>
@@ -256,17 +263,16 @@ export default function Landing() {
                         </div>
                       )
                     ) : (
-                      <Link href="/registration">
-                        <Button 
-                          className={`w-full ${
-                            plan.name.toLowerCase().includes("group") 
-                              ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                              : "medical-blue-600 hover:medical-blue-700 text-white"
-                          }`}
-                        >
-                          {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
-                        </Button>
-                      </Link>
+                      <Button 
+                        className={`w-full ${
+                          plan.name.toLowerCase().includes("group") 
+                            ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
+                            : "medical-blue-600 hover:medical-blue-700 text-white"
+                        }`}
+                        onClick={() => setIsContactModalOpen(true)}
+                      >
+                        {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
+                      </Button>
                     )}
                   </CardContent>
                 </Card>
@@ -275,6 +281,12 @@ export default function Landing() {
           )}
         </div>
       </div>
+      
+      {/* Contact Form Modal */}
+      <ContactFormModal 
+        isOpen={isContactModalOpen} 
+        onClose={() => setIsContactModalOpen(false)} 
+      />
     </div>
   );
 }
