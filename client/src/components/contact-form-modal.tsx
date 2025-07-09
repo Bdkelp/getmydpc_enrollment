@@ -33,6 +33,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
   
   const form = useForm<ContactFormData>({
     resolver: zodResolver(contactFormSchema),
+    mode: "onChange",
     defaultValues: {
       firstName: "",
       lastName: "",
@@ -176,8 +177,12 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
               </Button>
               <Button
                 type="submit"
-                className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
-                disabled={isSubmitting}
+                className={`flex-1 text-white ${
+                  form.formState.isValid 
+                    ? "bg-green-600 hover:bg-green-700" 
+                    : "bg-gray-400 hover:bg-gray-500"
+                }`}
+                disabled={isSubmitting || !form.formState.isValid}
               >
                 {isSubmitting ? <LoadingSpinner /> : "Submit"}
               </Button>
