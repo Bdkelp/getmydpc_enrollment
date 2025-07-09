@@ -314,3 +314,9 @@ Changelog:
 ```
 Preferred communication style: Simple, everyday language.
 ```
+
+## Deployment Strategy
+
+- **Preferred approach**: Deploy as subdirectory on existing domain (mypremierplans.com/enrollment)
+- **Rationale**: Cost-effective, maintains domain authority, better user trust
+- **Alternative considered**: Separate domain (not preferred due to additional costs)
