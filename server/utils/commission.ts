@@ -34,7 +34,7 @@ export const commissionRates = {
 export function getPlanTier(planName: string): 'base' | 'plus' | 'elite' | null {
   const lowerName = planName.toLowerCase();
   if (lowerName.includes('base')) return 'base';
-  if (lowerName.includes('plus')) return 'plus';
+  if (lowerName.includes('plus') || lowerName.includes('+')) return 'plus';
   if (lowerName.includes('elite')) return 'elite';
   return null;
 }
