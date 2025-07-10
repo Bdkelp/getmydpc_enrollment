@@ -103,7 +103,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         planId,
         status: "active",
-        amount: totalPrice, // Pass as number, not string
+        amount: totalPrice.toFixed(2), // Convert to string with 2 decimal places
         startDate: new Date(),
         nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
       });
@@ -114,7 +114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payment = await storage.createPayment({
         userId,
         subscriptionId: subscription.id,
-        amount: totalPrice, // Pass as number, not string
+        amount: totalPrice.toFixed(2), // Convert to string with 2 decimal places
         status: "succeeded",
         stripePaymentIntentId: `mock_${Date.now()}`, // Mock payment ID
       });
