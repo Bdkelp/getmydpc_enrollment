@@ -243,7 +243,7 @@ export default function Payment() {
                             {sessionStorage.getItem("rxValet") === "yes" && (
                               <div className="flex justify-between text-sm">
                                 <span>RxValet Add-on</span>
-                                <span>$10</span>
+                                <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                               </div>
                             )}
                             <div className="flex justify-between text-sm">
@@ -465,13 +465,13 @@ export default function Payment() {
                     {sessionStorage.getItem("addRxValet") === "true" && (
                       <div className="flex justify-between">
                         <span className="text-gray-700">RxValet Add-on</span>
-                        <span className="text-gray-900">$19.00</span>
+                        <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                       </div>
                     )}
                     
                     <div className="flex justify-between text-sm text-gray-600">
                       <span>Processing Fee (4%)</span>
-                      <span className="text-gray-900">${((parseFloat(selectedPlan?.price || "0") + (sessionStorage.getItem("addRxValet") === "true" ? 19 : 0)) * 0.04).toFixed(2)}</span>
+                      <span className="text-gray-900">${((parseFloat(selectedPlan?.price || "0") + (sessionStorage.getItem("addRxValet") === "true" ? (sessionStorage.getItem("coverageType") === "Member only" ? 19 : 21) : 0)) * 0.04).toFixed(2)}</span>
                     </div>
                     
                     <div className="flex justify-between text-sm text-gray-600">
