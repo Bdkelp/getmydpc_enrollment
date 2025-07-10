@@ -307,6 +307,21 @@ Changelog:
   • Created contact form modal for lead capture (sends to info@mypremierplans.com)
   • All CTA buttons (Get Started, Enroll Now, Select Plan) now open contact form modal
   • Logo integration attempted but file was too small, reverted pending larger file
+- July 10, 2025: Commission calculation fixes and lead management implementation
+  • Fixed commission calculation bug - Plus plans now properly recognize "+" symbol and display correct $20-$40 commission
+  • Updated commission structure to match tiered rates (Base: $9-17, Plus/Elite: $20-40, +$2.50 for RxValet)
+  • Resolved contact form CTA button styling - now shows green when form is complete
+  • Implemented comprehensive lead management system:
+    - Database schema for leads and lead activities
+    - Contact form now saves leads directly to database
+    - Automatic lead assignment to available agents (round-robin)
+    - Agent dashboard shows real-time lead stats and recent leads
+    - Dedicated lead management page at /agent/leads with status filtering
+    - Lead status workflow: new → contacted → qualified → enrolled/closed
+    - Activity tracking for phone calls, emails, meetings, and notes
+    - Lead conversion rate calculation and display
+    - Visual status badges with color coding
+  • Transformed placeholder lead features into fully functional system
 ```
 
 ## User Preferences

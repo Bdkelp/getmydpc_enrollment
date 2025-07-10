@@ -307,14 +307,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
       }, 0);
       
+      // Get lead stats and recent leads
+      const leadStats = await storage.getAgentLeadStats(agentId);
+      const recentLeads = await storage.getAgentLeads(agentId);
+      
       res.json({
         totalEnrollments: enrollments.length,
         monthlyEnrollments: monthlyEnrollments.length,
         totalCommission,
         monthlyCommission,
-        activeLeads: 0, // Placeholder for future lead tracking
-        conversionRate: 0, // Placeholder for future analytics
-        leads: [] // Placeholder for future lead management
+        activeLeads: leadStats.new + leadStats.contacted + leadStats.qualified,
+        conversionRate: (leadStats.new + leadStats.contacted + leadStats.qualified + leadStats.enrolled + leadStats.closed) > 0 
+          ? (leadStats.enrolled / (leadStats.new + leadStats.contacted + leadStats.qualified + leadStats.enrolled + leadStats.closed)) * 100 
+          : 0,
+        leads: recentLeads.slice(0, 5).map(lead => ({
+          id: lead.id,
+          name: `${lead.firstName} ${lead.lastName}`,
+          email: lead.email,
+          phone: lead.phone,
+          lastContact: lead.updatedAt,
+          status: lead.status
+        }))
       });
     } catch (error) {
       console.error("Agent stats error:", error);
@@ -661,6 +674,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Error creating plan:", error);
       res.status(500).json({ message: "Failed to create plan" });
+    }
+  });
+
+  // Lead management routes
+  app.post("/api/leads", async (req, res) => {
+    try {
+      const { firstName, lastName, email, phone, message } = req.body;
+      
+      // Create the lead
+      const lead = await storage.createLead({
+        firstName,
+        lastName,
+        email,
+        phone,
+        message,
+        source: 'contact_form',
+        status: 'new'
+      });
+      
+      // Auto-assign to available agent
+      const availableAgentId = await storage.getAvailableAgentForLead();
+      if (availableAgentId) {
+        await storage.assignLeadToAgent(lead.id, availableAgentId);
+      }
+      
+      res.json({ success: true, lead });
+    } catch (error) {
+      console.error("Lead creation error:", error);
+      res.status(500).json({ message: "Failed to create lead" });
+    }
+  });
+  
+  app.get("/api/agent/leads", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = req.user.claims.sub;
+      const { status } = req.query;
+      
+      const leads = await storage.getAgentLeads(agentId, status);
+      res.json(leads);
+    } catch (error) {
+      console.error("Fetch leads error:", error);
+      res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+  
+  app.put("/api/leads/:id", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const leadId = parseInt(req.params.id);
+      const updates = req.body;
+      
+      const lead = await storage.updateLead(leadId, updates);
+      res.json(lead);
+    } catch (error) {
+      console.error("Update lead error:", error);
+      res.status(500).json({ message: "Failed to update lead" });
+    }
+  });
+  
+  app.post("/api/leads/:id/activities", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const leadId = parseInt(req.params.id);
+      const agentId = req.user.claims.sub;
+      const { activityType, notes } = req.body;
+      
+      const activity = await storage.addLeadActivity({
+        leadId,
+        agentId,
+        activityType,
+        notes
+      });
+      
+      res.json(activity);
+    } catch (error) {
+      console.error("Add activity error:", error);
+      res.status(500).json({ message: "Failed to add activity" });
     }
   });
 

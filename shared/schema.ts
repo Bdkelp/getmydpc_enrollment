@@ -120,6 +120,29 @@ export const enrollmentModifications = pgTable("enrollment_modifications", {
 });
 
 // Family members table (for family plans)
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  firstName: varchar("first_name", { length: 255 }).notNull(),
+  lastName: varchar("last_name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 50 }).notNull(),
+  message: text("message"),
+  source: varchar("source", { length: 50 }).default("contact_form"),
+  status: varchar("status", { length: 50 }).default("new"),
+  assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const leadActivities = pgTable("lead_activities", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id").references(() => leads.id),
+  agentId: varchar("agent_id", { length: 255 }),
+  activityType: varchar("activity_type", { length: 50 }), // call, email, meeting, note
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
   primaryUserId: varchar("primary_user_id").references(() => users.id).notNull(),
@@ -169,6 +192,25 @@ export const familyMembersRelations = relations(familyMembers, ({ one }) => ({
   primaryUser: one(users, { fields: [familyMembers.primaryUserId], references: [users.id] }),
 }));
 
+export const leadsRelations = relations(leads, ({ one, many }) => ({
+  assignedAgent: one(users, {
+    fields: [leads.assignedAgentId],
+    references: [users.id],
+  }),
+  activities: many(leadActivities),
+}));
+
+export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
+  lead: one(leads, {
+    fields: [leadActivities.leadId],
+    references: [leads.id],
+  }),
+  agent: one(users, {
+    fields: [leadActivities.agentId],
+    references: [users.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -194,6 +236,17 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
 });
 
 export const insertFamilyMemberSchema = createInsertSchema(familyMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertLeadSchema = createInsertSchema(leads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertLeadActivitySchema = createInsertSchema(leadActivities).omit({
   id: true,
   createdAt: true,
 });
@@ -242,3 +295,7 @@ export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type FamilyMember = typeof familyMembers.$inferSelect;
 export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
 export type RegistrationData = z.infer<typeof registrationSchema>;
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type LeadActivity = typeof leadActivities.$inferSelect;
+export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;

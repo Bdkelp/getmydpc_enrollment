@@ -47,12 +47,18 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
     setIsSubmitting(true);
     
     try {
-      // In a real implementation, this would send an email to info@mypremierplans.com
-      // For now, we'll simulate the submission
-      console.log("Sending contact form data:", data);
+      // Submit lead to backend
+      const response = await fetch("/api/leads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!response.ok) {
+        throw new Error("Failed to submit lead");
+      }
       
       toast({
         title: "Thank you for your interest!",

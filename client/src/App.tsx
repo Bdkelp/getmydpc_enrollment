@@ -9,6 +9,7 @@ import Registration from "@/pages/registration";
 import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
+import AgentLeads from "@/pages/agent-leads";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
@@ -53,6 +54,7 @@ function Router() {
           {user?.role === "agent" && (
             <>
               <Route path="/agent" component={AgentDashboard} />
+              <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />
@@ -65,6 +67,7 @@ function Router() {
             <>
               <Route path="/admin" component={Admin} />
               <Route path="/agent" component={AgentDashboard} />
+              <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />

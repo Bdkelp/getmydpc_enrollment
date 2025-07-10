@@ -5,6 +5,8 @@ import {
   payments,
   familyMembers,
   enrollmentModifications,
+  leads,
+  leadActivities,
   type User,
   type UpsertUser,
   type Plan,
@@ -15,6 +17,10 @@ import {
   type InsertPayment,
   type FamilyMember,
   type InsertFamilyMember,
+  type Lead,
+  type InsertLead,
+  type LeadActivity,
+  type InsertLeadActivity,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, like, count, gte, lte, sql } from "drizzle-orm";
@@ -59,6 +65,21 @@ export interface IStorage {
   
   // Enrollment modification operations
   recordEnrollmentModification(data: any): Promise<void>;
+  
+  // Lead management operations
+  createLead(lead: InsertLead): Promise<Lead>;
+  getAgentLeads(agentId: string, status?: string): Promise<Lead[]>;
+  getLead(id: number): Promise<Lead | undefined>;
+  updateLead(id: number, data: Partial<Lead>): Promise<Lead>;
+  assignLeadToAgent(leadId: number, agentId: string): Promise<Lead>;
+  
+  // Lead activity operations
+  addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity>;
+  getLeadActivities(leadId: number): Promise<LeadActivity[]>;
+  
+  // Lead stats
+  getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }>;
+  getAvailableAgentForLead(): Promise<string | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -274,6 +295,88 @@ export class DatabaseStorage implements IStorage {
       consentNotes: data.consentNotes,
       consentDate: data.consentDate,
     });
+  }
+
+  // Lead management operations
+  async createLead(lead: InsertLead): Promise<Lead> {
+    const [newLead] = await db.insert(leads).values(lead).returning();
+    return newLead;
+  }
+
+  async getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
+    const conditions = [eq(leads.assignedAgentId, agentId)];
+    if (status) {
+      conditions.push(eq(leads.status, status));
+    }
+    return await db.select().from(leads).where(and(...conditions)).orderBy(desc(leads.createdAt));
+  }
+
+  async getLead(id: number): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    return lead;
+  }
+
+  async updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
+    const [updated] = await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
+    return updated;
+  }
+
+  async assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
+    const [updated] = await db.update(leads).set({ assignedAgentId: agentId, updatedAt: new Date() }).where(eq(leads.id, leadId)).returning();
+    return updated;
+  }
+
+  // Lead activity operations
+  async addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity> {
+    const [newActivity] = await db.insert(leadActivities).values(activity).returning();
+    return newActivity;
+  }
+
+  async getLeadActivities(leadId: number): Promise<LeadActivity[]> {
+    return await db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).orderBy(desc(leadActivities.createdAt));
+  }
+
+  // Lead stats
+  async getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }> {
+    const stats = await db.select({
+      status: leads.status,
+      count: count()
+    })
+    .from(leads)
+    .where(eq(leads.assignedAgentId, agentId))
+    .groupBy(leads.status);
+
+    const result = {
+      new: 0,
+      contacted: 0,
+      qualified: 0,
+      enrolled: 0,
+      closed: 0
+    };
+
+    stats.forEach(stat => {
+      if (stat.status && stat.status in result) {
+        result[stat.status as keyof typeof result] = stat.count;
+      }
+    });
+
+    return result;
+  }
+
+  async getAvailableAgentForLead(): Promise<string | null> {
+    // Simple round-robin assignment - get agent with least assigned leads
+    const agents = await db.select({
+      agentId: users.id,
+      leadCount: count(leads.id)
+    })
+    .from(users)
+    .leftJoin(leads, eq(leads.assignedAgentId, users.id))
+    .where(eq(users.role, 'agent'))
+    .groupBy(users.id)
+    .orderBy(count(leads.id))
+    .limit(1);
+
+    return agents[0]?.agentId || null;
   }
 }
 

@@ -111,6 +111,10 @@ export default function AgentDashboard() {
     setSelectedEnrollment(enrollment);
     setShowPendingDialog(true);
   };
+  
+  const handleLeadClick = (leadId: number) => {
+    setLocation(`/agent/leads/${leadId}`);
+  };
 
   const handleResolvePending = async () => {
     if (!selectedEnrollment || !consentType || !consentNotes) {
@@ -321,20 +325,38 @@ export default function AgentDashboard() {
 
         {/* Leads to Follow Up */}
         <Card className="mt-6">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Leads to Follow Up</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLocation("/agent/leads")}
+            >
+              View All Leads
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {stats?.leads?.map((lead: any) => (
-                <div key={lead.id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                <div 
+                  key={lead.id} 
+                  className="flex justify-between items-center p-3 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                  onClick={() => handleLeadClick(lead.id)}
+                >
                   <div>
                     <p className="font-medium">{lead.name}</p>
                     <p className="text-sm text-gray-600">{lead.phone} • {lead.email}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-600">Last contact: {format(new Date(lead.lastContact), "MM/dd")}</p>
-                    <p className="text-sm font-medium text-orange-600">Follow up needed</p>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    <p className="text-sm text-gray-600">Last updated: {format(new Date(lead.lastContact), "MM/dd")}</p>
+                    <span className={`text-sm font-medium px-2 py-1 rounded-full ${
+                      lead.status === 'new' ? 'bg-blue-100 text-blue-700' :
+                      lead.status === 'contacted' ? 'bg-yellow-100 text-yellow-700' :
+                      lead.status === 'qualified' ? 'bg-green-100 text-green-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
+                    </span>
                   </div>
                 </div>
               ))}
