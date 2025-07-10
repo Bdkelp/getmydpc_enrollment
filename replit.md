@@ -322,6 +322,11 @@ Changelog:
     - Lead conversion rate calculation and display
     - Visual status badges with color coding
   • Transformed placeholder lead features into fully functional system
+- July 10, 2025: Landing page content update
+  • Updated "Why Choose Direct Primary Care?" section with new tagline:
+    - "Your Health, Your Plan"
+    - "Unlimited primary care. No copays. No insurance hassles."
+  • Enhanced messaging to emphasize key benefits of DPC model
 ```
 
 ## User Preferences

@@ -191,9 +191,12 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Why Choose Direct Primary Care?</h2>
-            <p className="text-lg text-gray-600 max-w-3xl mx-auto">
-              Experience healthcare the way it should be - personal, accessible, and affordable.
-            </p>
+            <div className="max-w-3xl mx-auto">
+              <p className="text-xl font-semibold text-gray-900 mb-2">Your Health, Your Plan</p>
+              <p className="text-lg text-gray-600">
+                Unlimited primary care. No copays. No insurance hassles.
+              </p>
+            </div>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
