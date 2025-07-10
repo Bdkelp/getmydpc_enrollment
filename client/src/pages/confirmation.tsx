@@ -13,27 +13,49 @@ export default function Confirmation() {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [membershipData, setMembershipData] = useState<any>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const { toast } = useToast();
 
   // Get stored enrollment data
   useEffect(() => {
     const planId = sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
-    const addRxValet = sessionStorage.getItem("addRxValet") === "true";
+    const rxValet = sessionStorage.getItem("rxValet") === "yes"; // Changed from addRxValet and check for "yes"
     const coverageType = sessionStorage.getItem("coverageType");
 
-    console.log("Confirmation page - Loading data from session:", { planId, totalPrice, coverageType, user });
+    console.log("Confirmation page - Loading data from session:", { 
+      planId, 
+      totalPrice, 
+      coverageType, 
+      rxValet,
+      user,
+      allSessionStorage: Object.fromEntries(Object.entries(sessionStorage))
+    });
+
+    if (!planId && !user) {
+      console.log("Waiting for user data...");
+      // Retry a few times before giving up
+      if (retryCount < 3) {
+        setTimeout(() => {
+          setRetryCount(retryCount + 1);
+        }, 1000);
+      }
+      return; // Wait for user data to load
+    }
 
     if (!planId) {
       console.error("No plan ID found in session storage");
-      toast({
-        title: "Session Expired",
-        description: "Please start the enrollment process again.",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        setLocation("/");
-      }, 2000);
+      // Only show error after a few retries
+      if (retryCount >= 3) {
+        toast({
+          title: "Session Expired",
+          description: "Please start the enrollment process again.",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          setLocation("/");
+        }, 2000);
+      }
       return;
     }
 
@@ -55,21 +77,23 @@ export default function Confirmation() {
       billingDate: today,
       nextBillingDate: nextMonth,
       totalPrice,
-      addRxValet,
+      addRxValet: rxValet,
       coverageType,
       planId: parseInt(planId),
       enrollmentDate: today
     });
 
-    // Clear session storage after setting membership data
+    // Clear session storage after a longer delay to prevent issues
     setTimeout(() => {
       sessionStorage.removeItem("selectedPlanId");
       sessionStorage.removeItem("totalMonthlyPrice");
-      sessionStorage.removeItem("addRxValet");
+      sessionStorage.removeItem("rxValet");
       sessionStorage.removeItem("coverageType");
       sessionStorage.removeItem("primaryAddress");
-    }, 1000);
-  }, [user, setLocation]);
+      sessionStorage.removeItem("processingFee");
+      sessionStorage.removeItem("basePlanPrice");
+    }, 5000); // Increased to 5 seconds
+  }, [user, setLocation, toast, retryCount]);
 
   const { data: plans = [] } = useQuery<any[]>({
     queryKey: ["/api/plans"],
