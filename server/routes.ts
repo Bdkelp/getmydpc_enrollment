@@ -121,6 +121,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log("Payment created:", payment.id);
       
+      // Check if the user has a lead and mark it as enrolled
+      const user = await storage.getUser(userId);
+      if (user && user.email) {
+        const lead = await storage.getLeadByEmail(user.email);
+        if (lead && lead.status !== 'enrolled') {
+          await storage.updateLead(lead.id, { status: 'enrolled' });
+          
+          // Add activity note about enrollment
+          if (lead.assignedAgentId) {
+            await storage.addLeadActivity({
+              leadId: lead.id,
+              agentId: lead.assignedAgentId,
+              activityType: 'note',
+              notes: `Lead successfully enrolled in ${plan.name}`
+            });
+          }
+          console.log("Lead marked as enrolled:", lead.id);
+        }
+      }
+      
       res.json({
         success: true,
         subscriptionId: subscription.id,

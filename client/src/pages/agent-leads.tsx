@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ChevronLeft, Phone, Mail, MessageSquare, Calendar, CheckCircle, XCircle } from "lucide-react";
+import { ChevronLeft, Phone, Mail, MessageSquare, Calendar, CheckCircle, XCircle, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Select,
@@ -24,6 +24,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface Lead {
   id: number;
@@ -53,15 +55,32 @@ export default function AgentLeads() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showActivityDialog, setShowActivityDialog] = useState(false);
+  const [showAddLeadDialog, setShowAddLeadDialog] = useState(false);
   const [activityType, setActivityType] = useState<string>("call");
   const [activityNotes, setActivityNotes] = useState<string>("");
+  
+  // New lead form state
+  const [newLead, setNewLead] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    message: ""
+  });
 
   // Fetch leads
   const { data: leads, isLoading } = useQuery<Lead[]>({
     queryKey: ["/api/agent/leads", statusFilter],
-    queryOptions: {
-      enabled: true,
-    },
+    queryFn: async () => {
+      const url = statusFilter === 'all' 
+        ? '/api/agent/leads' 
+        : `/api/agent/leads?status=${statusFilter}`;
+      const response = await apiRequest("GET", url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch leads');
+      }
+      return response.json();
+    }
   });
 
   // Update lead status
@@ -93,6 +112,36 @@ export default function AgentLeads() {
         description: "Activity has been recorded successfully.",
       });
     },
+  });
+
+  // Add new lead
+  const addLeadMutation = useMutation({
+    mutationFn: async (leadData: typeof newLead) => {
+      const response = await apiRequest("POST", "/api/leads", leadData);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/leads"] });
+      setShowAddLeadDialog(false);
+      setNewLead({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        message: ""
+      });
+      toast({
+        title: "Lead Added",
+        description: "New lead has been created successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to add lead. Please try again.",
+        variant: "destructive"
+      });
+    }
   });
 
   const handleStatusChange = (leadId: number, newStatus: string) => {
@@ -153,19 +202,29 @@ export default function AgentLeads() {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Lead Management</h1>
           
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Leads</SelectItem>
-              <SelectItem value="new">New</SelectItem>
-              <SelectItem value="contacted">Contacted</SelectItem>
-              <SelectItem value="qualified">Qualified</SelectItem>
-              <SelectItem value="enrolled">Enrolled</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-4">
+            <Button 
+              onClick={() => setShowAddLeadDialog(true)}
+              className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Lead
+            </Button>
+            
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Leads</SelectItem>
+                <SelectItem value="new">New</SelectItem>
+                <SelectItem value="contacted">Contacted</SelectItem>
+                <SelectItem value="qualified">Qualified</SelectItem>
+                <SelectItem value="enrolled">Enrolled</SelectItem>
+                <SelectItem value="closed">Closed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -265,6 +324,86 @@ export default function AgentLeads() {
           </CardContent>
         </Card>
       )}
+
+      {/* Add Lead Dialog */}
+      <Dialog open={showAddLeadDialog} onOpenChange={setShowAddLeadDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Lead</DialogTitle>
+            <DialogDescription>
+              Enter the lead's information to add them to your pipeline
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="firstName">First Name *</Label>
+                <Input
+                  id="firstName"
+                  value={newLead.firstName}
+                  onChange={(e) => setNewLead({ ...newLead, firstName: e.target.value })}
+                  placeholder="John"
+                />
+              </div>
+              <div>
+                <Label htmlFor="lastName">Last Name *</Label>
+                <Input
+                  id="lastName"
+                  value={newLead.lastName}
+                  onChange={(e) => setNewLead({ ...newLead, lastName: e.target.value })}
+                  placeholder="Doe"
+                />
+              </div>
+            </div>
+            
+            <div>
+              <Label htmlFor="email">Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                value={newLead.email}
+                onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
+                placeholder="john@example.com"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="phone">Phone *</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={newLead.phone}
+                onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
+                placeholder="(210) 555-0123"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="message">Notes</Label>
+              <Textarea
+                id="message"
+                value={newLead.message}
+                onChange={(e) => setNewLead({ ...newLead, message: e.target.value })}
+                placeholder="Any additional information about this lead..."
+                rows={3}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddLeadDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => addLeadMutation.mutate(newLead)}
+              disabled={!newLead.firstName || !newLead.lastName || !newLead.email || !newLead.phone || addLeadMutation.isPending}
+            >
+              {addLeadMutation.isPending ? "Adding..." : "Add Lead"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Activity Dialog */}
       <Dialog open={showActivityDialog} onOpenChange={setShowActivityDialog}>

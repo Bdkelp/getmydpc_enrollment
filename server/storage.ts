@@ -70,6 +70,7 @@ export interface IStorage {
   createLead(lead: InsertLead): Promise<Lead>;
   getAgentLeads(agentId: string, status?: string): Promise<Lead[]>;
   getLead(id: number): Promise<Lead | undefined>;
+  getLeadByEmail(email: string): Promise<Lead | undefined>;
   updateLead(id: number, data: Partial<Lead>): Promise<Lead>;
   assignLeadToAgent(leadId: number, agentId: string): Promise<Lead>;
   
@@ -313,6 +314,11 @@ export class DatabaseStorage implements IStorage {
 
   async getLead(id: number): Promise<Lead | undefined> {
     const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    return lead;
+  }
+
+  async getLeadByEmail(email: string): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(leads).where(eq(leads.email, email));
     return lead;
   }
 
