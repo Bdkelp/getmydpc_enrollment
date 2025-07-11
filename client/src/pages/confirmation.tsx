@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,13 +8,55 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Check, CheckCircle2, FileText, Phone, Mail, Globe, Download, Send, Printer } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function Confirmation() {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [membershipData, setMembershipData] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { toast } = useToast();
+
+  // Complete payment mutation for Stripe payments
+  const completePaymentMutation = useMutation({
+    mutationFn: async (paymentIntentId: string) => {
+      const response = await apiRequest("POST", "/api/complete-payment", { 
+        payment_intent: paymentIntentId 
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      console.log("Payment completed successfully:", data);
+      toast({
+        title: "Payment Successful",
+        description: "Your subscription has been activated!",
+      });
+      setIsProcessingPayment(false);
+    },
+    onError: (error: any) => {
+      console.error("Payment completion error:", error);
+      toast({
+        title: "Payment Processing Error",
+        description: "There was an issue processing your payment. Please contact support.",
+        variant: "destructive",
+      });
+      setIsProcessingPayment(false);
+    },
+  });
+
+  // Check for Stripe payment intent in URL
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentIntent = urlParams.get('payment_intent');
+    const paymentIntentClientSecret = urlParams.get('payment_intent_client_secret');
+    
+    if (paymentIntent && paymentIntentClientSecret && !isProcessingPayment) {
+      console.log("Processing Stripe payment completion:", paymentIntent);
+      setIsProcessingPayment(true);
+      completePaymentMutation.mutate(paymentIntent);
+    }
+  }, []);
 
   // Get stored enrollment data
   useEffect(() => {
@@ -100,10 +142,15 @@ export default function Confirmation() {
     enabled: isAuthenticated && !!membershipData,
   });
 
-  if (authLoading || !membershipData) {
+  if (authLoading || !membershipData || isProcessingPayment) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
+        <div className="text-center">
+          <LoadingSpinner />
+          {isProcessingPayment && (
+            <p className="mt-4 text-gray-600">Processing your payment...</p>
+          )}
+        </div>
       </div>
     );
   }

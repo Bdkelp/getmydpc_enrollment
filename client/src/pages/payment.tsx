@@ -49,11 +49,11 @@ const PaymentForm = ({ clientSecret, selectedPlan }: { clientSecret: string; sel
         variant: "destructive",
       });
     } else {
+      // Payment successful - Stripe will redirect to the return_url (confirmation page)
       toast({
         title: "Payment Successful",
-        description: "Welcome to MyPremierPlans! Your subscription is now active.",
+        description: "Welcome to MyPremierPlans! Redirecting to confirmation...",
       });
-      setLocation("/dashboard");
     }
   };
 
@@ -117,9 +117,18 @@ export default function Payment() {
     }
   }, []);
 
-  const createSubscriptionMutation = useMutation({
+  const createPaymentIntentMutation = useMutation({
     mutationFn: async (planId: number) => {
-      const response = await apiRequest("POST", "/api/create-subscription", { planId });
+      const hasRxValet = sessionStorage.getItem("addRxValet") === "true";
+      const coverageType = sessionStorage.getItem("coverageType") || "";
+      const totalAmount = sessionStorage.getItem("totalMonthlyPrice") || "0";
+      
+      const response = await apiRequest("POST", "/api/create-payment-intent", { 
+        planId,
+        hasRxValet,
+        coverageType,
+        totalAmount
+      });
       return response.json();
     },
     onSuccess: (data) => {
@@ -145,12 +154,13 @@ export default function Payment() {
     },
   });
 
-  // Load the stored plan ID and validate it exists
+  // Create payment intent when plan is loaded
   useEffect(() => {
-    if (plans && plans.length > 0 && selectedPlanId) {
+    if (plans && plans.length > 0 && selectedPlanId && stripePromise && !clientSecret) {
       const planExists = plans.find((plan: any) => plan.id === selectedPlanId);
       if (planExists) {
-        console.log("Using selected plan:", planExists.name, "ID:", planExists.id);
+        console.log("Creating payment intent for plan:", planExists.name, "ID:", planExists.id);
+        createPaymentIntentMutation.mutate(selectedPlanId);
       } else {
         console.error("Selected plan ID not found:", selectedPlanId);
         toast({
@@ -160,7 +170,7 @@ export default function Payment() {
         });
       }
     }
-  }, [plans, selectedPlanId]);
+  }, [plans, selectedPlanId, stripePromise, clientSecret]);
 
   if (authLoading) {
     return (
@@ -269,7 +279,7 @@ export default function Payment() {
                       )}
                     </div>
 
-                    {createSubscriptionMutation.isPending && (
+                    {createPaymentIntentMutation.isPending && (
                       <div className="flex justify-center">
                         <LoadingSpinner />
                         <span className="ml-2">Setting up payment...</span>

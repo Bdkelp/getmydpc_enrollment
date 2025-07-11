@@ -473,6 +473,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Stripe payment intent route for one-time payments
+  app.post("/api/create-payment-intent", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { planId, hasRxValet, coverageType, totalAmount } = req.body;
+      
+      if (!stripe) {
+        return res.status(503).json({ message: "Payment processing not configured" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const plan = await storage.getPlan(planId);
+      if (!plan) {
+        return res.status(400).json({ message: "Invalid plan" });
+      }
+
+      // Use the total amount calculated on the frontend
+      const amountInCents = Math.round(parseFloat(totalAmount) * 100);
+
+      // Create payment intent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountInCents,
+        currency: "usd",
+        metadata: {
+          userId,
+          planId: planId.toString(),
+          planName: plan.name,
+          hasRxValet: hasRxValet ? "true" : "false",
+          coverageType: coverageType || "",
+          totalAmount: totalAmount
+        },
+      });
+
+      res.json({ 
+        clientSecret: paymentIntent.client_secret,
+        amount: totalAmount 
+      });
+    } catch (error: any) {
+      console.error("Error creating payment intent:", error);
+      res.status(500).json({ message: "Error creating payment intent: " + error.message });
+    }
+  });
+
   // Stripe subscription routes
   app.post('/api/create-subscription', isAuthenticated, async (req: any, res) => {
     try {
@@ -546,12 +593,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stripe webhook to handle successful payments
+  // Handle successful payment completion (called after Stripe redirect)
+  app.post('/api/complete-payment', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { payment_intent } = req.body;
+
+      if (!stripe || !payment_intent) {
+        return res.status(400).json({ message: "Invalid payment data" });
+      }
+
+      // Retrieve the payment intent from Stripe
+      const paymentIntent = await stripe.paymentIntents.retrieve(payment_intent);
+      
+      if (paymentIntent.status === 'succeeded') {
+        const metadata = paymentIntent.metadata;
+        const planId = parseInt(metadata.planId);
+        const hasRxValet = metadata.hasRxValet === "true";
+        
+        // Get user and plan
+        const user = await storage.getUser(userId);
+        const plan = await storage.getPlan(planId);
+        
+        if (!user || !plan) {
+          return res.status(400).json({ message: "User or plan not found" });
+        }
+
+        // Create subscription record
+        const subscription = await storage.createSubscription({
+          userId,
+          planId,
+          status: "active",
+          amount: metadata.totalAmount,
+          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        });
+
+        // Record payment
+        await storage.createPayment({
+          userId,
+          subscriptionId: subscription.id,
+          amount: metadata.totalAmount,
+          status: "succeeded",
+          stripePaymentIntentId: payment_intent,
+          paymentMethod: "card",
+        });
+
+        // Store enrollment information for commission tracking
+        await storage.recordEnrollmentModification({
+          userId,
+          planId,
+          memberType: metadata.coverageType,
+          hasRxValet,
+          enrolledByAgentId: user.enrolledByAgentId,
+          status: 'active'
+        });
+
+        res.json({ success: true, subscription });
+      } else {
+        res.status(400).json({ message: "Payment not successful" });
+      }
+    } catch (error: any) {
+      console.error("Error completing payment:", error);
+      res.status(500).json({ message: "Error completing payment: " + error.message });
+    }
+  });
+
+  // Stripe webhook to handle payment events
   app.post('/api/stripe-webhook', async (req, res) => {
     try {
       const sig = req.headers['stripe-signature'];
-      if (!sig) {
-        return res.status(400).json({ message: "Missing stripe signature" });
+      if (!sig || !stripe) {
+        return res.status(400).json({ message: "Missing stripe signature or stripe not configured" });
       }
 
       const event = stripe.webhooks.constructEvent(
@@ -561,10 +673,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       switch (event.type) {
+        case 'payment_intent.succeeded':
+          const paymentIntent = event.data.object as Stripe.PaymentIntent;
+          console.log("Payment succeeded:", paymentIntent.id);
+          // Payment success is handled in complete-payment endpoint
+          break;
+
         case 'invoice.payment_succeeded':
           const invoice = event.data.object as Stripe.Invoice;
           if (invoice.subscription) {
-            // Update subscription status to active
+            // Handle recurring subscription payments
             const subscriptions = await storage.getActiveSubscriptions();
             const subscription = subscriptions.find(s => s.stripeSubscriptionId === invoice.subscription);
             if (subscription) {
