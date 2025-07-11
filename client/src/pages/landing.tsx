@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import heroImage from "@assets/enrollment dr image_1752013719087.jpg";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
+  const [, setLocation] = useLocation();
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ["/api/plans"],

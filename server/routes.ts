@@ -500,6 +500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amountInCents,
         currency: "usd",
+        payment_method_types: ['card'],
         metadata: {
           userId,
           planId: planId.toString(),
