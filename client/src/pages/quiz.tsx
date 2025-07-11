@@ -384,7 +384,7 @@ export default function Quiz() {
                     <CardContent className="pt-0">
                       <Button 
                         variant={isRecommended ? "default" : "outline"}
-                        className="w-full mb-4"
+                        className={`w-full mb-4 ${isRecommended ? 'bg-medical-blue-600 hover:bg-medical-blue-700 text-white' : ''}`}
                         onClick={() => handleStartEnrollment(tier)}
                       >
                         Select Plan
