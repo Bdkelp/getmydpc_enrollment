@@ -65,8 +65,18 @@ export default function Registration() {
   const [addRxValet, setAddRxValet] = useState(false);
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [currentFamilyMemberIndex, setCurrentFamilyMemberIndex] = useState(0);
+  const [recommendedTier, setRecommendedTier] = useState<string | null>(null);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // Check for recommended tier from quiz
+  useEffect(() => {
+    const tierFromQuiz = sessionStorage.getItem('recommendedTier');
+    if (tierFromQuiz) {
+      setRecommendedTier(tierFromQuiz);
+      sessionStorage.removeItem('recommendedTier'); // Clear after reading
+    }
+  }, []);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -1020,6 +1030,13 @@ export default function Registration() {
                         <div className="mb-4">
                           <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Your Plan</h3>
                           <p className="text-sm text-gray-600">Choose the plan level that best fits your healthcare needs</p>
+                          {recommendedTier && (
+                            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <p className="text-sm text-blue-800">
+                                <strong>Quiz Recommendation:</strong> Based on your quiz answers, we recommend the MyPremierPlan {recommendedTier.charAt(0).toUpperCase() + recommendedTier.slice(1)} plan.
+                              </p>
+                            </div>
+                          )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                           {(() => {
@@ -1067,13 +1084,16 @@ export default function Registration() {
                                               plan.name.includes("Plus") || plan.name.includes("+") ? "Plus" : "Elite";
                               const tierColor = planTier === "Base" ? "gray" : 
                                                planTier === "Plus" ? "blue" : "purple";
+                              const isRecommended = recommendedTier && planTier.toLowerCase() === recommendedTier.toLowerCase();
                               
                               return (
                                 <Card 
                                   key={plan.id} 
-                                  className={`cursor-pointer transition-all duration-300 transform ${
+                                  className={`cursor-pointer transition-all duration-300 transform relative ${
                                     selectedPlanId === plan.id 
                                       ? "border-2 border-green-600 bg-green-50 scale-105 shadow-lg" 
+                                      : isRecommended
+                                      ? "border-2 border-blue-400 bg-blue-50 shadow-md"
                                       : "hover:shadow-md hover:scale-102"
                                   }`}
                                   onClick={() => {
@@ -1082,6 +1102,11 @@ export default function Registration() {
                                   }}
                                 >
                                   <CardContent className="p-6">
+                                    {isRecommended && (
+                                      <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                                        Recommended
+                                      </div>
+                                    )}
                                     <div className="text-center mb-4">
                                       <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-${tierColor}-100 text-${tierColor}-800 mb-3`}>
                                         MyPremierPlan {planTier}

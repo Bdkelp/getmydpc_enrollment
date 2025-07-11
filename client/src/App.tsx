@@ -13,6 +13,7 @@ import AgentLeads from "@/pages/agent-leads";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
+import Quiz from "@/pages/quiz";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -33,6 +34,8 @@ function Router() {
     return (
       <Switch>
         <Route path="/" component={Landing} />
+        <Route path="/quiz" component={Quiz} />
+        <Route path="/registration" component={Registration} />
         <Route path="*" component={() => <Redirect to="/" />} />
       </Switch>
     );
@@ -55,6 +58,7 @@ function Router() {
             <>
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
+              <Route path="/quiz" component={Quiz} />
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />
@@ -68,6 +72,7 @@ function Router() {
               <Route path="/admin" component={Admin} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
+              <Route path="/quiz" component={Quiz} />
               <Route path="/registration" component={Registration} />
               <Route path="/family-enrollment" component={FamilyEnrollment} />
               <Route path="/payment" component={Payment} />

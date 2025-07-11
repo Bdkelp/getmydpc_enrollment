@@ -159,13 +159,23 @@ export default function Landing() {
                     </div>
                   )
                 ) : (
-                  <Button 
-                    size="lg" 
-                    className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4"
-                    onClick={() => setIsContactModalOpen(true)}
-                  >
-                    Enroll Now
-                  </Button>
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <Button 
+                      size="lg" 
+                      className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4"
+                      onClick={() => setLocation('/quiz')}
+                    >
+                      Find My Perfect Plan
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      size="lg" 
+                      className="px-8 py-4"
+                      onClick={() => setIsContactModalOpen(true)}
+                    >
+                      Contact an Agent
+                    </Button>
+                  </div>
                 )}
                 <a href="https://mypremierplans.com" target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="lg" className="px-8 py-4">
