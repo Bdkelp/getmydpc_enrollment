@@ -106,7 +106,10 @@ export default function Landing() {
                   </span>
                   <Button 
                     variant="outline" 
-                    onClick={() => window.location.href = "/api/logout"}
+                    onClick={async () => {
+                      await fetch("/api/auth/logout", { method: "POST" });
+                      window.location.reload();
+                    }}
                   >
                     Log Out
                   </Button>
@@ -115,9 +118,15 @@ export default function Landing() {
                 <>
                   <Button 
                     variant="ghost" 
-                    onClick={() => window.location.href = "/api/login"}
+                    onClick={() => setLocation("/login")}
                   >
                     Sign In
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => setLocation("/register")}
+                  >
+                    Create Account
                   </Button>
                   <Button 
                     className="medical-blue-600 hover:medical-blue-700 text-white"
