@@ -4,21 +4,40 @@ interface ProgressIndicatorProps {
 }
 
 export function ProgressIndicator({ currentStep, totalSteps }: ProgressIndicatorProps) {
-  const steps = [
-    { number: 1, title: "Account Setup" },
-    { number: 2, title: "Address Info" },
-    { number: 3, title: "Payment" },
-    { number: 4, title: "Complete" },
-  ];
+  const getStepTitle = (step: number) => {
+    // Map internal step numbers to display steps
+    const stepMapping: { [key: number]: string } = {
+      1: "Personal Info",
+      2: "Employment Info", 
+      3: "Address Info",
+      4: "Family Info",
+      5: "Family Info",
+      6: "Plan Selection",
+      7: "Review & Terms"
+    };
+    return stepMapping[step] || "";
+  };
+  
+  // Calculate display step number (consolidate family steps)
+  const getDisplayStep = (step: number) => {
+    if (step <= 3) return step;
+    if (step === 4 || step === 5) return 4; // Family info
+    if (step === 6) return 5; // Plan selection
+    if (step === 7) return 6; // Review
+    return step;
+  };
+  
+  const displayStep = getDisplayStep(currentStep);
+  const displayTotal = 6; // Total visible steps
 
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between mb-4">
         <span className="text-sm font-medium text-medical-blue-600">
-          Step {currentStep} of {totalSteps}
+          Step {displayStep} of {displayTotal}
         </span>
         <span className="text-sm text-gray-500">
-          {steps[currentStep - 1]?.title}
+          {getStepTitle(currentStep)}
         </span>
       </div>
       <div className="w-full bg-gray-200 rounded-full h-2">
