@@ -9,6 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { signIn, signInWithOAuth } from "@/lib/supabase";
 import { Heart, Mail, Lock, Loader2 } from "lucide-react";
 import { FaGoogle, FaFacebook, FaTwitter, FaLinkedin, FaMicrosoft, FaApple } from "react-icons/fa";
 
@@ -35,30 +36,21 @@ export default function Login() {
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
     try {
-      const response = await apiRequest("POST", "/api/auth/login", data);
-      const result = await response.json();
+      const { data: result, error } = await signIn(data.email, data.password);
       
-      if (!response.ok) {
-        throw new Error(result.message || "Login failed");
+      if (error) {
+        throw new Error(error.message);
       }
       
-      // Store token in localStorage
-      localStorage.setItem("authToken", result.token);
-      
-      // Redirect based on user role
-      const role = result.user.role;
-      if (role === "admin") {
-        setLocation("/admin");
-      } else if (role === "agent") {
-        setLocation("/agent");
-      } else {
+      if (result.user) {
+        toast({
+          title: "Welcome back!",
+          description: `Logged in successfully`,
+        });
+        
+        // Redirect will be handled by auth state change
         setLocation("/");
       }
-      
-      toast({
-        title: "Welcome back!",
-        description: `Logged in as ${result.user.firstName} ${result.user.lastName}`,
-      });
     } catch (error: any) {
       toast({
         title: "Login failed",
@@ -70,8 +62,23 @@ export default function Login() {
     }
   };
 
-  const handleSocialLogin = (provider: string) => {
-    window.location.href = `/api/auth/${provider}`;
+  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
+    try {
+      const { error } = await signInWithOAuth(provider);
+      if (error) {
+        toast({
+          title: "Login failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Login failed",
+        description: error.message || "Social login failed",
+        variant: "destructive",
+      });
+    }
   };
 
   return (

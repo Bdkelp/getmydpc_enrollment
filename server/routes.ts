@@ -8,6 +8,7 @@ import { registrationSchema, insertPlanSchema } from "@shared/schema";
 import { calculateEnrollmentCommission } from "./utils/commission";
 import authRoutes from "./auth/authRoutes";
 import { configurePassportStrategies } from "./auth/authService";
+import { setupSupabaseAuth } from "./auth/supabaseAuth";
 import passport from "passport";
 
 let stripe: Stripe | null = null;
@@ -19,18 +20,23 @@ if (process.env.STRIPE_SECRET_KEY) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware (keep Replit auth for development)
-  if (process.env.REPLIT_DOMAINS) {
-    await setupAuth(app);
+  // Use Supabase auth for production
+  if (process.env.SUPABASE_URL) {
+    setupSupabaseAuth(app);
+  } else {
+    // Fallback to Replit auth for development
+    if (process.env.REPLIT_DOMAINS) {
+      await setupAuth(app);
+    }
+    
+    // Configure passport strategies for production auth
+    configurePassportStrategies();
+    app.use(passport.initialize());
+    app.use(passport.session());
+    
+    // Use new auth routes for production
+    app.use(authRoutes);
   }
-  
-  // Configure passport strategies for production auth
-  configurePassportStrategies();
-  app.use(passport.initialize());
-  app.use(passport.session());
-  
-  // Use new auth routes for production
-  app.use(authRoutes);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {

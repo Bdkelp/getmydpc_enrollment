@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { getSession, onAuthStateChange } from "@/lib/supabase";
+import { useEffect, useState } from "react";
 import type { User } from "@shared/schema";
 
 interface AuthUser extends Omit<User, 'role'> {
@@ -8,31 +10,56 @@ interface AuthUser extends Omit<User, 'role'> {
 }
 
 export function useAuth() {
-  const { data: user, isLoading, error } = useQuery<AuthUser | null>({
-    queryKey: ["/api/auth/user"],
+  const [session, setSession] = useState<any>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Initialize session on mount
+  useEffect(() => {
+    getSession().then((session) => {
+      setSession(session);
+      setIsInitialized(true);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = onAuthStateChange((event, session) => {
+      setSession(session);
+      setIsInitialized(true);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Query user data from our backend when authenticated
+  const { data: user, isLoading: userLoading, error } = useQuery({
+    queryKey: ['/api/auth/user'],
     queryFn: async () => {
-      const res = await fetch("/api/auth/user", {
-        credentials: "include",
+      if (!session?.access_token) return null;
+      
+      const response = await fetch('/api/auth/user', {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
       });
       
-      if (res.status === 401) {
-        return null;
+      if (!response.ok) {
+        if (response.status === 401) return null;
+        throw new Error('Failed to fetch user');
       }
       
-      if (!res.ok) {
-        throw new Error(`${res.status}: ${res.statusText}`);
-      }
-      
-      return res.json();
+      return response.json();
     },
+    enabled: !!session?.access_token && isInitialized,
     retry: false,
-    staleTime: 0,
-    gcTime: 0,
+    refetchOnWindowFocus: false,
   });
+
+  const isLoading = !isInitialized || (session && userLoading);
 
   return {
     user,
-    isLoading: isLoading && !error,
-    isAuthenticated: !!user,
+    session,
+    isAuthenticated: !!session && !!user,
+    isLoading,
+    error
   };
 }

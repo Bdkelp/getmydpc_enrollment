@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { signUp } from "@/lib/supabase";
 import { Heart, Mail, Lock, User, Loader2 } from "lucide-react";
 
 const registerSchema = z.object({
@@ -50,12 +51,16 @@ export default function Register() {
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
     try {
-      const { confirmPassword, agreeToTerms, ...submitData } = data;
-      const response = await apiRequest("POST", "/api/auth/register", submitData);
-      const result = await response.json();
+      const { confirmPassword, agreeToTerms, ...userData } = data;
       
-      if (!response.ok) {
-        throw new Error(result.message || "Registration failed");
+      const { data: result, error } = await signUp(userData.email, userData.password, {
+        first_name: userData.firstName,
+        last_name: userData.lastName,
+        username: userData.username
+      });
+      
+      if (error) {
+        throw new Error(error.message);
       }
       
       toast({
