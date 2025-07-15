@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Heart
 } from "lucide-react";
+import { Link } from "wouter";
 
 export default function Admin() {
   const { toast } = useToast();
@@ -187,9 +188,26 @@ export default function Admin() {
               <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
             </div>
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" onClick={() => window.location.href = "/"}>
-                Dashboard
-              </Button>
+              <Link href="/">
+                <Button variant="ghost">
+                  Home
+                </Button>
+              </Link>
+              <Link href="/admin">
+                <Button variant="ghost">
+                  Admin
+                </Button>
+              </Link>
+              <Link href="/agent">
+                <Button variant="ghost">
+                  Agent View
+                </Button>
+              </Link>
+              <Link href="/quiz">
+                <Button variant="ghost">
+                  Quiz
+                </Button>
+              </Link>
               <Button variant="ghost" onClick={() => window.location.href = "/api/logout"}>
                 Sign Out
               </Button>
@@ -207,10 +225,18 @@ export default function Admin() {
               <p className="text-gray-600 mt-1">Manage users, plans, and system settings</p>
             </div>
             <div className="mt-4 sm:mt-0 flex items-center space-x-4">
-              <Button className="medical-blue-600 hover:medical-blue-700 text-white">
-                <Plus className="h-4 w-4 mr-2" />
-                Add New User
-              </Button>
+              <Link href="/registration">
+                <Button className="medical-blue-600 hover:medical-blue-700 text-white">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Enroll Member
+                </Button>
+              </Link>
+              <Link href="/agent">
+                <Button variant="outline">
+                  <Users className="h-4 w-4 mr-2" />
+                  Agent View
+                </Button>
+              </Link>
               <Button className="bg-green-600 hover:bg-green-700 text-white">
                 <Download className="h-4 w-4 mr-2" />
                 Export Data

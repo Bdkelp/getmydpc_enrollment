@@ -148,11 +148,27 @@ export default function Landing() {
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
                   user?.role === "agent" || user?.role === "admin" ? (
-                    <Link href="/registration">
-                      <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
-                        Enroll New Member
-                      </Button>
-                    </Link>
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      <Link href="/registration">
+                        <Button size="lg" className="medical-blue-600 hover:medical-blue-700 text-white px-8 py-4">
+                          Enroll New Member
+                        </Button>
+                      </Link>
+                      {user?.role === "admin" && (
+                        <Link href="/admin">
+                          <Button size="lg" variant="outline" className="px-8 py-4">
+                            Admin Dashboard
+                          </Button>
+                        </Link>
+                      )}
+                      {user?.role === "agent" && (
+                        <Link href="/agent">
+                          <Button size="lg" variant="outline" className="px-8 py-4">
+                            Agent Dashboard
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-gray-600">
                       <p>Please contact your agent to make enrollment changes.</p>

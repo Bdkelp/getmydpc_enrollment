@@ -57,13 +57,37 @@ function updateUserSession(
 async function upsertUser(
   claims: any,
 ) {
+  // Admin email addresses
+  const adminEmails = [
+    'michael@mypremierplans.com',
+    'travis@mypremierplans.com', 
+    'richard@mypremierplans.com',
+    'joaquin@mypremierplans.com'
+  ];
+  
+  // Agent email addresses
+  const agentEmails = [
+    'mdkeener@gmail.com',
+    'tmatheny77@gmail.com',
+    'svillarreal@cyariskmanagement.com'
+  ];
+  
+  const email = claims["email"];
+  let role = "user"; // default role
+  
+  if (adminEmails.includes(email)) {
+    role = "admin";
+  } else if (agentEmails.includes(email)) {
+    role = "agent";
+  }
+  
   await storage.upsertUser({
     id: claims["sub"],
-    email: claims["email"],
+    email: email,
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
-    role: "user", // Default role for new users
+    role: role,
   });
 }
 

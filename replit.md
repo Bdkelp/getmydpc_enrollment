@@ -123,8 +123,10 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 ## Role-Based Access Control
 
 ### User Roles
-- **Admin**: Full system access, can view all enrollments, manage plans, access analytics
+- **Admin**: Full system access, can view all enrollments, manage plans, access analytics, access all agent features
+  - Admin emails automatically assigned: michael@mypremierplans.com, travis@mypremierplans.com, richard@mypremierplans.com, joaquin@mypremierplans.com
 - **Agent**: Can enroll new members, view their own enrollments, track commissions, export enrollment data
+  - Agent emails automatically assigned: mdkeener@gmail.com, tmatheny77@gmail.com, svillarreal@cyariskmanagement.com
 - **User** (Regular Member): Currently no dashboard access (Phase 1). Future: self-enrollment capability (Phase 2)
 
 ### Enrollment Strategy (Phased Approach)
