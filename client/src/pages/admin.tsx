@@ -34,7 +34,7 @@ export default function Admin() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
@@ -60,7 +60,7 @@ export default function Admin() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/login";
         }, 500);
         return;
       }
@@ -78,7 +78,7 @@ export default function Admin() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/login";
         }, 500);
         return;
       }
@@ -208,7 +208,11 @@ export default function Admin() {
                   Quiz
                 </Button>
               </Link>
-              <Button variant="ghost" onClick={() => window.location.href = "/api/logout"}>
+              <Button variant="ghost" onClick={async () => {
+                const { signOut } = await import("@/lib/supabase");
+                await signOut();
+                window.location.href = "/";
+              }}>
                 Sign Out
               </Button>
             </div>

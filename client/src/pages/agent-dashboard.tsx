@@ -91,7 +91,7 @@ export default function AgentDashboard() {
           variant: "destructive",
         });
         setTimeout(() => {
-          window.location.href = "/api/login";
+          window.location.href = "/login";
         }, 500);
         return;
       }
@@ -183,7 +183,11 @@ export default function AgentDashboard() {
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
               </Button>
-              <Button variant="outline" onClick={() => window.location.href = "/api/logout"}>
+              <Button variant="outline" onClick={async () => {
+                const { signOut } = await import("@/lib/supabase");
+                await signOut();
+                window.location.href = "/";
+              }}>
                 Logout
               </Button>
             </div>

@@ -30,7 +30,7 @@ export default function Dashboard() {
         variant: "destructive",
       });
       setTimeout(() => {
-        window.location.href = "/api/login";
+        window.location.href = "/login";
       }, 500);
       return;
     }
@@ -119,7 +119,11 @@ export default function Dashboard() {
               <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
             </div>
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" onClick={() => window.location.href = "/api/logout"}>
+              <Button variant="ghost" onClick={async () => {
+                const { signOut } = await import("@/lib/supabase");
+                await signOut();
+                window.location.href = "/";
+              }}>
                 Sign Out
               </Button>
             </div>

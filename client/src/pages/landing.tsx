@@ -107,7 +107,8 @@ export default function Landing() {
                   <Button 
                     variant="outline" 
                     onClick={async () => {
-                      await fetch("/api/auth/logout", { method: "POST" });
+                      const { signOut } = await import("@/lib/supabase");
+                      await signOut();
                       window.location.reload();
                     }}
                   >

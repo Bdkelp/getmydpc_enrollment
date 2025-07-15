@@ -52,7 +52,11 @@ export default function NoAccess() {
             <Button 
               variant="outline" 
               className="w-full"
-              onClick={() => window.location.href = "/api/logout"}
+              onClick={async () => {
+                const { signOut } = await import("@/lib/supabase");
+                await signOut();
+                window.location.href = "/";
+              }}
             >
               Log Out
             </Button>
