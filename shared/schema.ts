@@ -281,6 +281,7 @@ export const registrationSchema = z.object({
   planId: z.number().min(1, "Plan selection is required"),
   termsAccepted: z.boolean().refine(val => val === true, "Terms must be accepted"),
   communicationsConsent: z.boolean().default(false),
+  privacyNoticeAcknowledged: z.boolean().refine(val => val === true, "Privacy notice must be acknowledged"),
 });
 
 // Types

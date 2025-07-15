@@ -203,58 +203,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = registrationSchema.parse(req.body);
       const userId = req.user.claims.sub;
       
+      // Extract planId separately (not part of user profile)
+      const { planId, ...userProfileData } = validatedData;
+      
       // Get the current user (agent) to track who enrolled this member
       const currentUser = await storage.getUser(userId);
       const agentId = currentUser?.role === 'agent' ? userId : undefined;
       
-      // Update user profile with registration data
+      // Update user profile with registration data (excluding planId)
       const user = await storage.updateUserProfile(userId, {
-        firstName: validatedData.firstName,
-        lastName: validatedData.lastName,
-        middleName: validatedData.middleName,
-        ssn: validatedData.ssn, // Should be encrypted in production
-        email: validatedData.email,
-        phone: validatedData.phone,
-        dateOfBirth: validatedData.dateOfBirth,
-        gender: validatedData.gender,
-        address: validatedData.address,
-        address2: validatedData.address2,
-        city: validatedData.city,
-        state: validatedData.state,
-        zipCode: validatedData.zipCode,
-        employerName: validatedData.employerName,
-        divisionName: validatedData.divisionName,
-        dateOfHire: validatedData.dateOfHire,
-        memberType: validatedData.memberType,
-        planStartDate: validatedData.planStartDate,
-        emergencyContactName: validatedData.emergencyContactName,
-        emergencyContactPhone: validatedData.emergencyContactPhone,
+        firstName: userProfileData.firstName,
+        lastName: userProfileData.lastName,
+        middleName: userProfileData.middleName,
+        ssn: userProfileData.ssn, // Should be encrypted in production
+        email: userProfileData.email,
+        phone: userProfileData.phone,
+        dateOfBirth: userProfileData.dateOfBirth,
+        gender: userProfileData.gender,
+        address: userProfileData.address,
+        address2: userProfileData.address2,
+        city: userProfileData.city,
+        state: userProfileData.state,
+        zipCode: userProfileData.zipCode,
+        employerName: userProfileData.employerName,
+        divisionName: userProfileData.divisionName,
+        dateOfHire: userProfileData.dateOfHire,
+        memberType: userProfileData.memberType,
+        planStartDate: userProfileData.planStartDate,
+        emergencyContactName: userProfileData.emergencyContactName,
+        emergencyContactPhone: userProfileData.emergencyContactPhone,
         enrolledByAgentId: agentId,
       });
 
       // Add family members if any
       const familyMembers = (req.body as any).familyMembers || [];
       for (const member of familyMembers) {
-        await storage.addFamilyMember({
-          primaryUserId: userId,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          middleName: member.middleName,
-          dateOfBirth: member.dateOfBirth,
-          gender: member.gender,
-          ssn: member.ssn,
-          email: member.email,
-          phone: member.phone,
-          relationship: member.relationship,
-          memberType: member.relationship === "spouse" ? "spouse" : "dependent",
-          planStartDate: validatedData.planStartDate,
-          isActive: true,
-        });
+        if (member && member.firstName) { // Only add valid family members
+          await storage.addFamilyMember({
+            primaryUserId: userId,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            middleName: member.middleName,
+            dateOfBirth: member.dateOfBirth,
+            gender: member.gender,
+            ssn: member.ssn,
+            email: member.email,
+            phone: member.phone,
+            relationship: member.relationship,
+            memberType: member.relationship === "spouse" ? "spouse" : "dependent",
+            planStartDate: userProfileData.planStartDate,
+            isActive: true,
+          });
+        }
       }
 
       res.json(user);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.error("Validation error:", error.errors);
         return res.status(400).json({ message: "Validation error", errors: error.errors });
       }
       console.error("Error updating user profile:", error);
