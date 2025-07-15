@@ -16,6 +16,8 @@ import Confirmation from "@/pages/confirmation";
 import Quiz from "@/pages/quiz";
 import NoAccess from "@/pages/no-access";
 import NotFound from "@/pages/not-found";
+import Login from "@/pages/login";
+import Register from "@/pages/register";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -37,6 +39,8 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/quiz" component={Quiz} />
         <Route path="/registration" component={Registration} />
+        <Route path="/login" component={Login} />
+        <Route path="/register" component={Register} />
         <Route path="*" component={() => <Redirect to="/" />} />
       </Switch>
     );

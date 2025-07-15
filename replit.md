@@ -71,6 +71,26 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 3. Role-based route protection
 4. Automatic session renewal and validation
 
+## Authentication Systems
+
+### Development Environment
+- Uses Replit Auth for testing during development
+- Automatic role assignment based on email addresses
+
+### Production Environment
+- Comprehensive authentication system supporting:
+  - Email/Password registration with email verification
+  - Social login: Google, Facebook, Twitter, LinkedIn, Microsoft, Apple
+  - JWT-based authentication for API access
+  - Password reset functionality
+  - Session management with PostgreSQL backing
+
+### Authentication Flow
+1. **Registration**: Email verification required for password-based accounts
+2. **Social Login**: Automatic account linking based on email
+3. **Role Assignment**: Automatic based on email domain
+4. **Session Management**: Persistent sessions with 7-day expiry
+
 ## External Dependencies
 
 ### Core Dependencies

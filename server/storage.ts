@@ -24,6 +24,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, like, count, gte, lte, sql } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface IStorage {
   // User operations (required for Replit Auth)
@@ -31,6 +32,17 @@ export interface IStorage {
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, data: Partial<User>): Promise<User>;
   updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User>;
+  
+  // Authentication operations
+  createUser(user: Partial<User>): Promise<User>;
+  updateUser(id: string, data: Partial<User>): Promise<User>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByGoogleId(googleId: string): Promise<User | undefined>;
+  getUserByFacebookId(facebookId: string): Promise<User | undefined>;
+  getUserByTwitterId(twitterId: string): Promise<User | undefined>;
+  getUserByVerificationToken(token: string): Promise<User | undefined>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
   
   // Plan operations
   getPlans(): Promise<Plan[]>;
@@ -84,6 +96,91 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Authentication operations
+  async createUser(userData: Partial<User>): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        ...userData,
+        id: userData.id || crypto.randomUUID(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .returning();
+    return user;
+  }
+
+  async updateUser(id: string, data: Partial<User>): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, email))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByGoogleId(googleId: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.googleId, googleId))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByFacebookId(facebookId: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.facebookId, facebookId))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByTwitterId(twitterId: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.twitterId, twitterId))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.emailVerificationToken, token))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.resetPasswordToken, token))
+      .limit(1);
+    return user;
+  }
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
