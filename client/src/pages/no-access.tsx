@@ -44,7 +44,7 @@ export default function NoAccess() {
 
           <div className="flex flex-col space-y-3">
             <Link href="/">
-              <Button className="w-full bg-medical-blue-600 hover:bg-medical-blue-700">
+              <Button className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white">
                 Return to Home
               </Button>
             </Link>

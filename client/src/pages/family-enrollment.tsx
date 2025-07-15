@@ -495,7 +495,7 @@ export default function FamilyEnrollment() {
                   {/* Always show Save button if form has data */}
                   <Button 
                     type="submit"
-                    className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700"
+                    className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
                   >
                     <UserPlus className="h-4 w-4 mr-2" />
                     {currentMember < maxMembers - 1 ? "Save & Add Another" : "Save Member"}

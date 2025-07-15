@@ -254,7 +254,7 @@ export default function Register() {
               
               <Button 
                 type="submit" 
-                className="w-full bg-medical-blue-600 hover:bg-medical-blue-700"
+                className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
                 disabled={isLoading}
               >
                 {isLoading ? (

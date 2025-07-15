@@ -448,7 +448,7 @@ export default function AgentDashboard() {
             <Button 
               onClick={handleResolvePending}
               disabled={!consentType || !consentNotes}
-              className="bg-medical-blue-600 hover:bg-medical-blue-700"
+              className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
             >
               Resolve with Consent
             </Button>

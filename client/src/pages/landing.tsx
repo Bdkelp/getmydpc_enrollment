@@ -129,7 +129,7 @@ export default function Landing() {
                     Create Account
                   </Button>
                   <Button 
-                    className="medical-blue-600 hover:medical-blue-700 text-white"
+                    className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
                     onClick={() => setIsContactModalOpen(true)}
                   >
                     Get Started
