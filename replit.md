@@ -349,6 +349,16 @@ Changelog:
     - "Your Health, Your Plan"
     - "Unlimited primary care. No copays. No insurance hassles."
   • Enhanced messaging to emphasize key benefits of DPC model
+- July 15, 2025: Supabase authentication integration and quiz improvements
+  • Successfully integrated Supabase authentication replacing Replit Auth
+  • Added support for email/password registration and social login (Google, Facebook, Twitter, LinkedIn, Microsoft, Apple)
+  • Fixed environment variable configuration for Supabase credentials
+  • Moved .env file to client directory for proper Vite loading
+  • Fixed white button on white background issue in quiz - added explicit text-white class
+  • Added agent-assisted enrollment popup when users select plans from quiz results
+  • Contact form modal now pre-fills with selected plan information
+  • Created TEST_ACCOUNTS.md with test account credentials for different roles
+  • Production-ready authentication system now fully operational without requiring Replit accounts
 ```
 
 ## User Preferences

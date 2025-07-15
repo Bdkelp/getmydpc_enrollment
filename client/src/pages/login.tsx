@@ -36,22 +36,28 @@ export default function Login() {
   const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
     try {
+      console.log("Attempting login with:", data.email);
       const { data: result, error } = await signIn(data.email, data.password);
       
       if (error) {
+        console.error("Login error:", error);
         throw new Error(error.message);
       }
       
       if (result.user) {
+        console.log("Login successful, user:", result.user);
         toast({
           title: "Welcome back!",
           description: `Logged in successfully`,
         });
         
-        // Redirect will be handled by auth state change
-        setLocation("/");
+        // Small delay to ensure auth state is updated
+        setTimeout(() => {
+          setLocation("/");
+        }, 100);
       }
     } catch (error: any) {
+      console.error("Login failed:", error);
       toast({
         title: "Login failed",
         description: error.message || "Please check your credentials and try again",

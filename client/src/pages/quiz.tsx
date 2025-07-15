@@ -6,6 +6,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, ArrowRight, CheckCircle, Users, Heart, Brain, Shield } from "lucide-react";
+import { ContactFormModal } from "@/components/contact-form-modal";
 
 interface QuizQuestion {
   id: string;
@@ -241,6 +242,8 @@ export default function Quiz() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [showResults, setShowResults] = useState(false);
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<string>("");
 
   const progress = ((currentQuestion + 1) / quizQuestions.length) * 100;
 
@@ -285,9 +288,9 @@ export default function Quiz() {
   };
 
   const handleStartEnrollment = (tier: string) => {
-    // Set recommended tier in session storage and redirect to registration
-    sessionStorage.setItem('recommendedTier', tier);
-    setLocation('/registration');
+    // For agent-assisted enrollment, show contact form instead of direct registration
+    setSelectedPlan(tier);
+    setShowContactForm(true);
   };
 
   const retakeQuiz = () => {
@@ -416,6 +419,13 @@ export default function Quiz() {
             </Button>
           </div>
         </div>
+        
+        {/* Contact Form Modal for Agent Enrollment */}
+        <ContactFormModal 
+          isOpen={showContactForm}
+          onClose={() => setShowContactForm(false)}
+          title={`Get Started with ${planInfo[selectedPlan as keyof typeof planInfo]?.name || 'MyPremierPlans'}`}
+        />
       </div>
     );
   }
@@ -480,7 +490,7 @@ export default function Quiz() {
               <Button 
                 onClick={handleNext}
                 disabled={!currentAnswer}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700"
+                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white disabled:opacity-50"
               >
                 {currentQuestion === quizQuestions.length - 1 ? "See Results" : "Next"}
                 <ArrowRight className="ml-2 h-4 w-4" />

@@ -5,6 +5,11 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+// Check if properly initialized
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Supabase configuration missing. Please check environment variables.');
+}
+
 // Auth helper functions
 export const signUp = async (email: string, password: string, userData?: any) => {
   return await supabase.auth.signUp({

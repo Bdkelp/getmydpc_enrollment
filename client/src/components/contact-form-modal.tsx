@@ -39,7 +39,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       lastName: "",
       email: "",
       phone: "",
-      message: "",
+      message: title.includes("MyPremierPlan") ? `I'm interested in ${title}` : "",
     },
   });
 
