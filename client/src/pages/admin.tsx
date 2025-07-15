@@ -230,7 +230,7 @@ export default function Admin() {
             </div>
             <div className="mt-4 sm:mt-0 flex items-center space-x-4">
               <Link href="/registration">
-                <Button className="medical-blue-600 hover:medical-blue-700 text-white">
+                <Button className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white">
                   <UserPlus className="h-4 w-4 mr-2" />
                   Enroll Member
                 </Button>
@@ -461,7 +461,7 @@ export default function Admin() {
                   <Button variant="ghost" size="sm" disabled>
                     Previous
                   </Button>
-                  <Button size="sm" className="medical-blue-600 text-white">
+                  <Button size="sm" className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white">
                     1
                   </Button>
                   <Button variant="ghost" size="sm">
