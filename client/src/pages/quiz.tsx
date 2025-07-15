@@ -341,7 +341,7 @@ export default function Quiz() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
                   onClick={() => handleStartEnrollment(recommendedTier)}
-                  className="flex-1 bg-medical-blue-600 hover:bg-medical-blue-700 text-white py-3"
+                  className="flex-1 bg-white hover:bg-gray-100 text-black border border-gray-300 py-3"
                 >
                   Start Enrollment with {recommendedPlan.name}
                   <ArrowRight className="ml-2 h-4 w-4" />
@@ -387,7 +387,7 @@ export default function Quiz() {
                     <CardContent className="pt-0">
                       <Button 
                         variant={isRecommended ? "default" : "outline"}
-                        className={`w-full mb-4 ${isRecommended ? 'bg-medical-blue-600 hover:bg-medical-blue-700 text-white' : ''}`}
+                        className={`w-full mb-4 ${isRecommended ? 'bg-white hover:bg-gray-100 text-black border border-gray-300' : ''}`}
                         onClick={() => handleStartEnrollment(tier)}
                       >
                         Select Plan
@@ -490,7 +490,7 @@ export default function Quiz() {
               <Button 
                 onClick={handleNext}
                 disabled={!currentAnswer}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white disabled:opacity-50"
+                className="bg-white hover:bg-gray-100 text-black border border-gray-300 disabled:opacity-50"
               >
                 {currentQuestion === quizQuestions.length - 1 ? "See Results" : "Next"}
                 <ArrowRight className="ml-2 h-4 w-4" />

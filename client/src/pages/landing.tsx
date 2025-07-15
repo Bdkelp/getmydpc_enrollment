@@ -130,7 +130,7 @@ export default function Landing() {
                     Create Account
                   </Button>
                   <Button 
-                    className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                    className="bg-white hover:bg-gray-100 text-black border border-gray-300"
                     onClick={() => setIsContactModalOpen(true)}
                   >
                     Get Started
@@ -160,7 +160,7 @@ export default function Landing() {
                   user?.role === "agent" || user?.role === "admin" ? (
                     <div className="flex flex-col sm:flex-row gap-4">
                       <Link href="/registration">
-                        <Button size="lg" className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white px-8 py-4">
+                        <Button size="lg" className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4">
                           Enroll New Member
                         </Button>
                       </Link>
@@ -189,7 +189,7 @@ export default function Landing() {
                   <div className="flex flex-col sm:flex-row gap-4">
                     <Button 
                       size="lg" 
-                      className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white px-8 py-4"
+                      className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4"
                       onClick={() => setLocation('/quiz')}
                     >
                       Find My Perfect Plan
@@ -292,7 +292,7 @@ export default function Landing() {
                             className={`w-full ${
                               plan.name.toLowerCase().includes("group") 
                                 ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                                : "bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                                : "bg-white hover:bg-gray-100 text-black border border-gray-300"
                             }`}
                           >
                             {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
@@ -309,7 +309,7 @@ export default function Landing() {
                         className={`w-full ${
                           plan.name.toLowerCase().includes("group") 
                             ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                            : "bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                            : "bg-white hover:bg-gray-100 text-black border border-gray-300"
                         }`}
                         onClick={() => setIsContactModalOpen(true)}
                       >

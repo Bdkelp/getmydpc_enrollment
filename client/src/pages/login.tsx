@@ -155,7 +155,7 @@ export default function Login() {
               
               <Button 
                 type="submit" 
-                className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300"
                 disabled={isLoading}
               >
                 {isLoading ? (
