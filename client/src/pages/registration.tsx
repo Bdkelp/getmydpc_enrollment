@@ -49,6 +49,7 @@ const registrationSchema = z.object({
   communicationsConsent: z.boolean().default(false),
   // Privacy notice acknowledgment
   privacyNoticeAcknowledged: z.boolean().refine(val => val === true, "You must acknowledge the privacy notice"),
+  faqDownloaded: z.boolean().refine(val => val === true, "You must download and review the FAQ document"),
 }).superRefine((data, ctx) => {
   // Make employer fields required only for group/employer plans (not individual)
   // For now, all employer fields are optional since we don't have a clear indicator for group plans
@@ -125,6 +126,7 @@ export default function Registration() {
       termsAccepted: false,
       communicationsConsent: false,
       privacyNoticeAcknowledged: false,
+      faqDownloaded: false,
     },
   });
 
@@ -141,7 +143,7 @@ export default function Registration() {
         totalMonthlyPrice: parseFloat(totalWithFees),
         familyMembers: familyMembers
       };
-      await apiRequest("POST", "/api/registration", submissionData);
+      await apiRequest("POST", "/api/auth/profile", submissionData);
     },
     onSuccess: () => {
       // Store primary address for family member enrollment
@@ -278,12 +280,12 @@ export default function Registration() {
       setCurrentStep(7);
     } else if (currentStep === 7) {
       // Validate all checkboxes before allowing submission
-      const checkboxFields = ['termsAccepted', 'privacyNoticeAcknowledged', 'communicationsConsent'] as const;
+      const checkboxFields = ['termsAccepted', 'privacyNoticeAcknowledged', 'communicationsConsent', 'faqDownloaded'] as const;
       form.trigger(checkboxFields).then((isValid) => {
         if (!isValid) {
           toast({
             title: "Please complete all required acknowledgments",
-            description: "You must accept the terms and acknowledge the privacy notice before proceeding.",
+            description: "You must accept the terms, acknowledge the privacy notice, and download the FAQ document before proceeding.",
             variant: "destructive",
           });
         }
@@ -1171,6 +1173,13 @@ export default function Registration() {
 
                 {currentStep === 7 && (
                   <div className="space-y-6">
+                    {/* Important Disclaimer */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800 font-medium">
+                        <strong>Important:</strong> MyPremierPlans DPC is not health insurance. It is a Direct Primary Care Hybrid pay model powered by Healthcare2U.
+                      </p>
+                    </div>
+
                     {/* Review Information */}
                     <div className="bg-gray-50 rounded-lg p-6">
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Review Your Information</h3>
@@ -1440,6 +1449,46 @@ export default function Registration() {
                                 I consent to receive communications about my healthcare via email and SMS
                               </FormLabel>
                             </div>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="faqDownloaded"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="text-sm">
+                                I have downloaded and reviewed the MyPremierPlans FAQ document *
+                              </FormLabel>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Download FAQ from attached assets
+                                  const link = document.createElement('a');
+                                  link.href = '/attached_assets/Sterile MPP FAQ_1752600656517.docx';
+                                  link.download = 'MyPremierPlans-FAQ.docx';
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  toast({
+                                    title: "FAQ Downloaded",
+                                    description: "Please review the FAQ document before proceeding.",
+                                  });
+                                }}
+                                className="text-xs text-medical-blue-600 hover:text-medical-blue-700 underline"
+                              >
+                                Download FAQ Document
+                              </button>
+                            </div>
+                            <FormMessage />
                           </FormItem>
                         )}
                       />

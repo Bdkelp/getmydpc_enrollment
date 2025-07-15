@@ -10,6 +10,7 @@ import authRoutes from "./auth/authRoutes";
 import { configurePassportStrategies } from "./auth/authService";
 import { setupSupabaseAuth } from "./auth/supabaseAuth";
 import passport from "passport";
+import express from "express";
 
 let stripe: Stripe | null = null;
 
@@ -20,6 +21,9 @@ if (process.env.STRIPE_SECRET_KEY) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Serve attached assets
+  app.use('/attached_assets', express.static('attached_assets'));
+  
   // Use Supabase auth for production
   if (process.env.SUPABASE_URL) {
     setupSupabaseAuth(app);
