@@ -260,6 +260,14 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ```
 Changelog:
+- July 15, 2025: Fixed authentication and implemented magic link login
+  • Fixed password reset redirect URLs to work properly in Replit environment
+  • Added magic link authentication option to login page
+  • Users can now choose between password login and magic link login via tabs
+  • Magic link sends a one-time login link to user's email
+  • Both reset password and magic links now use correct Replit preview URLs
+  • Created MagicLinkLogin component for passwordless authentication
+  • Enhanced user experience with choice of authentication methods
 - July 03, 2025: MVP platform foundation completed
   • Core authentication and user management
   • Multi-step enrollment process

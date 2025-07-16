@@ -12,6 +12,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { signIn, signInWithOAuth } from "@/lib/supabase";
 import { Heart, Mail, Lock, Loader2 } from "lucide-react";
 import { FaGoogle, FaFacebook, FaTwitter, FaLinkedin, FaMicrosoft, FaApple } from "react-icons/fa";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MagicLinkLogin } from "@/components/magic-link-login";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -100,8 +102,15 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <Tabs defaultValue="password" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="password">Password</TabsTrigger>
+              <TabsTrigger value="magic-link">Magic Link</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="password" className="space-y-4">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <FormField
                 control={form.control}
                 name="email"
@@ -167,8 +176,17 @@ export default function Login() {
                   "Sign in"
                 )}
               </Button>
-            </form>
-          </Form>
+                </form>
+              </Form>
+            </TabsContent>
+            
+            <TabsContent value="magic-link" className="space-y-4">
+              <p className="text-sm text-gray-600 text-center mb-4">
+                We'll send you a link to sign in without a password
+              </p>
+              <MagicLinkLogin />
+            </TabsContent>
+          </Tabs>
           
           <div className="relative">
             <div className="absolute inset-0 flex items-center">

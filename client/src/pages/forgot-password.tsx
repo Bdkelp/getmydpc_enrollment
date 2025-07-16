@@ -32,8 +32,16 @@ export default function ForgotPassword() {
   const onSubmit = async (data: ForgotPasswordFormData) => {
     setIsLoading(true);
     try {
+      // Get the correct redirect URL - handle Replit preview URLs
+      let redirectUrl = `${window.location.origin}/reset-password`;
+      
+      // If we're in Replit, use the actual preview URL
+      if (window.location.hostname.includes('replit.dev') || window.location.hostname.includes('repl.co')) {
+        redirectUrl = `${window.location.origin}/reset-password`;
+      }
+      
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: redirectUrl,
       });
       
       if (error) {
