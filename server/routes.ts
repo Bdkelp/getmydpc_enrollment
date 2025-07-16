@@ -8,7 +8,7 @@ import { registrationSchema, insertPlanSchema } from "@shared/schema";
 import { calculateEnrollmentCommission } from "./utils/commission";
 import authRoutes from "./auth/authRoutes";
 import { configurePassportStrategies } from "./auth/authService";
-import { setupSupabaseAuth } from "./auth/supabaseAuth";
+import { setupSupabaseAuth, verifySupabaseToken } from "./auth/supabaseAuth";
 import passport from "passport";
 import express from "express";
 
@@ -24,8 +24,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached assets
   app.use('/attached_assets', express.static('attached_assets'));
   
-  // Use Supabase auth for production
-  if (process.env.SUPABASE_URL) {
+  // Determine which authentication system to use
+  const useSupabaseAuth = process.env.SUPABASE_URL;
+  const authMiddleware = useSupabaseAuth ? verifySupabaseToken : isAuthenticated;
+  
+  if (useSupabaseAuth) {
     setupSupabaseAuth(app);
   } else {
     // Fallback to Replit auth for development
@@ -42,32 +45,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     app.use(authRoutes);
   }
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
+  // Auth routes - only add if NOT using Supabase (since Supabase adds its own)
+  if (!useSupabaseAuth) {
+    app.get('/api/auth/user', authMiddleware, async (req: any, res) => {
+      try {
+        const userId = req.user.claims.sub;
+        const user = await storage.getUser(userId);
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+        
+        // Get user's current subscription and plan
+        const subscription = await storage.getUserSubscription(userId);
+        let plan = null;
+        if (subscription) {
+          plan = await storage.getPlan(subscription.planId);
+        }
+        
+        res.json({ ...user, subscription, plan });
+      } catch (error) {
+        console.error("Error fetching user:", error);
+        res.status(500).json({ message: "Failed to fetch user" });
       }
-      
-      // Get user's current subscription and plan
-      const subscription = await storage.getUserSubscription(userId);
-      let plan = null;
-      if (subscription) {
-        plan = await storage.getPlan(subscription.planId);
-      }
-      
-      res.json({ ...user, subscription, plan });
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
+    });
+  }
 
   // Middleware to check if user is agent or admin
   const isAgentOrAdmin = async (req: any, res: any, next: any) => {
-    const userId = req.user?.claims?.sub;
+    // Get user ID based on authentication system
+    const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -83,7 +89,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Middleware to check if user is admin
   const isAdmin = async (req: any, res: any, next: any) => {
-    const userId = req.user?.claims?.sub;
+    // Get user ID based on authentication system
+    const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -97,10 +104,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Mock payment endpoint for testing
-  app.post("/api/mock-payment", isAuthenticated, async (req: any, res) => {
+  app.post("/api/mock-payment", authMiddleware, async (req: any, res) => {
     try {
       const { planId } = req.body;
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       
       console.log("Mock payment request:", { planId, userId });
       
@@ -202,10 +209,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Protected routes - User registration/profile
-  app.post("/api/registration", isAuthenticated, async (req: any, res) => {
+  app.post("/api/registration", authMiddleware, async (req: any, res) => {
     try {
       const validatedData = registrationSchema.parse(req.body);
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       
       // Extract planId separately (not part of user profile)
       const { planId, ...userProfileData } = validatedData;
@@ -273,9 +280,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Family member enrollment
-  app.post('/api/family-enrollment', isAuthenticated, async (req: any, res) => {
+  app.post('/api/family-enrollment', authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { members } = req.body;
       
       if (!members || !Array.isArray(members)) {
@@ -313,9 +320,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Agent routes
-  app.get("/api/agent/stats", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.get("/api/agent/stats", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
-      const agentId = req.user.claims.sub;
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       
       // Get enrollments created by this agent
       const enrollments = await storage.getAgentEnrollments(agentId);
@@ -384,9 +391,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/agent/enrollments", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.get("/api/agent/enrollments", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
-      const agentId = req.user.claims.sub;
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.query;
       
       const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
@@ -419,9 +426,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/agent/export-enrollments", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.post("/api/agent/export-enrollments", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
-      const agentId = req.user.claims.sub;
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.body;
       
       const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
@@ -467,11 +474,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Resolve pending enrollment with consent
-  app.put("/api/enrollment/:userId/resolve", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.put("/api/enrollment/:userId/resolve", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
       const { subscriptionId, consentType, consentNotes } = req.body;
-      const modifiedBy = req.user.claims.sub;
+      const modifiedBy = useSupabaseAuth ? req.user.id : req.user.claims.sub;
 
       // Update subscription status to active
       await storage.updateSubscription(subscriptionId, {
@@ -503,9 +510,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Stripe payment intent route for one-time payments
-  app.post("/api/create-payment-intent", isAuthenticated, async (req: any, res) => {
+  app.post("/api/create-payment-intent", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { planId, hasRxValet, coverageType, totalAmount } = req.body;
       
       if (!stripe) {
@@ -551,9 +558,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Stripe subscription routes
-  app.post('/api/create-subscription', isAuthenticated, async (req: any, res) => {
+  app.post('/api/create-subscription', authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { planId } = req.body;
       
       if (!stripe) {
@@ -624,9 +631,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Handle successful payment completion (called after Stripe redirect)
-  app.post('/api/complete-payment', isAuthenticated, async (req: any, res) => {
+  app.post('/api/complete-payment', authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { payment_intent } = req.body;
 
       if (!stripe || !payment_intent) {
@@ -755,9 +762,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User dashboard routes
-  app.get("/api/user/payments", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/payments", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const payments = await storage.getUserPayments(userId);
       res.json(payments);
     } catch (error) {
@@ -766,9 +773,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/user/family-members", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/family-members", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const members = await storage.getFamilyMembers(userId);
       res.json(members);
     } catch (error) {
@@ -778,9 +785,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Admin routes
-  app.get("/api/admin/users", isAuthenticated, async (req: any, res) => {
+  app.get("/api/admin/users", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
       
       if (!user || user.role !== "admin") {
@@ -800,9 +807,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/admin/stats", isAuthenticated, async (req: any, res) => {
+  app.get("/api/admin/stats", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
       
       if (!user || user.role !== "admin") {
@@ -824,9 +831,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/plans", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/plans", authMiddleware, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
       
       if (!user || user.role !== "admin") {
@@ -874,9 +881,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.get("/api/agent/leads", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.get("/api/agent/leads", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
-      const agentId = req.user.claims.sub;
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { status } = req.query;
       
       const leads = await storage.getAgentLeads(agentId, status);
@@ -887,7 +894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.put("/api/leads/:id", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.put("/api/leads/:id", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const leadId = parseInt(req.params.id);
       const updates = req.body;
@@ -900,10 +907,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.post("/api/leads/:id/activities", isAuthenticated, isAgentOrAdmin, async (req: any, res) => {
+  app.post("/api/leads/:id/activities", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const leadId = parseInt(req.params.id);
-      const agentId = req.user.claims.sub;
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { activityType, notes } = req.body;
       
       const activity = await storage.addLeadActivity({
