@@ -34,13 +34,8 @@ export function MagicLinkLogin({ onSuccess }: MagicLinkLoginProps) {
   const onSubmit = async (data: MagicLinkFormData) => {
     setIsLoading(true);
     try {
-      // Get the correct redirect URL - handle Replit preview URLs
-      let redirectUrl = `${window.location.origin}/auth/callback`;
-      
-      // If we're in Replit, use the actual preview URL
-      if (window.location.hostname.includes('replit.dev') || window.location.hostname.includes('repl.co')) {
-        redirectUrl = `${window.location.origin}/auth/callback`;
-      }
+      // Get the correct redirect URL
+      const redirectUrl = `${window.location.origin}/auth/callback`;
       
       const { error } = await supabase.auth.signInWithOtp({
         email: data.email,
