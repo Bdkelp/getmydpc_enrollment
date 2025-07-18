@@ -37,10 +37,19 @@ export default function Landing() {
   ];
 
   const getPlanBadge = (planName: string) => {
-    if (planName.toLowerCase().includes("family")) {
+    if (planName.toLowerCase().includes("elite")) {
       return (
         <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
-          <span className="medical-blue-600 text-white px-4 py-1 rounded-full text-sm font-medium">
+          <span className="bg-purple-600 text-white px-4 py-1 rounded-full text-sm font-medium">
+            Premium
+          </span>
+        </div>
+      );
+    }
+    if (planName.toLowerCase().includes("plus") || planName.toLowerCase().includes("+")) {
+      return (
+        <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+          <span className="bg-green-600 text-white px-4 py-1 rounded-full text-sm font-medium">
             Most Popular
           </span>
         </div>
@@ -50,32 +59,52 @@ export default function Landing() {
   };
 
   const getPlanFeatures = (planName: string) => {
-    const baseFeatues = [
-      "Unlimited office visits",
-      "24/7 text & phone access",
-      "Basic lab work included",
+    // Extract plan tier from name
+    const isBase = planName.toLowerCase().includes("base");
+    const isPlus = planName.toLowerCase().includes("plus") || planName.toLowerCase().includes("+");
+    const isElite = planName.toLowerCase().includes("elite");
+
+    if (isBase) {
+      return [
+        "Unlimited virtual/telehealth visits",
+        "Unlimited primary care office visits",
+        "$10 office visit fee",
+        "Access to Patient Advocate Line (PAL)",
+        "Prescription coordination",
+        "Wellcard benefits included"
+      ];
+    }
+
+    if (isPlus) {
+      return [
+        "Unlimited virtual/telemed visits",
+        "Unlimited in-office doctor visits",
+        "$10 office visit fee",
+        "Unlimited urgent care visits",
+        "$25 urgent care visit fee",
+        "Wellcard benefits included"
+      ];
+    }
+
+    if (isElite) {
+      return [
+        "All Plus plan benefits",
+        "NO office or visit fees",
+        "200 Quest diagnostics procedures**",
+        "**Restrictions apply",
+        "Wellcard benefits included"
+      ];
+    }
+
+    // Default to base features
+    return [
+      "Unlimited virtual/telehealth visits",
+      "Unlimited primary care office visits",
+      "$10 office visit fee",
+      "Access to Patient Advocate Line (PAL)",
       "Prescription coordination",
+      "Wellcard benefits included"
     ];
-
-    if (planName.toLowerCase().includes("family")) {
-      return [
-        "Coverage for up to 4 members",
-        "All Individual plan benefits",
-        "Pediatric care included",
-        "Family health planning",
-      ];
-    }
-
-    if (planName.toLowerCase().includes("group")) {
-      return [
-        "Minimum 10 employees",
-        "Employer dashboard",
-        "Wellness programs",
-        "Dedicated account manager",
-      ];
-    }
-
-    return baseFeatues;
   };
 
   return (

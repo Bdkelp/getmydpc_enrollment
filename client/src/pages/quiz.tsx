@@ -197,11 +197,12 @@ const planInfo = {
     bgColor: "bg-blue-50",
     borderColor: "border-blue-200",
     features: [
-      "Unlimited virtual telehealth visits 24/7",
-      "Primary care physician visits", 
-      "Preventive care and wellness exams",
-      "Chronic disease management",
-      "Generic medications (when applicable)"
+      "Unlimited virtual/telehealth visits",
+      "Unlimited primary care office visits",
+      "$10 office visit fee",
+      "Access to Patient Advocate Line (PAL)",
+      "Prescription coordination",
+      "Wellcard benefits included"
     ]
   },
   plus: {
@@ -212,11 +213,12 @@ const planInfo = {
     bgColor: "bg-green-50",
     borderColor: "border-green-200",
     features: [
-      "Everything in Base plan",
-      "Specialist referrals and coordination",
-      "Mental health support and counseling",
-      "Enhanced preventive care programs",
-      "Priority scheduling and support"
+      "Unlimited virtual/telemed visits",
+      "Unlimited in-office doctor visits",
+      "$10 office visit fee",
+      "Unlimited urgent care visits",
+      "$25 urgent care visit fee",
+      "Wellcard benefits included"
     ]
   },
   elite: {
@@ -227,12 +229,11 @@ const planInfo = {
     bgColor: "bg-purple-50",
     borderColor: "border-purple-200",
     features: [
-      "Everything in Plus plan",
-      "Premium provider network access",
-      "Executive health services",
-      "Concierge medical support",
-      "Advanced diagnostic services",
-      "24/7 dedicated health concierge"
+      "All Plus plan benefits",
+      "NO office or visit fees",
+      "200 Quest diagnostics procedures**",
+      "**Restrictions apply",
+      "Wellcard benefits included"
     ]
   }
 };
