@@ -233,7 +233,7 @@ export default function Landing() {
                     </Button>
                   </div>
                 )}
-                <a href="https://mypremierplans.com" target="_blank" rel="noopener noreferrer">
+                <a href="https://www.mypremierplans.com" target="_blank" rel="noopener noreferrer">
                   <Button variant="outline" size="lg" className="px-8 py-4">
                     Learn More
                   </Button>

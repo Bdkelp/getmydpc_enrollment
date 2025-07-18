@@ -361,7 +361,7 @@ export default function Confirmation() {
                 </p>
                 <p className="flex items-center text-sm">
                   <Globe className="h-4 w-4 text-gray-600 mr-2" />
-                  <a href="http://www.mypremierplans.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                  <a href="https://www.mypremierplans.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                     www.mypremierplans.com
                   </a>
                 </p>
