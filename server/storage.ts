@@ -93,6 +93,11 @@ export interface IStorage {
   // Lead stats
   getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }>;
   getAvailableAgentForLead(): Promise<string | null>;
+  
+  // User approval operations
+  getPendingUsers(): Promise<User[]>;
+  approveUser(userId: string, approvedBy: string): Promise<User>;
+  rejectUser(userId: string, reason: string): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -486,6 +491,68 @@ export class DatabaseStorage implements IStorage {
     .limit(1);
 
     return agents[0]?.agentId || null;
+  }
+
+  // User approval operations
+  async getPendingUsers(): Promise<User[]> {
+    const pendingUsers = await db
+      .select()
+      .from(users)
+      .where(eq(users.approvalStatus, 'pending'))
+      .orderBy(desc(users.createdAt));
+    
+    // Add suspicious flags based on simple checks
+    return pendingUsers.map(user => {
+      const suspiciousFlags: string[] = [];
+      
+      // Check for temporary email patterns
+      const tempEmailPatterns = ['tempmail', 'throwaway', 'guerrilla', '10minute', 'mailinator'];
+      if (user.email && tempEmailPatterns.some(pattern => user.email!.toLowerCase().includes(pattern))) {
+        suspiciousFlags.push('Temporary email detected');
+      }
+      
+      // Check if no user agent or suspicious user agent
+      if (!user.registrationUserAgent || user.registrationUserAgent === 'email') {
+        suspiciousFlags.push('No browser info');
+      }
+      
+      // Check if email is not verified
+      if (!user.emailVerified) {
+        suspiciousFlags.push('Email not verified');
+      }
+      
+      return {
+        ...user,
+        suspiciousFlags: suspiciousFlags
+      };
+    });
+  }
+
+  async approveUser(userId: string, approvedBy: string): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ 
+        approvalStatus: 'approved',
+        approvedAt: new Date(),
+        approvedBy: approvedBy,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
+  }
+
+  async rejectUser(userId: string, reason: string): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ 
+        approvalStatus: 'rejected',
+        rejectionReason: reason,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
   }
 }
 

@@ -831,6 +831,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Admin approval endpoints
+  app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
+    try {
+      const pendingUsers = await storage.getPendingUsers();
+      res.json(pendingUsers);
+    } catch (error) {
+      console.error("Error fetching pending users:", error);
+      res.status(500).json({ message: "Failed to fetch pending users" });
+    }
+  });
+
+  app.post('/api/admin/approve-user/:userId', authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const adminId = req.user.id;
+      
+      await storage.approveUser(userId, adminId);
+      
+      // TODO: Send approval email to user
+      
+      res.json({ message: "User approved successfully" });
+    } catch (error) {
+      console.error("Error approving user:", error);
+      res.status(500).json({ message: "Failed to approve user" });
+    }
+  });
+
+  app.post('/api/admin/reject-user/:userId', authMiddleware, isAdmin, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { reason } = req.body;
+      
+      await storage.rejectUser(userId, reason);
+      
+      // TODO: Send rejection email to user
+      
+      res.json({ message: "User rejected" });
+    } catch (error) {
+      console.error("Error rejecting user:", error);
+      res.status(500).json({ message: "Failed to reject user" });
+    }
+  });
+
   app.post("/api/admin/plans", authMiddleware, async (req: any, res) => {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;

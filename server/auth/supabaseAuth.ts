@@ -49,6 +49,15 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
       await storage.updateUser(dbUser.id, { lastLoginAt: new Date() });
     }
     
+    // Check if user is approved (except for admins who always have access)
+    if (dbUser.role !== 'admin' && dbUser.approvalStatus !== 'approved') {
+      return res.status(403).json({ 
+        message: 'Account pending approval',
+        approvalStatus: dbUser.approvalStatus,
+        requiresApproval: true 
+      });
+    }
+    
     req.user = dbUser;
     next();
   } catch (error) {
@@ -72,7 +81,11 @@ export async function syncSupabaseUser(supabaseUser: any) {
         lastName: supabaseUser.user_metadata?.last_name || supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
         profileImageUrl: supabaseUser.user_metadata?.avatar_url,
         emailVerified: supabaseUser.email_confirmed_at !== null,
+        emailVerifiedAt: supabaseUser.email_confirmed_at ? new Date(supabaseUser.email_confirmed_at) : null,
         role,
+        approvalStatus: role === 'admin' ? 'approved' : 'pending', // Admins are auto-approved
+        registrationIp: supabaseUser.last_sign_in_at ? supabaseUser.ip_address : null,
+        registrationUserAgent: supabaseUser.app_metadata?.provider || 'email',
         lastLoginAt: new Date()
       });
     } else {

@@ -376,6 +376,17 @@ Changelog:
   • Added "What Our Members Are Saying" testimonials section with placeholder reviews
   • Updated family plan capacity to 8 members (2 parents + 6 children) per requirement
   • Mock payment mode enabled for testing enrollment flow at enrollment.getmydpc.com
+- July 18, 2025: User approval system and bot protection
+  • Implemented comprehensive user approval system for security:
+    - New users are set to "pending" status and cannot access the platform
+    - Admin dashboard shows pending users with risk assessment
+    - Bot detection flags: temporary emails, missing browser info, unverified emails
+    - Admins can approve or reject users from the dashboard
+    - Rejected users receive a reason for rejection
+  • Added /pending-approval page for users awaiting approval
+  • Social login users also require approval before access
+  • All users except admins are auto-set to pending status
+  • Enhanced security to prevent unauthorized access and bot registrations
 ```
 
 ## User Preferences

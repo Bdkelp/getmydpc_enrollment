@@ -48,6 +48,15 @@ export const users = pgTable("users", {
   role: varchar("role").default("user"), // user, admin, agent
   agentNumber: varchar("agent_number").unique(), // Unique agent identifier for production tracking
   isActive: boolean("is_active").default(true),
+  approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by"), // Admin who approved the user
+  rejectionReason: text("rejection_reason"), // If rejected, the reason
+  emailVerified: boolean("email_verified").default(false),
+  emailVerifiedAt: timestamp("email_verified_at"),
+  registrationIp: varchar("registration_ip"), // Track IP for bot detection
+  registrationUserAgent: text("registration_user_agent"), // Track user agent
+  suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
   enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
   // Employment information
   employerName: varchar("employer_name"),

@@ -84,13 +84,13 @@ export default function Register() {
       }
       
       toast({
-        title: "Registration successful!",
-        description: "Please check your email to verify your account.",
+        title: "Registration submitted!",
+        description: "Your account is pending approval. You'll receive an email once approved.",
       });
       
-      // Redirect to login page
+      // Redirect to pending approval page
       setTimeout(() => {
-        setLocation("/login");
+        setLocation("/pending-approval");
       }, 2000);
     } catch (error: any) {
       toast({

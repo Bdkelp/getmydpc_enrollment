@@ -43,6 +43,13 @@ export function useAuth() {
       
       if (!response.ok) {
         if (response.status === 401) return null;
+        if (response.status === 403) {
+          const data = await response.json();
+          if (data.requiresApproval) {
+            window.location.href = '/pending-approval';
+            return null;
+          }
+        }
         throw new Error('Failed to fetch user');
       }
       
