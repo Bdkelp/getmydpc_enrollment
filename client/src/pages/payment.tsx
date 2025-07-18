@@ -13,7 +13,9 @@ import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check } from "lucide-react";
 
-const stripePromise = import.meta.env.VITE_STRIPE_PUBLIC_KEY 
+// Enable mock payment mode for testing
+const ENABLE_MOCK_PAYMENT = true; // Set to false when Stripe is configured
+const stripePromise = import.meta.env.VITE_STRIPE_PUBLIC_KEY && !ENABLE_MOCK_PAYMENT
   ? loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY)
   : null;
 
@@ -286,12 +288,12 @@ export default function Payment() {
                       </div>
                     )}
                     
-                    {/* Mock Payment Button - Show when no Stripe configured */}
-                    {!stripePromise && selectedPlan && (
+                    {/* Mock Payment Button - Show when no Stripe configured or in test mode */}
+                    {(!stripePromise || ENABLE_MOCK_PAYMENT) && selectedPlan && (
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-                        <h3 className="text-lg font-semibold text-yellow-800 mb-2">Mock Payment (Testing Mode)</h3>
+                        <h3 className="text-lg font-semibold text-yellow-800 mb-2">Test Payment Mode</h3>
                         <p className="text-yellow-700 mb-4">
-                          Stripe is not configured. Using mock payment for testing.
+                          Payment processing is in test mode. Click below to complete your enrollment without payment.
                         </p>
                         
                         <Button
