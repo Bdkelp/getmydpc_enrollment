@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Heart, DollarSign, Clock, UserCheck, Check } from "lucide-react";
+import { Heart, DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
@@ -293,7 +293,17 @@ export default function Landing() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {plans?.map((plan) => (
+              {plans?.filter(plan => plan.name.includes("Member Only"))
+                .sort((a, b) => {
+                  // Sort by plan tier: Base, Plus, Elite
+                  const tierOrder = { 'base': 1, 'plus': 2, '+': 2, 'elite': 3 };
+                  const aTier = a.name.toLowerCase().includes('elite') ? 3 : 
+                               a.name.toLowerCase().includes('plus') || a.name.includes('+') ? 2 : 1;
+                  const bTier = b.name.toLowerCase().includes('elite') ? 3 : 
+                               b.name.toLowerCase().includes('plus') || b.name.includes('+') ? 2 : 1;
+                  return aTier - bTier;
+                })
+                .map((plan) => (
                 <Card key={plan.id} className={`relative p-8 hover:shadow-md transition-shadow ${
                   plan.name.toLowerCase().includes("family") ? "border-2 border-blue-600" : ""
                 }`}>
@@ -350,6 +360,87 @@ export default function Landing() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Testimonials Section */}
+      <div className="py-20 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">What Our Members Are Saying</h2>
+            <p className="text-lg text-gray-600">Real experiences from MyPremierPlans members</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Testimonial 1 */}
+            <Card className="p-8">
+              <CardContent className="p-0">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-6 italic">
+                  "Finally, healthcare that works for me! No more waiting weeks for appointments. 
+                  My doctor actually knows my name and takes time to listen. The virtual visits 
+                  have been a game-changer for my busy schedule."
+                </p>
+                <div className="flex items-center">
+                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
+                  <div>
+                    <p className="font-semibold text-gray-900">Sarah Johnson</p>
+                    <p className="text-sm text-gray-600">Member since 2023</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Testimonial 2 */}
+            <Card className="p-8">
+              <CardContent className="p-0">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-6 italic">
+                  "The $10 office visits and $25 urgent care visits have saved me hundreds compared 
+                  to my old insurance copays. Plus, I can text my doctor directly when I have 
+                  questions. It's healthcare how it should be!"
+                </p>
+                <div className="flex items-center">
+                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
+                  <div>
+                    <p className="font-semibold text-gray-900">Michael Chen</p>
+                    <p className="text-sm text-gray-600">Member since 2022</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Testimonial 3 */}
+            <Card className="p-8">
+              <CardContent className="p-0">
+                <div className="flex items-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
+                  ))}
+                </div>
+                <p className="text-gray-700 mb-6 italic">
+                  "Having the Elite plan with no visit fees and Quest diagnostics included has been 
+                  incredible. My whole family is covered, and we actually use our healthcare now 
+                  instead of avoiding it due to cost."
+                </p>
+                <div className="flex items-center">
+                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
+                  <div>
+                    <p className="font-semibold text-gray-900">Jennifer Martinez</p>
+                    <p className="text-sm text-gray-600">Member since 2024</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
       

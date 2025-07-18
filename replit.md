@@ -367,6 +367,15 @@ Changelog:
   • Contact form modal now pre-fills with selected plan information
   • Created TEST_ACCOUNTS.md with test account credentials for different roles
   • Production-ready authentication system now fully operational without requiring Replit accounts
+- July 16, 2025: Plan features update and testimonials section
+  • Updated all plan features in database and UI to match official MyPremierPlans offerings:
+    - Base: Unlimited virtual/telehealth, unlimited primary care ($10 fee), PAL access, prescriptions, Wellcard
+    - Plus: All Base features + unlimited urgent care ($25 fee)
+    - Elite: All Plus features with NO visit fees + 200 Quest diagnostics procedures
+  • Landing page now shows only 3 plans (member-only versions) for simplicity
+  • Added "What Our Members Are Saying" testimonials section with placeholder reviews
+  • Updated family plan capacity to 8 members (2 parents + 6 children) per requirement
+  • Mock payment mode enabled for testing enrollment flow at enrollment.getmydpc.com
 ```
 
 ## User Preferences
