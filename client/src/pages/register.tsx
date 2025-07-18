@@ -10,8 +10,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { signUp } from "@/lib/supabase";
+import { signUp, signInWithOAuth } from "@/lib/supabase";
 import { Heart, Mail, Lock, User, Loader2 } from "lucide-react";
+import { FaGoogle, FaFacebook, FaTwitter, FaLinkedin, FaMicrosoft, FaApple } from "react-icons/fa";
 
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -34,6 +35,25 @@ export default function Register() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
+    try {
+      const { error } = await signInWithOAuth(provider);
+      if (error) {
+        toast({
+          title: "Registration failed",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Registration failed",
+        description: error.message || "Social login failed",
+        variant: "destructive",
+      });
+    }
+  };
   
   const form = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -268,6 +288,66 @@ export default function Register() {
               </Button>
             </form>
           </Form>
+          
+          <div className="relative mt-6">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white px-2 text-gray-500">Or sign up with</span>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 mt-6">
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("google")}
+              className="w-full"
+            >
+              <FaGoogle className="mr-2 h-4 w-4" />
+              Google
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("facebook")}
+              className="w-full"
+            >
+              <FaFacebook className="mr-2 h-4 w-4" />
+              Facebook
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("twitter")}
+              className="w-full"
+            >
+              <FaTwitter className="mr-2 h-4 w-4" />
+              Twitter
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("linkedin")}
+              className="w-full"
+            >
+              <FaLinkedin className="mr-2 h-4 w-4" />
+              LinkedIn
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("microsoft")}
+              className="w-full"
+            >
+              <FaMicrosoft className="mr-2 h-4 w-4" />
+              Microsoft
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleSocialLogin("apple")}
+              className="w-full"
+            >
+              <FaApple className="mr-2 h-4 w-4" />
+              Apple
+            </Button>
+          </div>
         </CardContent>
         <CardFooter>
           <p className="text-center text-sm text-gray-600 w-full">
