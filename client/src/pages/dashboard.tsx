@@ -20,6 +20,22 @@ import {
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  
+  // Get current time of day for personalized greeting
+  const getTimeOfDayGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
+  
+  // Get user's first name for personalized greeting
+  const getUserName = () => {
+    if (user?.firstName) return user.firstName;
+    if (user?.name) return user.name.split(' ')[0];
+    if (user?.email) return user.email.split('@')[0];
+    return "Member";
+  };
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -154,6 +170,47 @@ export default function Dashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Personalized Welcome Message */}
+        <Card className="mb-8 bg-gradient-to-r from-medical-blue-500 to-medical-blue-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold mb-1">
+                  {getTimeOfDayGreeting()}, {getUserName()}! 🏥
+                </h2>
+                <p className="text-blue-100">
+                  Welcome to your healthcare dashboard. Your membership gives you unlimited access to quality care.
+                </p>
+                <div className="mt-4 flex items-center space-x-6">
+                  <div>
+                    <p className="text-sm text-blue-200">Membership Status</p>
+                    <p className="text-lg font-semibold flex items-center">
+                      <CheckCircle className="h-5 w-5 mr-1" />
+                      {user.subscription?.status === "active" ? "Active" : "Pending"}
+                    </p>
+                  </div>
+                  <div className="border-l border-blue-300 pl-6">
+                    <p className="text-sm text-blue-200">Your Plan</p>
+                    <p className="text-lg font-semibold">
+                      {user.plan?.name || "MyPremierPlan"}
+                    </p>
+                  </div>
+                  <div className="border-l border-blue-300 pl-6">
+                    <p className="text-sm text-blue-200">24/7 Support</p>
+                    <p className="text-lg font-semibold flex items-center">
+                      <Phone className="h-5 w-5 mr-1" />
+                      1-800-PREMIER
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="hidden md:block">
+                <Heart className="h-24 w-24 text-blue-200 opacity-50" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Main Content Area */}

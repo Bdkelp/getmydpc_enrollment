@@ -260,6 +260,16 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ```
 Changelog:
+- July 19, 2025: Implemented role-based dashboard personalization
+  • Added personalized welcome messages to all dashboards (admin, agent, member)
+  • Time-based greetings: "Good morning/afternoon/evening" based on user's local time
+  • Name personalization: Uses firstName, name field, or email prefix as fallback
+  • Role-specific content in welcome cards:
+    - Admin: Platform status, last login time, full system access message
+    - Agent: Monthly goals, commission earned, active leads, sales encouragement
+    - Member: Membership status, plan details, 24/7 support contact
+  • Color-coded welcome cards: Blue for admin/member, green for agent
+  • Added relevant icons to each welcome card for visual appeal
 - July 19, 2025: Removed Stripe payment integration
   • Uninstalled all Stripe packages (@stripe/stripe-js, @stripe/react-stripe-js, stripe)
   • Removed all Stripe API endpoints (create-payment-intent, complete-payment, stripe-webhook, create-subscription)

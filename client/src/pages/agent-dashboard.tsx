@@ -50,6 +50,22 @@ export default function AgentDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  
+  // Get current time of day for personalized greeting
+  const getTimeOfDayGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
+  
+  // Get user's first name for personalized greeting
+  const getUserName = () => {
+    if (user?.firstName) return user.firstName;
+    if (user?.name) return user.name.split(' ')[0];
+    if (user?.email) return user.email.split('@')[0];
+    return "Agent";
+  };
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
@@ -196,6 +212,46 @@ export default function AgentDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Personalized Welcome Message */}
+        <Card className="mb-8 bg-gradient-to-r from-green-500 to-green-600 text-white">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold mb-1">
+                  {getTimeOfDayGreeting()}, {getUserName()}! 🎯
+                </h2>
+                <p className="text-green-100">
+                  Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare!
+                </p>
+                <div className="mt-4 flex items-center space-x-6">
+                  <div>
+                    <p className="text-sm text-green-200">This Month's Goal</p>
+                    <p className="text-lg font-semibold">
+                      {stats?.monthlyEnrollments || 0} / 10 enrollments
+                    </p>
+                  </div>
+                  <div className="border-l border-green-300 pl-6">
+                    <p className="text-sm text-green-200">Commission Earned</p>
+                    <p className="text-lg font-semibold">
+                      ${stats?.monthlyCommission?.toFixed(2) || "0.00"}
+                    </p>
+                  </div>
+                  <div className="border-l border-green-300 pl-6">
+                    <p className="text-sm text-green-200">Leads to Follow Up</p>
+                    <p className="text-lg font-semibold flex items-center">
+                      <Phone className="h-5 w-5 mr-1" />
+                      {stats?.activeLeads || 0} active
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="hidden md:block">
+                <TrendingUp className="h-24 w-24 text-green-200 opacity-50" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
