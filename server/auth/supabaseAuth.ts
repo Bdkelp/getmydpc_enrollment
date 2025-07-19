@@ -15,47 +15,29 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.log('[verifySupabaseToken] No token provided');
       return res.status(401).json({ message: 'No token provided' });
     }
     
     const token = authHeader.substring(7);
+    console.log('[verifySupabaseToken] Verifying token:', token.substring(0, 20) + '...');
     
     // Verify token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
     if (error || !user) {
+      console.log('[verifySupabaseToken] Token verification failed:', error);
       return res.status(401).json({ message: 'Invalid token' });
     }
     
-    // Get or create user in our database
-    let dbUser = await storage.getUserByEmail(user.email!);
+    console.log('[verifySupabaseToken] Supabase user verified:', { id: user.id, email: user.email });
     
-    if (!dbUser) {
-      // Create new user with role assignment
-      const role = determineUserRole(user.email!);
-      
-      dbUser = await storage.createUser({
-        id: user.id,
-        email: user.email!,
-        firstName: user.user_metadata?.first_name || user.user_metadata?.full_name?.split(' ')[0] || '',
-        lastName: user.user_metadata?.last_name || user.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
-        profileImageUrl: user.user_metadata?.avatar_url,
-        emailVerified: user.email_confirmed_at !== null,
-        role,
-        lastLoginAt: new Date()
-      });
-    } else {
-      // Update last login
-      await storage.updateUser(dbUser.id, { lastLoginAt: new Date() });
-    }
-    
-    // Skip approval check for now since the approvalStatus column doesn't exist
-    // TODO: Add approval system if needed in the future
-    
-    req.user = dbUser;
+    // Pass the Supabase user data directly to the /api/auth/user endpoint
+    // The endpoint will handle database syncing
+    req.user = user;
     next();
   } catch (error) {
-    console.error('Token verification error:', error);
+    console.error('[verifySupabaseToken] Token verification error:', error);
     res.status(401).json({ message: 'Token verification failed' });
   }
 };
@@ -105,19 +87,82 @@ export function setupSupabaseAuth(app: Express) {
   // Get current user (for JWT authentication)
   app.get('/api/auth/user', verifySupabaseToken, async (req: any, res) => {
     try {
-      const user = req.user;
+      console.log('[Supabase Auth] Fetching user data for:', req.user);
+      
+      // First check if user exists in our database
+      let dbUser = await storage.getUser(req.user.id);
+      console.log('[Supabase Auth] User from database:', dbUser);
+      
+      if (!dbUser) {
+        console.log('[Supabase Auth] User not found in database, creating new user');
+        
+        // Determine role based on email domain
+        let role = 'user'; // default role
+        const email = req.user.email?.toLowerCase() || '';
+        
+        // Admin emails
+        const adminEmails = [
+          'michael@mypremierplans.com',
+          'travis@mypremierplans.com', 
+          'richard@mypremierplans.com',
+          'joaquin@mypremierplans.com'
+        ];
+        
+        // Agent emails
+        const agentEmails = [
+          'mdkeener@gmail.com',
+          'tmatheny77@gmail.com',
+          'svillarreal@cyariskmanagement.com'
+        ];
+        
+        if (adminEmails.includes(email)) {
+          role = 'admin';
+        } else if (agentEmails.includes(email)) {
+          role = 'agent';
+        }
+        
+        console.log('[Supabase Auth] Creating user with role:', role);
+        
+        // Create the user
+        dbUser = await storage.createUser({
+          id: req.user.id,
+          email: req.user.email,
+          name: req.user.user_metadata?.name || req.user.email?.split('@')[0] || 'User',
+          role,
+          approvalStatus: role === 'admin' ? 'approved' : 'pending' // Auto-approve admins
+        });
+        
+        console.log('[Supabase Auth] Created new user:', dbUser);
+      }
+      
+      // Auto-approve admin users if not already approved
+      if (dbUser && dbUser.role === 'admin' && dbUser.approvalStatus !== 'approved') {
+        console.log('[Supabase Auth] Auto-approving admin user');
+        await storage.updateUser(dbUser.id, { approvalStatus: 'approved' });
+        dbUser = await storage.getUser(dbUser.id);
+      }
       
       // Get user's current subscription and plan
-      const subscription = await storage.getUserSubscription(user.id);
+      const subscription = await storage.getUserSubscription(dbUser.id);
       let plan = null;
       if (subscription) {
         plan = await storage.getPlan(subscription.planId);
       }
       
-      res.json({ ...user, subscription, plan });
+      // Return the database user with auth metadata
+      const enrichedUser = {
+        ...dbUser,
+        email: req.user.email, // Use email from JWT
+        metadata: req.user.user_metadata,
+        subscription,
+        plan
+      };
+      
+      console.log('[Supabase Auth] Returning enriched user:', enrichedUser);
+      res.json(enrichedUser);
     } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
+      console.error("[Supabase Auth] Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user data" });
     }
   });
 

@@ -53,8 +53,10 @@ export default function Login() {
           description: `Logged in successfully`,
         });
         
-        // Force a full page reload to ensure auth state is properly updated
-        window.location.href = "/";
+        // Add a small delay before redirect to ensure session is stored
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
       }
     } catch (error: any) {
       console.error("Login failed:", error);

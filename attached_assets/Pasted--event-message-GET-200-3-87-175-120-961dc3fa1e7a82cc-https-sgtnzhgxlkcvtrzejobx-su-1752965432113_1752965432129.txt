@@ -1,0 +1,182 @@
+{
+  "event_message": "GET | 200 | 3.87.175.120 | 961dc3fa1e7a82cc | https://sgtnzhgxlkcvtrzejobx.supabase.co/auth/v1/health | supabase-api/42a20c0",
+  "id": "5efb48c0-2092-48b6-babe-7c01187e6d9f",
+  "metadata": [
+    {
+      "load_balancer_experimental_routing": null,
+      "load_balancer_geo_aware_info": [],
+      "load_balancer_redirect_identifier": null,
+      "logflare_worker": [
+        {
+          "worker_id": "7BK792"
+        }
+      ],
+      "request": [
+        {
+          "cf": [
+            {
+              "asOrganization": "Amazon Data Services NoVa",
+              "asn": 14618,
+              "botManagement": [
+                {
+                  "corporateProxy": false,
+                  "detectionIds": [],
+                  "ja3Hash": "1a28e69016765d92e3b381168d68922c",
+                  "ja4": "t13d5911h1_a33745022dd6_1f22a2ca17c4",
+                  "ja4Signals": [
+                    {
+                      "browser_ratio_1h": 0.092095941305161,
+                      "cache_ratio_1h": 0.10388158261776,
+                      "h2h3_ratio_1h": 0.001057886867784,
+                      "heuristic_ratio_1h": 0.052753709256649,
+                      "ips_quantile_1h": 0.99964416027069,
+                      "ips_rank_1h": 196,
+                      "paths_rank_1h": 91,
+                      "reqs_quantile_1h": 0.99988925457001,
+                      "reqs_rank_1h": 61,
+                      "uas_rank_1h": 179
+                    }
+                  ],
+                  "jsDetection": [
+                    {
+                      "passed": false
+                    }
+                  ],
+                  "score": 2,
+                  "staticResource": false,
+                  "verifiedBot": false
+                }
+              ],
+              "city": "Ashburn",
+              "clientAcceptEncoding": "gzip, deflate, br",
+              "clientTcpRtt": 1,
+              "clientTrustScore": 2,
+              "colo": "IAD",
+              "continent": "NA",
+              "country": "US",
+              "edgeRequestKeepAliveStatus": 1,
+              "httpProtocol": "HTTP/1.1",
+              "isEUCountry": null,
+              "latitude": "39.04372",
+              "longitude": "-77.48749",
+              "metroCode": null,
+              "postalCode": "20147",
+              "region": "Virginia",
+              "regionCode": "VA",
+              "requestPriority": null,
+              "timezone": "America/New_York",
+              "tlsCipher": "AEAD-AES256-GCM-SHA384",
+              "tlsClientAuth": [
+                {
+                  "certPresented": "0",
+                  "certRevoked": "0",
+                  "certVerified": "NONE"
+                }
+              ],
+              "tlsClientCiphersSha1": "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+              "tlsClientExtensionsSha1": "Y7DIC8A6G0/aXviZ8ie/xDbJb7g=",
+              "tlsClientExtensionsSha1Le": "6e+q3vPm88rSgMTN/h7WTTxQ2wQ=",
+              "tlsClientHelloLength": "396",
+              "tlsClientRandom": "YwD86xs5xcK1mdYrHQg5oEW3EiL2MS/RPynH5bIGC5I=",
+              "tlsExportedAuthenticator": [
+                {
+                  "clientFinished": "2952caa21c7ff7032d20d963c11ffcb6ff6e8c7110ba2cad00563c9db6c231999a1fbcbb85e3a63e18cfea6fa0a3ea99",
+                  "clientHandshake": "08847d62eecd8ce25eeb9e71194715363789faea6d220bf45aac83e1674f1ea24f76f7fcb4d417f1403d9a64b0330d0c",
+                  "serverFinished": "ecd53ce304d829f3caefef1395621a119794a1baa4d87a9e0806456d80c81e2934c9cfeb71839447d425d761b051a799",
+                  "serverHandshake": "1745b40ae6e674f951443a8d619ca73dbca699609285606a56a4486fa0ab304084d4deeb151b365216f252896361ac85"
+                }
+              ],
+              "tlsVersion": "TLSv1.3",
+              "verifiedBotCategory": null
+            }
+          ],
+          "headers": [
+            {
+              "accept": "application/json",
+              "cf_cache_status": null,
+              "cf_connecting_ip": "3.87.175.120",
+              "cf_ipcountry": "US",
+              "cf_ray": "961dc3fa1e7a82cc",
+              "content_length": null,
+              "content_location": null,
+              "content_range": null,
+              "content_type": "application/json",
+              "date": null,
+              "host": "sgtnzhgxlkcvtrzejobx.supabase.co",
+              "prefer": null,
+              "range": null,
+              "referer": null,
+              "sb_gateway_mode": null,
+              "sb_gateway_version": null,
+              "user_agent": "supabase-api/42a20c0",
+              "x_client_info": null,
+              "x_forwarded_host": null,
+              "x_forwarded_proto": "https",
+              "x_forwarded_user_agent": null,
+              "x_kong_proxy_latency": null,
+              "x_kong_upstream_latency": null,
+              "x_real_ip": "3.87.175.120"
+            }
+          ],
+          "host": "sgtnzhgxlkcvtrzejobx.supabase.co",
+          "method": "GET",
+          "path": "/auth/v1/health",
+          "port": null,
+          "protocol": "https:",
+          "sb": [
+            {
+              "apikey": [],
+              "auth_user": null,
+              "jwt": [
+                {
+                  "apikey": [
+                    {
+                      "invalid": null,
+                      "payload": [
+                        {
+                          "algorithm": "HS256",
+                          "expires_at": 2068165753,
+                          "issuer": "supabase",
+                          "role": "anon",
+                          "signature_prefix": "i-p7Zx",
+                          "subject": null
+                        }
+                      ]
+                    }
+                  ],
+                  "authorization": []
+                }
+              ]
+            }
+          ],
+          "search": null,
+          "url": "https://sgtnzhgxlkcvtrzejobx.supabase.co/auth/v1/health"
+        }
+      ],
+      "response": [
+        {
+          "headers": [
+            {
+              "cf_cache_status": "DYNAMIC",
+              "cf_ray": "961dc3fa56c282cc-IAD",
+              "content_length": null,
+              "content_location": null,
+              "content_range": null,
+              "content_type": "application/json",
+              "date": "Sat, 19 Jul 2025 22:48:18 GMT",
+              "sb_gateway_mode": null,
+              "sb_gateway_version": "1",
+              "transfer_encoding": "chunked",
+              "x_kong_proxy_latency": null,
+              "x_kong_upstream_latency": null,
+              "x_sb_error_code": null
+            }
+          ],
+          "origin_time": 241,
+          "status_code": 200
+        }
+      ]
+    }
+  ],
+  "timestamp": 1752965298511000
+}
