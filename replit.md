@@ -38,9 +38,10 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 - **Schema**: Comprehensive data model for users, plans, subscriptions, payments, and family members
 
 #### Payment System
-- **Provider**: Stripe for PCI-compliant payment processing
-- **Features**: Subscription management, recurring billing, payment intent handling
-- **Security**: Server-side payment processing with client-side Elements integration
+- **Current State**: Mock payment system for testing
+- **Previous Provider**: Stripe (removed, pivoting to new payment processor)
+- **Features**: Placeholder payment form, test subscription creation
+- **Note**: Awaiting decision on new payment processor (considering Square Pay)
 
 #### UI/UX Design
 - Responsive design with mobile-first approach
@@ -96,7 +97,6 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 ### Core Dependencies
 - **@neondatabase/serverless**: PostgreSQL database connection
 - **drizzle-orm**: Type-safe database ORM
-- **@stripe/stripe-js & @stripe/react-stripe-js**: Payment processing
 - **@tanstack/react-query**: Server state management
 - **react-hook-form & @hookform/resolvers**: Form handling
 - **zod**: Schema validation
@@ -130,7 +130,7 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ### Environment Configuration
 - Database connection via `DATABASE_URL`
-- Stripe keys for payment processing
+- Payment processor keys (to be configured when provider is selected)
 - Session secrets for authentication
 - Replit-specific configuration for auth
 
@@ -260,6 +260,14 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ```
 Changelog:
+- July 19, 2025: Removed Stripe payment integration
+  • Uninstalled all Stripe packages (@stripe/stripe-js, @stripe/react-stripe-js, stripe)
+  • Removed all Stripe API endpoints (create-payment-intent, complete-payment, stripe-webhook, create-subscription)
+  • Cleaned up payment page to only show mock payment form
+  • Updated confirmation page to remove Stripe payment completion logic
+  • Payment system now uses mock payments only until new processor is selected
+  • Database schema retains payment-related columns for future processor integration
+  • Ready to integrate with Square Pay or other payment processor when decision is made
 - July 15, 2025: Fixed authentication and implemented magic link login
   • Fixed password reset redirect URLs to work properly in Replit environment
   • Added magic link authentication option to login page

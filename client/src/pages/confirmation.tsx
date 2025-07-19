@@ -18,45 +18,7 @@ export default function Confirmation() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { toast } = useToast();
 
-  // Complete payment mutation for Stripe payments
-  const completePaymentMutation = useMutation({
-    mutationFn: async (paymentIntentId: string) => {
-      const response = await apiRequest("POST", "/api/complete-payment", { 
-        payment_intent: paymentIntentId 
-      });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      console.log("Payment completed successfully:", data);
-      toast({
-        title: "Payment Successful",
-        description: "Your subscription has been activated!",
-      });
-      setIsProcessingPayment(false);
-    },
-    onError: (error: any) => {
-      console.error("Payment completion error:", error);
-      toast({
-        title: "Payment Processing Error",
-        description: "There was an issue processing your payment. Please contact support.",
-        variant: "destructive",
-      });
-      setIsProcessingPayment(false);
-    },
-  });
 
-  // Check for Stripe payment intent in URL
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentIntent = urlParams.get('payment_intent');
-    const paymentIntentClientSecret = urlParams.get('payment_intent_client_secret');
-    
-    if (paymentIntent && paymentIntentClientSecret && !isProcessingPayment) {
-      console.log("Processing Stripe payment completion:", paymentIntent);
-      setIsProcessingPayment(true);
-      completePaymentMutation.mutate(paymentIntent);
-    }
-  }, []);
 
   // Get stored enrollment data
   useEffect(() => {
