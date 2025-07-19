@@ -177,11 +177,11 @@ export default function Landing() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 leading-tight mb-6">
-                Direct Primary Care
-                <span className="text-medical-blue-600"> Made Simple</span>
+                Membership Has Never Been
+                <span className="text-medical-blue-600"> So Easy</span>
               </h1>
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Affordable, transparent healthcare without the hassle of insurance. 
+                Your health. Your membership. No insurance needed.
                 Get unlimited access to your primary care physician for one low monthly fee.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
@@ -258,9 +258,9 @@ export default function Landing() {
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Why Choose Direct Primary Care?</h2>
             <div className="max-w-3xl mx-auto">
-              <p className="text-xl font-semibold text-gray-900 mb-2">Your Health, Your Plan</p>
+              <p className="text-xl font-semibold text-gray-900 mb-2">Your Health. Your Membership. No Insurance Needed.</p>
               <p className="text-lg text-gray-600">
-                Unlimited primary care. No copays. No insurance hassles.
+                Unlimited primary care. No copays. No surprises. Just quality healthcare that puts you first.
               </p>
             </div>
           </div>
