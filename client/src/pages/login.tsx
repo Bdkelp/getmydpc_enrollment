@@ -53,10 +53,8 @@ export default function Login() {
           description: `Logged in successfully`,
         });
         
-        // Small delay to ensure auth state is updated
-        setTimeout(() => {
-          setLocation("/");
-        }, 100);
+        // Force a full page reload to ensure auth state is properly updated
+        window.location.href = "/";
       }
     } catch (error: any) {
       console.error("Login failed:", error);

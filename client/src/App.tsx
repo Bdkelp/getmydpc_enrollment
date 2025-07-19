@@ -28,32 +28,6 @@ function Router() {
 
   console.log('Router state:', { isAuthenticated, isLoading, user });
 
-  // Role-based routing
-  const getDefaultRoute = () => {
-    if (!isAuthenticated) return "/";
-    if (user?.role === "admin") return "/admin";
-    if (user?.role === "agent") return "/agent";
-    return "/no-access"; // Regular users don't get dashboard access
-  };
-
-  // Show landing page if not loading and not authenticated
-  if (!isLoading && !isAuthenticated) {
-    return (
-      <Switch>
-        <Route path="/" component={Landing} />
-        <Route path="/quiz" component={Quiz} />
-        <Route path="/registration" component={Registration} />
-        <Route path="/login" component={Login} />
-        <Route path="/register" component={Register} />
-        <Route path="/forgot-password" component={ForgotPassword} />
-        <Route path="/reset-password" component={ResetPassword} />
-        <Route path="/pending-approval" component={PendingApproval} />
-        <Route path="/auth/callback" component={AuthCallback} />
-        <Route path="*" component={() => <Redirect to="/" />} />
-      </Switch>
-    );
-  }
-
   // Show loading only if actually loading
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
@@ -61,62 +35,67 @@ function Router() {
 
   return (
     <Switch>
+      {/* Public routes - always accessible */}
+      <Route path="/" component={Landing} />
+      <Route path="/quiz" component={Quiz} />
+      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
+      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/pending-approval" component={PendingApproval} />
+      <Route path="/auth/callback" component={AuthCallback} />
+      
+      {/* Protected routes - require authentication */}
       {isAuthenticated && (
         <>
-          {/* Redirect root to role-based dashboard */}
-          <Route path="/" component={() => <Redirect to={getDefaultRoute()} />} />
-          
-          {/* Agent routes */}
-          {user?.role === "agent" && (
-            <>
-              <Route path="/agent" component={AgentDashboard} />
-              <Route path="/agent/leads" component={AgentLeads} />
-              <Route path="/quiz" component={Quiz} />
-              <Route path="/registration" component={Registration} />
-              <Route path="/family-enrollment" component={FamilyEnrollment} />
-              <Route path="/payment" component={Payment} />
-              <Route path="/confirmation" component={Confirmation} />
-            </>
-          )}
-          
           {/* Admin routes */}
           {user?.role === "admin" && (
             <>
               <Route path="/admin" component={Admin} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
-              <Route path="/quiz" component={Quiz} />
               <Route path="/registration" component={Registration} />
-              <Route path="/family-enrollment" component={FamilyEnrollment} />
-              <Route path="/payment" component={Payment} />
-              <Route path="/confirmation" component={Confirmation} />
+              <Route path="/payment/:planId/:userId" component={Payment} />
+              <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
+              <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}
           
-          {/* Regular user (no dashboard access) */}
+          {/* Agent routes */}
+          {user?.role === "agent" && (
+            <>
+              <Route path="/agent" component={AgentDashboard} />
+              <Route path="/agent/leads" component={AgentLeads} />
+              <Route path="/registration" component={Registration} />
+              <Route path="/payment/:planId/:userId" component={Payment} />
+              <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
+              <Route path="/confirmation/:userId" component={Confirmation} />
+            </>
+          )}
+          
+          {/* Regular user route */}
           {user?.role === "user" && (
             <Route path="/no-access" component={NoAccess} />
           )}
-          
-          {/* Fallback no-access route for all authenticated users */}
-          <Route path="/no-access" component={NoAccess} />
-          
-          <Route component={NotFound} />
         </>
       )}
+      
+      {/* Registration requires authentication for agents/admins */}
+      <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin") ? Registration : () => <Redirect to="/login" />} />
+      
+      {/* 404 for all unmatched routes */}
+      <Route path="*" component={NotFound} />
     </Switch>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
         <Router />
+        <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
 }
-
-export default App;
