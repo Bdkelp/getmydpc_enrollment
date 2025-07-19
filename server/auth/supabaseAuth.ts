@@ -49,14 +49,8 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
       await storage.updateUser(dbUser.id, { lastLoginAt: new Date() });
     }
     
-    // Check if user is approved (except for admins who always have access)
-    if (dbUser.role !== 'admin' && dbUser.approvalStatus !== 'approved') {
-      return res.status(403).json({ 
-        message: 'Account pending approval',
-        approvalStatus: dbUser.approvalStatus,
-        requiresApproval: true 
-      });
-    }
+    // Skip approval check for now since the approvalStatus column doesn't exist
+    // TODO: Add approval system if needed in the future
     
     req.user = dbUser;
     next();
@@ -83,7 +77,7 @@ export async function syncSupabaseUser(supabaseUser: any) {
         emailVerified: supabaseUser.email_confirmed_at !== null,
         emailVerifiedAt: supabaseUser.email_confirmed_at ? new Date(supabaseUser.email_confirmed_at) : null,
         role,
-        approvalStatus: role === 'admin' ? 'approved' : 'pending', // Admins are auto-approved
+        // approvalStatus: role === 'admin' ? 'approved' : 'pending', // TODO: Add if approval system needed
         registrationIp: supabaseUser.last_sign_in_at ? supabaseUser.ip_address : null,
         registrationUserAgent: supabaseUser.app_metadata?.provider || 'email',
         lastLoginAt: new Date()
