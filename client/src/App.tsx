@@ -55,8 +55,10 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />
+              <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
+              <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}
@@ -67,8 +69,10 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />
+              <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
+              <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}

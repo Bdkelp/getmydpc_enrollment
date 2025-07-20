@@ -342,6 +342,11 @@ Changelog:
   • Added "Go to Dashboard" button that routes based on user role
 - July 08, 2025: Fixed redundant family member enrollment issue
   • Eliminated duplicate family member data collection during enrollment
+- July 20, 2025: Fixed routing issues for payment and confirmation pages
+  • Added simple `/payment` route alongside parameterized route to fix 404 error after registration
+  • Added simple `/confirmation` route alongside parameterized route for mock payment redirect
+  • Fixed enrollment flow: Registration → Payment → Confirmation now works without 404 errors
+  • Both admin and agent roles can access the payment flow properly
   • Modified registration flow to submit family members with primary member data
   • Removed redirect to family-enrollment page for family plans
   • All coverage types (Member only, Mem/Spouse, Mem/Children, Family) now go directly to payment after registration
