@@ -10,6 +10,7 @@ import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
+import AdminLeads from "@/pages/admin-leads";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
@@ -52,6 +53,7 @@ function Router() {
           {user?.role === "admin" && (
             <>
               <Route path="/admin" component={Admin} />
+              <Route path="/admin/leads" component={AdminLeads} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />

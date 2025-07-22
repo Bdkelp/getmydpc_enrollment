@@ -81,6 +81,7 @@ export interface IStorage {
   // Lead management operations
   createLead(lead: InsertLead): Promise<Lead>;
   getAgentLeads(agentId: string, status?: string): Promise<Lead[]>;
+  getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]>;
   getLead(id: number): Promise<Lead | undefined>;
   getLeadByEmail(email: string): Promise<Lead | undefined>;
   updateLead(id: number, data: Partial<Lead>): Promise<Lead>;
@@ -93,6 +94,9 @@ export interface IStorage {
   // Lead stats
   getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }>;
   getAvailableAgentForLead(): Promise<string | null>;
+  
+  // Agent operations
+  getAgents(): Promise<User[]>;
   
   // User approval operations
   getPendingUsers(): Promise<User[]>;
@@ -491,6 +495,32 @@ export class DatabaseStorage implements IStorage {
     .limit(1);
 
     return agents[0]?.agentId || null;
+  }
+  
+  async getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
+    const conditions = [];
+    
+    if (status && status !== 'all') {
+      conditions.push(eq(leads.status, status));
+    }
+    
+    if (assignedAgentId) {
+      if (assignedAgentId === 'unassigned') {
+        conditions.push(sql`${leads.assignedAgentId} IS NULL`);
+      } else {
+        conditions.push(eq(leads.assignedAgentId, assignedAgentId));
+      }
+    }
+    
+    return await db.select().from(leads)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(leads.createdAt));
+  }
+  
+  async getAgents(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.role, 'agent'))
+      .orderBy(users.name);
   }
 
   // User approval operations

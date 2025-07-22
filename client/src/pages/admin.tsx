@@ -311,6 +311,12 @@ export default function Admin() {
                   Enroll Member
                 </Button>
               </Link>
+              <Link href="/admin/leads">
+                <Button variant="outline">
+                  <Users className="h-4 w-4 mr-2" />
+                  Lead Management
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="outline">
                   <Users className="h-4 w-4 mr-2" />
