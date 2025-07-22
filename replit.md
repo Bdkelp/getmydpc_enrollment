@@ -347,13 +347,16 @@ Changelog:
   • Added simple `/confirmation` route alongside parameterized route for mock payment redirect
   • Fixed enrollment flow: Registration → Payment → Confirmation now works without 404 errors
   • Both admin and agent roles can access the payment flow properly
-- July 22, 2025: Fixed contact form lead submission
+- July 22, 2025: Fixed contact form lead submission and database schema
   • Added better error logging to contact form and lead creation endpoint
   • Verified leads table exists in database schema
   • Added validation for required fields in lead submission
   • Tested lead creation locally - working successfully
   • Contact form now properly saves leads to database for agent follow-up
-  • Modified registration flow to submit family members with primary member data
+  • Migrated database schema from local to production Supabase
+  • Created all tables in public schema (users, leads, plans, subscriptions, payments, family_members, lead_activities, enrollment_modifications)
+  • Imported existing users from auth.users to public.users
+  • Inserted sample plans for all coverage types (Member only, Mem/Spouse, Mem/Children, Family) Modified registration flow to submit family members with primary member data
   • Removed redirect to family-enrollment page for family plans
   • All coverage types (Member only, Mem/Spouse, Mem/Children, Family) now go directly to payment after registration
   • Family member data from steps 4 and 5 is now properly included in registration submission
