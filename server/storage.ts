@@ -74,6 +74,7 @@ export interface IStorage {
   
   // Agent operations
   getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]>;
+  getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]>;
   
   // Enrollment modification operations
   recordEnrollmentModification(data: any): Promise<void>;
@@ -393,6 +394,39 @@ export class DatabaseStorage implements IStorage {
         lte(users.createdAt, new Date(endDate))
       );
     }
+    
+    return await db.select().from(users).where(and(...conditions));
+  }
+
+  async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
+    // Get all users that have subscriptions
+    const conditions = [];
+    
+    if (startDate && endDate) {
+      conditions.push(
+        gte(users.createdAt, new Date(startDate)),
+        lte(users.createdAt, new Date(endDate))
+      );
+    }
+    
+    if (agentId) {
+      conditions.push(eq(users.enrolledByAgentId, agentId));
+    }
+    
+    // Select users who have subscriptions
+    const usersWithSubscriptions = await db
+      .selectDistinct({
+        userId: subscriptions.userId
+      })
+      .from(subscriptions);
+    
+    const userIds = usersWithSubscriptions.map(sub => sub.userId);
+    
+    if (userIds.length === 0) {
+      return [];
+    }
+    
+    conditions.push(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
     
     return await db.select().from(users).where(and(...conditions));
   }
