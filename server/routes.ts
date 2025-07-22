@@ -642,27 +642,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { firstName, lastName, email, phone, message } = req.body;
       
+      console.log("Creating lead with data:", { firstName, lastName, email, phone, message });
+      
+      // Validate required fields
+      if (!firstName || !lastName || !email || !phone) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
       // Create the lead
       const lead = await storage.createLead({
         firstName,
         lastName,
         email,
         phone,
-        message,
+        message: message || '',
         source: 'contact_form',
         status: 'new'
       });
+      
+      console.log("Lead created successfully:", lead.id);
       
       // Auto-assign to available agent
       const availableAgentId = await storage.getAvailableAgentForLead();
       if (availableAgentId) {
         await storage.assignLeadToAgent(lead.id, availableAgentId);
+        console.log("Lead assigned to agent:", availableAgentId);
       }
       
       res.json({ success: true, lead });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Lead creation error:", error);
-      res.status(500).json({ message: "Failed to create lead" });
+      console.error("Error stack:", error.stack);
+      res.status(500).json({ message: "Failed to create lead", error: error.message });
     }
   });
   

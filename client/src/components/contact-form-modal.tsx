@@ -57,7 +57,9 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       });
       
       if (!response.ok) {
-        throw new Error("Failed to submit lead");
+        const errorText = await response.text();
+        console.error("Lead submission error:", response.status, errorText);
+        throw new Error(`Failed to submit lead: ${response.status}`);
       }
       
       toast({
