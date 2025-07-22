@@ -361,6 +361,13 @@ Changelog:
   • All coverage types (Member only, Mem/Spouse, Mem/Children, Family) now go directly to payment after registration
   • Family member data from steps 4 and 5 is now properly included in registration submission
   • Improved user experience by removing unnecessary extra page in enrollment flow
+- July 22, 2025: Updated lead management workflow for admin qualification
+  • Changed lead assignment process - leads now go to admin dashboard first instead of auto-assignment
+  • Created admin lead management interface at /admin/leads
+  • Admins can now qualify leads and manually assign them to specific agents
+  • Added lead summary cards showing unassigned and new lead counts
+  • Enabled Row Level Security (RLS) on all database tables per Supabase requirements
+  • Added orange highlighting to Lead Management button for visibility
 - July 08, 2025: Landing page updates and branding improvements
   • Added Contact Us hyperlink in navigation to https://www.mypremierplans.com/contactus
   • Updated 24/7 Access text to include Patient Advocate Line (PAL) and mobile app

@@ -312,7 +312,7 @@ export default function Admin() {
                 </Button>
               </Link>
               <Link href="/admin/leads">
-                <Button variant="outline">
+                <Button variant="outline" className="border-orange-500 text-orange-600 hover:bg-orange-50">
                   <Users className="h-4 w-4 mr-2" />
                   Lead Management
                 </Button>
