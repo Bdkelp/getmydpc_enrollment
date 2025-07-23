@@ -260,32 +260,64 @@ export const insertLeadActivitySchema = createInsertSchema(leadActivities).omit(
   createdAt: true,
 });
 
+// Custom validation functions
+const isValidUSAPhone = (phone: string) => {
+  // Remove all non-numeric characters
+  const cleaned = phone.replace(/\D/g, '');
+  // Check if it's 10 digits (US number without country code) or 11 digits (with country code 1)
+  return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === '1');
+};
+
+const isPastDate = (dateString: string) => {
+  const date = new Date(dateString);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date < today;
+};
+
+const isWithinNext30Days = (dateString: string) => {
+  const date = new Date(dateString);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const thirtyDaysFromNow = new Date(today);
+  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+  return date >= today && date <= thirtyDaysFromNow;
+};
+
 // Registration schema for multi-step form
 export const registrationSchema = z.object({
   // Personal information
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  middleName: z.string().optional(),
+  firstName: z.string().min(1, "First name is required").regex(/^[a-zA-Z\s'-]+$/, "First name can only contain letters, spaces, hyphens, and apostrophes"),
+  lastName: z.string().min(1, "Last name is required").regex(/^[a-zA-Z\s'-]+$/, "Last name can only contain letters, spaces, hyphens, and apostrophes"),
+  middleName: z.string().regex(/^[a-zA-Z\s'-]*$/, "Middle name can only contain letters, spaces, hyphens, and apostrophes").optional(),
   ssn: z.string().optional(),
-  email: z.string().email("Valid email is required"),
-  phone: z.string().min(10, "Valid phone number is required"),
-  dateOfBirth: z.string().min(1, "Date of birth is required"),
+  email: z.string().email("Valid email address is required").toLowerCase(),
+  phone: z.string()
+    .min(10, "Phone number must be at least 10 digits")
+    .refine(isValidUSAPhone, "Must be a valid USA phone number (10 or 11 digits)"),
+  dateOfBirth: z.string()
+    .min(1, "Date of birth is required")
+    .refine(isPastDate, "Date of birth must be in the past"),
   gender: z.string().optional(),
   // Address information
   address: z.string().min(1, "Address is required"),
   address2: z.string().optional(),
-  city: z.string().min(1, "City is required"),
-  state: z.string().min(1, "State is required"),
-  zipCode: z.string().min(5, "Valid ZIP code is required"),
+  city: z.string().min(1, "City is required").regex(/^[a-zA-Z\s'-]+$/, "City name can only contain letters, spaces, hyphens, and apostrophes"),
+  state: z.string().length(2, "State must be 2-letter abbreviation").toUpperCase(),
+  zipCode: z.string().regex(/^\d{5}(-\d{4})?$/, "ZIP code must be 5 digits or 5+4 format"),
   // Employment information (required for group enrollments only)
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
   dateOfHire: z.string().optional(),
   memberType: z.string().min(1, "Member type is required"),
-  planStartDate: z.string().min(1, "Plan start date is required"),
+  planStartDate: z.string()
+    .min(1, "Plan start date is required")
+    .refine(isWithinNext30Days, "Plan start date must be today or within the next 30 days"),
   // Emergency contact
   emergencyContactName: z.string().optional(),
-  emergencyContactPhone: z.string().optional(),
+  emergencyContactPhone: z.string()
+    .optional()
+    .refine((val) => !val || isValidUSAPhone(val), "Must be a valid USA phone number"),
   // Plan selection
   planId: z.number().min(1, "Plan selection is required"),
   termsAccepted: z.boolean().refine(val => val === true, "Terms must be accepted"),

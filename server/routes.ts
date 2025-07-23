@@ -216,6 +216,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentUser = await storage.getUser(userId);
       const agentId = (currentUser?.role === 'agent' || currentUser?.role === 'admin') ? userId : undefined;
       
+      // Validate family members based on member type
+      const familyMembers = (req.body as any).familyMembers || [];
+      const memberType = userProfileData.memberType;
+      
+      // Determine coverage type based on member type
+      let coverageType = "Member Only";
+      if (memberType === "member-spouse") {
+        coverageType = "Member/Spouse";
+      } else if (memberType === "member-children") {
+        coverageType = "Member/Child";
+      } else if (memberType === "family") {
+        coverageType = "Family";
+      }
+      
+      // Validate family members are provided when required
+      if (coverageType === "Member/Spouse") {
+        const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
+        if (!spouse || !spouse.firstName || !spouse.lastName || !spouse.dateOfBirth) {
+          return res.status(400).json({ 
+            message: "Spouse information is required for Member/Spouse coverage",
+            errors: ["Please provide complete spouse information including first name, last name, and date of birth"]
+          });
+        }
+      } else if (coverageType === "Member/Child") {
+        const children = familyMembers.filter((m: any) => m.relationship === "child");
+        if (children.length === 0 || !children.some((c: any) => c.firstName && c.lastName && c.dateOfBirth)) {
+          return res.status(400).json({ 
+            message: "At least one child's information is required for Member/Child coverage",
+            errors: ["Please provide complete information for at least one child including first name, last name, and date of birth"]
+          });
+        }
+      } else if (coverageType === "Family") {
+        const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
+        const children = familyMembers.filter((m: any) => m.relationship === "child");
+        
+        if (!spouse || !spouse.firstName || !spouse.lastName || !spouse.dateOfBirth) {
+          return res.status(400).json({ 
+            message: "Spouse information is required for Family coverage",
+            errors: ["Please provide complete spouse information including first name, last name, and date of birth"]
+          });
+        }
+        
+        if (children.length === 0 || !children.some((c: any) => c.firstName && c.lastName && c.dateOfBirth)) {
+          return res.status(400).json({ 
+            message: "At least one child's information is required for Family coverage",
+            errors: ["Please provide complete information for at least one child including first name, last name, and date of birth"]
+          });
+        }
+      }
+      
       // Update user profile with registration data (excluding planId)
       const user = await storage.updateUserProfile(userId, {
         firstName: userProfileData.firstName,
@@ -242,7 +292,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Add family members if any
-      const familyMembers = (req.body as any).familyMembers || [];
       for (const member of familyMembers) {
         if (member && member.firstName) { // Only add valid family members
           await storage.addFamilyMember({

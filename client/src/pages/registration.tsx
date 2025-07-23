@@ -17,6 +17,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Plus } from "lucide-react";
+import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode } from "@/lib/formatters";
 
 const registrationSchema = z.object({
   // Personal information
@@ -443,9 +444,19 @@ export default function Registration() {
                         name="phone"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Phone Number *</FormLabel>
+                            <FormLabel>Phone Number * (USA Only)</FormLabel>
                             <FormControl>
-                              <Input type="tel" placeholder="(555) 123-4567" {...field} />
+                              <Input 
+                                type="tel" 
+                                placeholder="(555) 123-4567" 
+                                {...field}
+                                value={formatPhoneNumber(field.value || '')}
+                                onChange={(e) => {
+                                  const formatted = formatPhoneNumber(e.target.value);
+                                  const cleaned = cleanPhoneNumber(formatted);
+                                  field.onChange(cleaned);
+                                }}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -463,9 +474,15 @@ export default function Registration() {
                             <FormControl>
                               <Input 
                                 type="password" 
-                                placeholder="123456789 (Optional)" 
-                                maxLength={9}
-                                {...field} 
+                                placeholder="123-45-6789 (Optional)" 
+                                maxLength={11}
+                                {...field}
+                                value={formatSSN(field.value || '')}
+                                onChange={(e) => {
+                                  const formatted = formatSSN(e.target.value);
+                                  const cleaned = cleanSSN(formatted);
+                                  field.onChange(cleaned);
+                                }}
                               />
                             </FormControl>
                             <FormMessage />
@@ -479,7 +496,11 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>Date of Birth *</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} />
+                              <Input 
+                                type="date" 
+                                {...field}
+                                max={new Date().toISOString().split('T')[0]} // Only allow past dates
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -607,9 +628,14 @@ export default function Registration() {
                         name="planStartDate"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Plan Start Date *</FormLabel>
+                            <FormLabel>Plan Start Date * (Today or up to 30 days from now)</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} />
+                              <Input 
+                                type="date" 
+                                {...field}
+                                min={new Date().toISOString().split('T')[0]} // No backdating
+                                max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Max 30 days
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -694,7 +720,16 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>ZIP Code *</FormLabel>
                             <FormControl>
-                              <Input placeholder="80202" {...field} />
+                              <Input 
+                                placeholder="80202" 
+                                {...field}
+                                value={formatZipCode(field.value || '')}
+                                onChange={(e) => {
+                                  const formatted = formatZipCode(e.target.value);
+                                  field.onChange(formatted.replace(/-/g, '')); // Store without hyphen
+                                }}
+                                maxLength={10}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -723,9 +758,19 @@ export default function Registration() {
                           name="emergencyContactPhone"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Contact Phone</FormLabel>
+                              <FormLabel>Contact Phone (USA Only)</FormLabel>
                               <FormControl>
-                                <Input type="tel" placeholder="(555) 987-6543" {...field} />
+                                <Input 
+                                  type="tel" 
+                                  placeholder="(555) 987-6543" 
+                                  {...field}
+                                  value={formatPhoneNumber(field.value || '')}
+                                  onChange={(e) => {
+                                    const formatted = formatPhoneNumber(e.target.value);
+                                    const cleaned = cleanPhoneNumber(formatted);
+                                    field.onChange(cleaned);
+                                  }}
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
