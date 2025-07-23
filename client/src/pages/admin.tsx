@@ -317,6 +317,12 @@ export default function Admin() {
                   Lead Management
                 </Button>
               </Link>
+              <Link href="/admin/enrollments">
+                <Button variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50">
+                  <Users className="h-4 w-4 mr-2" />
+                  View Enrollments
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="outline">
                   <Users className="h-4 w-4 mr-2" />

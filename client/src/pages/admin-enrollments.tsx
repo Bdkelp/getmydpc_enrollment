@@ -80,7 +80,7 @@ export default function AdminEnrollments() {
         ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
       });
       
-      const response = await apiRequest(`/api/admin/enrollments?${params}`);
+      const response = await apiRequest("GET", `/api/admin/enrollments?${params}`);
       if (!response.ok) {
         throw new Error("Failed to fetch enrollments");
       }

@@ -254,6 +254,11 @@ export class DatabaseStorage implements IStorage {
     return plan;
   }
 
+  async getPlanById(id: number): Promise<Plan | undefined> {
+    const [plan] = await db.select().from(plans).where(eq(plans.id, id));
+    return plan;
+  }
+
   async createPlan(plan: InsertPlan): Promise<Plan> {
     const [newPlan] = await db.insert(plans).values(plan).returning();
     return newPlan;

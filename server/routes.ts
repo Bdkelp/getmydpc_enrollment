@@ -11,6 +11,7 @@ import { configurePassportStrategies } from "./auth/authService";
 import { setupSupabaseAuth, verifySupabaseToken } from "./auth/supabaseAuth";
 import passport from "passport";
 import express from "express";
+import { format } from "date-fns";
 
 
 
@@ -791,6 +792,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Fetch agents error:", error);
       res.status(500).json({ message: "Failed to fetch agents" });
+    }
+  });
+
+  // Admin enrollment management endpoints
+  app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { startDate, endDate, agentId } = req.query;
+      
+      const enrollments = await storage.getAllEnrollments(
+        startDate as string,
+        endDate as string,
+        agentId as string
+      );
+      
+      // Enrich with agent info and plan details
+      const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
+        // Get user's subscription
+        const subscription = await storage.getUserSubscription(enrollment.id);
+        const plan = subscription ? await storage.getPlanById(subscription.planId) : null;
+        const agent = enrollment.enrolledByAgentId ? await storage.getUserById(enrollment.enrolledByAgentId) : null;
+        
+        return {
+          ...enrollment,
+          planName: plan?.name || 'Unknown Plan',
+          monthlyPrice: subscription?.amount || plan?.price || 0,
+          status: subscription?.status || 'pending',
+          enrolledBy: agent ? `${agent.firstName} ${agent.lastName}` : 'Self-enrolled',
+          subscriptionId: subscription?.id || null
+        };
+      }));
+      
+      res.json(enrichedEnrollments);
+    } catch (error) {
+      console.error("Fetch enrollments error:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
+    }
+  });
+
+  // Get all agents (for filters)
+  app.get("/api/agents", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agents = await storage.getAgents();
+      res.json(agents);
+    } catch (error) {
+      console.error("Fetch agents error:", error);
+      res.status(500).json({ message: "Failed to fetch agents" });
+    }
+  });
+
+  // Generate agent number
+  app.post("/api/admin/generate-agent-number/:agentId", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { agentId } = req.params;
+      
+      // Generate a unique agent number (e.g., AGT + year + 4-digit sequence)
+      const year = new Date().getFullYear();
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const agentNumber = `AGT${year}${randomNum}`;
+      
+      // Update user with agent number
+      await storage.updateUser(agentId, { agentNumber });
+      
+      res.json({ agentNumber });
+    } catch (error) {
+      console.error("Generate agent number error:", error);
+      res.status(500).json({ message: "Failed to generate agent number" });
+    }
+  });
+
+  // Export enrollments as CSV
+  app.post("/api/admin/export-enrollments", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { startDate, endDate, agentId } = req.query;
+      
+      const enrollments = await storage.getAllEnrollments(
+        startDate as string,
+        endDate as string,
+        agentId as string
+      );
+      
+      // Create CSV content
+      const csvHeaders = [
+        'Enrollment Date',
+        'First Name',
+        'Last Name',
+        'Email',
+        'Phone',
+        'Plan',
+        'Member Type',
+        'Monthly Price',
+        'Status',
+        'Enrolled By',
+        'SSN (Last 4)',
+        'DOB',
+        'Address'
+      ];
+      
+      const csvRows = enrollments.map(enrollment => [
+        format(new Date(enrollment.createdAt), 'yyyy-MM-dd'),
+        enrollment.firstName || '',
+        enrollment.lastName || '',
+        enrollment.email || '',
+        enrollment.phone || '',
+        'Plan Name', // Would need to fetch from plan data
+        enrollment.memberType || '',
+        '0', // Would need to fetch from plan data
+        'active', // Would need to fetch from subscription data
+        'Agent Name', // Would need to fetch from agent data
+        enrollment.ssn ? enrollment.ssn.slice(-4) : '',
+        enrollment.dateOfBirth || '',
+        `${enrollment.address || ''} ${enrollment.address2 || ''}, ${enrollment.city || ''}, ${enrollment.state || ''} ${enrollment.zipCode || ''}`
+      ]);
+      
+      const csvContent = [
+        csvHeaders.join(','),
+        ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="enrollments-export.csv"`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error("Export enrollments error:", error);
+      res.status(500).json({ message: "Failed to export enrollments" });
     }
   });
 

@@ -55,6 +55,7 @@ function Router() {
             <>
               <Route path="/admin" component={Admin} />
               <Route path="/admin/leads" component={AdminLeads} />
+              <Route path="/admin/enrollments" component={AdminEnrollments} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/registration" component={Registration} />
