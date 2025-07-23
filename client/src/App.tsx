@@ -11,6 +11,7 @@ import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
 import AdminLeads from "@/pages/admin-leads";
+import AdminEnrollments from "@/pages/admin-enrollments";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
