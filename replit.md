@@ -260,6 +260,18 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ```
 Changelog:
+- January 23, 2025: Implemented comprehensive enrollment details management
+  • Fixed broken "Actions" button in enrollment records screen
+  • Created detailed enrollment view page at /admin/enrollment/:id with tabs for:
+    - Overview: Personal info, plan details, enrollment agent
+    - Contact Info: Edit email, phone, emergency contact with USA phone validation
+    - Family Members: View enrolled family members (add/remove coming soon)
+    - Payment Info: View billing details (payment method updates coming soon)
+  • Added API endpoints for updating contact and address information
+  • Implemented inline editing with proper validation and formatting
+  • Added export enrollment summary functionality
+  • Phone numbers auto-format as users type (USA format)
+  • All validation matches backend requirements (phones, emails, ZIP codes)
 - July 19, 2025: Implemented role-based dashboard personalization
   • Added personalized welcome messages to all dashboards (admin, agent, member)
   • Time-based greetings: "Good morning/afternoon/evening" based on user's local time

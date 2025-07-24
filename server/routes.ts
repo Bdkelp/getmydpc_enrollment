@@ -659,6 +659,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch enrollments" });
     }
   });
+  
+  // Get enrollment details by ID
+  app.get("/api/admin/enrollment/:id", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ message: "Enrollment not found" });
+      }
+      
+      const subscription = await storage.getUserSubscription(id);
+      const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+      const enrolledByAgent = user.enrolledByAgentId ? await storage.getUser(user.enrolledByAgentId) : null;
+      const familyMembers = await storage.getFamilyMembers(id);
+      
+      const enrollmentDetails = {
+        id: user.id,
+        userId: user.id,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        // Personal Info
+        firstName: user.firstName,
+        lastName: user.lastName,
+        middleName: user.middleName,
+        email: user.email,
+        phone: user.phone,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        ssn: user.ssn,
+        // Address
+        address: user.address,
+        address2: user.address2,
+        city: user.city,
+        state: user.state,
+        zipCode: user.zipCode,
+        // Employment
+        employerName: user.employerName,
+        divisionName: user.divisionName,
+        dateOfHire: user.dateOfHire,
+        // Plan Info
+        planId: subscription?.planId || 0,
+        planName: plan?.name || 'No Plan',
+        memberType: user.memberType,
+        planStartDate: user.planStartDate,
+        monthlyPrice: plan?.price || 0,
+        status: subscription?.status || 'pending',
+        // Emergency Contact
+        emergencyContactName: user.emergencyContactName,
+        emergencyContactPhone: user.emergencyContactPhone,
+        // Agent Info
+        enrolledBy: enrolledByAgent ? `${enrolledByAgent.firstName} ${enrolledByAgent.lastName}` : undefined,
+        enrolledByAgentId: user.enrolledByAgentId,
+        // Subscription
+        subscriptionId: subscription?.id,
+        // Family Members
+        familyMembers: familyMembers
+      };
+      
+      res.json(enrollmentDetails);
+    } catch (error) {
+      console.error("Error fetching enrollment details:", error);
+      res.status(500).json({ message: "Failed to fetch enrollment details" });
+    }
+  });
+  
+  // Update contact information
+  app.patch("/api/admin/enrollment/:id/contact", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { email, phone, emergencyContactName, emergencyContactPhone } = req.body;
+      
+      // Validate phone numbers
+      const phoneRegex = /^\d{10,11}$/;
+      if (phone && !phoneRegex.test(phone)) {
+        return res.status(400).json({ message: "Invalid phone number. Must be 10-11 digits." });
+      }
+      if (emergencyContactPhone && !phoneRegex.test(emergencyContactPhone)) {
+        return res.status(400).json({ message: "Invalid emergency contact phone number. Must be 10-11 digits." });
+      }
+      
+      // Validate email
+      if (email && !z.string().email().safeParse(email).success) {
+        return res.status(400).json({ message: "Invalid email address" });
+      }
+      
+      const user = await storage.updateUserProfile(id, {
+        email: email?.toLowerCase(),
+        phone,
+        emergencyContactName,
+        emergencyContactPhone
+      });
+      
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating contact info:", error);
+      res.status(500).json({ message: "Failed to update contact information" });
+    }
+  });
+  
+  // Update address information
+  app.patch("/api/admin/enrollment/:id/address", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { address, address2, city, state, zipCode } = req.body;
+      
+      // Validate ZIP code
+      if (zipCode && !/^\d{5,9}$/.test(zipCode)) {
+        return res.status(400).json({ message: "Invalid ZIP code" });
+      }
+      
+      const user = await storage.updateUserProfile(id, {
+        address,
+        address2,
+        city,
+        state,
+        zipCode
+      });
+      
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating address:", error);
+      res.status(500).json({ message: "Failed to update address" });
+    }
+  });
 
   // Admin approval endpoints
   app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
