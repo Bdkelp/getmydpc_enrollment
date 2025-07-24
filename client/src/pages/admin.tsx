@@ -191,8 +191,8 @@ export default function Admin() {
     {
       icon: Users,
       label: "Total Members",
-      value: adminStats?.totalUsers?.toLocaleString() || "2,847",
-      change: "+12%",
+      value: adminStats?.totalUsers?.toLocaleString() || "0",
+      change: "",
       changeType: "positive",
       bgColor: "bg-blue-100",
       iconColor: "text-blue-600",
@@ -200,8 +200,8 @@ export default function Admin() {
     {
       icon: DollarSign,
       label: "Monthly Revenue",
-      value: `$${adminStats?.monthlyRevenue?.toLocaleString() || "224,913"}`,
-      change: "+8%",
+      value: `$${adminStats?.monthlyRevenue?.toLocaleString() || "0"}`,
+      change: "",
       changeType: "positive",
       bgColor: "bg-green-100",
       iconColor: "text-green-600",
@@ -209,8 +209,8 @@ export default function Admin() {
     {
       icon: UserPlus,
       label: "New Enrollments",
-      value: "156",
-      change: "+23%",
+      value: adminStats?.newEnrollments?.toLocaleString() || "0",
+      change: "",
       changeType: "positive",
       bgColor: "bg-orange-100",
       iconColor: "text-orange-600",
@@ -218,40 +218,15 @@ export default function Admin() {
     {
       icon: UserX,
       label: "Churn Rate",
-      value: "2.3%",
-      change: "+0.5%",
+      value: `${adminStats?.churnRate || "0"}%`,
+      change: "",
       changeType: "negative",
       bgColor: "bg-red-100",
       iconColor: "text-red-600",
     },
   ];
 
-  const recentMembers = [
-    {
-      id: "1",
-      name: "John Smith",
-      email: "john.smith@email.com",
-      plan: "Individual",
-      status: "active",
-      initials: "JS",
-    },
-    {
-      id: "2",
-      name: "Maria Johnson",
-      email: "maria.johnson@email.com",
-      plan: "Family",
-      status: "active",
-      initials: "MJ",
-    },
-    {
-      id: "3",
-      name: "Robert Brown",
-      email: "robert.brown@email.com",
-      plan: "Individual",
-      status: "pending",
-      initials: "RB",
-    },
-  ];
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -388,14 +363,16 @@ export default function Admin() {
                     <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
                   </div>
                 </div>
-                <div className="mt-4 flex items-center text-sm">
-                  <span className={`font-medium ${
-                    stat.changeType === "positive" ? "text-green-600" : "text-red-600"
-                  }`}>
-                    {stat.change}
-                  </span>
-                  <span className="text-gray-600 ml-2">from last month</span>
-                </div>
+                {stat.change && (
+                  <div className="mt-4 flex items-center text-sm">
+                    <span className={`font-medium ${
+                      stat.changeType === "positive" ? "text-green-600" : "text-red-600"
+                    }`}>
+                      {stat.change}
+                    </span>
+                    <span className="text-gray-600 ml-2">from last month</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -492,74 +469,32 @@ export default function Admin() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* Recent Members */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">Recent Members</h2>
-                <Button variant="ghost" className="text-medical-blue-600 hover:text-medical-blue-700">
-                  View All
+        {/* Quick Actions */}
+        <Card className="mb-8">
+          <CardContent className="p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Link href="/registration">
+                <Button className="w-full justify-start" variant="outline">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Enroll New Member
                 </Button>
-              </div>
-              
-              <div className="space-y-4">
-                {recentMembers.map((member) => (
-                  <div key={member.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 medical-blue-100 rounded-full flex items-center justify-center">
-                        <span className="text-medical-blue-600 font-semibold text-sm">
-                          {member.initials}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">{member.name}</p>
-                        <p className="text-sm text-gray-600">{member.email}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        member.status === "active" 
-                          ? "bg-green-100 text-green-800" 
-                          : "bg-yellow-100 text-yellow-800"
-                      }`}>
-                        {member.status === "active" ? "Active" : "Pending"}
-                      </span>
-                      <p className="text-xs text-gray-500 mt-1">{member.plan} Plan</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Revenue Chart Placeholder */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">Revenue Trends</h2>
-                <Select defaultValue="6months">
-                  <SelectTrigger className="w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="6months">Last 6 months</SelectItem>
-                    <SelectItem value="year">Last year</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-                <div className="text-center">
-                  <TrendingUp className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">Revenue chart would be rendered here</p>
-                  <p className="text-xs text-gray-400">Integration with Chart.js or similar library</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </Link>
+              <Link href="/admin/enrollments">
+                <Button className="w-full justify-start" variant="outline">
+                  <Users className="h-4 w-4 mr-2" />
+                  View All Enrollments
+                </Button>
+              </Link>
+              <Link href="/admin/leads">
+                <Button className="w-full justify-start" variant="outline">
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  Manage Leads
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Members Management Table */}
         <Card className="mt-8">
