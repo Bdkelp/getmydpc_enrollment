@@ -298,16 +298,18 @@ export default function Admin() {
                   View Enrollments
                 </Button>
               </Link>
+              <Link href="/admin/users">
+                <Button variant="outline" className="border-red-500 text-red-600 hover:bg-red-50">
+                  <Shield className="h-4 w-4 mr-2" />
+                  User Roles
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="outline">
                   <Users className="h-4 w-4 mr-2" />
                   Agent View
                 </Button>
               </Link>
-              <Button className="bg-green-600 hover:bg-green-700 text-white">
-                <Download className="h-4 w-4 mr-2" />
-                Export Data
-              </Button>
             </div>
           </div>
         </div>
@@ -473,7 +475,7 @@ export default function Admin() {
         <Card className="mb-8">
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Link href="/registration">
                 <Button className="w-full justify-start" variant="outline">
                   <UserPlus className="h-4 w-4 mr-2" />
@@ -490,6 +492,12 @@ export default function Admin() {
                 <Button className="w-full justify-start" variant="outline">
                   <TrendingUp className="h-4 w-4 mr-2" />
                   Manage Leads
+                </Button>
+              </Link>
+              <Link href="/admin/users">
+                <Button className="w-full justify-start" variant="outline" style={{ backgroundColor: "#fee2e2", borderColor: "#fca5a5" }}>
+                  <Shield className="h-4 w-4 mr-2 text-red-600" />
+                  <span className="text-red-700">Manage User Roles</span>
                 </Button>
               </Link>
             </div>

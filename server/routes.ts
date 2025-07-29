@@ -785,6 +785,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update user role endpoint
+  app.patch("/api/admin/user/:userId/role", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const { role } = req.body;
+      
+      // Validate role
+      if (!["user", "agent", "admin"].includes(role)) {
+        return res.status(400).json({ message: "Invalid role. Must be 'user', 'agent', or 'admin'" });
+      }
+      
+      const user = await storage.updateUserProfile(userId, { role });
+      
+      res.json({ 
+        message: "User role updated successfully",
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role
+        }
+      });
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      res.status(500).json({ message: "Failed to update user role" });
+    }
+  });
+  
   // Admin approval endpoints
   app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
     try {

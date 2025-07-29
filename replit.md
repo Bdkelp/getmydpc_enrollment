@@ -260,6 +260,16 @@ This is a comprehensive Direct Primary Care (DPC) subscription and enrollment pl
 
 ```
 Changelog:
+- January 29, 2025: Added user role management functionality
+  • Created comprehensive user management page at /admin/users
+  • Admins can now change user roles (user, agent, admin) without hardcoded emails
+  • Added role change dropdown directly in user table for easy access
+  • Created API endpoint for updating user roles
+  • Added user stats cards showing counts by role and approval status
+  • Added search and filter functionality for finding users
+  • Added "Manage User Roles" button to admin dashboard
+  • User role changes take effect immediately without requiring re-login
+  • Red-highlighted button in Quick Actions for easy access
 - January 23, 2025: Implemented comprehensive enrollment details management
   • Fixed broken "Actions" button in enrollment records screen
   • Created detailed enrollment view page at /admin/enrollment/:id with tabs for:

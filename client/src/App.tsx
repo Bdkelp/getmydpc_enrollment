@@ -12,6 +12,7 @@ import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
+import AdminUsers from "@/pages/admin-users";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
@@ -57,6 +58,7 @@ function Router() {
               <Route path="/admin" component={Admin} />
               <Route path="/admin/leads" component={AdminLeads} />
               <Route path="/admin/enrollments" component={AdminEnrollments} />
+              <Route path="/admin/users" component={AdminUsers} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
