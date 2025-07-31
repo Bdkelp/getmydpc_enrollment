@@ -206,7 +206,7 @@ export default function Confirmation() {
             <div className="flex flex-wrap justify-center gap-4 mb-8">
               <Button 
                 onClick={handleDownload}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Download Confirmation

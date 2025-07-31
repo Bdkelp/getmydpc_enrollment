@@ -33,8 +33,17 @@ export default function AdminUsers() {
   const [roleFilter, setRoleFilter] = useState('all');
 
   // Fetch all users
-  const { data: usersData, isLoading } = useQuery({
+  const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],
+  });
+
+  // Debug logging
+  console.log('Admin Users Debug:', {
+    usersData,
+    isLoading,
+    error,
+    usersCount: usersData?.users?.length,
+    totalCount: usersData?.totalCount
   });
 
   // Update user role mutation
