@@ -168,7 +168,9 @@ export function setupSupabaseAuth(app: Express) {
       res.json(enrichedUser);
     } catch (error) {
       console.error("[Supabase Auth] Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user data" });
+      console.error("[Supabase Auth] Error stack:", error.stack);
+      console.error("[Supabase Auth] Request user:", req.user);
+      res.status(500).json({ message: "Failed to fetch user data", error: error.message });
     }
   });
 

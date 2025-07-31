@@ -76,6 +76,8 @@ export function useAuth() {
     enabled: !!session?.access_token && isInitialized,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
   });
 
   // Only show loading during initial load or when actively fetching user data
