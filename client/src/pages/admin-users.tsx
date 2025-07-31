@@ -19,6 +19,7 @@ interface UserType {
   firstName: string;
   lastName: string;
   role: string;
+  agentNumber?: string;
   isActive: boolean;
   approvalStatus: string;
   createdAt: string;
@@ -57,6 +58,54 @@ export default function AdminUsers() {
       toast({
         title: "Error",
         description: "Failed to update user role. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Update agent number mutation
+  const updateAgentNumberMutation = useMutation({
+    mutationFn: async ({ userId, agentNumber }: { userId: string; agentNumber: string }) => {
+      return apiRequest(`/api/admin/user/${userId}/agent-number`, {
+        method: 'PATCH',
+        body: JSON.stringify({ agentNumber }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Agent Number Updated",
+        description: "Agent number has been updated successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update agent number. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Approve user mutation
+  const approveUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      return apiRequest(`/api/admin/approve-user/${userId}`, {
+        method: 'POST',
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Approved",
+        description: "The user has been approved successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/pending-users'] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to approve user. Please try again.",
         variant: "destructive",
       });
     },
@@ -236,6 +285,7 @@ export default function AdminUsers() {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Agent Number</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead>Last Login</TableHead>
@@ -245,7 +295,7 @@ export default function AdminUsers() {
                   <TableBody>
                     {filteredUsers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                           No users found matching your criteria
                         </TableCell>
                       </TableRow>
@@ -309,6 +359,27 @@ export default function AdminUsers() {
                             </Select>
                           </TableCell>
                           <TableCell>
+                            {user.role === 'agent' ? (
+                              <Input
+                                type="text"
+                                placeholder="Enter agent #"
+                                defaultValue={user.agentNumber || ''}
+                                className="w-[120px]"
+                                onBlur={(e) => {
+                                  const value = e.target.value.trim();
+                                  if (value !== (user.agentNumber || '')) {
+                                    updateAgentNumberMutation.mutate({
+                                      userId: user.id,
+                                      agentNumber: value
+                                    });
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
                             <div className="space-y-1">
                               <Badge
                                 variant={user.approvalStatus === 'approved' ? 'default' : 
@@ -333,13 +404,26 @@ export default function AdminUsers() {
                             }
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
-                            >
-                              View Details
-                            </Button>
+                            <div className="flex items-center justify-end space-x-2">
+                              {user.approvalStatus === 'pending' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-green-600 hover:text-green-700"
+                                  onClick={() => approveUserMutation.mutate(user.id)}
+                                  disabled={approveUserMutation.isPending}
+                                >
+                                  Approve
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
+                              >
+                                View Details
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))

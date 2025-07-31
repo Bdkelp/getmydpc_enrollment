@@ -43,6 +43,7 @@ export interface IStorage {
   getUserByTwitterId(twitterId: string): Promise<User | undefined>;
   getUserByVerificationToken(token: string): Promise<User | undefined>;
   getUserByResetToken(token: string): Promise<User | undefined>;
+  getUserByAgentNumber(agentNumber: string): Promise<User | undefined>;
   
   // Plan operations
   getPlans(): Promise<Plan[]>;
@@ -188,6 +189,15 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(users)
       .where(eq(users.resetPasswordToken, token))
+      .limit(1);
+    return user;
+  }
+
+  async getUserByAgentNumber(agentNumber: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.agentNumber, agentNumber))
       .limit(1);
     return user;
   }

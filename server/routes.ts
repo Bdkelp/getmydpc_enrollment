@@ -82,6 +82,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   };
 
+  // Define super admin emails
+  const SUPER_ADMIN_EMAILS = ['michael@mypremierplans.com', 'travis@mypremierplans.com'];
+
   // Middleware to check if user is admin
   const isAdmin = async (req: any, res: any, next: any) => {
     // Get user ID based on authentication system
@@ -91,9 +94,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     const user = await storage.getUser(userId);
-    if (!user || user.role !== 'admin') {
+    if (!user) {
       return res.status(403).json({ message: "Access denied. Admin role required." });
     }
+
+    // Check if user is a super admin or regular admin
+    const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
+    if (!isSuperAdmin && user.role !== 'admin') {
+      return res.status(403).json({ message: "Access denied. Admin role required." });
+    }
+    
+    // Attach super admin status to request
+    req.isSuperAdmin = isSuperAdmin;
+    req.userRole = user.role;
     
     next();
   };
@@ -623,22 +636,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update user role endpoint
-  app.patch("/api/admin/user/:userId/role", authMiddleware, isAdmin, async (req: any, res) => {
+  // Update user agent number endpoint
+  app.patch("/api/admin/user/:userId/agent-number", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      const { role } = req.body;
+      const { agentNumber } = req.body;
       
-      if (!["user", "agent", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role. Must be user, agent, or admin." });
+      // Check if agent number is already in use
+      if (agentNumber) {
+        const existingUser = await storage.getUserByAgentNumber(agentNumber);
+        if (existingUser && existingUser.id !== userId) {
+          return res.status(400).json({ message: "Agent number is already in use" });
+        }
       }
       
-      await storage.updateUser(userId, { role });
+      const user = await storage.updateUserProfile(userId, { agentNumber });
       
-      res.json({ message: "User role updated successfully" });
+      res.json({ 
+        message: "Agent number updated successfully",
+        user: {
+          id: user.id,
+          email: user.email,
+          agentNumber: user.agentNumber
+        }
+      });
     } catch (error) {
-      console.error("Error updating user role:", error);
-      res.status(500).json({ message: "Failed to update user role" });
+      console.error("Error updating agent number:", error);
+      res.status(500).json({ message: "Failed to update agent number" });
     }
   });
 
