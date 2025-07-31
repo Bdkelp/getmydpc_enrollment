@@ -1,7 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/['"]/g, '');
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.replace(/['"]/g, '');
+// Get environment variables and ensure they're strings without quotes
+const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Remove any surrounding quotes that might have been added
+const supabaseUrl = typeof rawUrl === 'string' ? rawUrl.replace(/^['"]|['"]$/g, '').trim() : '';
+const supabaseAnonKey = typeof rawKey === 'string' ? rawKey.replace(/^['"]|['"]$/g, '').trim() : '';
+
+// Debug log the raw values
+console.log('Supabase config debug:', {
+  urlRaw: rawUrl,
+  urlProcessed: supabaseUrl,
+  urlType: typeof rawUrl,
+  hasUrl: !!supabaseUrl,
+  hasKey: !!supabaseAnonKey,
+  urlLength: supabaseUrl?.length
+});
 
 // Check if properly initialized
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -12,6 +27,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
     keyPreview: supabaseAnonKey?.substring(0, 20) + '...'
   });
   throw new Error('Supabase configuration missing');
+}
+
+// Validate URL format
+try {
+  new URL(supabaseUrl);
+} catch (e) {
+  console.error('Invalid Supabase URL format:', supabaseUrl);
+  throw new Error(`Invalid Supabase URL: ${supabaseUrl}`);
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
