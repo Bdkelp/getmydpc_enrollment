@@ -66,7 +66,7 @@ export async function syncSupabaseUser(supabaseUser: any) {
       });
     } else {
       // Update existing user
-      await storage.updateUser(dbUser.id, {
+      await storage.updateUserProfile(dbUser.id, {
         firstName: supabaseUser.user_metadata?.first_name || dbUser.firstName,
         lastName: supabaseUser.user_metadata?.last_name || dbUser.lastName,
         profileImageUrl: supabaseUser.user_metadata?.avatar_url || dbUser.profileImageUrl,
