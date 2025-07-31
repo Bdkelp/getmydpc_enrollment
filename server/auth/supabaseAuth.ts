@@ -124,20 +124,26 @@ export function setupSupabaseAuth(app: Express) {
         console.log('[Supabase Auth] Creating user with role:', role);
         
         // Create the user
+        const fullName = req.user.user_metadata?.name || req.user.user_metadata?.full_name || req.user.email?.split('@')[0] || 'User';
+        const nameParts = fullName.split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+        
         dbUser = await storage.createUser({
           id: req.user.id,
           email: req.user.email,
-          name: req.user.user_metadata?.name || req.user.email?.split('@')[0] || 'User',
+          firstName,
+          lastName,
           role,
-          approvalStatus: role === 'admin' ? 'approved' : 'pending' // Auto-approve admins
+          approvalStatus: (role === 'admin' || role === 'agent') ? 'approved' : 'pending' // Auto-approve admins and agents
         });
         
         console.log('[Supabase Auth] Created new user:', dbUser);
       }
       
-      // Auto-approve admin users if not already approved
-      if (dbUser && dbUser.role === 'admin' && dbUser.approvalStatus !== 'approved') {
-        console.log('[Supabase Auth] Auto-approving admin user');
+      // Auto-approve admin and agent users if not already approved
+      if (dbUser && (dbUser.role === 'admin' || dbUser.role === 'agent') && dbUser.approvalStatus !== 'approved') {
+        console.log('[Supabase Auth] Auto-approving admin/agent user');
         await storage.updateUser(dbUser.id, { approvalStatus: 'approved' });
         dbUser = await storage.getUser(dbUser.id);
       }
