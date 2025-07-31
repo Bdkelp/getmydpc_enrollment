@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,19 @@ export default function AdminUsers() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+
+  // Test authentication on mount
+  useEffect(() => {
+    import('@/lib/supabase').then(({ getSession }) => {
+      getSession().then(session => {
+        console.log('[AdminUsers] Current session:', {
+          hasSession: !!session,
+          hasToken: !!session?.access_token,
+          tokenPreview: session?.access_token?.substring(0, 20) + '...'
+        });
+      });
+    });
+  }, []);
 
   // Fetch all users
   const { data: usersData, isLoading } = useQuery({
