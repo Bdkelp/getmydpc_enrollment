@@ -405,8 +405,8 @@ export default function Landing() {
                 </div>
                 <p className="text-gray-700 mb-6 italic">
                   "The $10 office visits and $25 urgent care visits have saved me hundreds compared 
-                  to my old insurance copays. Plus, I can text my doctor directly when I have 
-                  questions. It's healthcare how it should be!"
+                  to my old insurance copays. I am able to be seen same day or next day when I need care. 
+                  It's healthcare how it should be!"
                 </p>
                 <div className="flex items-center">
                   <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
