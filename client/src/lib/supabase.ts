@@ -1,14 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL!;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/['"]/g, '');
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.replace(/['"]/g, '');
 
 // Check if properly initialized
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase configuration missing. Please check environment variables.');
+  console.error('Supabase configuration missing. Please check environment variables.', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseAnonKey,
+    url: supabaseUrl,
+    keyPreview: supabaseAnonKey?.substring(0, 20) + '...'
+  });
+  throw new Error('Supabase configuration missing');
 }
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Auth helper functions
 export const signUp = async (email: string, password: string, userData?: any) => {

@@ -20,7 +20,9 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
     }
     
     const token = authHeader.substring(7);
-    console.log('[verifySupabaseToken] Verifying token:', token.substring(0, 20) + '...');
+    console.log('[verifySupabaseToken] Verifying token:', token.substring(0, 50) + '...');
+    console.log('[verifySupabaseToken] Token length:', token.length);
+    console.log('[verifySupabaseToken] Token segments:', token.split('.').length);
     
     // Verify token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);

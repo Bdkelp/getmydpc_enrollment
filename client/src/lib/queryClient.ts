@@ -31,6 +31,7 @@ export async function apiRequest(
   
   if (session?.access_token) {
     headers["Authorization"] = `Bearer ${session.access_token}`;
+    console.log('[apiRequest] Token preview:', session.access_token.substring(0, 50) + '...');
   }
   
   console.log('[apiRequest] Making request:', { url, method: options.method, hasAuth: !!headers["Authorization"] });
