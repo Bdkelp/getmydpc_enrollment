@@ -8,17 +8,24 @@ async function throwIfResNotOk(res: Response) {
 }
 
 export async function apiRequest(
-  method: string,
   url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+  options: {
+    method: string;
+    body?: string;
+    headers?: HeadersInit;
+  }
+): Promise<any> {
   // Get the Supabase session to include auth token
   const { getSession } = await import("@/lib/supabase");
   const session = await getSession();
   
-  const headers: HeadersInit = {};
+  console.log('[apiRequest] Session:', { hasSession: !!session, hasToken: !!session?.access_token });
   
-  if (data) {
+  const headers: HeadersInit = {
+    ...options.headers,
+  };
+  
+  if (options.body) {
     headers["Content-Type"] = "application/json";
   }
   
@@ -26,15 +33,38 @@ export async function apiRequest(
     headers["Authorization"] = `Bearer ${session.access_token}`;
   }
   
+  console.log('[apiRequest] Making request:', { url, method: options.method, hasAuth: !!headers["Authorization"] });
+  
   const res = await fetch(url, {
-    method,
+    method: options.method,
     headers,
-    body: data ? JSON.stringify(data) : undefined,
+    body: options.body,
     credentials: "include",
   });
 
-  await throwIfResNotOk(res);
-  return res;
+  const responseData = await res.text();
+  
+  if (!res.ok) {
+    let errorMessage;
+    try {
+      const errorJson = JSON.parse(responseData);
+      errorMessage = errorJson.message || res.statusText;
+    } catch {
+      errorMessage = responseData || res.statusText;
+    }
+    
+    console.error('[apiRequest] Error response:', { status: res.status, message: errorMessage });
+    const error = new Error(errorMessage);
+    (error as any).status = res.status;
+    (error as any).response = { data: { message: errorMessage } };
+    throw error;
+  }
+  
+  try {
+    return JSON.parse(responseData);
+  } catch {
+    return responseData;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
