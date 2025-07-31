@@ -80,8 +80,9 @@ export function useAuth() {
     refetchInterval: false,
   });
 
-  // Only show loading during initial load or when actively fetching user data
-  const isLoading = !isInitialized || (!!session?.access_token && userLoading);
+  // Only show loading during initial load
+  // Don't show loading if we're just waiting for user data after initialization
+  const isLoading = !isInitialized;
 
   // Debug logging
   console.log('useAuth state:', { 
