@@ -78,7 +78,18 @@ export function useAuth() {
     refetchOnWindowFocus: false,
   });
 
-  const isLoading = !isInitialized || (session && userLoading);
+  // Only show loading during initial load or when actively fetching user data
+  const isLoading = !isInitialized || (!!session?.access_token && userLoading);
+
+  // Debug logging
+  console.log('useAuth state:', { 
+    isInitialized, 
+    hasSession: !!session, 
+    hasToken: !!session?.access_token,
+    userLoading, 
+    isLoading,
+    user: user?.email 
+  });
 
   return {
     user,
