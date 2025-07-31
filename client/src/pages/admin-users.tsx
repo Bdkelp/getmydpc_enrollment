@@ -68,7 +68,9 @@ export default function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
     },
     onError: (error: any) => {
-      console.error('Role update error:', error);
+      console.error('[Role Update] Full error:', error);
+      console.error('[Role Update] Error status:', error?.status);
+      console.error('[Role Update] Error response:', error?.response);
       const errorMessage = error?.response?.data?.message || error?.message || "Failed to update user role. Please try again.";
       toast({
         title: "Error",
@@ -335,12 +337,13 @@ export default function AdminUsers() {
                           <TableCell>
                             <Select
                               value={user.role}
-                              onValueChange={(value) => 
+                              onValueChange={(value) => {
+                                console.log('[AdminUsers] Updating role:', { userId: user.id, oldRole: user.role, newRole: value });
                                 updateRoleMutation.mutate({ 
                                   userId: user.id, 
                                   role: value 
-                                })
-                              }
+                                });
+                              }}
                               disabled={updateRoleMutation.isPending}
                             >
                               <SelectTrigger className="w-[120px]">
