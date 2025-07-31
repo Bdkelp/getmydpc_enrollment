@@ -87,28 +87,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Middleware to check if user is admin
   const isAdmin = async (req: any, res: any, next: any) => {
-    // Get user ID based on authentication system
-    const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    
-    const user = await storage.getUser(userId);
-    if (!user) {
-      return res.status(403).json({ message: "Access denied. Admin role required." });
-    }
+    try {
+      // Get user ID based on authentication system
+      const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
+      
+      console.log('[Admin Middleware] Checking admin access:', {
+        userId,
+        hasUser: !!req.user,
+        userEmail: req.user?.email
+      });
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized - No user ID found" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        console.error('[Admin Middleware] User not found in database:', userId);
+        return res.status(403).json({ message: "Access denied. User not found in database." });
+      }
 
-    // Check if user is a super admin or regular admin
-    const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
-    if (!isSuperAdmin && user.role !== 'admin') {
-      return res.status(403).json({ message: "Access denied. Admin role required." });
+      // Check if user is a super admin or regular admin
+      const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
+      
+      console.log('[Admin Middleware] User details:', {
+        email: user.email,
+        role: user.role,
+        isSuperAdmin,
+        willAllow: isSuperAdmin || user.role === 'admin'
+      });
+      
+      if (!isSuperAdmin && user.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      
+      // Attach super admin status to request
+      req.isSuperAdmin = isSuperAdmin;
+      req.userRole = user.role;
+      req.userEmail = user.email;
+      
+      next();
+    } catch (error) {
+      console.error('[Admin Middleware] Error:', error);
+      return res.status(500).json({ message: "Internal server error checking admin access" });
     }
-    
-    // Attach super admin status to request
-    req.isSuperAdmin = isSuperAdmin;
-    req.userRole = user.role;
-    
-    next();
   };
 
   // Mock payment endpoint for testing
@@ -833,6 +855,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const { role } = req.body;
+      const requestingUserId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
+      
+      console.log('[Role Update] Request details:', {
+        targetUserId: userId,
+        newRole: role,
+        requestingUserId,
+        isSuperAdmin: req.isSuperAdmin,
+        userEmail: req.user?.email
+      });
       
       // Validate role
       if (!["user", "agent", "admin"].includes(role)) {
@@ -840,6 +871,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const user = await storage.updateUserProfile(userId, { role });
+      
+      console.log('[Role Update] Successfully updated user:', user.email, 'to role:', role);
       
       res.json({ 
         message: "User role updated successfully",
@@ -850,8 +883,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
     } catch (error) {
-      console.error("Error updating user role:", error);
-      res.status(500).json({ message: "Failed to update user role" });
+      console.error("[Role Update] Error updating user role:", error);
+      console.error("[Role Update] Error stack:", error.stack);
+      res.status(500).json({ message: "Failed to update user role", error: error.message });
     }
   });
   

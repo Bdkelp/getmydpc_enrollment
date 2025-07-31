@@ -54,10 +54,12 @@ export default function AdminUsers() {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error('Role update error:', error);
+      const errorMessage = error?.response?.data?.message || error?.message || "Failed to update user role. Please try again.";
       toast({
         title: "Error",
-        description: "Failed to update user role. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     },
