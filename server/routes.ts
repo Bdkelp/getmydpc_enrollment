@@ -6,6 +6,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import { z } from "zod";
 import { registrationSchema, insertPlanSchema } from "@shared/schema";
 import { calculateEnrollmentCommission } from "./utils/commission";
+import { sendEnrollmentNotification, sendPaymentNotification } from "./utils/notifications";
 import authRoutes from "./auth/authRoutes";
 import { configurePassportStrategies } from "./auth/authService";
 import { setupSupabaseAuth, verifySupabaseToken } from "./auth/supabaseAuth";
@@ -130,6 +131,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('[Admin Middleware] Error:', error);
       return res.status(500).json({ message: "Internal server error checking admin access" });
+    }
+  };
+
+  // Super Admin only middleware - restricts certain actions to super admins only
+  const isSuperAdminOnly = async (req: any, res: any, next: any) => {
+    try {
+      const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(403).json({ message: "User not found" });
+      }
+      
+      // Only super admins can perform these actions
+      const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
+      
+      if (!isSuperAdmin) {
+        console.log('[Super Admin Only] Access denied - not a super admin:', user.email);
+        return res.status(403).json({ 
+          message: "Super admin access required. Only super admins can perform this action." 
+        });
+      }
+      
+      req.isSuperAdmin = true;
+      req.userRole = user.role;
+      req.userEmail = user.email;
+      
+      console.log('[Super Admin Only] Access granted:', user.email);
+      next();
+    } catch (error) {
+      console.error('[Super Admin Only] Error:', error);
+      return res.status(500).json({ message: "Internal server error" });
     }
   };
 
@@ -301,8 +338,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Update user profile with registration data (excluding planId)
-      const user = await storage.updateUserProfile(userId, {
+      // Create new member user record for the enrollment (separate from agent/admin user)
+      const memberId = `member_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const memberUser = await storage.createUser({
+        id: memberId,
         firstName: userProfileData.firstName,
         lastName: userProfileData.lastName,
         middleName: userProfileData.middleName,
@@ -324,13 +363,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         emergencyContactName: userProfileData.emergencyContactName,
         emergencyContactPhone: userProfileData.emergencyContactPhone,
         enrolledByAgentId: agentId,
+        role: 'user',
+        approvalStatus: 'approved' // Auto-approve enrolled members
+      });
+
+      // Get the plan details
+      const plan = await storage.getPlan(planId);
+      if (!plan) {
+        return res.status(400).json({ message: "Invalid plan selected" });
+      }
+
+      // Calculate subscription amount based on coverage type
+      let subscriptionAmount = parseFloat(plan.price.toString());
+      if (coverageType === "Member/Spouse") {
+        subscriptionAmount *= 2;
+      } else if (coverageType === "Member/Child") {
+        subscriptionAmount *= 1.5;
+      } else if (coverageType === "Family") {
+        subscriptionAmount *= 2.5;
+      }
+
+      // Create subscription for the member
+      const subscription = await storage.createSubscription({
+        userId: memberId,
+        planId: planId,
+        status: 'pending',
+        pendingReason: 'payment_required',
+        amount: subscriptionAmount.toString(),
+        startDate: new Date(userProfileData.planStartDate),
+        nextBillingDate: new Date(userProfileData.planStartDate)
       });
 
       // Add family members if any
       for (const member of familyMembers) {
         if (member && member.firstName) { // Only add valid family members
           await storage.addFamilyMember({
-            primaryUserId: userId,
+            primaryUserId: memberId,
             firstName: member.firstName,
             lastName: member.lastName,
             middleName: member.middleName,
@@ -347,7 +415,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json(user);
+      // Process mock payment
+      const paymentId = `PAY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const payment = await storage.createPayment({
+        userId: memberId,
+        subscriptionId: subscription.id,
+        amount: subscriptionAmount.toString(),
+        status: 'succeeded', // Mock payment always succeeds for now
+        stripePaymentIntentId: paymentId,
+        paymentMethod: 'card'
+      });
+
+      // Activate subscription after successful payment
+      await storage.updateSubscription(subscription.id, {
+        status: 'active',
+        pendingReason: null
+      });
+
+      // Calculate commission if enrolled by agent
+      let commission = 0;
+      let agentInfo = null;
+      if (agentId) {
+        const agent = await storage.getUser(agentId);
+        if (agent) {
+          agentInfo = agent;
+          const hasRx = (req.body as any).hasRxValet || false;
+          commission = calculateEnrollmentCommission(plan.name, coverageType, hasRx);
+        }
+      }
+
+      // Send enrollment notification to admins
+      try {
+        await sendEnrollmentNotification({
+          memberName: `${userProfileData.firstName} ${userProfileData.lastName}`,
+          memberEmail: userProfileData.email,
+          planName: plan.name,
+          memberType: coverageType,
+          amount: subscriptionAmount,
+          agentName: agentInfo ? `${agentInfo.firstName} ${agentInfo.lastName}` : undefined,
+          agentNumber: agentInfo?.agentNumber,
+          commission: commission > 0 ? commission : undefined,
+          enrollmentDate: new Date()
+        });
+      } catch (notificationError) {
+        console.error('Failed to send enrollment notification:', notificationError);
+      }
+
+      // Send payment notification
+      try {
+        await sendPaymentNotification({
+          memberName: `${userProfileData.firstName} ${userProfileData.lastName}`,
+          memberEmail: userProfileData.email,
+          amount: subscriptionAmount,
+          paymentMethod: 'Card',
+          paymentStatus: 'succeeded',
+          transactionId: paymentId,
+          paymentDate: new Date()
+        });
+      } catch (notificationError) {
+        console.error('Failed to send payment notification:', notificationError);
+      }
+
+      res.json({
+        user: memberUser,
+        subscription,
+        payment,
+        message: "Enrollment completed successfully"
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         console.error("Validation error:", error.errors);
@@ -658,8 +792,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update user agent number endpoint
-  app.patch("/api/admin/user/:userId/agent-number", authMiddleware, isAdmin, async (req: any, res) => {
+  // Super Admin Only: Update user agent number endpoint
+  app.patch("/api/admin/user/:userId/agent-number", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
     try {
       const { userId } = req.params;
       const { agentNumber } = req.body;
@@ -850,8 +984,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update user role endpoint
-  app.patch("/api/admin/user/:userId/role", authMiddleware, isAdmin, async (req: any, res) => {
+  // Super Admin Only: Update user role endpoint
+  app.patch("/api/admin/user/:userId/role", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
     try {
       const { userId } = req.params;
       const { role } = req.body;
@@ -900,7 +1034,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/admin/approve-user/:userId', authMiddleware, isAdmin, async (req: any, res) => {
+  // Super Admin Only: Approve user
+  app.post('/api/admin/approve-user/:userId', authMiddleware, isSuperAdminOnly, async (req: any, res) => {
     try {
       const { userId } = req.params;
       const adminId = req.user.id;
@@ -1119,8 +1254,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Generate agent number
-  app.post("/api/admin/generate-agent-number/:agentId", authMiddleware, isAdmin, async (req: any, res) => {
+  // Super Admin Only: Generate agent number
+  app.post("/api/admin/generate-agent-number/:agentId", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
     try {
       const { agentId } = req.params;
       
