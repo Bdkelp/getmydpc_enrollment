@@ -50,7 +50,7 @@ export default function Payment() {
       console.error("No plan ID found in session storage!");
       toast({
         title: "No Plan Selected",
-        description: "Please go back to registration and select a plan.",
+        description: "Please go back to registration and select a healthcare membership.",
         variant: "destructive",
       });
     }
@@ -89,7 +89,7 @@ export default function Payment() {
     if (!selectedPlanId) {
       toast({
         title: "No Plan Selected",
-        description: "Please select a plan first.",
+        description: "Please select a healthcare membership first.",
         variant: "destructive",
       });
       return;
@@ -152,7 +152,7 @@ export default function Payment() {
                 <div className="space-y-6">
                   {/* Selected Plan Display */}
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-4">Your Selected Plan</h3>
+                    <h3 className="font-semibold text-gray-900 mb-4">Your Selected Healthcare Membership</h3>
                     {selectedPlan ? (
                       <div>
                         <div className="flex justify-between items-start mb-4">
@@ -173,13 +173,13 @@ export default function Payment() {
                         {/* Price Breakdown */}
                         <div className="border-t border-blue-200 pt-4 space-y-2">
                           <div className="flex justify-between text-sm">
-                            <span>Base Plan</span>
+                            <span>Base Membership</span>
                             <span>${selectedPlan.price}</span>
                           </div>
                           {sessionStorage.getItem("coverageType") !== "Member only" && (
                             <div className="flex justify-between text-sm">
                               <span>Family Members</span>
-                              <span>Included in plan</span>
+                              <span>Included in membership</span>
                             </div>
                           )}
                           {sessionStorage.getItem("rxValet") === "yes" && (

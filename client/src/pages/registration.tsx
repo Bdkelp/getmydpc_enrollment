@@ -270,8 +270,8 @@ export default function Registration() {
       // Check if plan is selected
       if (!selectedPlanId) {
         toast({
-          title: "Please select a plan",
-          description: "You must choose a healthcare plan before continuing.",
+          title: "Please select a healthcare membership",
+          description: "You must choose a healthcare membership before continuing.",
           variant: "destructive",
         });
         return;
@@ -365,7 +365,7 @@ export default function Registration() {
                 {currentStep === 3 && "Address Information"}
                 {currentStep === 4 && "Spouse Information"}
                 {currentStep === 5 && "Children Information"}
-                {currentStep === 6 && "Select Your Plan"}
+                {currentStep === 6 && "Select Your Healthcare Membership"}
                 {currentStep === 7 && "Review & Terms"}
               </h1>
               <p className="text-gray-600">
@@ -374,7 +374,7 @@ export default function Registration() {
                 {currentStep === 3 && "Where can we reach you?"}
                 {currentStep === 4 && "Tell us about your spouse"}
                 {currentStep === 5 && "Tell us about your children"}
-                {currentStep === 6 && "Choose your healthcare plan level"}
+                {currentStep === 6 && "Choose your healthcare membership level"}
                 {currentStep === 7 && "Review your information and accept terms"}
               </p>
             </div>
@@ -1060,7 +1060,7 @@ export default function Registration() {
                     
                     <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> You can add up to 5 children to your plan.
+                        <strong>Note:</strong> You can add up to 5 children to your healthcare membership.
                       </p>
                     </div>
                   </div>
@@ -1075,8 +1075,8 @@ export default function Registration() {
                     ) : (
                       <>
                         <div className="mb-4">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Your Plan</h3>
-                          <p className="text-sm text-gray-600">Choose the plan level that best fits your healthcare needs</p>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">Select Your Healthcare Membership</h3>
+                          <p className="text-sm text-gray-600">Choose the membership level that best fits your healthcare membership needs</p>
                           {recommendedTier && (
                             <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                               <p className="text-sm text-blue-800">

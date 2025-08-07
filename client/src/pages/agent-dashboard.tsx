@@ -221,7 +221,7 @@ export default function AgentDashboard() {
                   {getTimeOfDayGreeting()}, {getUserName()}! 🎯
                 </h2>
                 <p className="text-green-100">
-                  Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare!
+                  Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
                 </p>
                 <div className="mt-4 flex items-center space-x-6">
                   <div>

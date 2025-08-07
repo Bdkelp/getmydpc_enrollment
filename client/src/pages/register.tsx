@@ -112,7 +112,7 @@ export default function Register() {
           </div>
           <CardTitle className="text-2xl text-center">Create an account</CardTitle>
           <CardDescription className="text-center">
-            Join MyPremierPlans for quality healthcare
+            Join MyPremierPlans for quality healthcare membership
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -25,7 +25,7 @@ export default function PendingApproval() {
               Your account has been successfully created and is currently under review by our team.
             </p>
             <p>
-              This security measure helps us maintain the quality and safety of our healthcare platform.
+              This security measure helps us maintain the quality and safety of our healthcare membership platform.
             </p>
           </div>
           

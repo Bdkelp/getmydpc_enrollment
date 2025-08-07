@@ -260,7 +260,7 @@ export default function Landing() {
             <div className="max-w-3xl mx-auto">
               <p className="text-xl font-semibold text-gray-900 mb-2">Your Health. Your Membership. No Insurance Needed.</p>
               <p className="text-lg text-gray-600">
-                Unlimited primary care. No copays. No surprises. Just quality healthcare that puts you first.
+                Unlimited primary care. No copays. No surprises. Just quality healthcare membership that puts you first.
               </p>
             </div>
           </div>
@@ -283,7 +283,7 @@ export default function Landing() {
       <div id="plans" className="py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Choose Your Plan</h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Choose Your Healthcare Membership</h2>
             <p className="text-lg text-gray-600">Flexible membership options for individuals and families</p>
           </div>
           
@@ -334,7 +334,7 @@ export default function Landing() {
                                 : "bg-white hover:bg-gray-100 text-black border border-gray-300"
                             }`}
                           >
-                            {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
+                            {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Membership"}
                           </Button>
                         </Link>
                       ) : (
@@ -352,7 +352,7 @@ export default function Landing() {
                         }`}
                         onClick={() => setIsContactModalOpen(true)}
                       >
-                        {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Plan"}
+                        {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Membership"}
                       </Button>
                     )}
                   </CardContent>
@@ -406,7 +406,7 @@ export default function Landing() {
                 <p className="text-gray-700 mb-6 italic">
                   "The $10 office visits and $25 urgent care visits have saved me hundreds compared 
                   to my old insurance copays. I am able to be seen same day or next day when I need care. 
-                  It's healthcare how it should be!"
+                  It's healthcare membership how it should be!"
                 </p>
                 <div className="flex items-center">
                   <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>

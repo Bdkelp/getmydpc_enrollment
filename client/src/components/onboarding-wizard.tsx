@@ -170,7 +170,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
                 <h4 className="font-semibold text-green-900">Enrollment Steps</h4>
                 <ol className="list-decimal list-inside text-green-800 mt-2 space-y-1">
                   <li>Collect personal information</li>
-                  <li>Select appropriate plan and coverage</li>
+                  <li>Select appropriate healthcare membership and coverage</li>
                   <li>Add family members if needed</li>
                   <li>Process payment</li>
                   <li>Complete enrollment confirmation</li>
@@ -244,7 +244,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
       {
         id: 'member-benefits',
         title: 'Your Member Benefits',
-        description: 'Understand your healthcare plan features',
+        description: 'Understand your healthcare membership features',
         icon: <Calendar className="h-8 w-8 text-green-500" />,
         content: (
           <div className="space-y-4">

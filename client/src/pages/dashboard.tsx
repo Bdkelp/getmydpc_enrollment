@@ -179,7 +179,7 @@ export default function Dashboard() {
                   {getTimeOfDayGreeting()}, {getUserName()}! 🏥
                 </h2>
                 <p className="text-blue-100">
-                  Welcome to your healthcare dashboard. Your membership gives you unlimited access to quality care.
+                  Welcome to your healthcare membership dashboard. Your membership gives you unlimited access to quality care.
                 </p>
                 <div className="mt-4 flex items-center space-x-6">
                   <div>
@@ -190,7 +190,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="border-l border-blue-300 pl-6">
-                    <p className="text-sm text-blue-200">Your Plan</p>
+                    <p className="text-sm text-blue-200">Your Membership</p>
                     <p className="text-lg font-semibold">
                       {user.plan?.name || "MyPremierPlan"}
                     </p>

@@ -26,7 +26,7 @@ interface QuizQuestion {
 const quizQuestions: QuizQuestion[] = [
   {
     id: "coverage_type",
-    question: "Who needs healthcare coverage?",
+    question: "Who needs healthcare membership coverage?",
     description: "This helps us understand your family situation",
     options: [
       {
@@ -391,7 +391,7 @@ export default function Quiz() {
                         className={`w-full mb-4 ${isRecommended ? 'bg-white hover:bg-gray-100 text-black border border-gray-300' : ''}`}
                         onClick={() => handleStartEnrollment(tier)}
                       >
-                        Select Plan
+                        Select Membership
                       </Button>
                       
                       <div className="space-y-2">
