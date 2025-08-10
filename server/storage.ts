@@ -414,6 +414,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
+    console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
+    
     // Get all users that have subscriptions
     const conditions = [];
     
@@ -435,15 +437,20 @@ export class DatabaseStorage implements IStorage {
       })
       .from(subscriptions);
     
+    console.log(`[STORAGE] Found ${usersWithSubscriptions.length} users with subscriptions`);
     const userIds = usersWithSubscriptions.map(sub => sub.userId);
     
     if (userIds.length === 0) {
+      console.log(`[STORAGE] No users with subscriptions found, returning empty array`);
       return [];
     }
     
     conditions.push(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
     
-    return await db.select().from(users).where(and(...conditions));
+    const enrollments = await db.select().from(users).where(and(...conditions));
+    console.log(`[STORAGE] Returning ${enrollments.length} enrollments`);
+    
+    return enrollments;
   }
   
   async recordEnrollmentModification(data: any): Promise<void> {

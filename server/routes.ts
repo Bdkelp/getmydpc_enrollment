@@ -339,8 +339,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Protected routes - User registration/profile
   app.post("/api/registration", authMiddleware, async (req: any, res) => {
     try {
+      console.log("[ENROLLMENT] Starting new enrollment process");
       const validatedData = registrationSchema.parse(req.body);
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      console.log(`[ENROLLMENT] Current user ID: ${userId}`);
       
       // Extract planId separately (not part of user profile)
       const { planId, ...userProfileData } = validatedData;
@@ -401,6 +403,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create new member user record for the enrollment (separate from agent/admin user)
       const memberId = `member_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      console.log(`[ENROLLMENT] Creating member user with ID: ${memberId}, Email: ${userProfileData.email}`);
+      console.log(`[ENROLLMENT] Agent ID who is enrolling: ${agentId}`);
+      
       const memberUser = await storage.createUser({
         id: memberId,
         firstName: userProfileData.firstName,
@@ -427,6 +432,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: 'user',
         approvalStatus: 'approved' // Auto-approve enrolled members
       });
+      
+      console.log(`[ENROLLMENT] Member user created successfully: ${memberUser.id}`);
 
       // Get the plan details
       const plan = await storage.getPlan(planId);
@@ -445,6 +452,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create subscription for the member
+      console.log(`[ENROLLMENT] Creating subscription for member ${memberId}, Plan: ${planId}, Amount: ${subscriptionAmount}`);
       const subscription = await storage.createSubscription({
         userId: memberId,
         planId: planId,
@@ -454,6 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startDate: new Date(userProfileData.planStartDate),
         nextBillingDate: new Date(userProfileData.planStartDate)
       });
+      console.log(`[ENROLLMENT] Subscription created with ID: ${subscription.id}`);
 
       // Add family members if any
       for (const member of familyMembers) {
@@ -1273,12 +1282,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { startDate, endDate, agentId } = req.query;
+      console.log(`[API] Admin fetching enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
       
       const enrollments = await storage.getAllEnrollments(
         startDate as string,
         endDate as string,
         agentId as string
       );
+      
+      console.log(`[API] Found ${enrollments.length} enrollments to display`);
       
       // Enrich with agent info and plan details
       const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
