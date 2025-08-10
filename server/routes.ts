@@ -218,8 +218,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log("Payment created:", payment.id);
       
-      // Check if the user has a lead and mark it as enrolled
+      // Get user details for notifications
       const user = await storage.getUser(userId);
+      
+      // Check if the user has a lead and mark it as enrolled
       if (user && user.email) {
         const lead = await storage.getLeadByEmail(user.email);
         if (lead && lead.status !== 'enrolled') {
@@ -235,6 +237,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
           console.log("Lead marked as enrolled:", lead.id);
+        }
+      }
+      
+      // Send email notifications
+      if (user) {
+        try {
+          // Get agent information if available
+          let agentInfo = null;
+          if (user.email) {
+            const lead = await storage.getLeadByEmail(user.email);
+            if (lead && lead.assignedAgentId) {
+              const agent = await storage.getUser(lead.assignedAgentId);
+              if (agent) {
+                agentInfo = {
+                  name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Agent',
+                  number: agent.agentNumber || 'N/A',
+                  commission: calculateEnrollmentCommission(parseFloat(plan.price), plan.tier)
+                };
+              }
+            }
+          }
+          
+          // Send enrollment notification
+          await sendEnrollmentNotification({
+            memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
+            memberEmail: user.email || '',
+            planName: plan.name,
+            memberType: user.coverageType || 'Individual',
+            amount: totalPrice,
+            agentName: agentInfo?.name,
+            agentNumber: agentInfo?.number,
+            commission: agentInfo?.commission,
+            enrollmentDate: new Date()
+          });
+          
+          // Send payment notification
+          await sendPaymentNotification({
+            memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
+            memberEmail: user.email || '',
+            amount: totalPrice,
+            paymentMethod: 'Mock Payment',
+            paymentStatus: 'succeeded',
+            transactionId: payment.stripePaymentIntentId,
+            planName: plan.name,
+            paymentDate: new Date()
+          });
+          
+          console.log('[Notifications] Email notifications sent successfully');
+        } catch (notificationError) {
+          console.error('[Notifications] Failed to send email notifications:', notificationError);
+          // Don't fail the payment if notifications fail
         }
       }
       
