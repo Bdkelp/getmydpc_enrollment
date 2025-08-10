@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -16,7 +16,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Plus } from "lucide-react";
+import { Plus, ChevronLeft } from "lucide-react";
 import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode } from "@/lib/formatters";
 
 const registrationSchema = z.object({
@@ -70,6 +70,12 @@ export default function Registration() {
   const [recommendedTier, setRecommendedTier] = useState<string | null>(null);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  // Query to get current user data
+  const { data: currentUser } = useQuery<{ role?: string }>({
+    queryKey: ['/api/user'],
+    enabled: isAuthenticated,
+  });
 
   // Check for recommended tier from quiz
   useEffect(() => {
@@ -351,36 +357,57 @@ export default function Registration() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <Card className="p-8">
-          <CardContent className="p-0">
-            {/* Progress Indicator */}
-            <ProgressIndicator currentStep={currentStep} totalSteps={7} />
-
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                {currentStep === 1 && "Personal Information"}
-                {currentStep === 2 && "Employment Information"}
-                {currentStep === 3 && "Address Information"}
-                {currentStep === 4 && "Spouse Information"}
-                {currentStep === 5 && "Children Information"}
-                {currentStep === 6 && "Select Your Healthcare Membership"}
-                {currentStep === 7 && "Review & Terms"}
-              </h1>
-              <p className="text-gray-600">
-                {currentStep === 1 && "Tell us about yourself"}
-                {currentStep === 2 && "Tell us about your employer"}
-                {currentStep === 3 && "Where can we reach you?"}
-                {currentStep === 4 && "Tell us about your spouse"}
-                {currentStep === 5 && "Tell us about your children"}
-                {currentStep === 6 && "Choose your healthcare membership level"}
-                {currentStep === 7 && "Review your information and accept terms"}
-              </p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navigation Header for Admin and Agent */}
+      {(currentUser?.role === 'admin' || currentUser?.role === 'agent') && (
+        <div className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center">
+              <Link href={currentUser?.role === 'admin' ? '/admin' : '/agent'}>
+                <Button variant="ghost" className="mr-4">
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Back to {currentUser?.role === 'admin' ? 'Admin' : 'Agent'} Dashboard
+                </Button>
+              </Link>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Enroll Member</h2>
+                <p className="text-sm text-gray-600">Complete the enrollment process for a new member</p>
+              </div>
             </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="py-12">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <Card className="p-8">
+            <CardContent className="p-0">
+              {/* Progress Indicator */}
+              <ProgressIndicator currentStep={currentStep} totalSteps={7} />
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <div className="mb-8">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                  {currentStep === 1 && "Personal Information"}
+                  {currentStep === 2 && "Employment Information"}
+                  {currentStep === 3 && "Address Information"}
+                  {currentStep === 4 && "Spouse Information"}
+                  {currentStep === 5 && "Children Information"}
+                  {currentStep === 6 && "Select Your Healthcare Membership"}
+                  {currentStep === 7 && "Review & Terms"}
+                </h1>
+                <p className="text-gray-600">
+                  {currentStep === 1 && "Tell us about yourself"}
+                  {currentStep === 2 && "Tell us about your employer"}
+                  {currentStep === 3 && "Where can we reach you?"}
+                  {currentStep === 4 && "Tell us about your spouse"}
+                  {currentStep === 5 && "Tell us about your children"}
+                  {currentStep === 6 && "Choose your healthcare membership level"}
+                  {currentStep === 7 && "Review your information and accept terms"}
+                </p>
+              </div>
+
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {currentStep === 1 && (
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1578,5 +1605,6 @@ export default function Registration() {
         </Card>
       </div>
     </div>
+  </div>
   );
 }
