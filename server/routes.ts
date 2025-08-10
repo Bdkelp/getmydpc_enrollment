@@ -250,10 +250,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (lead && lead.assignedAgentId) {
               const agent = await storage.getUser(lead.assignedAgentId);
               if (agent) {
+                // Determine tier from plan name
+                let tier: 'base' | 'plus' | 'elite' = 'base';
+                if (plan.name.toLowerCase().includes('plus')) {
+                  tier = 'plus';
+                } else if (plan.name.toLowerCase().includes('elite')) {
+                  tier = 'elite';
+                }
+                
                 agentInfo = {
                   name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Agent',
                   number: agent.agentNumber || 'N/A',
-                  commission: calculateEnrollmentCommission(parseFloat(plan.price), plan.tier)
+                  commission: calculateEnrollmentCommission(planPrice, tier)
                 };
               }
             }
@@ -264,7 +272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
             memberEmail: user.email || '',
             planName: plan.name,
-            memberType: user.coverageType || 'Individual',
+            memberType: 'Individual', // Default to Individual for now
             amount: totalPrice,
             agentName: agentInfo?.name,
             agentNumber: agentInfo?.number,
@@ -279,7 +287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             amount: totalPrice,
             paymentMethod: 'Mock Payment',
             paymentStatus: 'succeeded',
-            transactionId: payment.stripePaymentIntentId,
+            transactionId: payment.stripePaymentIntentId || 'N/A',
             planName: plan.name,
             paymentDate: new Date()
           });
