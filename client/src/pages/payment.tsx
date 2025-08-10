@@ -99,17 +99,13 @@ export default function Payment() {
     setIsProcessingPayment(true);
     try {
       // Call mock payment endpoint
-      const response = await apiRequest("POST", "/api/mock-payment", {
-        planId: selectedPlanId
+      const data = await apiRequest("/api/mock-payment", {
+        method: "POST",
+        body: JSON.stringify({
+          planId: selectedPlanId
+        })
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Mock payment error response:", errorText);
-        throw new Error(`Server error: ${response.status}`);
-      }
-      
-      const data = await response.json();
       console.log("Mock payment response:", data);
       
       if (data.success) {
