@@ -235,10 +235,17 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-xl font-semibold text-gray-900">Enrollment not found</h2>
-          <Button className="mt-4" onClick={() => setLocation("/admin/enrollments")}>
-            Back to Enrollments
-          </Button>
+          <h2 className="text-xl font-semibold text-gray-900">No Enrollment Details Available</h2>
+          <p className="text-gray-600 mt-2">This user is not an enrolled member.</p>
+          <p className="text-sm text-gray-500 mt-1">Enrollment details are only available for members who have completed registration.</p>
+          <div className="mt-4 space-x-2">
+            <Button onClick={() => setLocation("/admin/enrollments")}>
+              Back to Enrollments
+            </Button>
+            <Button variant="outline" onClick={() => setLocation("/admin/users")}>
+              Back to Users
+            </Button>
+          </div>
         </div>
       </div>
     );

@@ -434,13 +434,15 @@ export default function AdminUsers() {
                                   Approve
                                 </Button>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
-                              >
-                                View Details
-                              </Button>
+                              {user.role === 'user' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
+                                >
+                                  View Details
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
