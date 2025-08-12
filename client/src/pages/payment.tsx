@@ -9,12 +9,44 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Shield, Check, CreditCard } from "lucide-react";
+import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
+import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
+
+// Function to detect card type based on card number
+const detectCardType = (cardNumber: string) => {
+  const cleanNumber = cardNumber.replace(/\s/g, '');
+  
+  if (/^4/.test(cleanNumber)) return 'visa';
+  if (/^5[1-5]/.test(cleanNumber)) return 'mastercard';
+  if (/^3[47]/.test(cleanNumber)) return 'amex';
+  if (/^6(?:011|5)/.test(cleanNumber)) return 'discover';
+  return 'unknown';
+};
+
+// Function to format card number with spaces
+const formatCardNumber = (value: string) => {
+  const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+  const matches = v.match(/\d{4,16}/g);
+  const match = (matches && matches[0]) || '';
+  const parts = [];
+
+  for (let i = 0, len = match.length; i < len; i += 4) {
+    parts.push(match.substring(i, i + 4));
+  }
+
+  if (parts.length) {
+    return parts.join(' ');
+  } else {
+    return value;
+  }
+};
 
 export default function Payment() {
   const [, setLocation] = useLocation();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardType, setCardType] = useState('unknown');
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -221,11 +253,34 @@ export default function Payment() {
                       <div className="space-y-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Card Number</label>
-                          <input
-                            type="text"
-                            placeholder="4242 4242 4242 4242"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
-                          />
+                          <div className="relative">
+                            <input
+                              type="text"
+                              placeholder="4242 4242 4242 4242"
+                              value={cardNumber}
+                              onChange={(e) => {
+                                const formatted = formatCardNumber(e.target.value);
+                                setCardNumber(formatted);
+                                setCardType(detectCardType(formatted));
+                              }}
+                              maxLength={19}
+                              className="w-full px-3 py-2 pr-12 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
+                            />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                              {cardType === 'visa' && <FaCcVisa className="h-8 w-8 text-blue-600" />}
+                              {cardType === 'mastercard' && <FaCcMastercard className="h-8 w-8 text-red-500" />}
+                              {cardType === 'amex' && <FaCcAmex className="h-8 w-8 text-blue-700" />}
+                              {cardType === 'discover' && <FaCcDiscover className="h-8 w-8 text-orange-500" />}
+                              {cardType === 'unknown' && <FaCreditCard className="h-6 w-6 text-gray-400" />}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-xs text-gray-500">We accept:</span>
+                            <FaCcVisa className="h-6 w-6 text-gray-400" />
+                            <FaCcMastercard className="h-6 w-6 text-gray-400" />
+                            <FaCcAmex className="h-6 w-6 text-gray-400" />
+                            <FaCcDiscover className="h-6 w-6 text-gray-400" />
+                          </div>
                         </div>
                         
                         <div className="grid grid-cols-2 gap-4">
@@ -365,6 +420,30 @@ export default function Payment() {
                       <p>
                         <strong>Cancellation:</strong> You may cancel in writing with 45 days' notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.
                       </p>
+                    </div>
+                  </div>
+                  
+                  {/* Company Contact Information */}
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h4 className="text-sm font-semibold text-blue-900 mb-3">Contact Us</h4>
+                    <div className="space-y-2 text-xs text-blue-800">
+                      <div className="flex items-start">
+                        <MapPin className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">Company Address</p>
+                          <p>4427 Saddle Spur</p>
+                          <p>San Antonio, TX 78253</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start">
+                        <Phone className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">Customer Service</p>
+                          <p>Toll-Free: <a href="tel:+18883469372" className="text-blue-700 hover:underline">+1 (888) 346-9372</a></p>
+                          <p>Local: <a href="tel:+12106249149" className="text-blue-700 hover:underline">+1 (210) 624-9149</a></p>
+                          <p className="text-xs mt-1">Monday - Friday: 8:00 AM - 6:00 PM CST</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
