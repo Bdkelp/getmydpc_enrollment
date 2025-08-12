@@ -7,6 +7,8 @@ import { z } from "zod";
 import { registrationSchema, insertPlanSchema } from "@shared/schema";
 import { calculateEnrollmentCommission } from "./utils/commission";
 import { sendEnrollmentNotification, sendPaymentNotification } from "./utils/notifications";
+import { paymentService } from "./services/payment-service";
+import { handlePayAnywhereWebhook } from "./webhooks/payanywhere";
 import authRoutes from "./auth/authRoutes";
 import { configurePassportStrategies } from "./auth/authService";
 import { setupSupabaseAuth, verifySupabaseToken } from "./auth/supabaseAuth";
@@ -485,14 +487,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Process mock payment
-      const paymentId = `PAY_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      // Process payment using PaymentService
+      // Extract payment data from request body
+      const paymentData = (req.body as any).payment || {};
+      
+      const paymentResult = await paymentService.processPayment({
+        amount: subscriptionAmount,
+        currency: 'USD',
+        cardToken: paymentData.cardToken, // Token from frontend (when available)
+        customerId: memberId,
+        customerEmail: userProfileData.email,
+        description: `DPC Subscription - ${plan.name} (${coverageType})`,
+        metadata: {
+          subscriptionId: subscription.id,
+          planId: planId,
+          coverageType: coverageType,
+          agentId: agentId
+        }
+      });
+
+      console.log(`[ENROLLMENT] Payment processing result:`, paymentResult);
+
+      if (!paymentResult.success) {
+        // Payment failed - update subscription status
+        await storage.updateSubscription(subscription.id, {
+          status: 'pending',
+          pendingReason: 'payment_failed'
+        });
+        
+        return res.status(400).json({
+          message: 'Payment processing failed',
+          error: paymentResult.message || 'Unable to process payment',
+          transactionId: paymentResult.transactionId
+        });
+      }
+
+      // Store successful payment
       const payment = await storage.createPayment({
         userId: memberId,
         subscriptionId: subscription.id,
         amount: subscriptionAmount.toString(),
-        status: 'succeeded', // Mock payment always succeeds for now
-        stripePaymentIntentId: paymentId,
+        status: 'succeeded',
+        stripePaymentIntentId: paymentResult.transactionId,
         paymentMethod: 'card'
       });
 
@@ -539,7 +575,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: subscriptionAmount,
           paymentMethod: 'Card',
           paymentStatus: 'succeeded',
-          transactionId: paymentId,
+          transactionId: paymentResult.transactionId,
           paymentDate: new Date()
         });
       } catch (notificationError) {
@@ -1405,6 +1441,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // PayAnywhere Webhook endpoint (no auth required for webhooks)
+  app.post('/webhooks/payanywhere', express.raw({ type: 'application/json' }), handlePayAnywhereWebhook);
+  
   const httpServer = createServer(app);
   return httpServer;
 }
