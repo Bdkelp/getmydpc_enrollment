@@ -13,6 +13,7 @@ import AgentLeads from "@/pages/agent-leads";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
+import AdminDataViewer from "@/pages/admin-data-viewer";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import FamilyEnrollment from "@/pages/family-enrollment";
