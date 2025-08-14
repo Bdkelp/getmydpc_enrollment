@@ -11,6 +11,7 @@ import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
+import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 
 // Function to detect card type based on card number
 const detectCardType = (cardNumber: string) => {
@@ -47,6 +48,8 @@ export default function Payment() {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [cardNumber, setCardNumber] = useState('');
   const [cardType, setCardType] = useState('unknown');
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [policyAccepted, setPolicyAccepted] = useState(false);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -127,6 +130,22 @@ export default function Payment() {
       return;
     }
     
+    // Show cancellation policy modal first
+    setShowPolicyModal(true);
+  };
+  
+  const handlePolicyAccept = async () => {
+    // Close modal and mark policy as accepted
+    setShowPolicyModal(false);
+    setPolicyAccepted(true);
+    
+    // Show acknowledgment toast
+    toast({
+      title: "Policy Accepted",
+      description: "Cancellation and refund policy has been downloaded. Processing payment...",
+    });
+    
+    // Now process the actual payment
     console.log("Starting mock payment with plan ID:", selectedPlanId);
     setIsProcessingPayment(true);
     try {
@@ -134,7 +153,8 @@ export default function Payment() {
       const data = await apiRequest("/api/mock-payment", {
         method: "POST",
         body: JSON.stringify({
-          planId: selectedPlanId
+          planId: selectedPlanId,
+          policyAccepted: true, // Include policy acceptance in payment data
         })
       });
       
@@ -161,6 +181,10 @@ export default function Payment() {
       });
       setIsProcessingPayment(false);
     }
+  };
+  
+  const handlePolicyClose = () => {
+    setShowPolicyModal(false);
   };
 
   return (
@@ -464,6 +488,13 @@ export default function Payment() {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Cancellation Policy Modal */}
+      <CancellationPolicyModal
+        isOpen={showPolicyModal}
+        onClose={handlePolicyClose}
+        onAccept={handlePolicyAccept}
+      />
     </div>
   );
 }

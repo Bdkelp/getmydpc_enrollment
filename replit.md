@@ -46,6 +46,7 @@ Preferred communication style: Simple, everyday language.
 - **Lead Management**: Comprehensive system with database schema, lead activities, automatic/manual assignment, status workflows, and activity tracking.
 - **User Approval System**: New users are set to "pending" status, requiring admin approval, with bot detection flags.
 - **Authentication Features**: Email/password registration with verification, social login (Google, Facebook, etc.), magic link login, password reset.
+- **Cancellation & Refund Policy**: FTC-compliant modal with mandatory acknowledgment before payment, automatic policy download, 14-day refund period disclosure, clear automatic renewal terms.
 
 ## External Dependencies
 
