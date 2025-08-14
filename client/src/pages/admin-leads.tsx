@@ -53,7 +53,9 @@ export default function AdminLeads() {
       if (assignmentFilter === 'unassigned') url += 'assignedAgentId=unassigned&';
       else if (assignmentFilter !== 'all') url += `assignedAgentId=${assignmentFilter}&`;
       
-      const response = await apiRequest("GET", url.slice(0, -1));
+      const response = await apiRequest(url.slice(0, -1), {
+        method: "GET"
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch leads');
       }
@@ -65,7 +67,9 @@ export default function AdminLeads() {
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ['/api/admin/agents'],
     queryFn: async () => {
-      const response = await apiRequest("GET", '/api/admin/agents');
+      const response = await apiRequest('/api/admin/agents', {
+        method: "GET"
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch agents');
       }
@@ -76,7 +80,10 @@ export default function AdminLeads() {
   // Update lead status
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, updates }: { leadId: number; updates: Partial<Lead> }) => {
-      const response = await apiRequest("PUT", `/api/leads/${leadId}`, updates);
+      const response = await apiRequest(`/api/leads/${leadId}`, {
+        method: "PUT",
+        body: JSON.stringify(updates)
+      });
       return response.json();
     },
     onSuccess: () => {
@@ -91,7 +98,10 @@ export default function AdminLeads() {
   // Assign lead to agent
   const assignLeadMutation = useMutation({
     mutationFn: async ({ leadId, agentId }: { leadId: number; agentId: string }) => {
-      const response = await apiRequest("PUT", `/api/admin/leads/${leadId}/assign`, { agentId });
+      const response = await apiRequest(`/api/admin/leads/${leadId}/assign`, {
+        method: "PUT",
+        body: JSON.stringify({ agentId })
+      });
       return response.json();
     },
     onSuccess: () => {
@@ -109,9 +119,12 @@ export default function AdminLeads() {
   // Add activity note
   const addActivityMutation = useMutation({
     mutationFn: async ({ leadId, notes }: { leadId: number; notes: string }) => {
-      const response = await apiRequest("POST", `/api/leads/${leadId}/activities`, { 
-        activityType: 'note',
-        notes 
+      const response = await apiRequest(`/api/leads/${leadId}/activities`, {
+        method: "POST",
+        body: JSON.stringify({ 
+          activityType: 'note',
+          notes 
+        })
       });
       return response.json();
     },
