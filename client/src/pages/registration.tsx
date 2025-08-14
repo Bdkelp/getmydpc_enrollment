@@ -16,6 +16,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 import { Plus, ChevronLeft } from "lucide-react";
 import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode } from "@/lib/formatters";
 
@@ -68,6 +69,7 @@ export default function Registration() {
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [currentFamilyMemberIndex, setCurrentFamilyMemberIndex] = useState(0);
   const [recommendedTier, setRecommendedTier] = useState<string | null>(null);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -150,7 +152,10 @@ export default function Registration() {
         totalMonthlyPrice: parseFloat(totalWithFees),
         familyMembers: familyMembers
       };
-      await apiRequest("POST", "/api/auth/profile", submissionData);
+      await apiRequest("/api/auth/profile", {
+        method: "POST",
+        body: JSON.stringify(submissionData)
+      });
     },
     onSuccess: () => {
       // Store primary address for family member enrollment
@@ -1355,6 +1360,15 @@ export default function Registration() {
                               <FormLabel className="text-sm">
                                 I agree to the Terms of Service and Privacy Policy *
                               </FormLabel>
+                              <div className="mt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPolicyModal(true)}
+                                  className="text-sm text-blue-600 hover:text-blue-800 underline mr-3"
+                                >
+                                  View Cancellation & Refund Policy
+                                </button>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1605,6 +1619,19 @@ export default function Registration() {
         </Card>
       </div>
     </div>
+    
+    {/* Cancellation Policy Modal */}
+    <CancellationPolicyModal
+      isOpen={showPolicyModal}
+      onClose={() => setShowPolicyModal(false)}
+      onAccept={() => {
+        setShowPolicyModal(false);
+        toast({
+          title: "Policy Acknowledged",
+          description: "Cancellation and refund policy has been downloaded for your records.",
+        });
+      }}
+    />
   </div>
   );
 }

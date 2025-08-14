@@ -444,6 +444,15 @@ export default function Payment() {
                       <p>
                         <strong>Cancellation:</strong> You may cancel in writing with 45 days' notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.
                       </p>
+                      <div className="mt-3 pt-3 border-t border-amber-300">
+                        <button
+                          type="button"
+                          onClick={() => setShowPolicyModal(true)}
+                          className="text-amber-900 underline hover:text-amber-700 font-medium"
+                        >
+                          View Complete Cancellation & Refund Policy →
+                        </button>
+                      </div>
                     </div>
                   </div>
                   
