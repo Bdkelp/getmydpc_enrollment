@@ -27,6 +27,7 @@ import AuthCallback from "@/pages/auth-callback";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
+import Enrollment from "@/pages/enrollment";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -43,6 +44,7 @@ function Router() {
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
+      <Route path="/enrollment" component={Enrollment} />
       <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
       <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
