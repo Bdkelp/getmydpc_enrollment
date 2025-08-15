@@ -23,14 +23,14 @@ Preferred communication style: Simple, everyday language.
 ### Backend
 - **Runtime**: Node.js with TypeScript
 - **Framework**: Express.js for REST API
-- **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: Supabase (replacing Replit Auth)
+- **Database**: PostgreSQL via Supabase (migrated from Neon on 2025-01-17)
+- **Authentication**: Supabase Auth
 - **Session Management**: Express session with PostgreSQL store
-- **Payment Processing**: Mock payment system (Stripe was removed, new provider to be determined)
+- **Payment Processing**: Mock payment system (North.com PayAnywhere integration planned)
 
 ### Core Architectural Decisions
 - **Authentication**: Role-based access control (Admin, Agent, User) is central, with secure session management and protected routes. A user approval system and bot detection are implemented for security.
-- **Database**: PostgreSQL via Neon serverless with Drizzle ORM for type-safe queries and automated schema management.
+- **Database**: PostgreSQL via Supabase with Drizzle ORM for type-safe queries. Consolidated from Neon+Supabase split architecture to Supabase-only for easier management and hosting flexibility.
 - **Payment System**: Designed for flexibility, currently using a mock system with a framework ready for integration with a new provider.
 - **Data Flow**: Defined flows for user registration, payment, and authentication, ensuring structured data handling.
 - **Role-Based Access Control**: Differentiated dashboards and functionalities for Admin, Agent, and User roles. Agents can enroll members, track commissions, and export data. Admins have full system access and user management.
@@ -50,7 +50,7 @@ Preferred communication style: Simple, everyday language.
 
 ## External Dependencies
 
-- **Database**: `@neondatabase/serverless` (PostgreSQL), `drizzle-orm`
+- **Database**: `postgres` (PostgreSQL client), `drizzle-orm`, `@supabase/supabase-js`
 - **State Management**: `@tanstack/react-query`
 - **Form Handling & Validation**: `react-hook-form`, `@hookform/resolvers`, `zod`
 - **Authentication**: `passport`, `openid-client`, Supabase (external service)
