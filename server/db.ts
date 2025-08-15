@@ -14,6 +14,7 @@ if (!SUPABASE_DB_PASSWORD || !SUPABASE_URL) {
 
 // Extract project reference from Supabase URL
 const projectRef = SUPABASE_URL.replace('https://', '').split('.')[0];
+// Using transaction pooler for better serverless compatibility
 const DATABASE_URL = `postgres://postgres.${projectRef}:${SUPABASE_DB_PASSWORD}@aws-0-us-east-2.pooler.supabase.com:6543/postgres?pgbouncer=true`;
 
 // For migrations and direct queries
