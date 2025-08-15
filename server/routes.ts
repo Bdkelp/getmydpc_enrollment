@@ -43,6 +43,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     app.use(authRoutes);
   }
 
+  // Public API endpoints (no authentication required)
+  // Public plans endpoint for enrollment page
+  app.get('/api/public/plans', async (req, res) => {
+    try {
+      const plans = await storage.getPlans();
+      res.json(plans);
+    } catch (error) {
+      console.error('Error fetching public plans:', error);
+      res.status(500).json({ message: 'Failed to fetch plans' });
+    }
+  });
+
+  // Public enrollment endpoint
+  app.post('/api/public/enroll', async (req, res) => {
+    try {
+      const enrollmentData = req.body;
+      
+      // Create a new user for the enrollment
+      const userId = `enroll_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      // Create user record
+      const user = await storage.createUser({
+        id: userId,
+        firstName: enrollmentData.firstName,
+        lastName: enrollmentData.lastName,
+        middleName: enrollmentData.middleName,
+        ssn: enrollmentData.ssn,
+        email: enrollmentData.email,
+        phone: enrollmentData.phone,
+        dateOfBirth: enrollmentData.dateOfBirth,
+        gender: enrollmentData.gender,
+        address: enrollmentData.address,
+        address2: enrollmentData.address2,
+        city: enrollmentData.city,
+        state: enrollmentData.state,
+        zipCode: enrollmentData.zipCode,
+        employerName: enrollmentData.employerName,
+        divisionName: enrollmentData.divisionName,
+        dateOfHire: enrollmentData.dateOfHire,
+        memberType: enrollmentData.memberType,
+        planStartDate: enrollmentData.planStartDate,
+        emergencyContactName: enrollmentData.emergencyContactName,
+        emergencyContactPhone: enrollmentData.emergencyContactPhone,
+        role: 'user',
+        approvalStatus: 'pending'
+      });
+
+      // Create subscription
+      const subscription = await storage.createSubscription({
+        userId: userId,
+        planId: enrollmentData.planId,
+        status: 'pending',
+        pendingReason: 'payment_required',
+        amount: enrollmentData.totalMonthlyPrice?.toString() || '0',
+        startDate: new Date(enrollmentData.planStartDate),
+        nextBillingDate: new Date(enrollmentData.planStartDate)
+      });
+
+      // Add family members if any
+      if (enrollmentData.familyMembers && enrollmentData.familyMembers.length > 0) {
+        for (const member of enrollmentData.familyMembers) {
+          if (member && member.firstName) {
+            await storage.addFamilyMember({
+              primaryUserId: userId,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              middleName: member.middleName,
+              dateOfBirth: member.dateOfBirth,
+              gender: member.gender,
+              ssn: member.ssn,
+              email: member.email,
+              phone: member.phone,
+              relationship: member.relationship,
+              memberType: member.relationship === "spouse" ? "spouse" : "dependent",
+              planStartDate: enrollmentData.planStartDate,
+              isActive: true,
+            });
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        enrollmentId: userId,
+        subscriptionId: subscription.id
+      });
+    } catch (error) {
+      console.error('Error processing public enrollment:', error);
+      res.status(500).json({ message: 'Failed to process enrollment' });
+    }
+  });
+
   // Auth routes - only add if NOT using Supabase (since Supabase adds its own)
   if (!useSupabaseAuth) {
     app.get('/api/auth/user', authMiddleware, async (req: any, res) => {
