@@ -54,8 +54,31 @@ export default function Login() {
         });
         
         // Add a small delay before redirect to ensure session is stored
-        setTimeout(() => {
-          window.location.href = "/";
+        setTimeout(async () => {
+          // Get user role from the database
+          try {
+            const response = await fetch('/api/auth/user', {
+              credentials: 'include'
+            });
+            if (response.ok) {
+              const userData = await response.json();
+              // Redirect based on user role
+              if (userData.role === 'admin') {
+                window.location.href = '/admin';
+              } else if (userData.role === 'agent') {
+                window.location.href = '/agent';
+              } else if (userData.role === 'user') {
+                window.location.href = '/dashboard';
+              } else {
+                window.location.href = '/';
+              }
+            } else {
+              window.location.href = '/';
+            }
+          } catch (error) {
+            console.error("Error fetching user data:", error);
+            window.location.href = '/';
+          }
         }, 500);
       }
     } catch (error: any) {
