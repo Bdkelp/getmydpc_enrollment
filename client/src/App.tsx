@@ -43,8 +43,9 @@ function Router() {
   const isEnrollmentSubdomain = window.location.hostname === 'enrollment.getmydpc.com' || 
                                 window.location.hostname === 'enrollment-getmydpc-com.replit.app';
 
-  // If on enrollment subdomain, show enrollment page directly
-  if (isEnrollmentSubdomain) {
+  // If on enrollment subdomain at root path, show enrollment page
+  // Otherwise allow normal routing for login, etc.
+  if (isEnrollmentSubdomain && window.location.pathname === '/') {
     return <Enrollment />;
   }
 
