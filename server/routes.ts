@@ -1383,6 +1383,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Analytics endpoints
+  app.get("/api/admin/analytics", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const analytics = await storage.getAnalytics(days);
+      res.json(analytics);
+    } catch (error) {
+      console.error("Analytics error:", error);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
   // Database viewer endpoints
   app.get("/api/admin/database/stats", authMiddleware, isAdmin, async (req: any, res) => {
     try {

@@ -22,7 +22,9 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Shield
+  Shield,
+  Database,
+  BarChart
 } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
@@ -302,6 +304,12 @@ export default function Admin() {
                 <Button variant="outline" className="border-red-500 text-red-600 hover:bg-red-50">
                   <Shield className="h-4 w-4 mr-2" />
                   User Roles
+                </Button>
+              </Link>
+              <Link href="/admin/analytics">
+                <Button variant="outline" className="border-green-500 text-green-600 hover:bg-green-50">
+                  <BarChart className="h-4 w-4 mr-2" />
+                  Analytics & Reports
                 </Button>
               </Link>
               <Link href="/admin/data">

@@ -617,6 +617,119 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async getAnalytics(days: number): Promise<any> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    // Get basic counts
+    const totalMembers = await db.select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.role, 'user'));
+    
+    const activeSubscriptions = await db.select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'active'));
+    
+    // Get monthly revenue
+    const monthlyRevenue = await db.select({ 
+      total: sql<number>`COALESCE(SUM(amount), 0)` 
+    })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'active'));
+    
+    // Get new enrollments this month
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    const newEnrollments = await db.select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(and(
+        eq(users.role, 'user'),
+        gte(users.createdAt, monthStart)
+      ));
+    
+    // Get cancellations this month (simplified - would need proper tracking)
+    const cancellations = await db.select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(and(
+        eq(subscriptions.status, 'cancelled'),
+        gte(subscriptions.updatedAt, monthStart)
+      ));
+    
+    // Get plan breakdown
+    const planBreakdown = await db.select({
+      planName: plans.name,
+      planId: plans.id,
+      memberCount: sql<number>`count(${subscriptions.id})`,
+      monthlyRevenue: sql<number>`COALESCE(SUM(${subscriptions.amount}), 0)`
+    })
+      .from(plans)
+      .leftJoin(subscriptions, and(
+        eq(plans.id, subscriptions.planId),
+        eq(subscriptions.status, 'active')
+      ))
+      .groupBy(plans.id, plans.name);
+    
+    // Get recent enrollments
+    const recentEnrollments = await db.select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      email: users.email,
+      planName: plans.name,
+      amount: subscriptions.amount,
+      enrolledDate: users.createdAt,
+      status: subscriptions.status
+    })
+      .from(users)
+      .leftJoin(subscriptions, eq(users.id, subscriptions.userId))
+      .leftJoin(plans, eq(subscriptions.planId, plans.id))
+      .where(eq(users.role, 'user'))
+      .orderBy(desc(users.createdAt))
+      .limit(10);
+    
+    // Calculate metrics
+    const totalMembersCount = totalMembers[0]?.count || 0;
+    const activeCount = activeSubscriptions[0]?.count || 0;
+    const revenue = monthlyRevenue[0]?.total || 0;
+    const averageRevenue = activeCount > 0 ? revenue / activeCount : 0;
+    const newEnrollmentsCount = newEnrollments[0]?.count || 0;
+    const cancellationsCount = cancellations[0]?.count || 0;
+    
+    // Calculate rates
+    const churnRate = totalMembersCount > 0 ? (cancellationsCount / totalMembersCount) * 100 : 0;
+    const growthRate = totalMembersCount > 0 ? ((newEnrollmentsCount - cancellationsCount) / totalMembersCount) * 100 : 0;
+    
+    // Calculate percentages for plan breakdown
+    const totalRevenue = planBreakdown.reduce((sum, plan) => sum + plan.monthlyRevenue, 0);
+    const planBreakdownWithPercentage = planBreakdown.map(plan => ({
+      ...plan,
+      percentage: totalRevenue > 0 ? (plan.monthlyRevenue / totalRevenue) * 100 : 0
+    }));
+    
+    // Mock monthly trends (would need proper date grouping in production)
+    const monthlyTrends = [
+      { month: 'Current Month', enrollments: newEnrollmentsCount, cancellations: cancellationsCount, netGrowth: newEnrollmentsCount - cancellationsCount, revenue },
+    ];
+    
+    return {
+      overview: {
+        totalMembers: totalMembersCount,
+        activeSubscriptions: activeCount,
+        monthlyRevenue: revenue,
+        averageRevenue,
+        churnRate,
+        growthRate,
+        newEnrollmentsThisMonth: newEnrollmentsCount,
+        cancellationsThisMonth: cancellationsCount
+      },
+      planBreakdown: planBreakdownWithPercentage,
+      recentEnrollments,
+      monthlyTrends
+    };
+  }
+
   // User approval operations
   async getPendingUsers(): Promise<User[]> {
     const pendingUsers = await db
