@@ -24,6 +24,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, like, count, gte, lte, sql } from "drizzle-orm";
+import { supabase } from "./supabase-db";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -252,11 +253,32 @@ export class DatabaseStorage implements IStorage {
 
   // Plan operations
   async getPlans(): Promise<Plan[]> {
-    return await db.select().from(plans).orderBy(plans.price);
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .order('price', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching plans:', error);
+      throw error;
+    }
+    
+    return data || [];
   }
 
   async getActivePlans(): Promise<Plan[]> {
-    return await db.select().from(plans).where(eq(plans.isActive, true)).orderBy(plans.price);
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .eq('is_active', true)
+      .order('price', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching active plans:', error);
+      throw error;
+    }
+    
+    return data || [];
   }
 
   async getPlan(id: number): Promise<Plan | undefined> {
