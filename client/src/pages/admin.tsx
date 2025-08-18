@@ -304,6 +304,12 @@ export default function Admin() {
                   User Roles
                 </Button>
               </Link>
+              <Link href="/admin/data">
+                <Button variant="outline" className="border-purple-500 text-purple-600 hover:bg-purple-50">
+                  <Database className="h-4 w-4 mr-2" />
+                  Database Viewer
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="outline">
                   <Users className="h-4 w-4 mr-2" />

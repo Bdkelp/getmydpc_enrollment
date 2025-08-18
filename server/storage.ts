@@ -579,6 +579,44 @@ export class DatabaseStorage implements IStorage {
       .orderBy(users.name);
   }
 
+  async getDatabaseStats(): Promise<any[]> {
+    const stats = await db.transaction(async (tx) => {
+      const userCount = await tx.select({ count: sql<number>`count(*)` }).from(users);
+      const leadCount = await tx.select({ count: sql<number>`count(*)` }).from(leads);
+      const subCount = await tx.select({ count: sql<number>`count(*)` }).from(subscriptions);
+      const planCount = await tx.select({ count: sql<number>`count(*)` }).from(plans);
+      
+      return [
+        { table: 'Users', count: userCount[0].count },
+        { table: 'Leads', count: leadCount[0].count },
+        { table: 'Subscriptions', count: subCount[0].count },
+        { table: 'Plans', count: planCount[0].count },
+      ];
+    });
+    return stats;
+  }
+
+  async getTableData(tableName: string): Promise<any[]> {
+    switch(tableName) {
+      case 'users':
+        return await db.select().from(users).limit(100);
+      case 'leads':
+        return await db.select().from(leads).limit(100);
+      case 'subscriptions':
+        return await db.select().from(subscriptions).limit(100);
+      case 'plans':
+        return await db.select().from(plans).limit(100);
+      case 'family_members':
+        return await db.select().from(familyMembers).limit(100);
+      case 'payments':
+        return await db.select().from(payments).limit(100);
+      case 'lead_activities':
+        return await db.select().from(leadActivities).limit(100);
+      default:
+        throw new Error('Invalid table name');
+    }
+  }
+
   // User approval operations
   async getPendingUsers(): Promise<User[]> {
     const pendingUsers = await db

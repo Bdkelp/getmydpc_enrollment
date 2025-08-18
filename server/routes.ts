@@ -1383,6 +1383,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Database viewer endpoints
+  app.get("/api/admin/database/stats", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const stats = await storage.getDatabaseStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Database stats error:", error);
+      res.status(500).json({ message: "Failed to fetch database stats" });
+    }
+  });
+
+  app.get("/api/admin/database/:table", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { table } = req.params;
+      const allowedTables = ['users', 'leads', 'subscriptions', 'plans', 'family_members', 'payments', 'lead_activities'];
+      
+      if (!allowedTables.includes(table)) {
+        return res.status(400).json({ message: "Invalid table name" });
+      }
+      
+      const data = await storage.getTableData(table);
+      res.json({ table, data });
+    } catch (error) {
+      console.error("Table data error:", error);
+      res.status(500).json({ message: "Failed to fetch table data" });
+    }
+  });
+
   // Export enrollments as CSV
   app.post("/api/admin/export-enrollments", authMiddleware, isAdmin, async (req: any, res) => {
     try {
