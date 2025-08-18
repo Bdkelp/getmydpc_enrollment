@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, ArrowRight, CheckCircle, Users, Heart, Brain, Shield } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle, Users, Heart, Brain, Shield, Home } from "lucide-react";
 import { ContactFormModal } from "@/components/contact-form-modal";
 
 interface QuizQuestion {
@@ -353,6 +353,17 @@ export default function Quiz() {
                   className="flex-1"
                 >
                   View All Plans
+                </Button>
+              </div>
+              
+              <div className="mt-6 text-center">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setLocation('/')}
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  <Home className="mr-2 h-4 w-4" />
+                  Back to Home Page
                 </Button>
               </div>
             </CardContent>
