@@ -9,7 +9,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
+import { Shield, Check, CreditCard, MapPin, Phone, ChevronLeft } from "lucide-react";
 import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 
@@ -188,14 +188,53 @@ export default function Payment() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <Card className="p-8">
-          <CardContent className="p-0">
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Payment Details</h1>
-              <p className="text-gray-600">Complete your enrollment</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navigation Header - Show for ALL authenticated users */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Button 
+                variant="ghost" 
+                className="mr-4"
+                onClick={() => setLocation(
+                  user?.role === 'admin' ? '/admin' : 
+                  user?.role === 'agent' ? '/agent' : 
+                  '/dashboard'
+                )}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Return to Dashboard
+              </Button>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Payment</h2>
+                <p className="text-sm text-gray-600">Complete your enrollment payment</p>
+              </div>
             </div>
+            {/* Exit button on the right for clarity */}
+            <Button 
+              variant="outline" 
+              className="text-red-600 hover:text-red-700"
+              onClick={() => setLocation(
+                user?.role === 'admin' ? '/admin' : 
+                user?.role === 'agent' ? '/agent' : 
+                '/dashboard'
+              )}
+            >
+              Exit Payment
+            </Button>
+          </div>
+        </div>
+      </div>
+      
+      <div className="py-12">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <Card className="p-8">
+            <CardContent className="p-0">
+              <div className="mb-8">
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">Payment Details</h1>
+                <p className="text-gray-600">Complete your enrollment</p>
+              </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               
@@ -496,6 +535,8 @@ export default function Payment() {
             </div>
           </CardContent>
         </Card>
+      </div>
+      
       </div>
       
       {/* Cancellation Policy Modal */}

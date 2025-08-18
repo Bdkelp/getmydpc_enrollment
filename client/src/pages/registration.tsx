@@ -363,15 +363,19 @@ export default function Registration() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation Header for Admin and Agent */}
-      {(currentUser?.role === 'admin' || currentUser?.role === 'agent') && (
-        <div className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      {/* Navigation Header - Show for ALL authenticated users */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <Link href={currentUser?.role === 'admin' ? '/admin' : '/agent'}>
+              <Link href={
+                currentUser?.role === 'admin' ? '/admin' : 
+                currentUser?.role === 'agent' ? '/agent' : 
+                '/dashboard'
+              }>
                 <Button variant="ghost" className="mr-4">
                   <ChevronLeft className="h-4 w-4 mr-1" />
-                  Back to {currentUser?.role === 'admin' ? 'Admin' : 'Agent'} Dashboard
+                  Return to Dashboard
                 </Button>
               </Link>
               <div>
@@ -379,9 +383,19 @@ export default function Registration() {
                 <p className="text-sm text-gray-600">Complete the enrollment process for a new member</p>
               </div>
             </div>
+            {/* Exit button on the right for clarity */}
+            <Link href={
+              currentUser?.role === 'admin' ? '/admin' : 
+              currentUser?.role === 'agent' ? '/agent' : 
+              '/dashboard'
+            }>
+              <Button variant="outline" className="text-red-600 hover:text-red-700">
+                Exit Enrollment
+              </Button>
+            </Link>
           </div>
         </div>
-      )}
+      </div>
       
       <div className="py-12">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
