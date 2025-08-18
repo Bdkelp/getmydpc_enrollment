@@ -71,13 +71,10 @@ export default function Registration() {
   const [recommendedTier, setRecommendedTier] = useState<string | null>(null);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const { toast } = useToast();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-
-  // Query to get current user data
-  const { data: currentUser } = useQuery<{ role?: string }>({
-    queryKey: ['/api/user'],
-    enabled: isAuthenticated,
-  });
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
+  
+  // Use the user from useAuth hook directly - it already has the role
+  const currentUser = user;
 
   // Check for recommended tier from quiz
   useEffect(() => {
