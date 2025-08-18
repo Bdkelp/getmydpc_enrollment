@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -65,6 +66,7 @@ export default function Enrollment() {
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const { toast } = useToast();
+  const { isAuthenticated, user } = useAuth();
 
   // Fetch plans (public endpoint)
   const { data: plansData, isLoading: plansLoading } = useQuery<any[]>({
@@ -207,8 +209,48 @@ export default function Enrollment() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-medical-50 to-white py-8">
-      <div className="container max-w-4xl mx-auto px-4">
+    <div className="min-h-screen bg-gradient-to-br from-medical-50 to-white">
+      {/* Navigation Header - Show for authenticated users */}
+      {isAuthenticated && (
+        <div className="bg-white shadow-sm border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <Button 
+                  variant="ghost" 
+                  className="mr-4"
+                  onClick={() => setLocation(
+                    user?.role === 'admin' ? '/admin' : 
+                    user?.role === 'agent' ? '/agent' : 
+                    '/dashboard'
+                  )}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Return to Dashboard
+                </Button>
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Public Enrollment</h2>
+                  <p className="text-sm text-gray-600">You are logged in as {user?.role}</p>
+                </div>
+              </div>
+              {/* Exit button on the right for clarity */}
+              <Button 
+                variant="outline" 
+                className="text-red-600 hover:text-red-700"
+                onClick={() => setLocation(
+                  user?.role === 'admin' ? '/admin' : 
+                  user?.role === 'agent' ? '/agent' : 
+                  '/dashboard'
+                )}
+              >
+                Exit Enrollment
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <div className="container max-w-4xl mx-auto px-4 py-8">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Healthcare Membership Enrollment</h1>
           <p className="text-gray-600">Complete your enrollment in just a few minutes</p>
