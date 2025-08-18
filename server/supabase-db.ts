@@ -53,24 +53,6 @@ function getTableName(table: any): string {
   if (table[nameSymbol]) {
     return table[nameSymbol];
   }
-  // Check if it has a table property with name
-  if (table.table && table.table.name) {
-    return table.table.name;
-  }
-  // Check common table name patterns
-  if (table._ && table._.name) {
-    return table._.name;
-  }
-  // Hardcoded fallback for known tables
-  if (table === schema.plans) return 'plans';
-  if (table === schema.users) return 'users';
-  if (table === schema.subscriptions) return 'subscriptions';
-  if (table === schema.payments) return 'payments';
-  if (table === schema.familyMembers) return 'family_members';
-  if (table === schema.enrollmentModifications) return 'enrollment_modifications';
-  if (table === schema.leads) return 'leads';
-  if (table === schema.leadActivities) return 'lead_activities';
-  
   // Fallback to string if passed directly
   return typeof table === 'string' ? table : 'unknown';
 }

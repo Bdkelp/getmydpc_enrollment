@@ -46,18 +46,17 @@ export default function Login() {
         throw new Error(error.message);
       }
       
-      if (result.user && result.session) {
+      if (result.user) {
         console.log("Login successful, user:", result.user);
-        console.log("Session established:", result.session);
-        
         toast({
           title: "Welcome back!",
           description: `Logged in successfully`,
         });
         
-        // Force a full page reload to ensure auth state is refreshed
-        // This ensures the session is properly stored and recognized
-        window.location.href = '/';
+        // Add a small delay before redirect to ensure session is stored
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 500);
       }
     } catch (error: any) {
       console.error("Login failed:", error);

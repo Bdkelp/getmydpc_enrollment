@@ -27,7 +27,6 @@ import AuthCallback from "@/pages/auth-callback";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
-import Enrollment from "@/pages/enrollment";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -39,34 +38,13 @@ function Router() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  // Check if we're on the enrollment subdomain
-  const isEnrollmentSubdomain = window.location.hostname === 'enrollment.getmydpc.com' || 
-                                window.location.hostname === 'enrollment-getmydpc-com.replit.app';
-
-  // Handle enrollment subdomain routing
-  if (isEnrollmentSubdomain && window.location.pathname === '/') {
-    // Authenticated users should be redirected to their dashboard immediately
-    if (isAuthenticated) {
-      const redirectPath = user?.role === "admin" ? "/admin" : 
-                          user?.role === "agent" ? "/agent" : 
-                          "/dashboard";
-      return <Redirect to={redirectPath} />;
-    }
-    // Unauthenticated users see the enrollment page
-    return <Enrollment />;
-  }
-
   return (
     <Switch>
-      {/* Root route - redirect authenticated users to their dashboard */}
-      <Route path="/" component={isAuthenticated ? 
-        () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : 
-        Landing
-      } />
+      {/* Public routes - always accessible */}
+      <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
-      <Route path="/enrollment" component={Enrollment} />
-      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : Login} />
-      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : Register} />
+      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
+      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/pending-approval" component={PendingApproval} />
@@ -108,12 +86,9 @@ function Router() {
             </>
           )}
           
-          {/* Regular user routes */}
+          {/* Regular user route */}
           {user?.role === "user" && (
-            <>
-              <Route path="/dashboard" component={Dashboard} />
-              <Route path="/no-access" component={NoAccess} />
-            </>
+            <Route path="/no-access" component={NoAccess} />
           )}
         </>
       )}
