@@ -1129,6 +1129,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Admin analytics endpoint
+  app.get("/api/admin/analytics", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { days = '30' } = req.query;
+      const daysNumber = parseInt(days as string);
+      
+      // Get analytics data
+      const overview = await storage.getAnalyticsOverview(daysNumber);
+      const planBreakdown = await storage.getPlanBreakdown();
+      const recentEnrollments = await storage.getRecentEnrollments(10);
+      const monthlyTrends = await storage.getMonthlyTrends();
+      
+      res.json({
+        overview,
+        planBreakdown,
+        recentEnrollments,
+        monthlyTrends
+      });
+    } catch (error) {
+      console.error("Analytics error:", error);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+  
   // Admin approval endpoints
   app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
     try {
@@ -1191,6 +1215,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.error("Error creating plan:", error);
       res.status(500).json({ message: "Failed to create plan" });
+    }
+  });
+
+  // Admin lead management routes
+  app.get("/api/admin/leads", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const { status, assignedAgentId } = req.query;
+      
+      // Fetch leads with optional filters
+      const leads = await storage.getAllLeads(status, assignedAgentId);
+      res.json(leads);
+    } catch (error) {
+      console.error("Admin fetch leads error:", error);
+      res.status(500).json({ message: "Failed to fetch leads" });
+    }
+  });
+  
+  app.put("/api/admin/leads/:id/assign", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const leadId = parseInt(req.params.id);
+      const { agentId } = req.body;
+      
+      const lead = await storage.assignLeadToAgent(leadId, agentId);
+      res.json(lead);
+    } catch (error) {
+      console.error("Assign lead error:", error);
+      res.status(500).json({ message: "Failed to assign lead" });
+    }
+  });
+  
+  app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
+    try {
+      const agents = await storage.getAgents();
+      res.json(agents);
+    } catch (error) {
+      console.error("Fetch agents error:", error);
+      res.status(500).json({ message: "Failed to fetch agents" });
     }
   });
 

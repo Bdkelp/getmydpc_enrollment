@@ -23,7 +23,7 @@ import {
   type InsertLeadActivity,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or, like, count, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, or, like, count, gte, lte, sql, isNull } from "drizzle-orm";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -728,6 +728,206 @@ export class DatabaseStorage implements IStorage {
       recentEnrollments,
       monthlyTrends
     };
+  }
+
+  // Lead management operations
+  async getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
+    let query = db.select().from(leads);
+    
+    const conditions = [];
+    if (status && status !== 'all') {
+      conditions.push(eq(leads.status, status));
+    }
+    if (assignedAgentId === 'unassigned') {
+      conditions.push(isNull(leads.assignedAgentId));
+    } else if (assignedAgentId && assignedAgentId !== 'all') {
+      conditions.push(eq(leads.assignedAgentId, assignedAgentId));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
+    }
+    
+    return await query.orderBy(desc(leads.createdAt));
+  }
+  
+  async assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
+    const [lead] = await db
+      .update(leads)
+      .set({ 
+        assignedAgentId: agentId,
+        status: 'qualified',
+        updatedAt: new Date()
+      })
+      .where(eq(leads.id, leadId))
+      .returning();
+    return lead;
+  }
+  
+  async getAgents(): Promise<User[]> {
+    return await db
+      .select()
+      .from(users)
+      .where(eq(users.role, 'agent'))
+      .orderBy(users.firstName, users.lastName);
+  }
+  
+  // Analytics operations
+  async getAnalyticsOverview(days: number): Promise<any> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    // Get total members and active subscriptions
+    const [totalMembers] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users)
+      .where(eq(users.role, 'user'));
+      
+    const [activeSubscriptions] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'active'));
+    
+    // Get monthly revenue from active subscriptions
+    const revenueResult = await db
+      .select({ total: sql<number>`sum(${subscriptions.amount})` })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'active'));
+    const monthlyRevenue = revenueResult[0]?.total || 0;
+    
+    // Get new enrollments this month
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    
+    const [newEnrollments] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(and(
+        gte(subscriptions.createdAt, monthStart),
+        eq(subscriptions.status, 'active')
+      ));
+    
+    // Get cancellations this month
+    const [cancellations] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(subscriptions)
+      .where(and(
+        gte(subscriptions.updatedAt, monthStart),
+        eq(subscriptions.status, 'cancelled')
+      ));
+    
+    // Calculate metrics
+    const averageRevenue = activeSubscriptions.count > 0 ? monthlyRevenue / activeSubscriptions.count : 0;
+    const churnRate = totalMembers.count > 0 ? (cancellations.count / totalMembers.count) * 100 : 0;
+    const growthRate = totalMembers.count > 0 ? (newEnrollments.count / totalMembers.count) * 100 : 0;
+    
+    return {
+      totalMembers: totalMembers.count,
+      activeSubscriptions: activeSubscriptions.count,
+      monthlyRevenue,
+      averageRevenue,
+      churnRate,
+      growthRate,
+      newEnrollmentsThisMonth: newEnrollments.count,
+      cancellationsThisMonth: cancellations.count
+    };
+  }
+  
+  async getPlanBreakdown(): Promise<any[]> {
+    const breakdown = await db
+      .select({
+        planId: subscriptions.planId,
+        planName: plans.name,
+        memberCount: sql<number>`count(*)`,
+        monthlyRevenue: sql<number>`sum(${subscriptions.amount})`
+      })
+      .from(subscriptions)
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .where(eq(subscriptions.status, 'active'))
+      .groupBy(subscriptions.planId, plans.name);
+    
+    const total = breakdown.reduce((sum, item) => sum + item.monthlyRevenue, 0);
+    
+    return breakdown.map(item => ({
+      planId: item.planId,
+      planName: item.planName,
+      memberCount: item.memberCount,
+      monthlyRevenue: item.monthlyRevenue,
+      percentage: total > 0 ? (item.monthlyRevenue / total) * 100 : 0
+    }));
+  }
+  
+  async getRecentEnrollments(limit: number): Promise<any[]> {
+    const enrollments = await db
+      .select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        planName: plans.name,
+        amount: subscriptions.amount,
+        enrolledDate: subscriptions.createdAt,
+        status: subscriptions.status
+      })
+      .from(users)
+      .innerJoin(subscriptions, eq(users.id, subscriptions.userId))
+      .innerJoin(plans, eq(subscriptions.planId, plans.id))
+      .where(eq(users.role, 'user'))
+      .orderBy(desc(subscriptions.createdAt))
+      .limit(limit);
+    
+    return enrollments;
+  }
+  
+  async getMonthlyTrends(): Promise<any[]> {
+    // Get data for the last 6 months
+    const trends = [];
+    const now = new Date();
+    
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(now);
+      monthDate.setMonth(monthDate.getMonth() - i);
+      const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+      const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+      
+      const [enrollments] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(subscriptions)
+        .where(and(
+          gte(subscriptions.createdAt, monthStart),
+          lte(subscriptions.createdAt, monthEnd),
+          eq(subscriptions.status, 'active')
+        ));
+      
+      const [cancellations] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(subscriptions)
+        .where(and(
+          gte(subscriptions.updatedAt, monthStart),
+          lte(subscriptions.updatedAt, monthEnd),
+          eq(subscriptions.status, 'cancelled')
+        ));
+      
+      const revenueResult = await db
+        .select({ total: sql<number>`sum(${subscriptions.amount})` })
+        .from(subscriptions)
+        .where(and(
+          gte(subscriptions.createdAt, monthStart),
+          lte(subscriptions.createdAt, monthEnd),
+          eq(subscriptions.status, 'active')
+        ));
+      
+      trends.push({
+        month: monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        enrollments: enrollments.count,
+        cancellations: cancellations.count,
+        netGrowth: enrollments.count - cancellations.count,
+        revenue: revenueResult[0]?.total || 0
+      });
+    }
+    
+    return trends;
   }
 
   // User approval operations
