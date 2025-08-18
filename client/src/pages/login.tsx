@@ -46,40 +46,51 @@ export default function Login() {
         throw new Error(error.message);
       }
       
-      if (result.user) {
+      if (result.user && result.session) {
         console.log("Login successful, user:", result.user);
-        toast({
-          title: "Welcome back!",
-          description: `Logged in successfully`,
-        });
+        console.log("Session established:", result.session);
         
-        // Add a small delay before redirect to ensure session is stored
-        setTimeout(async () => {
-          // Get user role from the database
-          try {
-            const response = await fetch('/api/auth/user', {
-              credentials: 'include'
+        // Get the access token from the session
+        const accessToken = result.session.access_token;
+        
+        // Get user role from the database with the new session token
+        try {
+          const response = await fetch('/api/auth/user', {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`
+            }
+          });
+          
+          if (response.ok) {
+            const userData = await response.json();
+            console.log("User data fetched:", userData);
+            
+            toast({
+              title: "Welcome back!",
+              description: `Logged in successfully`,
             });
-            if (response.ok) {
-              const userData = await response.json();
+            
+            // Use a short delay to ensure the session is fully stored
+            setTimeout(() => {
               // Redirect based on user role
               if (userData.role === 'admin') {
-                window.location.href = '/admin';
+                setLocation('/admin');
               } else if (userData.role === 'agent') {
-                window.location.href = '/agent';
+                setLocation('/agent');
               } else if (userData.role === 'user') {
-                window.location.href = '/dashboard';
+                setLocation('/dashboard');
               } else {
-                window.location.href = '/';
+                setLocation('/');
               }
-            } else {
-              window.location.href = '/';
-            }
-          } catch (error) {
-            console.error("Error fetching user data:", error);
-            window.location.href = '/';
+            }, 100);
+          } else {
+            console.error("Failed to fetch user data:", response.status);
+            setLocation('/');
           }
-        }, 500);
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          setLocation('/');
+        }
       }
     } catch (error: any) {
       console.error("Login failed:", error);

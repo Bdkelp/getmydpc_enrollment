@@ -66,8 +66,8 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/enrollment" component={Enrollment} />
-      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
-      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
+      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : Login} />
+      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/pending-approval" component={PendingApproval} />
@@ -109,9 +109,12 @@ function Router() {
             </>
           )}
           
-          {/* Regular user route */}
+          {/* Regular user routes */}
           {user?.role === "user" && (
-            <Route path="/no-access" component={NoAccess} />
+            <>
+              <Route path="/dashboard" component={Dashboard} />
+              <Route path="/no-access" component={NoAccess} />
+            </>
           )}
         </>
       )}
