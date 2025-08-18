@@ -50,47 +50,14 @@ export default function Login() {
         console.log("Login successful, user:", result.user);
         console.log("Session established:", result.session);
         
-        // Get the access token from the session
-        const accessToken = result.session.access_token;
+        toast({
+          title: "Welcome back!",
+          description: `Logged in successfully`,
+        });
         
-        // Get user role from the database with the new session token
-        try {
-          const response = await fetch('/api/auth/user', {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`
-            }
-          });
-          
-          if (response.ok) {
-            const userData = await response.json();
-            console.log("User data fetched:", userData);
-            
-            toast({
-              title: "Welcome back!",
-              description: `Logged in successfully`,
-            });
-            
-            // Use a short delay to ensure the session is fully stored
-            setTimeout(() => {
-              // Redirect based on user role
-              if (userData.role === 'admin') {
-                setLocation('/admin');
-              } else if (userData.role === 'agent') {
-                setLocation('/agent');
-              } else if (userData.role === 'user') {
-                setLocation('/dashboard');
-              } else {
-                setLocation('/');
-              }
-            }, 100);
-          } else {
-            console.error("Failed to fetch user data:", response.status);
-            setLocation('/');
-          }
-        } catch (error) {
-          console.error("Error fetching user data:", error);
-          setLocation('/');
-        }
+        // Force a full page reload to ensure auth state is refreshed
+        // This ensures the session is properly stored and recognized
+        window.location.href = '/';
       }
     } catch (error: any) {
       console.error("Login failed:", error);
