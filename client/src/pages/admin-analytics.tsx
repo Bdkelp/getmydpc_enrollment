@@ -71,10 +71,7 @@ export default function AdminAnalytics() {
       const response = await apiRequest(`/api/admin/analytics?days=${timeRange}`, {
         method: "GET"
       });
-      if (!response.ok) {
-        throw new Error('Failed to fetch analytics');
-      }
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     }
   });
 

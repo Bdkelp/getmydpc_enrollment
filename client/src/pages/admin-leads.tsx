@@ -56,10 +56,7 @@ export default function AdminLeads() {
       const response = await apiRequest(url.slice(0, -1), {
         method: "GET"
       });
-      if (!response.ok) {
-        throw new Error('Failed to fetch leads');
-      }
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     }
   });
 
@@ -70,10 +67,7 @@ export default function AdminLeads() {
       const response = await apiRequest('/api/admin/agents', {
         method: "GET"
       });
-      if (!response.ok) {
-        throw new Error('Failed to fetch agents');
-      }
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     }
   });
 
@@ -84,7 +78,7 @@ export default function AdminLeads() {
         method: "PUT",
         body: JSON.stringify(updates)
       });
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/leads'] });
@@ -102,7 +96,7 @@ export default function AdminLeads() {
         method: "PUT",
         body: JSON.stringify({ agentId })
       });
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/leads'] });
@@ -126,7 +120,7 @@ export default function AdminLeads() {
           notes 
         })
       });
-      return response.json();
+      return response; // apiRequest already returns parsed JSON
     },
     onSuccess: () => {
       setActivityNotes('');
