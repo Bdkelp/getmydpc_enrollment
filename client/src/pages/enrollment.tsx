@@ -710,11 +710,12 @@ export default function Enrollment() {
 
         {showPolicyModal && (
           <CancellationPolicyModal
+            isOpen={showPolicyModal}
             onAccept={() => {
               setShowPolicyModal(false);
               form.handleSubmit(handleSubmit)();
             }}
-            onDecline={() => setShowPolicyModal(false)}
+            onClose={() => setShowPolicyModal(false)}
           />
         )}
       </div>

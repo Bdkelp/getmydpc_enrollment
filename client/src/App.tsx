@@ -39,6 +39,15 @@ function Router() {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
+  // Check if we're on the enrollment subdomain
+  const isEnrollmentSubdomain = window.location.hostname === 'enrollment.getmydpc.com' || 
+                                window.location.hostname === 'enrollment-getmydpc-com.replit.app';
+
+  // If on enrollment subdomain, show enrollment page directly
+  if (isEnrollmentSubdomain) {
+    return <Enrollment />;
+  }
+
   return (
     <Switch>
       {/* Public routes - always accessible */}
