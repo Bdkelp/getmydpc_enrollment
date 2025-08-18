@@ -68,6 +68,16 @@ export default function Enrollment() {
   const { toast } = useToast();
   const { isAuthenticated, user } = useAuth();
 
+  // Immediately redirect authenticated users to their dashboard
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      const redirectPath = user.role === "admin" ? "/admin" : 
+                          user.role === "agent" ? "/agent" : 
+                          "/dashboard";
+      setLocation(redirectPath);
+    }
+  }, [isAuthenticated, user, setLocation]);
+
   // Fetch plans (public endpoint)
   const { data: plansData, isLoading: plansLoading } = useQuery<any[]>({
     queryKey: ["/api/public/plans"],

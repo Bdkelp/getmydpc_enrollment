@@ -43,9 +43,16 @@ function Router() {
   const isEnrollmentSubdomain = window.location.hostname === 'enrollment.getmydpc.com' || 
                                 window.location.hostname === 'enrollment-getmydpc-com.replit.app';
 
-  // ONLY show enrollment page for unauthenticated users at root of enrollment subdomain
-  // Allow ALL normal routing for authenticated users regardless of subdomain
-  if (isEnrollmentSubdomain && window.location.pathname === '/' && !isAuthenticated) {
+  // Handle enrollment subdomain routing
+  if (isEnrollmentSubdomain && window.location.pathname === '/') {
+    // Authenticated users should be redirected to their dashboard immediately
+    if (isAuthenticated) {
+      const redirectPath = user?.role === "admin" ? "/admin" : 
+                          user?.role === "agent" ? "/agent" : 
+                          "/dashboard";
+      return <Redirect to={redirectPath} />;
+    }
+    // Unauthenticated users see the enrollment page
     return <Enrollment />;
   }
 
