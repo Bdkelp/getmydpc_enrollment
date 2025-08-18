@@ -28,6 +28,7 @@ import AuthCallback from "@/pages/auth-callback";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
+import TestAuth from "@/pages/test-auth";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -50,6 +51,7 @@ function Router() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
+      <Route path="/test-auth" component={TestAuth} />
       
       {/* Protected routes - require authentication */}
       {isAuthenticated && (

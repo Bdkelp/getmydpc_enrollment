@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -43,9 +43,23 @@ export default function AdminLeads() {
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [activityNotes, setActivityNotes] = useState<string>('');
+  
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { getSession } = await import("@/lib/supabase");
+      const session = await getSession();
+      console.log('[AdminLeads] Session check:', { 
+        hasSession: !!session, 
+        hasToken: !!session?.access_token,
+        tokenPreview: session?.access_token?.substring(0, 30) + '...'
+      });
+    };
+    checkAuth();
+  }, []);
 
   // Fetch all leads
-  const { data: leads = [], isLoading: leadsLoading } = useQuery<Lead[]>({
+  const { data: leads = [], isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
     queryFn: async () => {
       let url = '/api/admin/leads?';
@@ -59,6 +73,11 @@ export default function AdminLeads() {
       return response; // apiRequest already returns parsed JSON
     }
   });
+  
+  // Log error if any
+  if (leadsError) {
+    console.error('Failed to fetch leads:', leadsError);
+  }
 
   // Fetch agents for assignment
   const { data: agents = [] } = useQuery<Agent[]>({
