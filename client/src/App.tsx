@@ -43,27 +43,19 @@ function Router() {
   const isEnrollmentSubdomain = window.location.hostname === 'enrollment.getmydpc.com' || 
                                 window.location.hostname === 'enrollment-getmydpc-com.replit.app';
 
-  // If on enrollment subdomain at root path and NOT authenticated, show enrollment page
-  // Authenticated users should be redirected to their appropriate dashboard
+  // ONLY show enrollment page for unauthenticated users at root of enrollment subdomain
+  // Allow ALL normal routing for authenticated users regardless of subdomain
   if (isEnrollmentSubdomain && window.location.pathname === '/' && !isAuthenticated) {
     return <Enrollment />;
-  }
-  
-  // If authenticated user on enrollment subdomain root, redirect to appropriate dashboard
-  if (isEnrollmentSubdomain && window.location.pathname === '/' && isAuthenticated) {
-    if (user?.role === 'admin') {
-      return <Redirect to="/admin" />;
-    } else if (user?.role === 'agent') {
-      return <Redirect to="/agent" />;
-    } else if (user?.role === 'user') {
-      return <Redirect to="/dashboard" />;
-    }
   }
 
   return (
     <Switch>
-      {/* Public routes - always accessible */}
-      <Route path="/" component={Landing} />
+      {/* Root route - redirect authenticated users to their dashboard */}
+      <Route path="/" component={isAuthenticated ? 
+        () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : 
+        Landing
+      } />
       <Route path="/quiz" component={Quiz} />
       <Route path="/enrollment" component={Enrollment} />
       <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/dashboard"} /> : Login} />
