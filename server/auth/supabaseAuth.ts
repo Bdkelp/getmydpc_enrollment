@@ -89,10 +89,29 @@ export function setupSupabaseAuth(app: Express) {
   // Get current user (for JWT authentication)
   app.get('/api/auth/user', verifySupabaseToken, async (req: any, res) => {
     try {
-      console.log('[Supabase Auth] Fetching user data for:', req.user);
+      console.log('[Supabase Auth] Fetching user data for:', { 
+        supabaseId: req.user.id, 
+        email: req.user.email 
+      });
       
-      // First check if user exists in our database
-      let dbUser = await storage.getUser(req.user.id);
+      // Try to find user by email first (more reliable than ID)
+      let dbUser = null;
+      
+      if (req.user.email) {
+        dbUser = await storage.getUserByEmail(req.user.email);
+        if (dbUser) {
+          console.log('[Supabase Auth] Found user by email:', req.user.email, 'with ID:', dbUser.id);
+        }
+      }
+      
+      // If not found by email, try by Supabase ID
+      if (!dbUser) {
+        dbUser = await storage.getUser(req.user.id);
+        if (dbUser) {
+          console.log('[Supabase Auth] Found user by Supabase ID:', req.user.id);
+        }
+      }
+      
       console.log('[Supabase Auth] User from database:', dbUser);
       
       if (!dbUser) {
