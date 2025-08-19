@@ -75,9 +75,14 @@ export default function AdminLeads() {
   });
   
   // Log error if any
-  if (leadsError) {
-    console.error('Failed to fetch leads:', leadsError);
-  }
+  useEffect(() => {
+    if (leadsError) {
+      console.error('[AdminLeads] Failed to fetch leads:', leadsError);
+    }
+    if (leads && leads.length > 0) {
+      console.log('[AdminLeads] Successfully fetched leads:', leads.length);
+    }
+  }, [leadsError, leads]);
 
   // Fetch agents for assignment
   const { data: agents = [] } = useQuery<Agent[]>({

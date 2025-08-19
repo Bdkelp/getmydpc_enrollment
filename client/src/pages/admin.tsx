@@ -33,6 +33,23 @@ export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   
+  // Test authentication
+  useEffect(() => {
+    const testAuth = async () => {
+      const { getSession } = await import("@/lib/supabase");
+      const session = await getSession();
+      console.log('[Admin Page] Authentication Test:', {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+        tokenPreview: session?.access_token?.substring(0, 30) + '...',
+        userEmail: session?.user?.email,
+        currentUser: user,
+        isAuthenticated
+      });
+    };
+    testAuth();
+  }, [user, isAuthenticated]);
+
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
     const hour = new Date().getHours();

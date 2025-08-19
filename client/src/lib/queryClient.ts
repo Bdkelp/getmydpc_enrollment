@@ -19,7 +19,12 @@ export async function apiRequest(
   const { getSession } = await import("@/lib/supabase");
   const session = await getSession();
   
-  console.log('[apiRequest] Session:', { hasSession: !!session, hasToken: !!session?.access_token });
+  console.log('[apiRequest] Session check:', { 
+    hasSession: !!session, 
+    hasToken: !!session?.access_token,
+    url,
+    method: options.method 
+  });
   
   const headers: HeadersInit = {
     ...options.headers,
@@ -31,10 +36,15 @@ export async function apiRequest(
   
   if (session?.access_token) {
     headers["Authorization"] = `Bearer ${session.access_token}`;
-    console.log('[apiRequest] Token preview:', session.access_token.substring(0, 50) + '...');
+    console.log('[apiRequest] Adding auth token, length:', session.access_token.length);
+  } else {
+    console.warn('[apiRequest] No authentication token available!');
   }
   
-  console.log('[apiRequest] Making request:', { url, method: options.method, hasAuth: !!headers["Authorization"] });
+  console.log('[apiRequest] Request headers:', { 
+    hasAuth: !!headers["Authorization"],
+    contentType: headers["Content-Type"]
+  });
   
   const res = await fetch(url, {
     method: options.method,
