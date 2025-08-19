@@ -4,6 +4,12 @@
 
 This project is a comprehensive Direct Primary Care (DPC) subscription and enrollment platform. Its primary purpose is to streamline patient, agent, and employer enrollment processes for DPC services. Key capabilities include multiple enrollment flows, secure payment processing, and robust user management. The vision is to provide an intuitive, efficient platform that simplifies access to DPC, driving market growth and enhancing healthcare accessibility.
 
+### Recent Updates (January 2025)
+- Fixed critical authentication issue where users' database IDs didn't match Supabase auth IDs
+- Resolved duplicate API endpoint issue that was causing 500 errors on admin pages
+- Fixed database query syntax in getAgents() function
+- Admin can now successfully access leads and analytics pages with data displaying correctly
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.

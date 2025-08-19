@@ -1247,10 +1247,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
     try {
+      console.log('[Admin Agents API] Fetching agents...');
       const agents = await storage.getAgents();
-      res.json(agents);
+      console.log('[Admin Agents API] Found agents:', agents ? agents.length : 0);
+      res.json(agents || []);
     } catch (error) {
-      console.error("Fetch agents error:", error);
+      console.error("[Admin Agents API] Fetch agents error - Full details:", error);
+      console.error("[Admin Agents API] Error message:", error.message);
+      console.error("[Admin Agents API] Error stack:", error.stack);
       res.status(500).json({ message: "Failed to fetch agents" });
     }
   });
@@ -1368,16 +1372,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const agents = await storage.getAgents();
-      res.json(agents);
-    } catch (error) {
-      console.error("Fetch agents error:", error);
-      res.status(500).json({ message: "Failed to fetch agents" });
-    }
-  });
-
   // Admin enrollment management endpoints
   app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
     try {

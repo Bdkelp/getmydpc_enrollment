@@ -768,8 +768,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(users)
-      .where(eq(users.role, 'agent'))
-      .orderBy(users.firstName, users.lastName);
+      .where(eq(users.role, 'agent'));
   }
   
   // Analytics operations
