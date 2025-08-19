@@ -1338,6 +1338,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Debug endpoint to check data
+  app.get("/api/debug/data", async (req, res) => {
+    try {
+      const leads = await storage.getAllLeads();
+      const enrollments = await storage.getAllEnrollments();
+      const agents = await storage.getAgents();
+      
+      res.json({
+        leads: {
+          count: leads.length,
+          sample: leads.slice(0, 2)
+        },
+        enrollments: {
+          count: enrollments.length,
+          sample: enrollments.slice(0, 2)
+        },
+        agents: {
+          count: agents.length,
+          sample: agents.slice(0, 2)
+        }
+      });
+    } catch (error) {
+      console.error("Debug endpoint error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Admin lead management endpoints
   app.get("/api/admin/leads", authMiddleware, isAdmin, async (req: any, res) => {
     try {
@@ -1347,6 +1374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('[Admin Leads API] Fetching leads with filters:', { status, assignedAgentId });
       const leads = await storage.getAllLeads(status, assignedAgentId);
       console.log('[Admin Leads API] Found leads:', leads.length);
+      console.log('[Admin Leads API] First lead:', leads[0]);
       
       res.json(leads);
     } catch (error) {

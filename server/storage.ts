@@ -416,7 +416,7 @@ export class DatabaseStorage implements IStorage {
   async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
     console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
     
-    // Get all users that have subscriptions
+    // Get all users that have subscriptions (including admins/agents who enrolled themselves for testing)
     const conditions = [];
     
     if (startDate && endDate) {
@@ -430,25 +430,26 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(users.enrolledByAgentId, agentId));
     }
     
-    // Select users who have subscriptions
+    // Select users who have subscriptions - get unique user IDs
     const usersWithSubscriptions = await db
       .selectDistinct({
         userId: subscriptions.userId
       })
       .from(subscriptions);
     
-    console.log(`[STORAGE] Found ${usersWithSubscriptions.length} users with subscriptions`);
-    const userIds = usersWithSubscriptions.map(sub => sub.userId);
+    console.log(`[STORAGE] Found ${usersWithSubscriptions.length} unique users with subscriptions`);
+    const userIds = usersWithSubscriptions.map(sub => sub.userId).filter(id => id != null);
     
     if (userIds.length === 0) {
       console.log(`[STORAGE] No users with subscriptions found, returning empty array`);
       return [];
     }
     
+    // Get all users with subscriptions, regardless of role (includes admin/agent test enrollments)
     conditions.push(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
     
-    const enrollments = await db.select().from(users).where(and(...conditions));
-    console.log(`[STORAGE] Returning ${enrollments.length} enrollments`);
+    const enrollments = await db.select().from(users).where(conditions.length > 0 ? and(...conditions) : undefined);
+    console.log(`[STORAGE] Returning ${enrollments.length} enrollments (including admin/agent test enrollments)`);
     
     return enrollments;
   }
