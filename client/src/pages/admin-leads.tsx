@@ -67,9 +67,16 @@ export default function AdminLeads() {
       if (assignmentFilter === 'unassigned') url += 'assignedAgentId=unassigned&';
       else if (assignmentFilter !== 'all') url += `assignedAgentId=${assignmentFilter}&`;
       
+      console.log('[AdminLeads] Fetching leads from URL:', url.slice(0, -1));
+      
       const response = await apiRequest(url.slice(0, -1), {
         method: "GET"
       });
+      
+      console.log('[AdminLeads] API Response:', response);
+      console.log('[AdminLeads] Response type:', typeof response);
+      console.log('[AdminLeads] Is array:', Array.isArray(response));
+      
       return response; // apiRequest already returns parsed JSON
     }
   });

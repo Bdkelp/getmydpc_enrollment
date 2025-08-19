@@ -1340,7 +1340,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const status = req.query.status as string | undefined;
       const assignedAgentId = req.query.assignedAgentId as string | undefined;
       
+      console.log('[Admin Leads API] Fetching leads with filters:', { status, assignedAgentId });
       const leads = await storage.getAllLeads(status, assignedAgentId);
+      console.log('[Admin Leads API] Found leads:', leads.length);
+      
       res.json(leads);
     } catch (error) {
       console.error("Fetch all leads error:", error);
