@@ -21,11 +21,7 @@ DELETE FROM payments WHERE id > 0;
 -- 5. Delete subscriptions
 DELETE FROM subscriptions WHERE id > 0;
 
--- 6. Delete lead activities
-DELETE FROM lead_activities WHERE id > 0;
-
--- 7. Delete leads
-DELETE FROM leads WHERE id > 0;
+-- 6. Keep lead activities and leads (no deletion)
 
 -- 8. Delete all users except system accounts (keep admins/agents for system access)
 -- This will keep users with role 'admin' or 'agent' but remove all enrolled members
@@ -37,8 +33,7 @@ ALTER SEQUENCE enrollment_modifications_id_seq RESTART WITH 1;
 ALTER SEQUENCE family_members_id_seq RESTART WITH 1;
 ALTER SEQUENCE payments_id_seq RESTART WITH 1;
 ALTER SEQUENCE subscriptions_id_seq RESTART WITH 1;
-ALTER SEQUENCE lead_activities_id_seq RESTART WITH 1;
-ALTER SEQUENCE leads_id_seq RESTART WITH 1;
+-- Keep lead sequences intact (no reset needed)
 
 COMMIT;
 

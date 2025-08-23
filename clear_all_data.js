@@ -46,17 +46,10 @@ async function clearAllData() {
     );
     console.log(`Deleted ${usersResult.rowCount} user records (kept admin/agent accounts)`);
 
-    console.log('Clearing lead activities...');
-    const activitiesResult = await client.query('DELETE FROM lead_activities WHERE 1=1');
-    console.log(`Deleted ${activitiesResult.rowCount} lead activities`);
+    console.log('Keeping leads and lead activities - no deletion needed');
 
-    console.log('Clearing leads...');
-    const leadsResult = await client.query('DELETE FROM leads WHERE 1=1');
-    console.log(`Deleted ${leadsResult.rowCount} leads`);
-
-    // Reset any auto-incrementing sequences
+    // Reset auto-incrementing sequences (keeping leads sequence intact)
     console.log('Resetting sequences...');
-    await client.query('ALTER SEQUENCE IF EXISTS leads_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE IF EXISTS subscriptions_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE IF EXISTS payments_id_seq RESTART WITH 1');
     await client.query('ALTER SEQUENCE IF EXISTS family_members_id_seq RESTART WITH 1');
@@ -74,6 +67,7 @@ async function clearAllData() {
       client.query('SELECT COUNT(*) FROM payments'),
       client.query('SELECT COUNT(*) FROM family_members'),
       client.query('SELECT COUNT(*) FROM leads'),
+      client.query('SELECT COUNT(*) FROM lead_activities'),
       client.query('SELECT COUNT(*) FROM commissions'),
     ]);
 
@@ -81,10 +75,11 @@ async function clearAllData() {
     console.log(`Subscriptions: ${verification[1].rows[0].count}`);
     console.log(`Payments: ${verification[2].rows[0].count}`);
     console.log(`Family members: ${verification[3].rows[0].count}`);
-    console.log(`Leads: ${verification[4].rows[0].count}`);
-    console.log(`Commissions: ${verification[5].rows[0].count}`);
+    console.log(`Leads preserved: ${verification[4].rows[0].count}`);
+    console.log(`Lead activities preserved: ${verification[5].rows[0].count}`);
+    console.log(`Commissions: ${verification[6].rows[0].count}`);
 
-    console.log('\n🎯 Database is now clean and ready for production!');
+    console.log('\n🎯 Database is now clean with leads preserved and ready for production!');
 
   } catch (error) {
     await client.query('ROLLBACK');
