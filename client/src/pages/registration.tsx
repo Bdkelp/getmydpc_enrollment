@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
@@ -127,7 +127,7 @@ export default function Registration() {
       employerName: "",
       divisionName: "",
       dateOfHire: "",
-      memberType: "Member Only",
+      memberType: "",
       planStartDate: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
@@ -152,12 +152,18 @@ export default function Registration() {
         totalMonthlyPrice: parseFloat(totalWithFees),
         familyMembers: familyMembers
       };
-      await apiRequest("/api/auth/profile", {
+      await apiRequest("/api/registration", {
         method: "POST",
         body: JSON.stringify(submissionData)
       });
     },
     onSuccess: () => {
+      // Invalidate cache to show new enrollment immediately
+      queryClient.invalidateQueries({ queryKey: ['/api/agent/stats'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/agent/enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
+      
       // Store primary address for family member enrollment
       const addressData = {
         address: form.getValues("address"),
@@ -582,7 +588,7 @@ export default function Registration() {
                                 };
                                 setCoverageType(coverageMap[value] || '');
                               }} 
-                              defaultValue={field.value}
+                              value={field.value}
                             >
                               <FormControl>
                                 <SelectTrigger>
