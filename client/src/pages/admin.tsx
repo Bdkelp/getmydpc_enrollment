@@ -209,7 +209,7 @@ export default function Admin() {
   const stats = [
     {
       icon: Users,
-      label: "Total Members",
+      label: "Total System Users",
       value: adminStats?.totalUsers?.toLocaleString() || "0",
       change: "",
       changeType: "positive",
@@ -219,7 +219,7 @@ export default function Admin() {
     {
       icon: DollarSign,
       label: "Monthly Revenue",
-      value: `$${adminStats?.monthlyRevenue?.toLocaleString() || "0"}`,
+      value: `$${(adminStats?.monthlyRevenue || 0).toLocaleString()}`,
       change: "",
       changeType: "positive",
       bgColor: "bg-green-100",
@@ -228,7 +228,7 @@ export default function Admin() {
     {
       icon: UserPlus,
       label: "New Enrollments",
-      value: adminStats?.newEnrollments?.toLocaleString() || "0",
+      value: (adminStats?.newEnrollments || 0).toLocaleString(),
       change: "",
       changeType: "positive",
       bgColor: "bg-orange-100",
@@ -237,7 +237,7 @@ export default function Admin() {
     {
       icon: UserX,
       label: "Churn Rate",
-      value: `${adminStats?.churnRate || "0"}%`,
+      value: `${adminStats?.churnRate || 0}%`,
       change: "",
       changeType: "negative",
       bgColor: "bg-red-100",
