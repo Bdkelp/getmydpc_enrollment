@@ -7,6 +7,7 @@ import {
   enrollmentModifications,
   leads,
   leadActivities,
+  commissions,
   type User,
   type UpsertUser,
   type Plan,
@@ -21,6 +22,8 @@ import {
   type InsertLead,
   type LeadActivity,
   type InsertLeadActivity,
+  type Commission,
+  type InsertCommission,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, like, count, gte, lte, sql, isNull } from "drizzle-orm";
@@ -104,6 +107,14 @@ export interface IStorage {
   getPendingUsers(): Promise<User[]>;
   approveUser(userId: string, approvedBy: string): Promise<User>;
   rejectUser(userId: string, reason: string): Promise<User>;
+  
+  // Commission operations
+  createCommission(commission: InsertCommission): Promise<Commission>;
+  getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]>;
+  getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]>;
+  getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined>;
+  updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
+  getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -990,6 +1001,82 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return user;
+  }
+
+  // Commission operations
+  async createCommission(commission: InsertCommission): Promise<Commission> {
+    const [newCommission] = await db
+      .insert(commissions)
+      .values(commission)
+      .returning();
+    return newCommission;
+  }
+
+  async getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
+    let query = db.select().from(commissions).where(eq(commissions.agentId, agentId));
+    
+    if (startDate && endDate) {
+      query = query.where(
+        and(
+          gte(commissions.createdAt, new Date(startDate)),
+          lte(commissions.createdAt, new Date(endDate))
+        )
+      );
+    }
+    
+    return await query.orderBy(desc(commissions.createdAt));
+  }
+
+  async getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
+    let query = db.select().from(commissions);
+    
+    if (startDate && endDate) {
+      query = query.where(
+        and(
+          gte(commissions.createdAt, new Date(startDate)),
+          lte(commissions.createdAt, new Date(endDate))
+        )
+      );
+    }
+    
+    return await query.orderBy(desc(commissions.createdAt));
+  }
+
+  async getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
+    const [commission] = await db
+      .select()
+      .from(commissions)
+      .where(eq(commissions.subscriptionId, subscriptionId))
+      .limit(1);
+    return commission;
+  }
+
+  async updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
+    const [updated] = await db
+      .update(commissions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(commissions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
+    let query = db.select({
+      status: commissions.paymentStatus,
+      total: sql<number>`COALESCE(SUM(${commissions.commissionAmount}), 0)::numeric`
+    }).from(commissions);
+    
+    if (agentId) {
+      query = query.where(eq(commissions.agentId, agentId));
+    }
+    
+    const results = await query.groupBy(commissions.paymentStatus);
+    
+    return {
+      totalEarned: results.reduce((sum, r) => sum + parseFloat(r.total.toString()), 0),
+      totalPending: parseFloat(results.find(r => r.status === 'unpaid')?.total?.toString() || '0'),
+      totalPaid: parseFloat(results.find(r => r.status === 'paid')?.total?.toString() || '0')
+    };
   }
 }
 

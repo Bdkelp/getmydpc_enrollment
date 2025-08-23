@@ -10,6 +10,7 @@ import Dashboard from "@/pages/dashboard";
 import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
+import AgentCommissions from "@/pages/agent-commissions";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
@@ -68,6 +69,7 @@ function Router() {
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
+              <Route path="/agent/commissions" component={AgentCommissions} />
               <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
@@ -82,6 +84,7 @@ function Router() {
             <>
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
+              <Route path="/agent/commissions" component={AgentCommissions} />
               <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />

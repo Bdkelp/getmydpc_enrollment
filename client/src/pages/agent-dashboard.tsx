@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle } from "lucide-react";
+import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield } from "lucide-react";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -192,6 +192,12 @@ export default function AgentDashboard() {
               </span>
             </div>
             <div className="flex items-center space-x-4">
+              {user?.role === 'admin' && (
+                <Button variant="outline" onClick={() => setLocation('/admin')}>
+                  <Shield className="h-4 w-4 mr-2" />
+                  Back to Admin Dashboard
+                </Button>
+              )}
               <Button
                 onClick={handleNewEnrollment}
                 className="bg-green-600 hover:bg-green-700 text-white shadow-lg animate-pulse-slow"
@@ -265,7 +271,7 @@ export default function AgentDashboard() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setLocation('/agent/commissions')}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Commission</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -273,6 +279,9 @@ export default function AgentDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">${stats?.totalCommission?.toFixed(2) || "0.00"}</div>
               <p className="text-xs text-muted-foreground">This month: ${stats?.monthlyCommission?.toFixed(2) || "0.00"}</p>
+              <Button variant="link" className="p-0 h-auto text-xs mt-2">
+                View Commission Details →
+              </Button>
             </CardContent>
           </Card>
 

@@ -1532,8 +1532,11 @@ export default function Registration() {
                             </FormControl>
                             <div className="space-y-1 leading-none">
                               <FormLabel className="text-sm">
-                                I consent to receive communications about my healthcare via email and SMS
+                                I consent to receive text messages from MyPremierPlans at the phone number provided. These messages may include appointment reminders, enrollment updates, payment notifications, and important healthcare information. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. View our Privacy Policy and Terms of Service on our website.
                               </FormLabel>
+                              <p className="text-xs text-gray-600 mt-1">
+                                By checking this box, you agree to receive automated SMS/text messages. Consent is not a condition of purchase. Carrier message and data rates may apply.
+                              </p>
                             </div>
                           </FormItem>
                         )}

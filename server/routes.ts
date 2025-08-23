@@ -792,6 +792,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Agent commission endpoints
+  app.get("/api/agent/commission-stats", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      const stats = await storage.getCommissionStats(agentId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Commission stats error:", error);
+      res.status(500).json({ message: "Failed to fetch commission stats" });
+    }
+  });
+
+  app.get("/api/agent/commissions", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      const { startDate, endDate } = req.query;
+      
+      const commissions = await storage.getAgentCommissions(
+        agentId, 
+        startDate as string, 
+        endDate as string
+      );
+      
+      // Enrich with user names
+      const enrichedCommissions = await Promise.all(commissions.map(async (commission) => {
+        const user = await storage.getUser(commission.userId);
+        return {
+          ...commission,
+          userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown'
+        };
+      }));
+      
+      res.json(enrichedCommissions);
+    } catch (error) {
+      console.error("Agent commissions error:", error);
+      res.status(500).json({ message: "Failed to fetch commissions" });
+    }
+  });
+
+  app.get("/api/agent/export-commissions", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
+    try {
+      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      const { startDate, endDate } = req.query;
+      
+      const commissions = await storage.getAgentCommissions(
+        agentId,
+        startDate as string,
+        endDate as string
+      );
+      
+      // Get agent info
+      const agent = await storage.getUser(agentId);
+      const agentNumber = agent?.agentNumber || 'Not Assigned';
+      
+      // Create CSV content
+      const headers = ['Date', 'Member Name', 'Plan Tier', 'Plan Type', 'Total Cost', 'Commission', 'Status', 'Payment Status', 'Paid Date'];
+      const rows = await Promise.all(commissions.map(async (commission) => {
+        const user = await storage.getUser(commission.userId);
+        return [
+          new Date(commission.createdAt).toLocaleDateString(),
+          user ? `${user.firstName} ${user.lastName}` : 'Unknown',
+          commission.planTier,
+          commission.planType,
+          commission.totalPlanCost,
+          commission.commissionAmount,
+          commission.status,
+          commission.paymentStatus,
+          commission.paidDate ? new Date(commission.paidDate).toLocaleDateString() : ''
+        ];
+      }));
+      
+      const csvContent = [
+        `Agent: ${agent?.firstName} ${agent?.lastName} (${agentNumber})`,
+        `Date Range: ${startDate} to ${endDate}`,
+        '',
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=commissions-${startDate}-to-${endDate}.csv`);
+      res.send(csvContent);
+    } catch (error) {
+      console.error("Export commissions error:", error);
+      res.status(500).json({ message: "Failed to export commissions" });
+    }
+  });
+
   // Resolve pending enrollment with consent
   app.put("/api/enrollment/:userId/resolve", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
