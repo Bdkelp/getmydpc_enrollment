@@ -80,11 +80,8 @@ export default function AdminEnrollments() {
         ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
       });
       
-      const response = await apiRequest("GET", `/api/admin/enrollments?${params}`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch enrollments");
-      }
-      return response.json();
+      const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
+      return response;
     },
   });
 
@@ -97,7 +94,13 @@ export default function AdminEnrollments() {
         ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
       });
       
-      const response = await apiRequest("POST", `/api/admin/export-enrollments?${params}`);
+      const response = await fetch(`/api/admin/export-enrollments?${params}`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
       if (!response.ok) {
         throw new Error("Failed to export enrollments");
       }
@@ -130,11 +133,8 @@ export default function AdminEnrollments() {
   // Generate agent number mutation
   const generateAgentNumberMutation = useMutation({
     mutationFn: async (agentId: string) => {
-      const response = await apiRequest("POST", `/api/admin/generate-agent-number/${agentId}`);
-      if (!response.ok) {
-        throw new Error("Failed to generate agent number");
-      }
-      return response.json();
+      const response = await apiRequest(`/api/admin/generate-agent-number/${agentId}`, { method: "POST" });
+      return response;
     },
     onSuccess: (data) => {
       toast({
