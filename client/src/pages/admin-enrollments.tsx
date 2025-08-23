@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -56,6 +57,14 @@ interface Agent {
 export default function AdminEnrollments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
+  
+  // Check if user is admin
+  useEffect(() => {
+    if (!authLoading && (!user || user.role !== 'admin')) {
+      setLocation('/login');
+    }
+  }, [user, authLoading, setLocation]);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
@@ -68,6 +77,7 @@ export default function AdminEnrollments() {
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
+    enabled: !!user && user.role === 'admin',
   });
 
   // Fetch enrollments with filters
@@ -83,6 +93,7 @@ export default function AdminEnrollments() {
       const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
       return response;
     },
+    enabled: !!user && user.role === 'admin',
   });
 
   // Export enrollments mutation

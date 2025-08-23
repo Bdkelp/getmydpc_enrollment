@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +38,7 @@ interface Agent {
 export default function AdminLeads() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<string>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -44,23 +46,17 @@ export default function AdminLeads() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [activityNotes, setActivityNotes] = useState<string>('');
   
-  // Check authentication
+  // Check if user is admin
   useEffect(() => {
-    const checkAuth = async () => {
-      const { getSession } = await import("@/lib/supabase");
-      const session = await getSession();
-      console.log('[AdminLeads] Session check:', { 
-        hasSession: !!session, 
-        hasToken: !!session?.access_token,
-        tokenPreview: session?.access_token?.substring(0, 30) + '...'
-      });
-    };
-    checkAuth();
-  }, []);
+    if (!authLoading && (!user || user.role !== 'admin')) {
+      setLocation('/login');
+    }
+  }, [user, authLoading, setLocation]);
 
   // Fetch all leads
   const { data: leads = [], isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
+    enabled: !!user && user.role === 'admin',
     queryFn: async () => {
       let url = '/api/admin/leads?';
       if (statusFilter !== 'all') url += `status=${statusFilter}&`;
@@ -94,6 +90,7 @@ export default function AdminLeads() {
   // Fetch agents for assignment
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ['/api/admin/agents'],
+    enabled: !!user && user.role === 'admin',
     queryFn: async () => {
       const response = await apiRequest('/api/admin/agents', {
         method: "GET"
