@@ -125,13 +125,13 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-medical-blue-50/10">
       {/* Navigation Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/50 sticky top-0 z-40 animate-[fade-in-up_0.3s_ease-out]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <Heart className="text-medical-blue-600 h-8 w-8 mr-3" />
+              <Heart className="text-medical-blue-600 h-8 w-8 mr-3 animate-pulse" />
               <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
             </div>
             <div className="flex items-center space-x-4">
@@ -148,7 +148,7 @@ export default function Dashboard() {
       </div>
 
       {/* Dashboard Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
+      <div className="bg-white/80 backdrop-blur-sm shadow-sm border-b border-gray-200/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -160,7 +160,7 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="mt-4 sm:mt-0">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+              <span className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-green-100 to-green-50 text-green-800 shadow-sm">
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {user.subscription?.status === "active" ? "Active Member" : "Pending Activation"}
               </span>
@@ -171,12 +171,12 @@ export default function Dashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Personalized Welcome Message */}
-        <Card className="mb-8 bg-gradient-to-r from-medical-blue-500 to-medical-blue-600 text-white">
+        <Card className="mb-8 bg-gradient-to-r from-medical-blue-500 to-medical-blue-600 text-white border-0 shadow-xl animate-[scale-in_0.5s_ease-out]">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold mb-1">
-                  {getTimeOfDayGreeting()}, {getUserName()}! 🏥
+                <h2 className="text-3xl font-bold mb-2 animate-[fade-in-up_0.6s_ease-out]">
+                  {getTimeOfDayGreeting()}, {getUserName()}!
                 </h2>
                 <p className="text-blue-100">
                   Welcome to your healthcare membership dashboard. Your membership gives you unlimited access to quality care.
@@ -205,7 +205,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="hidden md:block">
-                <Heart className="h-24 w-24 text-blue-200 opacity-50" />
+                <Heart className="h-32 w-32 text-white/20 animate-pulse" />
               </div>
             </div>
           </CardContent>
@@ -217,17 +217,18 @@ export default function Dashboard() {
           <div className="lg:col-span-2 space-y-8">
             
             {/* Quick Actions */}
-            <Card>
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_0.7s_ease-out]">
               <CardContent className="p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {quickActions.map((action, index) => (
                     <button 
                       key={index}
-                      className={`flex flex-col items-center p-4 rounded-lg transition-colors ${action.bgColor}`}
+                      className={`flex flex-col items-center p-6 rounded-xl transition-all duration-300 hover:scale-105 ${action.bgColor} group`}
+                      style={{ animationDelay: `${index * 100}ms` }}
                     >
-                      <action.icon className={`${action.iconColor} h-8 w-8 mb-2`} />
-                      <span className="text-sm font-medium text-gray-900">{action.label}</span>
+                      <action.icon className={`${action.iconColor} h-10 w-10 mb-3 group-hover:scale-110 transition-transform`} />
+                      <span className="text-sm font-semibold text-gray-900">{action.label}</span>
                     </button>
                   ))}
                 </div>
@@ -235,19 +236,23 @@ export default function Dashboard() {
             </Card>
 
             {/* Recent Activity */}
-            <Card>
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_0.8s_ease-out]">
               <CardContent className="p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-6">Recent Activity</h2>
                 <div className="space-y-4">
                   {recentActivity.map((activity, index) => (
-                    <div key={index} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
+                    <div 
+                      key={index} 
+                      className="flex items-start space-x-4 p-4 bg-gradient-to-r from-gray-50 to-white rounded-xl hover:shadow-md transition-all duration-300 group"
+                      style={{ animationDelay: `${index * 100}ms` }}
+                    >
                       <div className="flex-shrink-0">
-                        <div className={`w-10 h-10 ${activity.iconBg} rounded-full flex items-center justify-center`}>
-                          <activity.icon className={`${activity.iconColor} h-5 w-5`} />
+                        <div className={`w-12 h-12 ${activity.iconBg} rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                          <activity.icon className={`${activity.iconColor} h-6 w-6`} />
                         </div>
                       </div>
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{activity.title}</p>
+                        <p className="text-sm font-semibold text-gray-900">{activity.title}</p>
                         <p className="text-sm text-gray-600">{activity.description}</p>
                         <p className="text-xs text-gray-500 mt-1">{activity.time}</p>
                       </div>
@@ -262,7 +267,7 @@ export default function Dashboard() {
           <div className="space-y-8">
             
             {/* Current Plan */}
-            <Card>
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_0.9s_ease-out]">
               <CardContent className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Current Plan</h3>
                 <div className="space-y-4">
@@ -271,7 +276,7 @@ export default function Dashboard() {
                       <span className="text-sm font-medium text-gray-700">
                         {user.plan?.name || "Individual Plan"}
                       </span>
-                      <span className="text-lg font-bold text-medical-blue-600">
+                      <span className="text-2xl font-bold bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent">
                         ${user.plan?.price || "79"}/mo
                       </span>
                     </div>
@@ -285,16 +290,16 @@ export default function Dashboard() {
                   
                   <div className="border-t border-gray-200 pt-4">
                     <div className="space-y-2 text-sm text-gray-600">
-                      <div className="flex items-center">
-                        <CheckCircle className="text-green-500 h-4 w-4 mr-2" />
+                      <div className="flex items-center group/item hover:translate-x-1 transition-transform">
+                        <CheckCircle className="text-green-500 h-4 w-4 mr-2 group-hover/item:scale-110 transition-transform" />
                         Unlimited office visits
                       </div>
-                      <div className="flex items-center">
-                        <CheckCircle className="text-green-500 h-4 w-4 mr-2" />
+                      <div className="flex items-center group/item hover:translate-x-1 transition-transform">
+                        <CheckCircle className="text-green-500 h-4 w-4 mr-2 group-hover/item:scale-110 transition-transform" />
                         24/7 text & phone access
                       </div>
-                      <div className="flex items-center">
-                        <CheckCircle className="text-green-500 h-4 w-4 mr-2" />
+                      <div className="flex items-center group/item hover:translate-x-1 transition-transform">
+                        <CheckCircle className="text-green-500 h-4 w-4 mr-2 group-hover/item:scale-110 transition-transform" />
                         Basic lab work included
                       </div>
                     </div>
@@ -313,7 +318,7 @@ export default function Dashboard() {
             </Card>
 
             {/* Care Team */}
-            <Card>
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_1s_ease-out]">
               <CardContent className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Care Team</h3>
                 <div className="space-y-4">
@@ -330,7 +335,7 @@ export default function Dashboard() {
                   </div>
                   
                   <div className="border-t border-gray-200 pt-4">
-                    <Button className="w-full medical-blue-600 hover:medical-blue-700 text-white">
+                    <Button className="w-full bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 hover:from-medical-blue-700 hover:to-medical-blue-600 text-white shadow-md hover:shadow-lg">
                       <MessageCircle className="h-4 w-4 mr-2" />
                       Send Message
                     </Button>
@@ -340,7 +345,7 @@ export default function Dashboard() {
             </Card>
 
             {/* Health Metrics */}
-            <Card>
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_1.1s_ease-out]">
               <CardContent className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Health Snapshot</h3>
                 <div className="space-y-4">

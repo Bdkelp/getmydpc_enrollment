@@ -108,9 +108,9 @@ export default function Landing() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-b from-white via-medical-blue-50/10 to-white">
       {/* Navigation Header */}
-      <nav className="bg-white shadow-sm border-b border-gray-200">
+      <nav className="bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/50 sticky top-0 z-50 animate-[fade-in-up_0.5s_ease-out]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -172,15 +172,15 @@ export default function Landing() {
       </nav>
 
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-blue-50 to-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+      <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h1 className="text-4xl lg:text-5xl font-bold text-gray-900 leading-tight mb-6">
+            <div className="animate-[fade-in-up_0.8s_ease-out]">
+              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
                 Membership Has Never Been
-                <span className="text-medical-blue-600"> So Easy</span>
+                <span className="bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent"> So Easy</span>
               </h1>
-              <p className="text-xl text-gray-600 mb-8 leading-relaxed">
+              <p className="text-xl text-gray-600 mb-8 leading-relaxed animate-[fade-in-up_0.9s_ease-out]">
                 Your health. Your membership. No insurance needed.
                 Get unlimited access to your primary care physician for one low monthly fee.
               </p>
@@ -240,20 +240,23 @@ export default function Landing() {
                 </a>
               </div>
             </div>
-            <div className="lg:pl-8">
-              <img 
-                src={heroImage} 
-                alt="Doctor consultation with patient" 
-                className="rounded-xl shadow-lg w-full h-auto object-cover"
-                style={{ maxHeight: "600px" }}
-              />
+            <div className="lg:pl-8 animate-[scale-in_1s_ease-out]">
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-r from-medical-blue-500/10 to-medical-blue-600/10 rounded-2xl blur-3xl" />
+                <img 
+                  src={heroImage} 
+                  alt="Doctor consultation with patient" 
+                  className="relative rounded-2xl shadow-2xl w-full h-auto object-cover transform hover:scale-[1.02] transition-transform duration-500"
+                  style={{ maxHeight: "600px" }}
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Benefits Section */}
-      <div className="py-20 bg-white">
+      <div className="py-24 bg-gradient-to-b from-white to-gray-50/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Why Choose Direct Primary Care?</h2>
@@ -267,12 +270,16 @@ export default function Landing() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {benefits.map((benefit, index) => (
-              <div key={index} className="text-center p-6">
-                <div className="w-16 h-16 medical-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <benefit.icon className="text-medical-blue-600 h-8 w-8" />
+              <div 
+                key={index} 
+                className="text-center p-8 rounded-2xl hover:bg-white hover:shadow-xl transition-all duration-300 group"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <div className="w-20 h-20 bg-gradient-to-br from-medical-blue-100 to-medical-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <benefit.icon className="text-medical-blue-600 h-10 w-10" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3">{benefit.title}</h3>
-                <p className="text-gray-600">{benefit.description}</p>
+                <h3 className="text-xl font-bold mb-3 text-gray-900">{benefit.title}</h3>
+                <p className="text-gray-600 leading-relaxed">{benefit.description}</p>
               </div>
             ))}
           </div>
@@ -280,7 +287,7 @@ export default function Landing() {
       </div>
 
       {/* Plans Section */}
-      <div id="plans" className="py-20 bg-gray-50">
+      <div id="plans" className="py-24 bg-gradient-to-b from-gray-50/50 to-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Choose Your Healthcare Membership</h2>
@@ -304,23 +311,31 @@ export default function Landing() {
                   return aTier - bTier;
                 })
                 .map((plan) => (
-                <Card key={plan.id} className={`relative p-8 hover:shadow-md transition-shadow ${
-                  plan.name.toLowerCase().includes("family") ? "border-2 border-blue-600" : ""
-                }`}>
+                <Card 
+                  key={plan.id} 
+                  className={`relative p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 border-gray-100 ${
+                    plan.name.toLowerCase().includes("plus") || plan.name.includes("+") 
+                      ? "border-2 border-medical-blue-500 shadow-xl scale-105" 
+                      : ""
+                  }`}
+                  style={{ animationDelay: `${plans?.indexOf(plan) * 100}ms` }}
+                >
                   {getPlanBadge(plan.name)}
                   <CardContent className="p-0">
                     <div className="text-center mb-6">
                       <h3 className="text-2xl font-bold text-gray-900 mb-2">{plan.name}</h3>
-                      <div className="text-4xl font-bold text-medical-blue-600 mb-1">
-                        ${plan.price}
+                      <div className="flex items-baseline justify-center">
+                        <span className="text-5xl font-bold bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent">
+                          ${plan.price}
+                        </span>
+                        <span className="text-gray-500 ml-2">/month</span>
                       </div>
-                      <div className="text-gray-500">per month</div>
                     </div>
                     <ul className="space-y-3 mb-8">
                       {getPlanFeatures(plan.name).map((feature, index) => (
-                        <li key={index} className="flex items-center">
-                          <Check className="text-green-500 h-5 w-5 mr-3" />
-                          <span>{feature}</span>
+                        <li key={index} className="flex items-center group/item">
+                          <Check className="text-green-500 h-5 w-5 mr-3 flex-shrink-0 group-hover/item:scale-110 transition-transform" />
+                          <span className="text-gray-700">{feature}</span>
                         </li>
                       ))}
                     </ul>
@@ -364,7 +379,7 @@ export default function Landing() {
       </div>
 
       {/* Testimonials Section */}
-      <div className="py-20 bg-white">
+      <div className="py-24 bg-gradient-to-b from-white to-medical-blue-50/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">What Our Members Are Saying</h2>
@@ -373,7 +388,7 @@ export default function Landing() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Testimonial 1 */}
-            <Card className="p-8">
+            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <CardContent className="p-0">
                 <div className="flex items-center mb-4">
                   {[...Array(5)].map((_, i) => (
@@ -396,7 +411,7 @@ export default function Landing() {
             </Card>
 
             {/* Testimonial 2 */}
-            <Card className="p-8">
+            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <CardContent className="p-0">
                 <div className="flex items-center mb-4">
                   {[...Array(5)].map((_, i) => (
@@ -419,7 +434,7 @@ export default function Landing() {
             </Card>
 
             {/* Testimonial 3 */}
-            <Card className="p-8">
+            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
               <CardContent className="p-0">
                 <div className="flex items-center mb-4">
                   {[...Array(5)].map((_, i) => (
