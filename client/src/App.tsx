@@ -29,6 +29,7 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
 import TestAuth from "@/pages/test-auth";
+import TestDataFetch from "@/pages/test-data-fetch";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -52,6 +53,7 @@ function Router() {
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />
+      <Route path="/test-data" component={TestDataFetch} />
       
       {/* Protected routes - require authentication */}
       {isAuthenticated && (

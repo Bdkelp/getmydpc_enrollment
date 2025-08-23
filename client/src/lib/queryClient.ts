@@ -26,9 +26,11 @@ export async function apiRequest(
     method: options.method 
   });
   
-  const headers: HeadersInit = {
-    ...options.headers,
-  };
+  const headers: Record<string, string> = {};
+  
+  if (options.headers) {
+    Object.assign(headers, options.headers);
+  }
   
   if (options.body) {
     headers["Content-Type"] = "application/json";
@@ -88,7 +90,7 @@ export const getQueryFn: <T>(options: {
     const { getSession } = await import("@/lib/supabase");
     const session = await getSession();
     
-    const headers: HeadersInit = {};
+    const headers: Record<string, string> = {};
     
     if (session?.access_token) {
       headers["Authorization"] = `Bearer ${session.access_token}`;
