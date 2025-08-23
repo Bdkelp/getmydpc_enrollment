@@ -455,7 +455,15 @@ export class DatabaseStorage implements IStorage {
     console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
 
     // Build conditions for subscription date filtering
-    const conditions = [];
+    const conditions = [
+      // Only include users with actual subscriptions and exclude null user joins
+      sql`${users.id} IS NOT NULL`,
+      // Only include active or pending subscriptions (exclude cancelled/failed)
+      or(
+        eq(subscriptions.status, 'active'),
+        eq(subscriptions.status, 'pending')
+      )
+    ];
 
     if (startDate && endDate) {
       conditions.push(
@@ -469,7 +477,7 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(users.enrolledByAgentId, agentId));
     }
 
-    // Fetch subscriptions with user details
+    // Fetch subscriptions with user details - use INNER JOIN to ensure user exists
     const enrollments = await db
       .select({
         id: users.id,
@@ -486,11 +494,11 @@ export class DatabaseStorage implements IStorage {
         status: subscriptions.status
       })
       .from(subscriptions)
-      .leftJoin(users, eq(subscriptions.userId, users.id))
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .innerJoin(users, eq(subscriptions.userId, users.id)) // Changed to INNER JOIN
+      .where(and(...conditions))
       .orderBy(desc(subscriptions.createdAt));
 
-    console.log(`[STORAGE] Returning ${enrollments.length} subscription enrollments for the specified date range`);
+    console.log(`[STORAGE] Returning ${enrollments.length} valid enrollments with users`);
 
     return enrollments;
   }
@@ -819,39 +827,35 @@ export class DatabaseStorage implements IStorage {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Get all enrollments (users with enrolledByAgentId or role='user')
+    // Use the same method as enrollments page for consistency
     const allEnrollments = await this.getAllEnrollments();
     const totalMembers = allEnrollments.length;
 
-    // Get new enrollments in date range
+    console.log(`[Analytics] Total enrollments from getAllEnrollments(): ${totalMembers}`);
+
+    // Get new enrollments in date range using same data source
     const newEnrollments = allEnrollments.filter(enrollment => {
       const enrollmentDate = new Date(enrollment.createdAt);
       return enrollmentDate >= startDate && enrollmentDate <= endDate;
     }).length;
 
-    // Get active subscriptions count
-    const activeSubscriptionsResult = await this.db
-      .select({ count: count() })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, 'active'));
+    // Count active subscriptions from the same enrollment data
+    const activeSubscriptions = allEnrollments.filter(enrollment => 
+      enrollment.status === 'active'
+    ).length;
 
-    const activeSubscriptions = activeSubscriptionsResult[0]?.count || 0;
+    // Calculate revenue from the enrollments data
+    const monthlyRevenue = allEnrollments
+      .filter(enrollment => enrollment.status === 'active')
+      .reduce((total, enrollment) => total + (parseFloat(enrollment.amount) || 0), 0);
 
-    // Get revenue stats
-    const revenueResult = await this.db
-      .select({
-        totalRevenue: sum(sql`CAST(${subscriptions.amount} AS DECIMAL)`),
-        count: count()
-      })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, 'active'));
-
-    const monthlyRevenue = Number(revenueResult[0]?.totalRevenue || 0);
     const averageRevenue = totalMembers > 0 ? monthlyRevenue / totalMembers : 0;
+
+    console.log(`[Analytics] Calculated stats - Total: ${totalMembers}, Active: ${activeSubscriptions}, Revenue: ${monthlyRevenue}`);
 
     return {
       totalMembers,
-      activeSubscriptions: Math.max(activeSubscriptions, totalMembers),
+      activeSubscriptions,
       monthlyRevenue,
       averageRevenue,
       churnRate: 2.5, // Placeholder
