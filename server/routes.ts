@@ -558,7 +558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           memberType: coverageType,
           amount: subscriptionAmount,
           agentName: agentInfo ? `${agentInfo.firstName} ${agentInfo.lastName}` : undefined,
-          agentNumber: agentInfo?.agentNumber,
+          agentNumber: agentInfo?.agentNumber || undefined,
           commission: commission > 0 ? commission : 0,
           enrollmentDate: new Date()
         });
@@ -1278,8 +1278,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(agents || []);
     } catch (error) {
       console.error("[Admin Agents API] Fetch agents error - Full details:", error);
-      console.error("[Admin Agents API] Error message:", error.message);
-      console.error("[Admin Agents API] Error stack:", error.stack);
+      console.error("[Admin Agents API] Error message:", (error as any).message);
+      console.error("[Admin Agents API] Error stack:", (error as any).stack);
       res.status(500).json({ message: "Failed to fetch agents" });
     }
   });
@@ -1386,7 +1386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Debug endpoint error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: (error as any).message });
     }
   });
 

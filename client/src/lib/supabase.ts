@@ -8,24 +8,11 @@ const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabaseUrl = typeof rawUrl === 'string' ? rawUrl.replace(/^['"]|['"]$/g, '').trim() : '';
 const supabaseAnonKey = typeof rawKey === 'string' ? rawKey.replace(/^['"]|['"]$/g, '').trim() : '';
 
-// Debug log the raw values
-console.log('Supabase config debug:', {
-  urlRaw: rawUrl,
-  urlProcessed: supabaseUrl,
-  urlType: typeof rawUrl,
-  hasUrl: !!supabaseUrl,
-  hasKey: !!supabaseAnonKey,
-  urlLength: supabaseUrl?.length
-});
+// Configuration loaded successfully
 
 // Check if properly initialized
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase configuration missing. Please check environment variables.', {
-    hasUrl: !!supabaseUrl,
-    hasKey: !!supabaseAnonKey,
-    url: supabaseUrl,
-    keyPreview: supabaseAnonKey?.substring(0, 20) + '...'
-  });
+  console.error('Supabase configuration missing. Please check environment variables.');
   throw new Error('Supabase configuration missing');
 }
 
@@ -33,7 +20,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 try {
   new URL(supabaseUrl);
 } catch (e) {
-  console.error('Invalid Supabase URL format:', supabaseUrl);
+  console.error('Invalid Supabase URL format');
   throw new Error(`Invalid Supabase URL: ${supabaseUrl}`);
 }
 
@@ -57,7 +44,7 @@ export const signIn = async (email: string, password: string) => {
   });
 };
 
-export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
+export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'apple') => {
   const redirectTo = `${window.location.origin}/auth/callback`;
   
   return await supabase.auth.signInWithOAuth({

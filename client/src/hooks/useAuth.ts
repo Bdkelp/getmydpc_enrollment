@@ -23,7 +23,7 @@ export function useAuth() {
 
     // Listen for auth changes
     const { data: { subscription } } = onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event, session ? 'Has session' : 'No session');
+      // Auth state changed
       setSession(session);
       setIsInitialized(true);
       // Invalidate user query when auth state changes
@@ -40,11 +40,11 @@ export function useAuth() {
     queryKey: ['/api/auth/user'],
     queryFn: async () => {
       if (!session?.access_token) {
-        console.log('No access token available');
+        // No access token available
         return null;
       }
       
-      console.log('Fetching user with token:', session.access_token.substring(0, 20) + '...');
+      // Fetching user with token
       
       const response = await fetch('/api/auth/user', {
         headers: {
@@ -52,11 +52,11 @@ export function useAuth() {
         }
       });
       
-      console.log('User fetch response status:', response.status);
+      // User fetch response
       
       if (!response.ok) {
         if (response.status === 401) {
-          console.log('Unauthorized - invalid token');
+          // Unauthorized - invalid token
           return null;
         }
         if (response.status === 403) {
@@ -70,7 +70,7 @@ export function useAuth() {
       }
       
       const userData = await response.json();
-      console.log('User data received:', userData);
+      // User data received
       return userData;
     },
     enabled: !!session?.access_token && isInitialized,
@@ -84,15 +84,7 @@ export function useAuth() {
   // Don't show loading if we're just waiting for user data after initialization
   const isLoading = !isInitialized;
 
-  // Debug logging
-  console.log('useAuth state:', { 
-    isInitialized, 
-    hasSession: !!session, 
-    hasToken: !!session?.access_token,
-    userLoading, 
-    isLoading,
-    user: user?.email 
-  });
+  // Auth state ready
 
   return {
     user,

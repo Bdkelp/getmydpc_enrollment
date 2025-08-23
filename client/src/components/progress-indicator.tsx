@@ -42,7 +42,7 @@ export function ProgressIndicator({ currentStep, totalSteps }: ProgressIndicator
       </div>
       <div className="w-full bg-gray-200 rounded-full h-2">
         <div 
-          className="medical-blue-600 h-2 rounded-full transition-all duration-300"
+          className="bg-medical-blue-600 h-2 rounded-full transition-all duration-300"
           style={{ width: `${(currentStep / totalSteps) * 100}%` }}
         />
       </div>
