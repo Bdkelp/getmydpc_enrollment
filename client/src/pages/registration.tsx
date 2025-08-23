@@ -1531,12 +1531,28 @@ export default function Registration() {
                               />
                             </FormControl>
                             <div className="space-y-1 leading-none">
-                              <FormLabel className="text-sm">
-                                I consent to receive text messages from MyPremierPlans at the phone number provided. These messages may include appointment reminders, enrollment updates, payment notifications, and important healthcare information. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. View our Privacy Policy and Terms of Service on our website.
+                              <FormLabel className="text-base font-bold text-red-600">
+                                SMS/Text Messaging Consent (Optional):
                               </FormLabel>
-                              <p className="text-xs text-gray-600 mt-1">
-                                By checking this box, you agree to receive automated SMS/text messages. Consent is not a condition of purchase. Carrier message and data rates may apply.
-                              </p>
+                              <div className="bg-red-50 border border-red-200 rounded-md p-3 mt-2">
+                                <p className="text-sm font-semibold text-red-700 mb-2">
+                                  By checking this box, you expressly consent to receive automated marketing and transactional text messages from MyPremierPlans, its affiliates, and agents at the phone number provided.
+                                </p>
+                                <ul className="text-sm text-red-600 space-y-1 list-disc list-inside">
+                                  <li><strong>Message Types:</strong> Account alerts, payment reminders, appointment notifications, promotional offers, and healthcare updates</li>
+                                  <li><strong>Frequency:</strong> Up to 10 messages per month (message frequency may vary)</li>
+                                  <li><strong>STOP Instructions:</strong> Reply STOP to cancel at any time</li>
+                                  <li><strong>HELP:</strong> Reply HELP for assistance or call 1-800-XXX-XXXX</li>
+                                  <li><strong>Charges:</strong> Message and data rates may apply. Check with your carrier for details.</li>
+                                  <li><strong>Carriers Supported:</strong> Compatible with major US carriers (AT&T, Verizon, T-Mobile, Sprint, etc.)</li>
+                                </ul>
+                                <p className="text-sm font-bold text-red-700 mt-2">
+                                  Consent is not a condition of purchase. Your information will not be shared with third parties for marketing purposes.
+                                </p>
+                                <p className="text-xs text-red-600 mt-1">
+                                  View our Privacy Policy at www.getmydpc.com/privacy and Terms at www.getmydpc.com/terms
+                                </p>
+                              </div>
                             </div>
                           </FormItem>
                         )}
