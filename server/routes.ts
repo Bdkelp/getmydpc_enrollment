@@ -1441,18 +1441,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Enrich with agent info and plan details
       const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
-        // Get user's subscription
-        const subscription = await storage.getUserSubscription(enrollment.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        // Get plan details
+        const plan = enrollment.planId ? await storage.getPlan(enrollment.planId) : null;
         const agent = enrollment.enrolledByAgentId ? await storage.getUser(enrollment.enrolledByAgentId) : null;
         
         return {
-          ...enrollment,
+          id: enrollment.id,
+          firstName: enrollment.firstName || '',
+          lastName: enrollment.lastName || '',
+          email: enrollment.email || '',
+          createdAt: enrollment.createdAt,
           planName: plan?.name || 'Unknown Plan',
-          monthlyPrice: subscription?.amount || plan?.price || 0,
-          status: subscription?.status || 'pending',
+          memberType: 'employee', // Default, can be enhanced later
+          monthlyPrice: enrollment.amount || 0,
+          status: enrollment.status || 'pending',
           enrolledBy: agent ? `${agent.firstName} ${agent.lastName}` : 'Self-enrolled',
-          subscriptionId: subscription?.id || null
+          enrolledByAgentId: enrollment.enrolledByAgentId,
+          subscriptionId: enrollment.subscriptionId
         };
       }));
       

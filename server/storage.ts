@@ -451,55 +451,46 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(users).where(and(...conditions));
   }
 
-  async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
+  async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<any[]> {
     console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
     
     // Build conditions for subscription date filtering
-    const subscriptionConditions = [];
+    const conditions = [];
     
     if (startDate && endDate) {
-      subscriptionConditions.push(
+      conditions.push(
         gte(subscriptions.createdAt, new Date(startDate)),
-        lte(subscriptions.createdAt, new Date(endDate))
+        lte(subscriptions.createdAt, new Date(endDate + 'T23:59:59.999Z')) // Include full end date
       );
     }
     
-    // Get users who have subscriptions within the date range
-    const subscriptionQuery = subscriptionConditions.length > 0 
-      ? await db
-          .selectDistinct({
-            userId: subscriptions.userId
-          })
-          .from(subscriptions)
-          .where(and(...subscriptionConditions))
-      : await db
-          .selectDistinct({
-            userId: subscriptions.userId
-          })
-          .from(subscriptions);
-    
-    console.log(`[STORAGE] Found ${subscriptionQuery.length} unique users with subscriptions in date range`);
-    const userIds = subscriptionQuery.map(sub => sub.userId).filter(id => id != null);
-    
-    if (userIds.length === 0) {
-      console.log(`[STORAGE] No users with subscriptions found, returning empty array`);
-      return [];
-    }
-    
-    // Build conditions for user filtering
-    const userConditions = [];
-    
-    // Filter by users who have subscriptions
-    userConditions.push(sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`);
-    
     // Filter by agent if specified
     if (agentId) {
-      userConditions.push(eq(users.enrolledByAgentId, agentId));
+      conditions.push(eq(users.enrolledByAgentId, agentId));
     }
     
-    // Get all users with subscriptions in the date range
-    const enrollments = await db.select().from(users).where(userConditions.length > 0 ? and(...userConditions) : undefined);
-    console.log(`[STORAGE] Returning ${enrollments.length} enrollments for the specified date range`);
+    // Fetch subscriptions with user details
+    const enrollments = await db
+      .select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        middleName: users.middleName,
+        email: users.email,
+        phone: users.phone,
+        createdAt: subscriptions.createdAt,
+        enrolledByAgentId: users.enrolledByAgentId,
+        subscriptionId: subscriptions.id,
+        planId: subscriptions.planId,
+        amount: subscriptions.amount,
+        status: subscriptions.status
+      })
+      .from(subscriptions)
+      .leftJoin(users, eq(subscriptions.userId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(subscriptions.createdAt));
+    
+    console.log(`[STORAGE] Returning ${enrollments.length} subscription enrollments for the specified date range`);
     
     return enrollments;
   }

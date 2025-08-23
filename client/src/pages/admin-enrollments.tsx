@@ -68,7 +68,7 @@ export default function AdminEnrollments() {
   
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "yyyy-MM-dd"),
+    startDate: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"), // First day of current month
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
