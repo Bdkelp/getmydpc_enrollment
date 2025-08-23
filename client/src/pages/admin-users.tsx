@@ -134,9 +134,9 @@ export default function AdminUsers() {
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    
+
     return matchesSearch && matchesRole;
   }) || [];
 
@@ -285,7 +285,7 @@ export default function AdminUsers() {
         {/* Users Table */}
         <Card>
           <CardHeader>
-            <CardTitle>All Users</CardTitle>
+            <CardTitle>All System Users</CardTitle>
             <CardDescription>
               Click on a user's role to change their access level
             </CardDescription>
