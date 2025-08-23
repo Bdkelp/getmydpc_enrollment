@@ -1186,14 +1186,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { days = '30' } = req.query;
       const daysNumber = parseInt(days as string);
 
-      console.log(`[Analytics API] Fetching analytics for ${daysNumber} days`);
+      console.log(`[Analytics API] FORCE REFRESH - Fetching analytics for ${daysNumber} days - ${Date.now()}`);
 
-      // Add cache-busting headers
+      // Add aggressive cache-busting headers
       res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'X-Timestamp': Date.now().toString()
+        'Expires': '-1',
+        'X-Timestamp': Date.now().toString(),
+        'X-Cache-Bust': Math.random().toString(),
+        'Last-Modified': new Date().toUTCString(),
+        'ETag': `"${Date.now()}-${Math.random()}"`
       });
 
       // Get analytics data using consistent enrollment counting

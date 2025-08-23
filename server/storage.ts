@@ -828,11 +828,13 @@ export class DatabaseStorage implements IStorage {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    console.log(`[Analytics] Fetching fresh analytics data for ${days} days`);
+    console.log(`[Analytics] FORCE REFRESH - Fetching analytics data for ${days} days - ${Date.now()}`);
 
-    // Use the same method as enrollments page for consistency
+    // Force fresh database query - no caching
     const allEnrollments = await this.getAllEnrollments();
     const totalMembers = allEnrollments.length;
+    
+    console.log(`[Analytics] DIRECT DB QUERY - Found ${totalMembers} enrollments`);
 
     console.log(`[Analytics] Fresh data - Total enrollments: ${totalMembers}`);
 
