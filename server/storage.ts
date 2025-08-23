@@ -452,7 +452,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<any[]> {
-    console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
+    const timestamp = Date.now();
+    console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId} - timestamp: ${timestamp}`);
 
     // Build conditions for subscription date filtering
     const conditions = [

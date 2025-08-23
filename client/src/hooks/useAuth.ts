@@ -31,6 +31,20 @@ export function useAuth() {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
         // Clear all cached data to prevent stale information
         queryClient.clear();
+        
+        // Force clear browser storage
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear service worker cache if available
+          if ('caches' in window) {
+            caches.keys().then(names => {
+              names.forEach(name => caches.delete(name));
+            });
+          }
+        } catch (e) {
+          console.log('Storage clear attempt:', e);
+        }
       }
     });
 

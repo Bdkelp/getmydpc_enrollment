@@ -21,11 +21,11 @@ import { format } from "date-fns";
 export async function registerRoutes(app: Express): Promise<Server> {
   // Serve attached assets
   app.use('/attached_assets', express.static('attached_assets'));
-  
+
   // Determine which authentication system to use
   const useSupabaseAuth = process.env.SUPABASE_URL;
   const authMiddleware = useSupabaseAuth ? verifySupabaseToken : isAuthenticated;
-  
+
   if (useSupabaseAuth) {
     setupSupabaseAuth(app);
   } else {
@@ -33,12 +33,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (process.env.REPLIT_DOMAINS) {
       await setupAuth(app);
     }
-    
+
     // Configure passport strategies for production auth
     configurePassportStrategies();
     app.use(passport.initialize());
     app.use(passport.session());
-    
+
     // Use new auth routes for production
     app.use(authRoutes);
   }
@@ -52,14 +52,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!user) {
           return res.status(404).json({ message: "User not found" });
         }
-        
+
         // Get user's current subscription and plan
         const subscription = await storage.getUserSubscription(userId);
         let plan = null;
         if (subscription) {
           plan = await storage.getPlan(subscription.planId);
         }
-        
+
         res.json({ ...user, subscription, plan });
       } catch (error) {
         console.error("Error fetching user:", error);
@@ -71,16 +71,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Middleware to check if user is agent or admin
   const isAgentOrAdmin = async (req: any, res: any, next: any) => {
     // Get user ID based on authentication system
-    const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
+    const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
     if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    
+
     const user = await storage.getUser(userId);
     if (!user || (user.role !== 'agent' && user.role !== 'admin')) {
       return res.status(403).json({ message: "Access denied. Agent or admin role required." });
     }
-    
+
     req.userRole = user.role;
     next();
   };
@@ -92,18 +92,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const isAdmin = async (req: any, res: any, next: any) => {
     try {
       // Get user ID based on authentication system
-      const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
-      
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+
       console.log('[Admin Middleware] Checking admin access:', {
         userId,
         hasUser: !!req.user,
         userEmail: req.user?.email
       });
-      
+
       if (!userId) {
         return res.status(401).json({ message: "Unauthorized - No user ID found" });
       }
-      
+
       const user = await storage.getUser(userId);
       if (!user) {
         console.error('[Admin Middleware] User not found in database:', userId);
@@ -112,23 +112,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if user is a super admin or regular admin
       const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
-      
+
       console.log('[Admin Middleware] User details:', {
         email: user.email,
         role: user.role,
         isSuperAdmin,
         willAllow: isSuperAdmin || user.role === 'admin'
       });
-      
+
       if (!isSuperAdmin && user.role !== 'admin') {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      
+
       // Attach super admin status to request
       req.isSuperAdmin = isSuperAdmin;
       req.userRole = user.role;
       req.userEmail = user.email;
-      
+
       next();
     } catch (error) {
       console.error('[Admin Middleware] Error:', error);
@@ -139,31 +139,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Super Admin only middleware - restricts certain actions to super admins only
   const isSuperAdminOnly = async (req: any, res: any, next: any) => {
     try {
-      const userId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
-      
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+
       if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
-      
+
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(403).json({ message: "User not found" });
       }
-      
+
       // Only super admins can perform these actions
       const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
-      
+
       if (!isSuperAdmin) {
         console.log('[Super Admin Only] Access denied - not a super admin:', user.email);
         return res.status(403).json({ 
           message: "Super admin access required. Only super admins can perform this action." 
         });
       }
-      
+
       req.isSuperAdmin = true;
       req.userRole = user.role;
       req.userEmail = user.email;
-      
+
       console.log('[Super Admin Only] Access granted:', user.email);
       next();
     } catch (error) {
@@ -177,26 +177,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { planId } = req.body;
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      
+
       console.log("Mock payment request:", { planId, userId });
-      
+
       if (!planId) {
         return res.status(400).json({ message: "Plan ID is required" });
       }
-      
+
       // Get plan details
       const plan = await storage.getPlan(planId);
       if (!plan) {
         console.error("Plan not found:", planId);
         return res.status(404).json({ message: "Plan not found" });
       }
-      
+
       console.log("Plan details:", { id: plan.id, name: plan.name, price: plan.price });
-      
+
       // Get total price from session storage (includes processing fees and add-ons)
       const planPrice = parseFloat(plan.price);
       const totalPrice = planPrice * 1.04; // Include 4% processing fee
-      
+
       // Create subscription
       const subscription = await storage.createSubscription({
         userId,
@@ -206,9 +206,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         startDate: new Date(),
         nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
       });
-      
+
       console.log("Subscription created:", subscription.id);
-      
+
       // Create payment record
       const payment = await storage.createPayment({
         userId,
@@ -217,18 +217,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "succeeded",
         stripePaymentIntentId: `mock_${Date.now()}`, // Mock payment ID
       });
-      
+
       console.log("Payment created:", payment.id);
-      
+
       // Get user details for notifications
       const user = await storage.getUser(userId);
-      
+
       // Check if the user has a lead and mark it as enrolled
       if (user && user.email) {
         const lead = await storage.getLeadByEmail(user.email);
         if (lead && lead.status !== 'enrolled') {
           await storage.updateLead(lead.id, { status: 'enrolled' });
-          
+
           // Add activity note about enrollment
           if (lead.assignedAgentId) {
             await storage.addLeadActivity({
@@ -241,7 +241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log("Lead marked as enrolled:", lead.id);
         }
       }
-      
+
       // Send email notifications
       if (user) {
         try {
@@ -259,7 +259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 } else if (plan.name.toLowerCase().includes('elite')) {
                   tier = 'elite';
                 }
-                
+
                 agentInfo = {
                   name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Agent',
                   number: agent.agentNumber || 'N/A',
@@ -268,7 +268,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
           }
-          
+
           // Send enrollment notification
           await sendEnrollmentNotification({
             memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
@@ -281,7 +281,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             commission: agentInfo?.commission,
             enrollmentDate: new Date()
           });
-          
+
           // Send payment notification
           await sendPaymentNotification({
             memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
@@ -292,14 +292,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             transactionId: payment.stripePaymentIntentId || 'N/A',
             paymentDate: new Date()
           });
-          
+
           console.log('[Notifications] Email notifications sent successfully');
         } catch (notificationError) {
           console.error('[Notifications] Failed to send email notifications:', notificationError);
           // Don't fail the payment if notifications fail
         }
       }
-      
+
       res.json({
         success: true,
         subscriptionId: subscription.id,
@@ -344,18 +344,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = registrationSchema.parse(req.body);
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       console.log(`[ENROLLMENT] Current user ID: ${userId}`);
-      
+
       // Extract planId separately (not part of user profile)
       const { planId, ...userProfileData } = validatedData;
-      
+
       // Get the current user (agent or admin) to track who enrolled this member
       const currentUser = await storage.getUser(userId);
       const agentId = (currentUser?.role === 'agent' || currentUser?.role === 'admin') ? userId : undefined;
-      
+
       // Validate family members based on member type
       const familyMembers = (req.body as any).familyMembers || [];
       const memberType = userProfileData.memberType;
-      
+
       // Determine coverage type based on member type
       let coverageType = "Member Only";
       if (memberType === "member-spouse") {
@@ -365,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (memberType === "family") {
         coverageType = "Family";
       }
-      
+
       // Validate family members are provided when required
       if (coverageType === "Member/Spouse") {
         const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
@@ -386,14 +386,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (coverageType === "Family") {
         const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
         const children = familyMembers.filter((m: any) => m.relationship === "child");
-        
+
         if (!spouse || !spouse.firstName || !spouse.lastName || !spouse.dateOfBirth) {
           return res.status(400).json({ 
             message: "Spouse information is required for Family coverage",
             errors: ["Please provide complete spouse information including first name, last name, and date of birth"]
           });
         }
-        
+
         if (children.length === 0 || !children.some((c: any) => c.firstName && c.lastName && c.dateOfBirth)) {
           return res.status(400).json({ 
             message: "At least one child's information is required for Family coverage",
@@ -401,12 +401,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
       }
-      
+
       // Create new member user record for the enrollment (separate from agent/admin user)
       const memberId = `member_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       console.log(`[ENROLLMENT] Creating member user with ID: ${memberId}, Email: ${userProfileData.email}`);
       console.log(`[ENROLLMENT] Agent ID who is enrolling: ${agentId}`);
-      
+
       const memberUser = await storage.createUser({
         id: memberId,
         firstName: userProfileData.firstName,
@@ -433,7 +433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: 'user',
         approvalStatus: 'approved' // Auto-approve enrolled members
       });
-      
+
       console.log(`[ENROLLMENT] Member user created successfully: ${memberUser.id}`);
 
       // Get the plan details
@@ -489,7 +489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Process payment using PaymentService
       // Extract payment data from request body
       const paymentData = (req.body as any).payment || {};
-      
+
       const paymentResult = await paymentService.processPayment({
         amount: subscriptionAmount,
         currency: 'USD',
@@ -513,7 +513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: 'pending',
           pendingReason: 'payment_failed'
         });
-        
+
         return res.status(400).json({
           message: 'Payment processing failed',
           error: paymentResult.message || 'Unable to process payment',
@@ -602,11 +602,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { members } = req.body;
-      
+
       if (!members || !Array.isArray(members)) {
         return res.status(400).json({ message: "Invalid family member data" });
       }
-      
+
       // Add each family member
       for (const member of members) {
         await storage.addFamilyMember({
@@ -629,7 +629,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           planStartDate: member.planStartDate,
         });
       }
-      
+
       res.json({ message: "Family members enrolled successfully" });
     } catch (error) {
       console.error("Family enrollment error:", error);
@@ -641,17 +641,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/agent/stats", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      
+
       // Get enrollments created by this agent
       const enrollments = await storage.getAgentEnrollments(agentId);
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      
+
       // Calculate stats
       const monthlyEnrollments = enrollments.filter((e: any) => 
         new Date(e.createdAt) >= monthStart
       );
-      
+
       // Calculate commissions with new structure
       const enrollmentDetails = await Promise.all(enrollments.map(async (user: any) => {
         const subscription = await storage.getUserSubscription(user.id);
@@ -662,7 +662,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasRx: user.hasRxValet || false
         };
       }));
-      
+
       const monthlyEnrollmentDetails = await Promise.all(monthlyEnrollments.map(async (user: any) => {
         const subscription = await storage.getUserSubscription(user.id);
         const plan = subscription ? await storage.getPlan(subscription.planId) : null;
@@ -672,19 +672,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           hasRx: user.hasRxValet || false
         };
       }));
-      
+
       const totalCommission = enrollmentDetails.reduce((total, enrollment) => {
         return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
       }, 0);
-      
+
       const monthlyCommission = monthlyEnrollmentDetails.reduce((total, enrollment) => {
         return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
       }, 0);
-      
+
       // Get lead stats and recent leads
       const leadStats = await storage.getAgentLeadStats(agentId);
       const recentLeads = await storage.getAgentLeads(agentId);
-      
+
       res.json({
         totalEnrollments: enrollments.length,
         monthlyEnrollments: monthlyEnrollments.length,
@@ -713,14 +713,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.query;
-      
+
       const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
-      
+
       // Format enrollments with plan details
       const formattedEnrollments = await Promise.all(enrollments.map(async (user: any) => {
         const subscription = await storage.getUserSubscription(user.id);
         const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-        
+
         return {
           id: user.id,
           createdAt: user.createdAt,
@@ -736,7 +736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionId: subscription?.id
         };
       }));
-      
+
       res.json(formattedEnrollments);
     } catch (error) {
       console.error("Agent enrollments error:", error);
@@ -748,19 +748,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.body;
-      
+
       const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
-      
+
       // Get agent info for the export
       const agent = await storage.getUser(agentId);
       const agentNumber = agent?.agentNumber || 'Not Assigned';
-      
+
       // Create CSV content
       const headers = ['Agent Number', 'Agent Name', 'Date', 'First Name', 'Last Name', 'Email', 'Phone', 'Plan', 'Member Type', 'Monthly Price', 'Commission', 'Status'];
       const rows = await Promise.all(enrollments.map(async (user: any) => {
         const subscription = await storage.getUserSubscription(user.id);
         const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-        
+
         return [
           agentNumber,
           `${agent?.firstName || ''} ${agent?.lastName || ''}`.trim() || 'Unknown',
@@ -776,12 +776,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscription?.status || 'pending'
         ];
       }));
-      
+
       const csvContent = [
         headers.join(','),
         ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
       ].join('\n');
-      
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename=enrollments-${startDate}-to-${endDate}.csv`);
       res.send(csvContent);
@@ -807,13 +807,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.query;
-      
+
       const commissions = await storage.getAgentCommissions(
         agentId, 
         startDate as string, 
         endDate as string
       );
-      
+
       // Enrich with user names
       const enrichedCommissions = await Promise.all(commissions.map(async (commission) => {
         const user = await storage.getUser(commission.userId);
@@ -822,7 +822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown'
         };
       }));
-      
+
       res.json(enrichedCommissions);
     } catch (error) {
       console.error("Agent commissions error:", error);
@@ -834,17 +834,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { startDate, endDate } = req.query;
-      
+
       const commissions = await storage.getAgentCommissions(
         agentId,
         startDate as string,
         endDate as string
       );
-      
+
       // Get agent info
       const agent = await storage.getUser(agentId);
       const agentNumber = agent?.agentNumber || 'Not Assigned';
-      
+
       // Create CSV content
       const headers = ['Date', 'Member Name', 'Plan Tier', 'Plan Type', 'Total Cost', 'Commission', 'Status', 'Payment Status', 'Paid Date'];
       const rows = await Promise.all(commissions.map(async (commission) => {
@@ -861,7 +861,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           commission.paidDate ? new Date(commission.paidDate).toLocaleDateString() : ''
         ];
       }));
-      
+
       const csvContent = [
         `Agent: ${agent?.firstName} ${agent?.lastName} (${agentNumber})`,
         `Date Range: ${startDate} to ${endDate}`,
@@ -869,7 +869,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers.join(','),
         ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
       ].join('\n');
-      
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename=commissions-${startDate}-to-${endDate}.csv`);
       res.send(csvContent);
@@ -943,17 +943,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
-      
+
       if (!user || user.role !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
 
       const limit = parseInt(req.query.limit as string) || 50;
       const offset = parseInt(req.query.offset as string) || 0;
-      
+
       const users = await storage.getAllUsers(limit, offset);
       const totalCount = await storage.getUsersCount();
-      
+
       res.json({ users, totalCount });
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -965,7 +965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
-      
+
       if (!user || user.role !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -973,7 +973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const revenueStats = await storage.getRevenueStats();
       const subscriptionStats = await storage.getSubscriptionStats();
       const totalUsers = await storage.getUsersCount();
-      
+
       res.json({
         totalUsers,
         ...revenueStats,
@@ -990,7 +990,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const { agentNumber } = req.body;
-      
+
       // Check if agent number is already in use
       if (agentNumber) {
         const existingUser = await storage.getUserByAgentNumber(agentNumber);
@@ -998,9 +998,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: "Agent number is already in use" });
         }
       }
-      
+
       const user = await storage.updateUserProfile(userId, { agentNumber });
-      
+
       res.json({ 
         message: "Agent number updated successfully",
         user: {
@@ -1015,22 +1015,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  
+
   // Get enrollment details by ID
   app.get("/api/admin/enrollment/:id", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
-      
+
       const user = await storage.getUser(id);
       if (!user) {
         return res.status(404).json({ message: "Enrollment not found" });
       }
-      
+
       const subscription = await storage.getUserSubscription(id);
       const plan = subscription ? await storage.getPlan(subscription.planId) : null;
       const enrolledByAgent = user.enrolledByAgentId ? await storage.getUser(user.enrolledByAgentId) : null;
       const familyMembers = await storage.getFamilyMembers(id);
-      
+
       const enrollmentDetails = {
         id: user.id,
         userId: user.id,
@@ -1073,20 +1073,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Family Members
         familyMembers: familyMembers
       };
-      
+
       res.json(enrollmentDetails);
     } catch (error) {
       console.error("Error fetching enrollment details:", error);
       res.status(500).json({ message: "Failed to fetch enrollment details" });
     }
   });
-  
+
   // Update contact information
   app.patch("/api/admin/enrollment/:id/contact", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
       const { email, phone, emergencyContactName, emergencyContactPhone } = req.body;
-      
+
       // Validate phone numbers
       const phoneRegex = /^\d{10,11}$/;
       if (phone && !phoneRegex.test(phone)) {
@@ -1095,37 +1095,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (emergencyContactPhone && !phoneRegex.test(emergencyContactPhone)) {
         return res.status(400).json({ message: "Invalid emergency contact phone number. Must be 10-11 digits." });
       }
-      
+
       // Validate email
       if (email && !z.string().email().safeParse(email).success) {
         return res.status(400).json({ message: "Invalid email address" });
       }
-      
+
       const user = await storage.updateUserProfile(id, {
         email: email?.toLowerCase(),
         phone,
         emergencyContactName,
         emergencyContactPhone
       });
-      
+
       res.json(user);
     } catch (error) {
       console.error("Error updating contact info:", error);
       res.status(500).json({ message: "Failed to update contact information" });
     }
   });
-  
+
   // Update address information
   app.patch("/api/admin/enrollment/:id/address", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
       const { address, address2, city, state, zipCode } = req.body;
-      
+
       // Validate ZIP code
       if (zipCode && !/^\d{5,9}$/.test(zipCode)) {
         return res.status(400).json({ message: "Invalid ZIP code" });
       }
-      
+
       const user = await storage.updateUserProfile(id, {
         address,
         address2,
@@ -1133,7 +1133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         state,
         zipCode
       });
-      
+
       res.json(user);
     } catch (error) {
       console.error("Error updating address:", error);
@@ -1147,7 +1147,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { userId } = req.params;
       const { role } = req.body;
       const requestingUserId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
-      
+
       console.log('[Role Update] Request details:', {
         targetUserId: userId,
         newRole: role,
@@ -1155,16 +1155,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isSuperAdmin: req.isSuperAdmin,
         userEmail: req.user?.email
       });
-      
+
       // Validate role
       if (!["user", "agent", "admin"].includes(role)) {
         return res.status(400).json({ message: "Invalid role. Must be 'user', 'agent', or 'admin'" });
       }
-      
+
       const user = await storage.updateUserProfile(userId, { role });
-      
+
       console.log('[Role Update] Successfully updated user:', user.email, 'to role:', role);
-      
+
       res.json({ 
         message: "User role updated successfully",
         user: {
@@ -1179,36 +1179,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to update user role", error: error.message });
     }
   });
-  
+
   // Admin analytics endpoint
   app.get("/api/admin/analytics", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { days = '30' } = req.query;
       const daysNumber = parseInt(days as string);
-      
+
       console.log(`[Analytics API] Fetching analytics for ${daysNumber} days`);
-      
+
+      // Add cache-busting headers
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Timestamp': Date.now().toString()
+      });
+
       // Get analytics data using consistent enrollment counting
       const enrollments = await storage.getAllEnrollments();
       const activeSubscriptions = await storage.getActiveSubscriptionsCount();
       const totalUsers = await storage.getUsersCount();
       const revenueStats = await storage.getRevenueStats();
-      
+
       // Calculate date range
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysNumber);
-      
+
       // Filter enrollments by date range
       const enrollmentsInRange = enrollments.filter(enrollment => {
         const enrollmentDate = new Date(enrollment.createdAt);
         return enrollmentDate >= startDate && enrollmentDate <= endDate;
       });
-      
+
       // Calculate metrics consistently with enrollments page
       const totalMembers = enrollments.length;
       const newEnrollmentsThisMonth = enrollmentsInRange.length;
-      
+
       const overview = {
         totalMembers,
         activeSubscriptions: activeSubscriptions || totalMembers,
@@ -1219,7 +1227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newEnrollmentsThisMonth,
         cancellationsThisMonth: 0
       };
-      
+
       const planBreakdown = await storage.getPlanBreakdown();
       const recentEnrollments = enrollments.slice(0, 10).map(enrollment => ({
         id: enrollment.id,
@@ -1231,11 +1239,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enrolledDate: enrollment.createdAt,
         status: 'active'
       }));
-      
+
       const monthlyTrends = await storage.getMonthlyTrends();
-      
+
       console.log(`[Analytics API] Returning data - Total Members: ${totalMembers}, New Enrollments: ${newEnrollmentsThisMonth}`);
-      
+
       res.json({
         overview,
         planBreakdown,
@@ -1247,7 +1255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch analytics" });
     }
   });
-  
+
   // Admin approval endpoints
   app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
     try {
@@ -1264,11 +1272,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const adminId = req.user.id;
-      
+
       await storage.approveUser(userId, adminId);
-      
+
       // TODO: Send approval email to user
-      
+
       res.json({ message: "User approved successfully" });
     } catch (error) {
       console.error("Error approving user:", error);
@@ -1280,11 +1288,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const { reason } = req.body;
-      
+
       await storage.rejectUser(userId, reason);
-      
+
       // TODO: Send rejection email to user
-      
+
       res.json({ message: "User rejected" });
     } catch (error) {
       console.error("Error rejecting user:", error);
@@ -1296,7 +1304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
-      
+
       if (!user || user.role !== "admin") {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1313,7 +1321,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  
+
   app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       console.log('[Admin Agents API] Fetching agents...');
@@ -1332,14 +1340,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/leads", async (req, res) => {
     try {
       const { firstName, lastName, email, phone, message } = req.body;
-      
+
       console.log("Creating lead with data:", { firstName, lastName, email, phone, message });
-      
+
       // Validate required fields
       if (!firstName || !lastName || !email || !phone) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      
+
       // Create the lead without auto-assignment - goes to admin for qualification
       const lead = await storage.createLead({
         firstName,
@@ -1350,9 +1358,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         source: 'contact_form',
         status: 'new'
       });
-      
+
       console.log("Lead created successfully for admin review:", lead.id);
-      
+
       res.json({ success: true, lead });
     } catch (error: any) {
       console.error("Lead creation error:", error);
@@ -1360,12 +1368,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to create lead", error: error.message });
     }
   });
-  
+
   app.get("/api/agent/leads", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { status } = req.query;
-      
+
       const leads = await storage.getAgentLeads(agentId, status);
       res.json(leads);
     } catch (error) {
@@ -1373,12 +1381,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch leads" });
     }
   });
-  
+
   app.put("/api/leads/:id", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const leadId = parseInt(req.params.id);
       const updates = req.body;
-      
+
       const lead = await storage.updateLead(leadId, updates);
       res.json(lead);
     } catch (error) {
@@ -1386,34 +1394,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to update lead" });
     }
   });
-  
+
   app.post("/api/leads/:id/activities", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
     try {
       const leadId = parseInt(req.params.id);
       const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const { activityType, notes } = req.body;
-      
+
       const activity = await storage.addLeadActivity({
         leadId,
         agentId,
         activityType,
         notes
       });
-      
+
       res.json(activity);
     } catch (error) {
       console.error("Add activity error:", error);
       res.status(500).json({ message: "Failed to add activity" });
     }
   });
-  
+
   // Debug endpoint to check data
   app.get("/api/debug/data", async (req, res) => {
     try {
       const leads = await storage.getAllLeads();
       const enrollments = await storage.getAllEnrollments();
       const agents = await storage.getAgents();
-      
+
       res.json({
         leads: {
           count: leads.length,
@@ -1439,28 +1447,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const status = req.query.status as string | undefined;
       const assignedAgentId = req.query.assignedAgentId as string | undefined;
-      
+
       console.log('[Admin Leads API] Fetching leads with filters:', { status, assignedAgentId });
       const leads = await storage.getAllLeads(status, assignedAgentId);
       console.log('[Admin Leads API] Found leads:', leads.length);
       console.log('[Admin Leads API] First lead:', leads[0]);
-      
+
       res.json(leads);
     } catch (error) {
       console.error("Fetch all leads error:", error);
       res.status(500).json({ message: "Failed to fetch leads" });
     }
   });
-  
+
   app.put("/api/admin/leads/:id/assign", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const leadId = parseInt(req.params.id);
       const { agentId } = req.body;
-      
+
       if (!agentId) {
         return res.status(400).json({ message: "Agent ID is required" });
       }
-      
+
       const lead = await storage.assignLeadToAgent(leadId, agentId);
       res.json(lead);
     } catch (error) {
@@ -1468,28 +1476,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to assign lead" });
     }
   });
-  
+
   // Admin enrollment management endpoints
   app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { startDate, endDate, agentId } = req.query;
       console.log(`[Enrollments API] Admin fetching enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
-      
+
       const enrollments = await storage.getAllEnrollments(
         startDate as string,
         endDate as string,
         agentId as string
       );
-      
+
       console.log(`[Enrollments API] Found ${enrollments.length} total enrollments`);
       console.log(`[Enrollments API] Sample enrollment:`, enrollments[0]);
-      
+
+      // Add cache-busting headers
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Timestamp': Date.now().toString()
+      });
+
       // Enrich with agent info and plan details
       const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
         // Get plan details
         const plan = enrollment.planId ? await storage.getPlan(enrollment.planId) : null;
         const agent = enrollment.enrolledByAgentId ? await storage.getUser(enrollment.enrolledByAgentId) : null;
-        
+
         return {
           id: enrollment.id,
           firstName: enrollment.firstName || '',
@@ -1505,7 +1521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionId: enrollment.subscriptionId
         };
       }));
-      
+
       console.log(`[Enrollments API] Returning ${enrichedEnrollments.length} enriched enrollments`);
       res.json(enrichedEnrollments);
     } catch (error) {
@@ -1529,15 +1545,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/generate-agent-number/:agentId", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
     try {
       const { agentId } = req.params;
-      
+
       // Generate a unique agent number (e.g., AGT + year + 4-digit sequence)
       const year = new Date().getFullYear();
       const randomNum = Math.floor(1000 + Math.random() * 9000);
       const agentNumber = `AGT${year}${randomNum}`;
-      
+
       // Update user with agent number
       await storage.updateUser(agentId, { agentNumber });
-      
+
       res.json({ agentNumber });
     } catch (error) {
       console.error("Generate agent number error:", error);
@@ -1572,11 +1588,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { table } = req.params;
       const allowedTables = ['users', 'leads', 'subscriptions', 'plans', 'family_members', 'payments', 'lead_activities'];
-      
+
       if (!allowedTables.includes(table)) {
         return res.status(400).json({ message: "Invalid table name" });
       }
-      
+
       const data = await storage.getTableData(table);
       res.json({ table, data });
     } catch (error) {
@@ -1589,13 +1605,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/export-enrollments", authMiddleware, isAdmin, async (req: any, res) => {
     try {
       const { startDate, endDate, agentId } = req.query;
-      
+
       const enrollments = await storage.getAllEnrollments(
         startDate as string,
         endDate as string,
         agentId as string
       );
-      
+
       // Create CSV content
       const csvHeaders = [
         'Enrollment Date',
@@ -1612,7 +1628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'DOB',
         'Address'
       ];
-      
+
       const csvRows = enrollments.map(enrollment => [
         enrollment.createdAt ? format(new Date(enrollment.createdAt), 'yyyy-MM-dd') : '',
         enrollment.firstName || '',
@@ -1628,12 +1644,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enrollment.dateOfBirth || '',
         `${enrollment.address || ''} ${enrollment.address2 || ''}, ${enrollment.city || ''}, ${enrollment.state || ''} ${enrollment.zipCode || ''}`
       ]);
-      
+
       const csvContent = [
         csvHeaders.join(','),
         ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))
       ].join('\n');
-      
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="enrollments-export.csv"`);
       res.send(csvContent);
@@ -1644,45 +1660,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Session Management Endpoints
-  
+
   // Track user activity
   app.post('/api/user/activity', authMiddleware, async (req: any, res) => {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      
+
       // Update last activity timestamp
       await storage.updateUserProfile(userId, {
         lastActivityAt: new Date()
       });
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Activity tracking error:", error);
       res.status(500).json({ message: "Failed to track activity" });
     }
   });
-  
+
   // Get current user with session info
   app.get('/api/user', authMiddleware, async (req: any, res) => {
     try {
       const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
       const user = await storage.getUser(userId);
-      
+
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       // Update last login if it's been more than 5 minutes
       const lastLogin = user.lastLoginAt;
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      
+
       if (!lastLogin || new Date(lastLogin) < fiveMinutesAgo) {
         await storage.updateUserProfile(userId, {
           lastLoginAt: new Date(),
           lastActivityAt: new Date()
         });
       }
-      
+
       res.json({
         id: user.id,
         email: user.email,
@@ -1699,10 +1715,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to get user" });
     }
   });
-  
+
   // PayAnywhere Webhook endpoint (no auth required for webhooks)
   app.post('/webhooks/payanywhere', express.raw({ type: 'application/json' }), handlePayAnywhereWebhook);
-  
+
   const httpServer = createServer(app);
   return httpServer;
 }
