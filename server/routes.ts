@@ -928,42 +928,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin enrollments endpoint - shows all enrollments
-  app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { startDate, endDate, agentId } = req.query;
-      
-      // Get all users with enrollments (has subscriptions)
-      const enrollments = await storage.getAllEnrollments(startDate, endDate, agentId);
-      
-      // Format enrollments with plan details
-      const formattedEnrollments = await Promise.all(enrollments.map(async (user: any) => {
-        const subscription = await storage.getUserSubscription(user.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-        const enrolledByAgent = user.enrolledByAgentId ? await storage.getUser(user.enrolledByAgentId) : null;
-        
-        return {
-          id: user.id,
-          createdAt: user.createdAt,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          planName: plan?.name || 'No Plan',
-          memberType: user.memberType,
-          monthlyPrice: plan?.price || 0,
-          status: subscription?.status || 'pending',
-          enrolledBy: enrolledByAgent ? `${enrolledByAgent.firstName} ${enrolledByAgent.lastName}` : 'Unknown',
-          enrolledByAgentId: user.enrolledByAgentId,
-          subscriptionId: subscription?.id
-        };
-      }));
-      
-      res.json(formattedEnrollments);
-    } catch (error) {
-      console.error("Admin enrollments error:", error);
-      res.status(500).json({ message: "Failed to fetch enrollments" });
-    }
-  });
   
   // Get enrollment details by ID
   app.get("/api/admin/enrollment/:id", authMiddleware, isAdmin, async (req: any, res) => {
@@ -1218,32 +1182,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin lead management routes
-  app.get("/api/admin/leads", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { status, assignedAgentId } = req.query;
-      
-      // Fetch leads with optional filters
-      const leads = await storage.getAllLeads(status, assignedAgentId);
-      res.json(leads);
-    } catch (error) {
-      console.error("Admin fetch leads error:", error);
-      res.status(500).json({ message: "Failed to fetch leads" });
-    }
-  });
-  
-  app.put("/api/admin/leads/:id/assign", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const leadId = parseInt(req.params.id);
-      const { agentId } = req.body;
-      
-      const lead = await storage.assignLeadToAgent(leadId, agentId);
-      res.json(lead);
-    } catch (error) {
-      console.error("Assign lead error:", error);
-      res.status(500).json({ message: "Failed to assign lead" });
-    }
-  });
   
   app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
     try {
