@@ -3,58 +3,93 @@
 @tailwind utilities;
 
 :root {
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(20, 14.3%, 4.1%);
-  --muted: hsl(60, 4.8%, 95.9%);
-  --muted-foreground: hsl(25, 5.3%, 44.7%);
+  --background: hsl(220, 20%, 99%);
+  --foreground: hsl(220, 15%, 15%);
+  --muted: hsl(220, 15%, 96%);
+  --muted-foreground: hsl(220, 10%, 50%);
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(20, 14.3%, 4.1%);
+  --popover-foreground: hsl(220, 15%, 15%);
   --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(20, 14.3%, 4.1%);
-  --border: hsl(20, 5.9%, 90%);
-  --input: hsl(20, 5.9%, 90%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(211, 100%, 99%);
-  --secondary: hsl(60, 4.8%, 95.9%);
-  --secondary-foreground: hsl(24, 9.8%, 10%);
-  --accent: hsl(60, 4.8%, 95.9%);
-  --accent-foreground: hsl(24, 9.8%, 10%);
-  --destructive: hsl(0, 84.2%, 60.2%);
-  --destructive-foreground: hsl(60, 9.1%, 97.8%);
-  --ring: hsl(20, 14.3%, 4.1%);
-  --radius: 0.5rem;
+  --card-foreground: hsl(220, 15%, 15%);
+  --border: hsl(220, 15%, 92%);
+  --input: hsl(220, 15%, 92%);
+  --primary: hsl(210, 100%, 56%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(220, 15%, 96%);
+  --secondary-foreground: hsl(220, 15%, 20%);
+  --accent: hsl(210, 40%, 96%);
+  --accent-foreground: hsl(210, 40%, 20%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(210, 100%, 56%);
+  --radius: 0.75rem;
+  --success: hsl(142, 76%, 36%);
+  --warning: hsl(38, 92%, 50%);
+  --info: hsl(199, 89%, 48%);
 
-  /* Medical blue color scheme */
-  --medical-blue-50: hsl(214, 100%, 97%);
-  --medical-blue-100: hsl(214, 95%, 93%);
-  --medical-blue-500: hsl(207, 90%, 54%);
-  --medical-blue-600: hsl(207, 90%, 49%);
-  --medical-blue-700: hsl(207, 90%, 44%);
-  --medical-blue-800: hsl(207, 90%, 39%);
-  --medical-blue-900: hsl(207, 90%, 34%);
+  /* Enhanced Medical blue color scheme */
+  --medical-blue-50: hsl(210, 100%, 98%);
+  --medical-blue-100: hsl(210, 100%, 95%);
+  --medical-blue-200: hsl(210, 100%, 90%);
+  --medical-blue-300: hsl(210, 100%, 80%);
+  --medical-blue-400: hsl(210, 100%, 70%);
+  --medical-blue-500: hsl(210, 100%, 56%);
+  --medical-blue-600: hsl(210, 100%, 48%);
+  --medical-blue-700: hsl(210, 100%, 40%);
+  --medical-blue-800: hsl(210, 100%, 32%);
+  --medical-blue-900: hsl(210, 100%, 24%);
+
+  /* Medical green accent */
+  --medical-green-50: hsl(142, 76%, 95%);
+  --medical-green-100: hsl(142, 76%, 90%);
+  --medical-green-500: hsl(142, 76%, 36%);
+  --medical-green-600: hsl(142, 76%, 30%);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, hsl(210, 100%, 56%) 0%, hsl(210, 100%, 48%) 100%);
+  --gradient-secondary: linear-gradient(135deg, hsl(220, 15%, 96%) 0%, hsl(220, 15%, 92%) 100%);
+  --gradient-hero: linear-gradient(135deg, hsl(210, 100%, 98%) 0%, hsl(210, 100%, 95%) 50%, hsl(210, 40%, 96%) 100%);
+  --gradient-card: linear-gradient(135deg, hsl(0, 0%, 100%) 0%, hsl(220, 20%, 99%) 100%);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-colored: 0 10px 15px -3px rgba(59, 130, 246, 0.1), 0 4px 6px -2px rgba(59, 130, 246, 0.05);
 }
 
 .dark {
-  --background: hsl(240, 10%, 3.9%);
-  --foreground: hsl(0, 0%, 98%);
-  --muted: hsl(240, 3.7%, 15.9%);
-  --muted-foreground: hsl(240, 5%, 64.9%);
-  --popover: hsl(240, 10%, 3.9%);
-  --popover-foreground: hsl(0, 0%, 98%);
-  --card: hsl(240, 10%, 3.9%);
-  --card-foreground: hsl(0, 0%, 98%);
-  --border: hsl(240, 3.7%, 15.9%);
-  --input: hsl(240, 3.7%, 15.9%);
-  --primary: hsl(207, 90%, 54%);
-  --primary-foreground: hsl(211, 100%, 99%);
-  --secondary: hsl(240, 3.7%, 15.9%);
-  --secondary-foreground: hsl(0, 0%, 98%);
-  --accent: hsl(240, 3.7%, 15.9%);
-  --accent-foreground: hsl(0, 0%, 98%);
-  --destructive: hsl(0, 62.8%, 30.6%);
+  --background: hsl(220, 20%, 6%);
+  --foreground: hsl(220, 10%, 95%);
+  --muted: hsl(220, 15%, 12%);
+  --muted-foreground: hsl(220, 10%, 60%);
+  --popover: hsl(220, 20%, 8%);
+  --popover-foreground: hsl(220, 10%, 95%);
+  --card: hsl(220, 20%, 8%);
+  --card-foreground: hsl(220, 10%, 95%);
+  --border: hsl(220, 15%, 18%);
+  --input: hsl(220, 15%, 18%);
+  --primary: hsl(210, 100%, 60%);
+  --primary-foreground: hsl(220, 20%, 6%);
+  --secondary: hsl(220, 15%, 12%);
+  --secondary-foreground: hsl(220, 10%, 95%);
+  --accent: hsl(220, 15%, 14%);
+  --accent-foreground: hsl(220, 10%, 95%);
+  --destructive: hsl(0, 70%, 55%);
   --destructive-foreground: hsl(0, 0%, 98%);
-  --ring: hsl(240, 4.9%, 83.9%);
-  --radius: 0.5rem;
+  --ring: hsl(210, 100%, 60%);
+  --radius: 0.75rem;
+  
+  /* Dark mode gradients */
+  --gradient-primary: linear-gradient(135deg, hsl(210, 100%, 60%) 0%, hsl(210, 100%, 52%) 100%);
+  --gradient-secondary: linear-gradient(135deg, hsl(220, 15%, 12%) 0%, hsl(220, 15%, 16%) 100%);
+  --gradient-hero: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 50%, hsl(220, 15%, 12%) 100%);
+  --gradient-card: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 100%);
+  
+  /* Dark mode shadows */
+  --shadow-colored: 0 10px 15px -3px rgba(59, 130, 246, 0.2), 0 4px 6px -2px rgba(59, 130, 246, 0.1);
 }
 
 @layer base {
@@ -62,55 +97,220 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background: var(--gradient-hero);
+    color: hsl(var(--foreground));
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+    line-height: 1.2;
+  }
+
+  h1 {
+    @apply text-3xl md:text-4xl lg:text-5xl;
+  }
+
+  h2 {
+    @apply text-2xl md:text-3xl lg:text-4xl;
+  }
+
+  h3 {
+    @apply text-xl md:text-2xl lg:text-3xl;
+  }
+
+  p {
+    @apply text-muted-foreground leading-7;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+
+  /* Selection styles */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.2);
+    color: hsl(var(--primary-foreground));
   }
 }
 
 @layer utilities {
-  .medical-blue-50 {
-    background-color: var(--medical-blue-50);
-  }
-  .medical-blue-100 {
-    background-color: var(--medical-blue-100);
-  }
-  .medical-blue-500 {
-    background-color: var(--medical-blue-500);
-  }
-  .medical-blue-600 {
-    background-color: var(--medical-blue-600);
-  }
-  .medical-blue-700 {
-    background-color: var(--medical-blue-700);
-  }
-  .medical-blue-800 {
-    background-color: var(--medical-blue-800);
-  }
-  .medical-blue-900 {
-    background-color: var(--medical-blue-900);
-  }
+  /* Medical Blue Colors */
+  .medical-blue-50 { background-color: var(--medical-blue-50); }
+  .medical-blue-100 { background-color: var(--medical-blue-100); }
+  .medical-blue-200 { background-color: var(--medical-blue-200); }
+  .medical-blue-300 { background-color: var(--medical-blue-300); }
+  .medical-blue-400 { background-color: var(--medical-blue-400); }
+  .medical-blue-500 { background-color: var(--medical-blue-500); }
+  .medical-blue-600 { background-color: var(--medical-blue-600); }
+  .medical-blue-700 { background-color: var(--medical-blue-700); }
+  .medical-blue-800 { background-color: var(--medical-blue-800); }
+  .medical-blue-900 { background-color: var(--medical-blue-900); }
   
-  .text-medical-blue-500 {
-    color: var(--medical-blue-500);
-  }
-  .text-medical-blue-600 {
-    color: var(--medical-blue-600);
-  }
-  .text-medical-blue-700 {
-    color: var(--medical-blue-700);
-  }
-  .text-medical-blue-800 {
-    color: var(--medical-blue-800);
-  }
-  .text-medical-blue-900 {
-    color: var(--medical-blue-900);
+  /* Medical Blue Text Colors */
+  .text-medical-blue-500 { color: var(--medical-blue-500); }
+  .text-medical-blue-600 { color: var(--medical-blue-600); }
+  .text-medical-blue-700 { color: var(--medical-blue-700); }
+  .text-medical-blue-800 { color: var(--medical-blue-800); }
+  .text-medical-blue-900 { color: var(--medical-blue-900); }
+
+  /* Medical Green Colors */
+  .medical-green-50 { background-color: var(--medical-green-50); }
+  .medical-green-100 { background-color: var(--medical-green-100); }
+  .medical-green-500 { background-color: var(--medical-green-500); }
+  .medical-green-600 { background-color: var(--medical-green-600); }
+  .text-medical-green-500 { color: var(--medical-green-500); }
+  .text-medical-green-600 { color: var(--medical-green-600); }
+
+  /* Gradients */
+  .bg-gradient-primary { background: var(--gradient-primary); }
+  .bg-gradient-secondary { background: var(--gradient-secondary); }
+  .bg-gradient-hero { background: var(--gradient-hero); }
+  .bg-gradient-card { background: var(--gradient-card); }
+
+  /* Enhanced Shadows */
+  .shadow-soft { box-shadow: var(--shadow-sm); }
+  .shadow-medium { box-shadow: var(--shadow-md); }
+  .shadow-large { box-shadow: var(--shadow-lg); }
+  .shadow-extra-large { box-shadow: var(--shadow-xl); }
+  .shadow-massive { box-shadow: var(--shadow-2xl); }
+  .shadow-colored { box-shadow: var(--shadow-colored); }
+
+  /* Glass Effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
   }
 
-  .hover\:medical-blue-700:hover {
-    background-color: var(--medical-blue-700);
+  .glass-dark {
+    background: rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
-  .hover\:text-medical-blue-700:hover {
-    color: var(--medical-blue-700);
+
+  /* Hover Effects */
+  .hover-lift {
+    @apply transition-all duration-300 ease-in-out;
+  }
+  
+  .hover-lift:hover {
+    @apply -translate-y-1 shadow-large;
+  }
+
+  .hover-glow:hover {
+    @apply shadow-colored;
+  }
+
+  /* Card Enhancements */
+  .card-enhanced {
+    @apply bg-gradient-card border-0 shadow-medium hover-lift rounded-xl;
+  }
+
+  .card-glass {
+    @apply glass rounded-xl shadow-medium hover-lift;
+  }
+
+  /* Button Enhancements */
+  .btn-primary-gradient {
+    @apply bg-gradient-primary text-white border-0 shadow-medium hover:shadow-colored hover:scale-105 transition-all duration-300;
+  }
+
+  .btn-secondary-gradient {
+    @apply bg-gradient-secondary text-foreground border-0 shadow-soft hover:shadow-medium hover:scale-105 transition-all duration-300;
+  }
+
+  /* Text Effects */
+  .text-gradient-primary {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Animation Utilities */
+  .animate-fade-in {
+    @apply animate-in fade-in duration-500;
+  }
+
+  .animate-slide-up {
+    @apply animate-in slide-in-from-bottom-4 duration-500;
+  }
+
+  .animate-slide-down {
+    @apply animate-in slide-in-from-top-4 duration-500;
+  }
+
+  .animate-scale-in {
+    @apply animate-in zoom-in-95 duration-300;
+  }
+
+  .animate-bounce-subtle {
+    animation: bounce-subtle 2s infinite;
+  }
+
+  @keyframes bounce-subtle {
+    0%, 20%, 53%, 80%, 100% {
+      transform: translate3d(0, 0, 0);
+    }
+    40%, 43% {
+      transform: translate3d(0, -8px, 0);
+    }
+    70% {
+      transform: translate3d(0, -4px, 0);
+    }
+    90% {
+      transform: translate3d(0, -2px, 0);
+    }
+  }
+
+  /* Medical Theme Specific */
+  .medical-pattern {
+    background-image: radial-gradient(circle at 1px 1px, rgba(59, 130, 246, 0.1) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+
+  .medical-accent {
+    @apply border-l-4 border-medical-blue-500 bg-medical-blue-50 dark:bg-medical-blue-900/20;
+  }
+
+  /* Status Colors */
+  .status-success {
+    @apply bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800;
+  }
+
+  .status-warning {
+    @apply bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800;
+  }
+
+  .status-error {
+    @apply bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800;
+  }
+
+  .status-info {
+    @apply bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800;
   }
 }
