@@ -26,9 +26,11 @@ export function useAuth() {
       // Auth state changed
       setSession(session);
       setIsInitialized(true);
-      // Invalidate user query when auth state changes
+      // Invalidate all queries when auth state changes to ensure fresh data
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+        // Clear all cached data to prevent stale information
+        queryClient.clear();
       }
     });
 

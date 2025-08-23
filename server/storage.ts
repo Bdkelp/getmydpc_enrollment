@@ -827,11 +827,27 @@ export class DatabaseStorage implements IStorage {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
+    console.log(`[Analytics] Fetching fresh analytics data for ${days} days`);
+
     // Use the same method as enrollments page for consistency
     const allEnrollments = await this.getAllEnrollments();
     const totalMembers = allEnrollments.length;
 
-    console.log(`[Analytics] Total enrollments from getAllEnrollments(): ${totalMembers}`);
+    console.log(`[Analytics] Fresh data - Total enrollments: ${totalMembers}`);
+
+    if (totalMembers === 0) {
+      console.log(`[Analytics] No enrollments found - returning zero stats`);
+      return {
+        totalMembers: 0,
+        activeSubscriptions: 0,
+        monthlyRevenue: 0,
+        averageRevenue: 0,
+        churnRate: 0,
+        growthRate: 0,
+        newEnrollmentsThisMonth: 0,
+        cancellationsThisMonth: 0
+      };
+    }
 
     // Get new enrollments in date range using same data source
     const newEnrollments = allEnrollments.filter(enrollment => {
@@ -851,7 +867,7 @@ export class DatabaseStorage implements IStorage {
 
     const averageRevenue = totalMembers > 0 ? monthlyRevenue / totalMembers : 0;
 
-    console.log(`[Analytics] Calculated stats - Total: ${totalMembers}, Active: ${activeSubscriptions}, Revenue: ${monthlyRevenue}`);
+    console.log(`[Analytics] Fresh calculated stats - Total: ${totalMembers}, Active: ${activeSubscriptions}, Revenue: ${monthlyRevenue}`);
 
     return {
       totalMembers,
