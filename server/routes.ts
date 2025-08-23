@@ -263,7 +263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 agentInfo = {
                   name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Agent',
                   number: agent.agentNumber || 'N/A',
-                  commission: calculateEnrollmentCommission(planPrice, tier)
+                  commission: calculateEnrollmentCommission(plan.name, 'member', false)
                 };
               }
             }
@@ -290,7 +290,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             paymentMethod: 'Mock Payment',
             paymentStatus: 'succeeded',
             transactionId: payment.stripePaymentIntentId || 'N/A',
-            planName: plan.name,
             paymentDate: new Date()
           });
           
@@ -560,7 +559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           amount: subscriptionAmount,
           agentName: agentInfo ? `${agentInfo.firstName} ${agentInfo.lastName}` : undefined,
           agentNumber: agentInfo?.agentNumber,
-          commission: commission > 0 ? commission : undefined,
+          commission: commission > 0 ? commission : 0,
           enrollmentDate: new Date()
         });
       } catch (notificationError) {
@@ -851,7 +850,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rows = await Promise.all(commissions.map(async (commission) => {
         const user = await storage.getUser(commission.userId);
         return [
-          new Date(commission.createdAt).toLocaleDateString(),
+          commission.createdAt ? new Date(commission.createdAt).toLocaleDateString() : '',
           user ? `${user.firstName} ${user.lastName}` : 'Unknown',
           commission.planTier,
           commission.planType,
@@ -1174,7 +1173,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           role: user.role
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("[Role Update] Error updating user role:", error);
       console.error("[Role Update] Error stack:", error.stack);
       res.status(500).json({ message: "Failed to update user role", error: error.message });
@@ -1444,8 +1443,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
         // Get user's subscription
         const subscription = await storage.getUserSubscription(enrollment.id);
-        const plan = subscription ? await storage.getPlanById(subscription.planId) : null;
-        const agent = enrollment.enrolledByAgentId ? await storage.getUserById(enrollment.enrolledByAgentId) : null;
+        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
+        const agent = enrollment.enrolledByAgentId ? await storage.getUser(enrollment.enrolledByAgentId) : null;
         
         return {
           ...enrollment,
@@ -1564,7 +1563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
       
       const csvRows = enrollments.map(enrollment => [
-        format(new Date(enrollment.createdAt), 'yyyy-MM-dd'),
+        enrollment.createdAt ? format(new Date(enrollment.createdAt), 'yyyy-MM-dd') : '',
         enrollment.firstName || '',
         enrollment.lastName || '',
         enrollment.email || '',
@@ -1593,6 +1592,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Session Management Endpoints
+  
+  // Track user activity
+  app.post('/api/user/activity', authMiddleware, async (req: any, res) => {
+    try {
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      
+      // Update last activity timestamp
+      await storage.updateUserProfile(userId, {
+        lastActivityAt: new Date()
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Activity tracking error:", error);
+      res.status(500).json({ message: "Failed to track activity" });
+    }
+  });
+  
+  // Get current user with session info
+  app.get('/api/user', authMiddleware, async (req: any, res) => {
+    try {
+      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Update last login if it's been more than 5 minutes
+      const lastLogin = user.lastLoginAt;
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      
+      if (!lastLogin || new Date(lastLogin) < fiveMinutesAgo) {
+        await storage.updateUserProfile(userId, {
+          lastLoginAt: new Date(),
+          lastActivityAt: new Date()
+        });
+      }
+      
+      res.json({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        agentNumber: user.agentNumber,
+        lastLoginAt: user.lastLoginAt,
+        lastActivityAt: user.lastActivityAt,
+        approvalStatus: user.approvalStatus
+      });
+    } catch (error) {
+      console.error("Get user error:", error);
+      res.status(500).json({ message: "Failed to get user" });
+    }
+  });
+  
   // PayAnywhere Webhook endpoint (no auth required for webhooks)
   app.post('/webhooks/payanywhere', express.raw({ type: 'application/json' }), handlePayAnywhereWebhook);
   
