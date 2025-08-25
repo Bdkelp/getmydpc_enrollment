@@ -1203,3 +1203,22 @@ export async function clearTestData(): Promise<void> {
     throw new Error(`Failed during production cleanup: ${error.message}`);
   }
 }
+
+// Adding a placeholder for SupabaseStorage and its export
+class SupabaseStorage {
+  // Placeholder methods, actual implementation would interact with Supabase storage
+  async upload(file: File, path: string): Promise<string> {
+    console.log(`Uploading ${file.name} to ${path}`);
+    return `https://example.com/storage/${path}`;
+  }
+  async download(path: string): Promise<Blob> {
+    console.log(`Downloading from ${path}`);
+    return new Blob(['file content']);
+  }
+  async delete(path: string): Promise<void> {
+    console.log(`Deleting from ${path}`);
+  }
+}
+
+export { SupabaseStorage };
+export const storage = new SupabaseStorage();
