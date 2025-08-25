@@ -217,11 +217,10 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
   }
 });
 
-// Protected routes (require authentication)
-router.use(authenticateToken);
+// Apply authentication only to specific protected routes below, not globally
 
 // User profile routes
-router.get("/api/user/profile", async (req: AuthRequest, res) => {
+router.get("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const user = await storage.getUser(req.user!.id);
     if (!user) {
@@ -234,7 +233,7 @@ router.get("/api/user/profile", async (req: AuthRequest, res) => {
   }
 });
 
-router.put("/api/user/profile", async (req: AuthRequest, res) => {
+router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const updateData = req.body;
     delete updateData.id; // Prevent ID modification
@@ -253,7 +252,7 @@ router.put("/api/user/profile", async (req: AuthRequest, res) => {
 });
 
 // Subscription routes
-router.get("/api/user/subscription", async (req: AuthRequest, res) => {
+router.get("/api/user/subscription", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const subscriptions = await storage.getUserSubscriptions(req.user!.id);
     res.json(subscriptions);
@@ -264,7 +263,7 @@ router.get("/api/user/subscription", async (req: AuthRequest, res) => {
 });
 
 // Lead management routes
-router.get("/api/leads", async (req: AuthRequest, res) => {
+router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     let leads;
     
@@ -283,7 +282,7 @@ router.get("/api/leads", async (req: AuthRequest, res) => {
   }
 });
 
-router.post("/api/leads", async (req: AuthRequest, res) => {
+router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { firstName, lastName, email, phone, message, source } = req.body;
     
@@ -306,7 +305,7 @@ router.post("/api/leads", async (req: AuthRequest, res) => {
 });
 
 // Admin routes
-router.get("/api/admin/users", async (req: AuthRequest, res) => {
+router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
@@ -320,7 +319,7 @@ router.get("/api/admin/users", async (req: AuthRequest, res) => {
   }
 });
 
-router.put("/api/admin/users/:userId", async (req: AuthRequest, res) => {
+router.put("/api/admin/users/:userId", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
@@ -342,7 +341,7 @@ router.put("/api/admin/users/:userId", async (req: AuthRequest, res) => {
 });
 
 // Agent routes
-router.get("/api/agent/commissions", async (req: AuthRequest, res) => {
+router.get("/api/agent/commissions", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'agent') {
     return res.status(403).json({ message: "Agent access required" });
   }
