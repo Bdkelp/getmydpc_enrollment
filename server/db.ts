@@ -1,15 +1,10 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
-import * as schema from "@shared/schema";
 
-neonConfig.webSocketConstructor = ws;
+// Database connection using Supabase instead of Neon
+// All database operations are now handled through the storage layer
+// which uses Supabase client directly
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
-}
+export const db = null; // Deprecated - use storage functions instead
+export const pool = null; // Deprecated - use storage functions instead
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle({ client: pool, schema });
+// Migration note: All database operations now go through server/storage.ts
+// which uses Supabase client for better reliability and built-in auth integration

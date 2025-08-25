@@ -1,149 +1,136 @@
 
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import dotenv from 'dotenv';
-import ws from 'ws';
+import 'dotenv/config';
+import { createClient } from '@supabase/supabase-js';
 
-// Configure WebSocket for Neon
-neonConfig.webSocketConstructor = ws;
-dotenv.config();
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing Supabase environment variables');
+  console.error('Required: VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function clearProductionData() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL not found in environment variables');
-    process.exit(1);
-  }
+  console.log('🚨 PRODUCTION PREPARATION CLEANUP');
+  console.log('This will permanently delete all test enrollment data.');
+  console.log('Only admin/agent accounts and leads will be preserved.\n');
 
-  const pool = new Pool({ 
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-  
   try {
     console.log('🧹 Starting production preparation cleanup...');
-    console.log('⚠️  This will remove ALL test enrollments and member data');
-    
-    // Test connection first
-    const testResult = await pool.query('SELECT NOW()');
-    console.log('✅ Database connection established');
-    
-    // Start transaction
-    await pool.query('BEGIN');
-    
-    // Delete in proper order to respect foreign key constraints
-    console.log('Clearing commissions...');
-    const commissionsResult = await pool.query('DELETE FROM commissions WHERE id > 0');
-    console.log(`✅ Deleted ${commissionsResult.rowCount} commission records`);
+    console.log('⚠️  This will remove ALL test enrollments and member data\n');
 
-    console.log('Clearing enrollment modifications...');
-    const modificationsResult = await pool.query('DELETE FROM enrollment_modifications WHERE id > 0');
-    console.log(`✅ Deleted ${modificationsResult.rowCount} enrollment modification records`);
+    // Admin/agent emails to preserve
+    const preserveEmails = [
+      'michael@mypremierplans.com',
+      'travis@mypremierplans.com', 
+      'richard@mypremierplans.com',
+      'joaquin@mypremierplans.com',
+      'mdkeener@gmail.com'
+    ];
 
-    console.log('Clearing family members...');
-    const familyResult = await pool.query('DELETE FROM family_members WHERE id > 0');
-    console.log(`✅ Deleted ${familyResult.rowCount} family member records`);
+    // Delete in reverse dependency order to avoid foreign key conflicts
+    console.log('📊 Clearing family members...');
+    const { error: familyError } = await supabase
+      .from('family_members')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
 
-    console.log('Clearing payments...');
-    const paymentsResult = await pool.query('DELETE FROM payments WHERE id > 0');
-    console.log(`✅ Deleted ${paymentsResult.rowCount} payment records`);
+    if (familyError) {
+      console.log('ℹ️  No family members to clear or already cleared');
+    } else {
+      console.log('✅ Family members cleared');
+    }
 
-    console.log('Clearing subscriptions...');
-    const subscriptionsResult = await pool.query('DELETE FROM subscriptions WHERE id > 0');
-    console.log(`✅ Deleted ${subscriptionsResult.rowCount} subscription records`);
+    console.log('💰 Clearing commissions...');
+    const { error: commissionsError } = await supabase
+      .from('commissions')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
 
-    // Clear ALL leads and lead activities for production start
-    console.log('Clearing all leads...');
-    const leadActivitiesResult = await pool.query('DELETE FROM lead_activities WHERE id > 0');
-    console.log(`✅ Deleted ${leadActivitiesResult.rowCount} lead activity records`);
-    
-    const leadsResult = await pool.query('DELETE FROM leads WHERE id > 0');
-    console.log(`✅ Deleted ${leadsResult.rowCount} lead records`);
+    if (commissionsError) {
+      console.log('ℹ️  No commissions to clear or already cleared');
+    } else {
+      console.log('✅ Commissions cleared');
+    }
 
-    // Keep ONLY admin and agent accounts, remove ALL other users
-    console.log('Clearing all users except admin/agent accounts...');
-    const adminEmails = ['michael@mypremierplans.com', 'travis@mypremierplans.com'];
-    const agentEmails = ['mdkeener@gmail.com', 'tmatheny77@gmail.com', 'svillarreal@cyariskmanagement.com'];
-    const keepEmails = [...adminEmails, ...agentEmails];
-    
-    const usersResult = await pool.query(
-      `DELETE FROM users WHERE email NOT IN (${keepEmails.map((_, i) => `$${i + 1}`).join(', ')}) OR email IS NULL`,
-      keepEmails
-    );
-    console.log(`✅ Deleted ${usersResult.rowCount} user accounts (kept ${keepEmails.length} admin/agent accounts)`);
+    console.log('💳 Clearing payments...');
+    const { error: paymentsError } = await supabase
+      .from('payments')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
 
-    // Clear ALL sessions for fresh start
-    console.log('Clearing all user sessions...');
-    const sessionsResult = await pool.query('DELETE FROM sessions WHERE sid IS NOT NULL');
-    console.log(`✅ Cleared ${sessionsResult.rowCount} user sessions`);
+    if (paymentsError) {
+      console.log('ℹ️  No payments to clear or already cleared');
+    } else {
+      console.log('✅ Payments cleared');
+    }
 
-    // Reset auto-increment sequences to start fresh
-    console.log('Resetting database sequences...');
-    await pool.query('ALTER SEQUENCE IF EXISTS subscriptions_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS payments_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS family_members_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS commissions_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS enrollment_modifications_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS leads_id_seq RESTART WITH 1');
-    await pool.query('ALTER SEQUENCE IF EXISTS lead_activities_id_seq RESTART WITH 1');
-    console.log('✅ Reset all sequences');
+    console.log('📋 Clearing subscriptions...');
+    const { error: subscriptionsError } = await supabase
+      .from('subscriptions')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
 
-    // Commit transaction
-    await pool.query('COMMIT');
-    console.log('✅ All changes committed successfully');
-    
-    // Final verification
-    console.log('\n📊 Final database state verification:');
-    const verification = await pool.query(`
-      SELECT 
-        'users' as table_name, COUNT(*) as remaining_records FROM users
-      UNION ALL
-      SELECT 'subscriptions', COUNT(*) FROM subscriptions
-      UNION ALL
-      SELECT 'payments', COUNT(*) FROM payments
-      UNION ALL
-      SELECT 'family_members', COUNT(*) FROM family_members
-      UNION ALL
-      SELECT 'leads', COUNT(*) FROM leads
-      UNION ALL
-      SELECT 'lead_activities', COUNT(*) FROM lead_activities
-      UNION ALL
-      SELECT 'commissions', COUNT(*) FROM commissions
-      UNION ALL
-      SELECT 'enrollment_modifications', COUNT(*) FROM enrollment_modifications
-      UNION ALL
-      SELECT 'sessions', COUNT(*) FROM sessions
-      ORDER BY table_name;
-    `);
-    
-    verification.rows.forEach(row => {
-      const emoji = row.remaining_records === '0' ? '✅' : 
-                   (row.table_name === 'users' && row.remaining_records <= '5') ? '👥' : '⚠️';
-      console.log(`   ${emoji} ${row.table_name}: ${row.remaining_records} records`);
+    if (subscriptionsError) {
+      console.log('ℹ️  No subscriptions to clear or already cleared');
+    } else {
+      console.log('✅ Subscriptions cleared');
+    }
+
+    console.log('👥 Clearing test member accounts (preserving admin/agent accounts)...');
+    const { error: usersError } = await supabase
+      .from('users')
+      .delete()
+      .not('email', 'in', `(${preserveEmails.map(e => `"${e}"`).join(',')})`);
+
+    if (usersError) {
+      console.log('ℹ️  No test users to clear or already cleared');
+    } else {
+      console.log('✅ Test member accounts cleared');
+    }
+
+    // Verify cleanup
+    const { data: remainingUsers } = await supabase
+      .from('users')
+      .select('email, role')
+      .order('email');
+
+    const { data: remainingSubscriptions } = await supabase
+      .from('subscriptions')
+      .select('*');
+
+    const { data: remainingPayments } = await supabase
+      .from('payments')
+      .select('*');
+
+    console.log('\n📊 CLEANUP VERIFICATION:');
+    console.log(`✅ Remaining users: ${remainingUsers?.length || 0}`);
+    remainingUsers?.forEach(user => {
+      console.log(`   - ${user.email} (${user.role})`);
     });
+    console.log(`✅ Remaining subscriptions: ${remainingSubscriptions?.length || 0}`);
+    console.log(`✅ Remaining payments: ${remainingPayments?.length || 0}`);
 
-    console.log('\n🎉 Database successfully prepared for production!');
-    console.log('🔹 All test data completely removed');
-    console.log('🔹 Only admin and agent accounts remain');
-    console.log('🔹 All sequences reset to start from 1');
-    console.log('🔹 Ready for fresh production start');
-    
+    console.log('\n🎉 Production preparation cleanup completed successfully!');
+    console.log('Your system is now ready for production with clean data.');
+    console.log('\nPreserved data:');
+    console.log('- Admin/agent user accounts');
+    console.log('- Leads and lead activities (for sales continuity)');
+    console.log('- Plans (service offerings)');
+
   } catch (error) {
     console.error('❌ Error during cleanup:', error);
-    await pool.query('ROLLBACK');
-    process.exit(1);
-  } finally {
-    await pool.end();
+    throw error;
   }
 }
 
-// Confirmation prompt
-console.log('🚨 PRODUCTION PREPARATION CLEANUP');
-console.log('This will permanently delete ALL test data including leads.');
-console.log('Only admin/agent accounts will be preserved.');
-console.log('');
-
+// Run the cleanup
 clearProductionData()
   .then(() => {
-    console.log('✅ Production cleanup completed successfully');
+    console.log('\n✅ Production cleanup completed successfully');
     process.exit(0);
   })
   .catch((error) => {

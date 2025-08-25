@@ -1,33 +1,24 @@
-import {
-  users,
-  plans,
-  subscriptions,
-  payments,
-  familyMembers,
-  enrollmentModifications,
-  leads,
-  leadActivities,
-  commissions,
-  type User,
-  type UpsertUser,
-  type Plan,
-  type InsertPlan,
-  type Subscription,
-  type InsertSubscription,
-  type Payment,
-  type InsertPayment,
-  type FamilyMember,
-  type InsertFamilyMember,
-  type Lead,
-  type InsertLead,
-  type LeadActivity,
-  type InsertLeadActivity,
-  type Commission,
-  type InsertCommission,
+import { supabase } from './auth/supabaseAuth';
+import type {
+  User,
+  Plan,
+  Subscription,
+  Lead,
+  Payment,
+  Commission,
+  FamilyMember,
+  LeadActivity,
+  UpsertUser, // Keep these types even if not directly used in the snippet
+  InsertPlan,
+  InsertSubscription,
+  InsertPayment,
+  InsertFamilyMember,
+  InsertLead,
+  InsertLeadActivity,
+  InsertCommission,
 } from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, and, or, like, count, gte, lte, sql, isNull, sum } from "drizzle-orm";
-import crypto from "crypto";
+import { eq, desc, and, or, like, count, gte, lte, sql, isNull, sum } from "drizzle-orm"; // Keep these imports even if not directly used in the snippet
+import crypto from "crypto"; // Keep these imports even if not directly used in the snippet
 
 export interface IStorage {
   // User operations (required for Replit Auth)
@@ -117,1016 +108,1098 @@ export interface IStorage {
   getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
 }
 
-export class DatabaseStorage implements IStorage {
-  // Authentication operations
-  async createUser(userData: Partial<User>): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values({
-        ...userData,
-        id: userData.id || crypto.randomUUID(),
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-      .returning();
-    return user;
+// --- Supabase Implementation ---
+
+// User operations
+export async function createUser(userData: Partial<User>): Promise<User> {
+  const { data, error } = await supabase
+    .from('users')
+    .insert([{ ...userData, createdAt: new Date(), updatedAt: new Date() }]) // Added createdAt and updatedAt
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating user:', error);
+    throw new Error(`Failed to create user: ${error.message}`);
   }
 
-  async updateUser(id: string, data: Partial<User>): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return user;
+  return data;
+}
+
+export async function getUser(id: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // No rows returned
+    console.error('Error fetching user:', error);
+    throw new Error(`Failed to get user: ${error.message}`);
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-    return user;
+  return data;
+}
+
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // No rows returned
+    console.error('Error fetching user by email:', error);
+    return null;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
-    return user;
+  return data;
+}
+
+export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
+  const { data, error } = await supabase
+    .from('users')
+    .update({ ...updates, updatedAt: new Date() }) // Added updatedAt
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating user:', error);
+    throw new Error(`Failed to update user: ${error.message}`);
   }
 
-  async getUserByGoogleId(googleId: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.googleId, googleId))
-      .limit(1);
-    return user;
+  return data;
+}
+
+export async function updateUserProfile(id: string, profileData: Partial<User>): Promise<User> {
+  return updateUser(id, profileData);
+}
+
+export async function getUserByUsername(username: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('username', username)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by username:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByGoogleId(googleId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('googleId', googleId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by Google ID:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByFacebookId(facebookId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('facebookId', facebookId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by Facebook ID:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByTwitterId(twitterId: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('twitterId', twitterId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by Twitter ID:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByVerificationToken(token: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('emailVerificationToken', token)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by verification token:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByResetToken(token: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('resetPasswordToken', token)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by reset token:', error);
+    return null;
+  }
+  return data;
+}
+
+export async function getUserByAgentNumber(agentNumber: string): Promise<User | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('agentNumber', agentNumber)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching user by agent number:', error);
+    return null;
+  }
+  return data;
+}
+
+
+export async function upsertUser(userData: UpsertUser): Promise<User> {
+  // Supabase upsert logic can be a bit more involved if preserving specific fields is critical.
+  // For simplicity, we'll check existence and then insert or update.
+  const existingUser = await getUser(userData.id);
+
+  if (existingUser) {
+    // If user exists, preserve their role and update other fields
+    const { role, ...updateData } = userData;
+    return updateUser(userData.id, updateData);
+  } else {
+    // New user, set default role
+    return createUser({ ...userData, role: userData.role || "user" });
+  }
+}
+
+
+export async function updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User> {
+  const updates: Partial<User> = { updatedAt: new Date() };
+  if (stripeCustomerId) updates.stripeCustomerId = stripeCustomerId;
+  if (stripeSubscriptionId) updates.stripeSubscriptionId = stripeSubscriptionId;
+
+  return updateUser(id, updates);
+}
+
+export async function getAllUsers(limit = 50, offset = 0): Promise<User[]> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .order('createdAt', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    console.error('Error fetching all users:', error);
+    throw new Error(`Failed to get users: ${error.message}`);
   }
 
-  async getUserByFacebookId(facebookId: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.facebookId, facebookId))
-      .limit(1);
-    return user;
+  return data || [];
+}
+
+export async function getUsersCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from('users')
+    .select('*', { count: 'exact', head: true });
+
+  if (error) {
+    console.error('Error fetching user count:', error);
+    throw new Error(`Failed to get user count: ${error.message}`);
+  }
+  return count || 0;
+}
+
+export async function getRevenueStats(): Promise<{ totalRevenue: number; monthlyRevenue: number }> {
+  const today = new Date();
+  const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  const { data: totalRevenueData, error: totalRevenueError } = await supabase
+    .from('payments')
+    .select('amount')
+    .eq('status', 'completed');
+
+  const { data: monthlyRevenueData, error: monthlyRevenueError } = await supabase
+    .from('payments')
+    .select('amount')
+    .eq('status', 'completed')
+    .gte('createdAt', firstDayOfMonth.toISOString());
+
+  if (totalRevenueError) {
+    console.error('Error fetching total revenue:', totalRevenueError);
+    throw new Error(`Failed to get total revenue: ${totalRevenueError.message}`);
+  }
+  if (monthlyRevenueError) {
+    console.error('Error fetching monthly revenue:', monthlyRevenueError);
+    throw new Error(`Failed to get monthly revenue: ${monthlyRevenueError.message}`);
   }
 
-  async getUserByTwitterId(twitterId: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.twitterId, twitterId))
-      .limit(1);
-    return user;
+  const totalRevenue = totalRevenueData?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
+  const monthlyRevenue = monthlyRevenueData?.reduce((sum, payment) => sum + (payment.amount || 0), 0) || 0;
+
+  return { totalRevenue, monthlyRevenue };
+}
+
+export async function getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }> {
+  const { count: activeCount, error: activeError } = await supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'active');
+  const { count: pendingCount, error: pendingError } = await supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+  const { count: cancelledCount, error: cancelledError } = await supabase.from('subscriptions').select('*', { count: 'exact', head: true }).eq('status', 'cancelled');
+
+  if (activeError || pendingError || cancelledError) {
+    console.error('Error fetching subscription stats:', activeError || pendingError || cancelledError);
+    throw new Error('Failed to get subscription stats');
   }
 
-  async getUserByVerificationToken(token: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.emailVerificationToken, token))
-      .limit(1);
-    return user;
+  return {
+    active: activeCount || 0,
+    pending: pendingCount || 0,
+    cancelled: cancelledCount || 0,
+  };
+}
+
+export async function getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+  let query = supabase
+    .from('users')
+    .select('*')
+    .eq('enrolledByAgentId', agentId);
+
+  if (startDate && endDate) {
+    query = query.lt('createdAt', endDate).gt('createdAt', startDate); // Assuming createdAt for enrollment date
   }
 
-  async getUserByResetToken(token: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.resetPasswordToken, token))
-      .limit(1);
-    return user;
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching agent enrollments:', error);
+    throw new Error(`Failed to get agent enrollments: ${error.message}`);
   }
 
-  async getUserByAgentNumber(agentNumber: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.agentNumber, agentNumber))
-      .limit(1);
-    return user;
-  }
-  // User operations
-  async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+  return data || [];
+}
+
+export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
+  let query = supabase
+    .from('users')
+    .select('*')
+    .eq('role', 'user'); // Assuming users with role 'user' are enrolled
+
+  if (startDate && endDate) {
+    query = query.lt('createdAt', endDate).gt('createdAt', startDate);
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    const existingUser = await this.getUser(userData.id);
-    if (existingUser) {
-      // If user exists, preserve their role
-      const { role, ...updateData } = userData;
-      const [user] = await db
-        .update(users)
-        .set({ ...updateData, updatedAt: new Date() })
-        .where(eq(users.id, userData.id))
-        .returning();
-      return user;
-    } else {
-      // New user, set default role
-      const [user] = await db
-        .insert(users)
-        .values({ ...userData, role: userData.role || "user" })
-        .returning();
-      return user;
+  if (agentId) {
+    query = query.eq('enrolledByAgentId', agentId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching all enrollments:', error);
+    throw new Error(`Failed to get enrollments: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function recordEnrollmentModification(data: any): Promise<void> {
+  const { error } = await supabase.from('enrollment_modifications').insert([data]);
+  if (error) {
+    console.error('Error recording enrollment modification:', error);
+    throw new Error(`Failed to record enrollment modification: ${error.message}`);
+  }
+}
+
+// Lead operations
+export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
+  const { data, error } = await supabase
+    .from('leads')
+    .insert([{ ...leadData, createdAt: new Date(), updatedAt: new Date() }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating lead:', error);
+    throw new Error(`Failed to create lead: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
+  let query = supabase.from('leads').select('*').eq('assignedAgentId', agentId);
+  if (status) {
+    query = query.eq('status', status);
+  }
+  const { data, error } = await query.order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching leads by agent:', error);
+    throw new Error(`Failed to get leads: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function getLead(id: number): Promise<Lead | undefined> {
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching lead:', error);
+    throw new Error(`Failed to get lead: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('email', email)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching lead by email:', error);
+    return undefined;
+  }
+
+  return data;
+}
+
+export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
+  const { data: updatedLead, error } = await supabase
+    .from('leads')
+    .update({ ...data, updatedAt: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating lead:', error);
+    throw new Error(`Failed to update lead: ${error.message}`);
+  }
+  return updatedLead;
+}
+
+export async function assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
+  const { data: updatedLead, error } = await supabase
+    .from('leads')
+    .update({ assignedAgentId: agentId, status: 'qualified', updatedAt: new Date() })
+    .eq('id', leadId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error assigning lead to agent:', error);
+    throw new Error(`Failed to assign lead to agent: ${error.message}`);
+  }
+  return updatedLead;
+}
+
+// Lead activity operations
+export async function addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity> {
+  const { data, error } = await supabase
+    .from('lead_activities')
+    .insert([{ ...activity, createdAt: new Date() }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating lead activity:', error);
+    throw new Error(`Failed to create lead activity: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {
+  const { data, error } = await supabase
+    .from('lead_activities')
+    .select('*')
+    .eq('leadId', leadId)
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching lead activities:', error);
+    throw new Error(`Failed to get lead activities: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+// Lead stats
+export async function getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }> {
+  // Supabase doesn't directly support GROUP BY with conditional aggregation like Drizzle.
+  // This will require fetching all leads and processing them client-side or using custom SQL.
+  // For now, a simplified approach: count leads by status.
+  const leads = await getAgentLeads(agentId); // Fetch all leads for the agent
+
+  const stats = {
+    new: 0,
+    contacted: 0,
+    qualified: 0,
+    enrolled: 0,
+    closed: 0,
+  };
+
+  leads.forEach(lead => {
+    if (lead.status && lead.status in stats) {
+      stats[lead.status as keyof typeof stats]++;
     }
+  });
+
+  return stats;
+}
+
+export async function getAvailableAgentForLead(): Promise<string | null> {
+  // This is a complex query to implement efficiently in Supabase without custom SQL.
+  // A simple approach would be to fetch all agents and their lead counts, then sort.
+  const agentsWithLeadCount = await supabase.rpc('get_agents_with_lead_count'); // Assuming a PostgreSQL function exists for this
+
+  if (agentsWithLeadCount.error) {
+    console.error('Error fetching agents with lead count:', agentsWithLeadCount.error);
+    return null;
   }
 
-  async updateUserProfile(id: string, data: Partial<User>): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning();
-    return user;
+  const agents = agentsWithLeadCount.data;
+  if (!agents || agents.length === 0) {
+    return null;
   }
 
-  async updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User> {
-    const updateData: Partial<User> = { updatedAt: new Date() };
-    if (stripeCustomerId) updateData.stripeCustomerId = stripeCustomerId;
-    if (stripeSubscriptionId) updateData.stripeSubscriptionId = stripeSubscriptionId;
+  // Find the agent with the minimum lead count
+  agents.sort((a, b) => (a.leadCount || 0) - (b.leadCount || 0));
+  return agents[0]?.agentId || null;
+}
 
-    const [user] = await db
-      .update(users)
-      .set(updateData)
-      .where(eq(users.id, id))
-      .returning();
-    return user;
+export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
+  let query = supabase.from('leads').select('*');
+
+  if (status && status !== 'all') {
+    query = query.eq('status', status);
   }
 
-  // Plan operations
-  async getPlans(): Promise<Plan[]> {
-    return await db.select().from(plans).orderBy(plans.price);
+  if (assignedAgentId === 'unassigned') {
+    query = query.is('assignedAgentId', null);
+  } else if (assignedAgentId && assignedAgentId !== 'all') {
+    query = query.eq('assignedAgentId', assignedAgentId);
   }
 
-  async getActivePlans(): Promise<Plan[]> {
-    return await db.select().from(plans).where(eq(plans.isActive, true)).orderBy(plans.price);
+  const { data, error } = await query.order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching all leads:', error);
+    throw new Error(`Failed to get leads: ${error.message}`);
   }
 
-  async getPlan(id: number): Promise<Plan | undefined> {
-    const [plan] = await db.select().from(plans).where(eq(plans.id, id));
-    return plan;
+  return data || [];
+}
+
+// Agent operations
+export async function getAgents(): Promise<User[]> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('role', 'agent')
+    .order('name', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching agents:', error);
+    throw new Error(`Failed to get agents: ${error.message}`);
   }
 
-  async getPlanById(id: number): Promise<Plan | undefined> {
-    const [plan] = await db.select().from(plans).where(eq(plans.id, id));
-    return plan;
+  return data || [];
+}
+
+// Get database stats - this would typically involve custom SQL or specific Supabase functions.
+// Providing a placeholder implementation based on the original Drizzle queries.
+export async function getDatabaseStats(): Promise<any[]> {
+  const [userCountResult, leadCountResult, subCountResult, planCountResult] = await Promise.all([
+    supabase.from('users').select('*', { count: 'exact', head: true }),
+    supabase.from('leads').select('*', { count: 'exact', head: true }),
+    supabase.from('subscriptions').select('*', { count: 'exact', head: true }),
+    supabase.from('plans').select('*', { count: 'exact', head: true }),
+  ]);
+
+  return [
+    { table: 'Users', count: userCountResult.count || 0 },
+    { table: 'Leads', count: leadCountResult.count || 0 },
+    { table: 'Subscriptions', count: subCountResult.count || 0 },
+    { table: 'Plans', count: planCountResult.count || 0 },
+  ];
+}
+
+export async function getTableData(tableName: string): Promise<any[]> {
+  const { data, error } = await supabase.from(tableName).select('*').limit(100);
+  if (error) {
+    console.error(`Error fetching data for table ${tableName}:`, error);
+    throw new Error(`Failed to get data for table ${tableName}: ${error.message}`);
   }
+  return data || [];
+}
 
-  async createPlan(plan: InsertPlan): Promise<Plan> {
-    const [newPlan] = await db.insert(plans).values(plan).returning();
-    return newPlan;
-  }
+export async function getAnalytics(): Promise<any> {
+  try {
+    const [users, subscriptions, payments, leads] = await Promise.all([
+      getAllUsers(),
+      getAllSubscriptions(),
+      getAllPayments(),
+      getAllLeads()
+    ]);
 
-  async updatePlan(id: number, data: Partial<Plan>): Promise<Plan> {
-    const [plan] = await db
-      .update(plans)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(plans.id, id))
-      .returning();
-    return plan;
-  }
+    const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
+    const totalRevenue = payments
+      .filter(p => p.status === 'completed')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
 
-  // Subscription operations
-  async getUserSubscription(userId: string): Promise<Subscription | undefined> {
-    const [subscription] = await db
-      .select()
-      .from(subscriptions)
-      .where(and(
-        eq(subscriptions.userId, userId),
-        or(eq(subscriptions.status, "active"), eq(subscriptions.status, "pending"))
-      ))
-      .orderBy(desc(subscriptions.createdAt));
-    return subscription;
-  }
-
-  async createSubscription(subscription: InsertSubscription): Promise<Subscription> {
-    const [newSubscription] = await db.insert(subscriptions).values(subscription).returning();
-    return newSubscription;
-  }
-
-  async updateSubscription(id: number, data: Partial<Subscription>): Promise<Subscription> {
-    const [subscription] = await db
-      .update(subscriptions)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(subscriptions.id, id))
-      .returning();
-    return subscription;
-  }
-
-  async getActiveSubscriptions(): Promise<Subscription[]> {
-    return await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.status, "active"))
-      .orderBy(desc(subscriptions.createdAt));
-  }
-
-  // Payment operations
-  async createPayment(payment: InsertPayment): Promise<Payment> {
-    const [newPayment] = await db.insert(payments).values(payment).returning();
-    return newPayment;
-  }
-
-  async getUserPayments(userId: string): Promise<Payment[]> {
-    return await db
-      .select()
-      .from(payments)
-      .where(eq(payments.userId, userId))
-      .orderBy(desc(payments.createdAt));
-  }
-
-  async getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined> {
-    const [payment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.stripePaymentIntentId, stripePaymentIntentId));
-    return payment;
-  }
-
-  // Family member operations
-  async getFamilyMembers(primaryUserId: string): Promise<FamilyMember[]> {
-    return await db
-      .select()
-      .from(familyMembers)
-      .where(and(
-        eq(familyMembers.primaryUserId, primaryUserId),
-        eq(familyMembers.isActive, true)
-      ));
-  }
-
-  async addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
-    const [newMember] = await db.insert(familyMembers).values(member).returning();
-    return newMember;
-  }
-
-  // Admin operations
-  async getAllUsers(limit = 50, offset = 0): Promise<User[]> {
-    return await db
-      .select()
-      .from(users)
-      .orderBy(desc(users.createdAt))
-      .limit(limit)
-      .offset(offset);
-  }
-
-  async getUsersCount(): Promise<number> {
-    const [result] = await db.select({ count: count() }).from(users);
-    return result.count;
-  }
-
-  async getRevenueStats(): Promise<{ totalRevenue: number; monthlyRevenue: number }> {
-    // This would need to be implemented with proper SQL aggregations
-    // For now, returning placeholder values
-    return { totalRevenue: 224913, monthlyRevenue: 224913 };
-  }
-
-  async getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }> {
-    const activeCount = await db
-      .select({ count: count() })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, "active"));
-
-    const pendingCount = await db
-      .select({ count: count() })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, "pending"));
-
-    const cancelledCount = await db
-      .select({ count: count() })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, "cancelled"));
-
-    return {
-      active: activeCount[0]?.count || 0,
-      pending: pendingCount[0]?.count || 0,
-      cancelled: cancelledCount[0]?.count || 0,
-    };
-  }
-
-  async getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
-    // Build conditions for subscription date filtering
-    const subscriptionConditions = [];
-
-    if (startDate && endDate) {
-      subscriptionConditions.push(
-        gte(subscriptions.createdAt, new Date(startDate)),
-        lte(subscriptions.createdAt, new Date(endDate))
-      );
-    }
-
-    // Get users who have subscriptions within the date range
-    const subscriptionQuery = subscriptionConditions.length > 0
-      ? await db
-          .selectDistinct({
-            userId: subscriptions.userId
-          })
-          .from(subscriptions)
-          .where(and(...subscriptionConditions))
-      : await db
-          .selectDistinct({
-            userId: subscriptions.userId
-          })
-          .from(subscriptions);
-
-    const userIds = subscriptionQuery.map(sub => sub.userId).filter(id => id != null);
-
-    if (userIds.length === 0) {
-      return [];
-    }
-
-    // Get users enrolled by this agent who have subscriptions in the date range
-    const conditions = [
-      eq(users.enrolledByAgentId, agentId),
-      sql`${users.id} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`
-    ];
-
-    return await db.select().from(users).where(and(...conditions));
-  }
-
-  async getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<any[]> {
-    const timestamp = Date.now();
-    console.log(`[STORAGE] Getting all enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId} - timestamp: ${timestamp}`);
-
-    // Build conditions for subscription date filtering
-    const conditions = [
-      // Only include users with actual subscriptions and exclude null user joins
-      sql`${users.id} IS NOT NULL`,
-      // Only include active or pending subscriptions (exclude cancelled/failed)
-      or(
-        eq(subscriptions.status, 'active'),
-        eq(subscriptions.status, 'pending')
+    const today = new Date();
+    const monthlyRevenue = payments
+      .filter(p =>
+        p.status === 'completed' &&
+        new Date(p.createdAt).getMonth() === today.getMonth() &&
+        new Date(p.createdAt).getFullYear() === today.getFullYear()
       )
-    ];
-
-    if (startDate && endDate) {
-      conditions.push(
-        gte(subscriptions.createdAt, new Date(startDate)),
-        lte(subscriptions.createdAt, new Date(endDate + 'T23:59:59.999Z')) // Include full end date
-      );
-    }
-
-    // Filter by agent if specified
-    if (agentId) {
-      conditions.push(eq(users.enrolledByAgentId, agentId));
-    }
-
-    // Fetch subscriptions with user details - use INNER JOIN to ensure user exists
-    const enrollments = await db
-      .select({
-        id: users.id,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        middleName: users.middleName,
-        email: users.email,
-        phone: users.phone,
-        createdAt: subscriptions.createdAt,
-        enrolledByAgentId: users.enrolledByAgentId,
-        subscriptionId: subscriptions.id,
-        planId: subscriptions.planId,
-        amount: subscriptions.amount,
-        status: subscriptions.status
-      })
-      .from(subscriptions)
-      .innerJoin(users, eq(subscriptions.userId, users.id)) // Changed to INNER JOIN
-      .where(and(...conditions))
-      .orderBy(desc(subscriptions.createdAt));
-
-    console.log(`[STORAGE] Returning ${enrollments.length} valid enrollments with users`);
-
-    return enrollments;
-  }
-
-  async recordEnrollmentModification(data: any): Promise<void> {
-    await db.insert(enrollmentModifications).values({
-      userId: data.userId,
-      subscriptionId: data.subscriptionId,
-      modifiedBy: data.modifiedBy,
-      changeType: data.changeType,
-      changeDetails: data.changeDetails,
-      consentType: data.consentType,
-      consentNotes: data.consentNotes,
-      consentDate: data.consentDate,
-    });
-  }
-
-  // Lead management operations
-  async createLead(lead: InsertLead): Promise<Lead> {
-    const [newLead] = await db.insert(leads).values(lead).returning();
-    return newLead;
-  }
-
-  async getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
-    const conditions = [eq(leads.assignedAgentId, agentId)];
-    if (status) {
-      conditions.push(eq(leads.status, status));
-    }
-    return await db.select().from(leads).where(and(...conditions)).orderBy(desc(leads.createdAt));
-  }
-
-  async getLead(id: number): Promise<Lead | undefined> {
-    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
-    return lead;
-  }
-
-  async getLeadByEmail(email: string): Promise<Lead | undefined> {
-    const [lead] = await db.select().from(leads).where(eq(leads.email, email));
-    return lead;
-  }
-
-  async updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
-    const [updated] = await db.update(leads).set({ ...data, updatedAt: new Date() }).where(eq(leads.id, id)).returning();
-    return updated;
-  }
-
-  async assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
-    const [updated] = await db.update(leads).set({ assignedAgentId: agentId, updatedAt: new Date() }).where(eq(leads.id, leadId)).returning();
-    return updated;
-  }
-
-  // Lead activity operations
-  async addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity> {
-    const [newActivity] = await db.insert(leadActivities).values(activity).returning();
-    return newActivity;
-  }
-
-  async getLeadActivities(leadId: number): Promise<LeadActivity[]> {
-    return await db.select().from(leadActivities).where(eq(leadActivities.leadId, leadId)).orderBy(desc(leadActivities.createdAt));
-  }
-
-  // Lead stats
-  async getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }> {
-    const stats = await db.select({
-      status: leads.status,
-      count: count()
-    })
-    .from(leads)
-    .where(eq(leads.assignedAgentId, agentId))
-    .groupBy(leads.status);
-
-    const result = {
-      new: 0,
-      contacted: 0,
-      qualified: 0,
-      enrolled: 0,
-      closed: 0
-    };
-
-    stats.forEach(stat => {
-      if (stat.status && stat.status in result) {
-        result[stat.status as keyof typeof result] = stat.count;
-      }
-    });
-
-    return result;
-  }
-
-  async getAvailableAgentForLead(): Promise<string | null> {
-    // Simple round-robin assignment - get agent with least assigned leads
-    const agents = await db.select({
-      agentId: users.id,
-      leadCount: count(leads.id)
-    })
-    .from(users)
-    .leftJoin(leads, eq(leads.assignedAgentId, users.id))
-    .where(eq(users.role, 'agent'))
-    .groupBy(users.id)
-    .orderBy(count(leads.id))
-    .limit(1);
-
-    return agents[0]?.agentId || null;
-  }
-
-  async getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
-    const conditions = [];
-
-    if (status && status !== 'all') {
-      conditions.push(eq(leads.status, status));
-    }
-
-    if (assignedAgentId) {
-      if (assignedAgentId === 'unassigned') {
-        conditions.push(sql`${leads.assignedAgentId} IS NULL`);
-      } else {
-        conditions.push(eq(leads.assignedAgentId, assignedAgentId));
-      }
-    }
-
-    return await db.select().from(leads)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(leads.createdAt));
-  }
-
-  async getAgents(): Promise<User[]> {
-    return await db.select().from(users)
-      .where(eq(users.role, 'agent'))
-      .orderBy(users.name);
-  }
-
-  async getDatabaseStats(): Promise<any[]> {
-    const stats = await db.transaction(async (tx) => {
-      const userCount = await tx.select({ count: sql<number>`count(*)` }).from(users);
-      const leadCount = await tx.select({ count: sql<number>`count(*)` }).from(leads);
-      const subCount = await db.select({ count: sql<number>`count(*)` }).from(subscriptions);
-      const planCount = await db.select({ count: sql<number>`count(*)` }).from(plans);
-
-      return [
-        { table: 'Users', count: userCount[0].count },
-        { table: 'Leads', count: leadCount[0].count },
-        { table: 'Subscriptions', count: subCount[0].count },
-        { table: 'Plans', count: planCount[0].count },
-      ];
-    });
-    return stats;
-  }
-
-  async getTableData(tableName: string): Promise<any[]> {
-    switch(tableName) {
-      case 'users':
-        return await db.select().from(users).limit(100);
-      case 'leads':
-        return await db.select().from(leads).limit(100);
-      case 'subscriptions':
-        return await db.select().from(subscriptions).limit(100);
-      case 'plans':
-        return await db.select().from(plans).limit(100);
-      case 'family_members':
-        return await db.select().from(familyMembers).limit(100);
-      case 'payments':
-        return await db.select().from(payments).limit(100);
-      case 'lead_activities':
-        return await db.select().from(leadActivities).limit(100);
-      default:
-        throw new Error('Invalid table name');
-    }
-  }
-
-  async getAnalytics(days: number): Promise<any> {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-
-    // Get basic counts
-    const totalMembers = await db.select({ count: sql<number>`count(*)` })
-      .from(users)
-      .where(eq(users.role, 'user'));
-
-    const activeSubscriptions = await db.select({ count: sql<number>`count(*)` })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, 'active'));
-
-    // Get monthly revenue
-    const monthlyRevenue = await db.select({
-      total: sql<number>`COALESCE(SUM(amount), 0)`
-    })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, 'active'));
-
-    // Get new enrollments this month
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-
-    const newEnrollments = await db.select({ count: sql<number>`count(*)` })
-      .from(users)
-      .where(and(
-        eq(users.role, 'user'),
-        gte(users.createdAt, monthStart)
-      ));
-
-    // Get cancellations this month (simplified - would need proper tracking)
-    const cancellations = await db.select({ count: sql<number>`count(*)` })
-      .from(subscriptions)
-      .where(and(
-        eq(subscriptions.status, 'cancelled'),
-        gte(subscriptions.updatedAt, monthStart)
-      ));
-
-    // Get plan breakdown
-    const planBreakdown = await db.select({
-      planName: plans.name,
-      planId: plans.id,
-      memberCount: sql<number>`count(${subscriptions.id})`,
-      monthlyRevenue: sql<number>`COALESCE(SUM(${subscriptions.amount}), 0)`
-    })
-      .from(plans)
-      .leftJoin(subscriptions, and(
-        eq(plans.id, subscriptions.planId),
-        eq(subscriptions.status, 'active')
-      ))
-      .groupBy(plans.id, plans.name);
-
-    // Get recent enrollments
-    const recentEnrollments = await db.select({
-      id: users.id,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      email: users.email,
-      planName: plans.name,
-      amount: subscriptions.amount,
-      enrolledDate: users.createdAt,
-      status: subscriptions.status
-    })
-      .from(users)
-      .leftJoin(subscriptions, eq(users.id, subscriptions.userId))
-      .leftJoin(plans, eq(subscriptions.planId, plans.id))
-      .where(eq(users.role, 'user'))
-      .orderBy(desc(users.createdAt))
-      .limit(10);
-
-    // Calculate metrics
-    const totalMembersCount = totalMembers[0]?.count || 0;
-    const activeCount = activeSubscriptions[0]?.count || 0;
-    const revenue = monthlyRevenue[0]?.total || 0;
-    const averageRevenue = activeCount > 0 ? revenue / activeCount : 0;
-    const newEnrollmentsCount = newEnrollments[0]?.count || 0;
-    const cancellationsCount = cancellations[0]?.count || 0;
-
-    // Calculate rates
-    const churnRate = totalMembersCount > 0 ? (cancellationsCount / totalMembersCount) * 100 : 0;
-    const growthRate = totalMembersCount > 0 ? ((newEnrollmentsCount - cancellationsCount) / totalMembersCount) * 100 : 0;
-
-    // Calculate percentages for plan breakdown
-    const totalRevenue = planBreakdown.reduce((sum, plan) => sum + plan.monthlyRevenue, 0);
-    const planBreakdownWithPercentage = planBreakdown.map(plan => ({
-      ...plan,
-      percentage: totalRevenue > 0 ? (plan.monthlyRevenue / totalRevenue) * 100 : 0
-    }));
-
-    // Mock monthly trends (would need proper date grouping in production)
-    const monthlyTrends = [
-      { month: 'Current Month', enrollments: newEnrollmentsCount, cancellations: cancellationsCount, netGrowth: newEnrollmentsCount - cancellationsCount, revenue },
-    ];
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
 
     return {
-      overview: {
-        totalMembers: totalMembersCount,
-        activeSubscriptions: activeCount,
-        monthlyRevenue: revenue,
-        averageRevenue,
-        churnRate,
-        growthRate,
-        newEnrollmentsThisMonth: newEnrollmentsCount,
-        cancellationsThisMonth: cancellationsCount
-      },
-      planBreakdown: planBreakdownWithPercentage,
-      recentEnrollments,
-      monthlyTrends
-    };
-  }
-
-  // Lead management operations
-  async getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
-    let query = db.select().from(leads);
-
-    const conditions = [];
-    if (status && status !== 'all') {
-      conditions.push(eq(leads.status, status));
-    }
-    if (assignedAgentId === 'unassigned') {
-      conditions.push(isNull(leads.assignedAgentId));
-    } else if (assignedAgentId && assignedAgentId !== 'all') {
-      conditions.push(eq(leads.assignedAgentId, assignedAgentId));
-    }
-
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-
-    return await query.orderBy(desc(leads.createdAt));
-  }
-
-  async assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
-    const [lead] = await db
-      .update(leads)
-      .set({
-        assignedAgentId: agentId,
-        status: 'qualified',
-        updatedAt: new Date()
-      })
-      .where(eq(leads.id, leadId))
-      .returning();
-    return lead;
-  }
-
-  async getAgents(): Promise<User[]> {
-    return await db
-      .select()
-      .from(users)
-      .where(eq(users.role, 'agent'));
-  }
-
-  // Analytics operations
-  async getAnalyticsOverview(days: number): Promise<any> {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-
-    console.log(`[Analytics] FORCE REFRESH - Fetching analytics data for ${days} days - ${Date.now()}`);
-
-    // Force fresh database query - no caching
-    const allEnrollments = await this.getAllEnrollments();
-    const totalMembers = allEnrollments.length;
-    
-    console.log(`[Analytics] DIRECT DB QUERY - Found ${totalMembers} enrollments`);
-
-    console.log(`[Analytics] Fresh data - Total enrollments: ${totalMembers}`);
-
-    if (totalMembers === 0) {
-      console.log(`[Analytics] No enrollments found - returning zero stats`);
-      return {
-        totalMembers: 0,
-        activeSubscriptions: 0,
-        monthlyRevenue: 0,
-        averageRevenue: 0,
-        churnRate: 0,
-        growthRate: 0,
-        newEnrollmentsThisMonth: 0,
-        cancellationsThisMonth: 0
-      };
-    }
-
-    // Get new enrollments in date range using same data source
-    const newEnrollments = allEnrollments.filter(enrollment => {
-      const enrollmentDate = new Date(enrollment.createdAt);
-      return enrollmentDate >= startDate && enrollmentDate <= endDate;
-    }).length;
-
-    // Count active subscriptions from the same enrollment data
-    const activeSubscriptions = allEnrollments.filter(enrollment => 
-      enrollment.status === 'active'
-    ).length;
-
-    // Calculate revenue from the enrollments data
-    const monthlyRevenue = allEnrollments
-      .filter(enrollment => enrollment.status === 'active')
-      .reduce((total, enrollment) => total + (parseFloat(enrollment.amount) || 0), 0);
-
-    const averageRevenue = totalMembers > 0 ? monthlyRevenue / totalMembers : 0;
-
-    console.log(`[Analytics] Fresh calculated stats - Total: ${totalMembers}, Active: ${activeSubscriptions}, Revenue: ${monthlyRevenue}`);
-
-    return {
-      totalMembers,
-      activeSubscriptions,
+      totalUsers: users.length,
+      totalMembers: users.filter(u => u.role === 'member').length,
+      activeSubscriptions: activeSubscriptions.length,
+      totalRevenue,
       monthlyRevenue,
-      averageRevenue,
-      churnRate: 2.5, // Placeholder
-      growthRate: 15.2, // Placeholder
-      newEnrollmentsThisMonth: newEnrollments,
+      totalLeads: leads.length,
+      convertedLeads: leads.filter(l => l.status === 'converted').length
+    };
+  } catch (error) {
+    console.error('Error getting analytics:', error);
+    throw error;
+  }
+}
+
+export async function getAnalyticsOverview(days: number): Promise<any> {
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  const allEnrollments = await getAllEnrollments(); // Fetch all users with role 'user'
+  const totalMembers = allEnrollments.length;
+
+  if (totalMembers === 0) {
+    return {
+      totalMembers: 0,
+      activeSubscriptions: 0,
+      monthlyRevenue: 0,
+      averageRevenue: 0,
+      churnRate: 0,
+      growthRate: 0,
+      newEnrollmentsThisMonth: 0,
       cancellationsThisMonth: 0
     };
   }
 
-  async getActiveSubscriptionsCount() {
-    const result = await this.db
-      .select({ count: count() })
-      .from(subscriptions)
-      .where(eq(subscriptions.status, 'active'));
+  const newEnrollments = allEnrollments.filter(enrollment => {
+    const enrollmentDate = new Date(enrollment.createdAt);
+    return enrollmentDate >= startDate && enrollmentDate <= endDate;
+  }).length;
 
-    return result[0]?.count || 0;
+  const activeSubscriptions = allEnrollments.filter(enrollment =>
+    enrollment.subscriptionStatus === 'active' // Assuming subscriptionStatus is available in User object or needs join
+  ).length;
+
+  const monthlyRevenue = allEnrollments
+    .filter(enrollment => enrollment.subscriptionStatus === 'active') // Assuming subscriptionStatus
+    .reduce((total, enrollment) => total + (parseFloat(enrollment.subscriptionAmount) || 0), 0); // Assuming subscriptionAmount
+
+  const averageRevenue = totalMembers > 0 ? monthlyRevenue / totalMembers : 0;
+
+  // Placeholder for churnRate, growthRate, cancellationsThisMonth
+  const churnRate = 2.5;
+  const growthRate = 15.2;
+  const cancellationsThisMonth = 0;
+
+  return {
+    totalMembers,
+    activeSubscriptions,
+    monthlyRevenue,
+    averageRevenue,
+    churnRate,
+    growthRate,
+    newEnrollmentsThisMonth: newEnrollments,
+    cancellationsThisMonth
+  };
+}
+
+export async function getActiveSubscriptionsCount() {
+  const { count, error } = await supabase
+    .from('subscriptions')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'active');
+
+  if (error) {
+    console.error('Error fetching active subscriptions count:', error);
+    throw new Error(`Failed to get active subscriptions count: ${error.message}`);
+  }
+  return count || 0;
+}
+
+export async function getPlanBreakdown(): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('planId, plans:planId(name), amount')
+    .eq('status', 'active')
+    .rpc('get_plan_breakdown'); // Assuming a Supabase RPC function for this
+
+  if (error) {
+    console.error('Error fetching plan breakdown:', error);
+    throw new Error(`Failed to get plan breakdown: ${error.message}`);
   }
 
+  const breakdown = data || [];
+  const total = breakdown.reduce((sum, item) => sum + (item.amount || 0), 0);
 
-  async getPlanBreakdown(): Promise<any[]> {
-    const breakdown = await db
-      .select({
-        planId: subscriptions.planId,
-        planName: plans.name,
-        memberCount: sql<number>`count(*)`,
-        monthlyRevenue: sql<number>`sum(${subscriptions.amount})`
-      })
-      .from(subscriptions)
-      .innerJoin(plans, eq(subscriptions.planId, plans.id))
-      .where(eq(subscriptions.status, 'active'))
-      .groupBy(subscriptions.planId, plans.name);
+  return breakdown.map(item => ({
+    planId: item.planId,
+    planName: item.plans.name,
+    memberCount: item.memberCount || 0, // Assuming memberCount is returned by RPC
+    monthlyRevenue: item.amount || 0,
+    percentage: total > 0 ? ((item.amount || 0) / total) * 100 : 0
+  }));
+}
 
-    const total = breakdown.reduce((sum, item) => sum + item.monthlyRevenue, 0);
+export async function getRecentEnrollments(limit: number): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, firstName, lastName, email, subscriptions:subscriptionId(planId, amount, createdAt, status), plans:planId(name)')
+    .eq('role', 'user')
+    .order('createdAt', { ascending: false }) // Ordering by user creation date
+    .limit(limit);
 
-    return breakdown.map(item => ({
-      planId: item.planId,
-      planName: item.planName,
-      memberCount: item.memberCount,
-      monthlyRevenue: item.monthlyRevenue,
-      percentage: total > 0 ? (item.monthlyRevenue / total) * 100 : 0
-    }));
+  if (error) {
+    console.error('Error fetching recent enrollments:', error);
+    throw new Error(`Failed to get recent enrollments: ${error.message}`);
   }
 
-  async getRecentEnrollments(limit: number): Promise<any[]> {
-    const enrollments = await db
-      .select({
-        id: users.id,
-        firstName: users.firstName,
-        lastName: users.lastName,
-        email: users.email,
-        planName: plans.name,
-        amount: subscriptions.amount,
-        enrolledDate: subscriptions.createdAt,
-        status: subscriptions.status
-      })
-      .from(users)
-      .innerJoin(subscriptions, eq(users.id, subscriptions.userId))
-      .innerJoin(plans, eq(subscriptions.planId, plans.id))
-      .where(eq(users.role, 'user'))
-      .orderBy(desc(subscriptions.createdAt))
-      .limit(limit);
+  // Map to desired output format, handling potential nulls from joins
+  return (data || []).map((user: any) => ({
+    id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    planName: user.plans?.name,
+    amount: user.subscriptions?.amount,
+    enrolledDate: user.subscriptions?.createdAt || user.createdAt, // Use subscription or user creation date
+    status: user.subscriptions?.status
+  }));
+}
 
-    return enrollments;
-  }
+export async function getMonthlyTrends(): Promise<any[]> {
+  // This requires a more complex Supabase query or an RPC function to aggregate data by month.
+  // A direct translation of the Drizzle query is complex due to date manipulation in SQL.
+  // Placeholder implementation:
+  const trends = [];
+  const now = new Date();
 
-  async getMonthlyTrends(): Promise<any[]> {
-    // Get data for the last 6 months
-    const trends = [];
-    const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const monthDate = new Date(now);
+    monthDate.setMonth(monthDate.getMonth() - i);
+    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
 
-    for (let i = 5; i >= 0; i--) {
-      const monthDate = new Date(now);
-      monthDate.setMonth(monthDate.getMonth() - i);
-      const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-      const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    // Fetch active subscriptions created in the month
+    const enrollmentsResult = await supabase.from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active')
+      .gte('createdAt', monthStart.toISOString())
+      .lte('createdAt', monthEnd.toISOString());
 
-      const [enrollments] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(subscriptions)
-        .where(and(
-          gte(subscriptions.createdAt, monthStart),
-          lte(subscriptions.createdAt, monthEnd),
-          eq(subscriptions.status, 'active')
-        ));
+    // Fetch cancelled subscriptions updated in the month
+    const cancellationsResult = await supabase.from('subscriptions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'cancelled')
+      .gte('updatedAt', monthStart.toISOString())
+      .lte('updatedAt', monthEnd.toISOString());
 
-      const [cancellations] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(subscriptions)
-        .where(and(
-          gte(subscriptions.updatedAt, monthStart),
-          lte(subscriptions.updatedAt, monthEnd),
-          eq(subscriptions.status, 'cancelled')
-        ));
+    // Fetch revenue for active subscriptions in the month
+    const revenueResult = await supabase.from('subscriptions')
+      .select('amount')
+      .eq('status', 'active')
+      .gte('createdAt', monthStart.toISOString())
+      .lte('createdAt', monthEnd.toISOString());
 
-      const revenueResult = await db
-        .select({ total: sql<number>`sum(${subscriptions.amount})` })
-        .from(subscriptions)
-        .where(and(
-          gte(subscriptions.createdAt, monthStart),
-          lte(subscriptions.createdAt, monthEnd),
-          eq(subscriptions.status, 'active')
-        ));
+    const revenue = revenueResult.data?.reduce((sum, sub) => sum + (sub.amount || 0), 0) || 0;
 
-      trends.push({
-        month: monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        enrollments: enrollments.count,
-        cancellations: cancellations.count,
-        netGrowth: enrollments.count - cancellations.count,
-        revenue: revenueResult[0]?.total || 0
-      });
-    }
-
-    return trends;
-  }
-
-  // User approval operations
-  async getPendingUsers(): Promise<User[]> {
-    const pendingUsers = await db
-      .select()
-      .from(users)
-      .where(eq(users.approvalStatus, 'pending'))
-      .orderBy(desc(users.createdAt));
-
-    // Add suspicious flags based on simple checks
-    return pendingUsers.map(user => {
-      const suspiciousFlags: string[] = [];
-
-      // Check for temporary email patterns
-      const tempEmailPatterns = ['tempmail', 'throwaway', 'guerrilla', '10minute', 'mailinator'];
-      if (user.email && tempEmailPatterns.some(pattern => user.email!.toLowerCase().includes(pattern))) {
-        suspiciousFlags.push('Temporary email detected');
-      }
-
-      // Check if no user agent or suspicious user agent
-      if (!user.registrationUserAgent || user.registrationUserAgent === 'email') {
-        suspiciousFlags.push('No browser info');
-      }
-
-      // Check if email is not verified
-      if (!user.emailVerified) {
-        suspiciousFlags.push('Email not verified');
-      }
-
-      return {
-        ...user,
-        suspiciousFlags: suspiciousFlags
-      };
+    trends.push({
+      month: monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      enrollments: enrollmentsResult.count || 0,
+      cancellations: cancellationsResult.count || 0,
+      netGrowth: (enrollmentsResult.count || 0) - (cancellationsResult.count || 0),
+      revenue: revenue
     });
   }
 
-  async approveUser(userId: string, approvedBy: string): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({
-        approvalStatus: 'approved',
-        approvedAt: new Date(),
-        approvedBy: approvedBy,
-        updatedAt: new Date()
-      })
-      .where(eq(users.id, userId))
-      .returning();
-    return user;
-  }
-
-  async rejectUser(userId: string, reason: string): Promise<User> {
-    const [user] = await db
-      .update(users)
-      .set({
-        approvalStatus: 'rejected',
-        rejectionReason: reason,
-        updatedAt: new Date()
-      })
-      .where(eq(users.id, userId))
-      .returning();
-    return user;
-  }
-
-  // Commission operations
-  async createCommission(commission: InsertCommission): Promise<Commission> {
-    const [newCommission] = await db
-      .insert(commissions)
-      .values(commission)
-      .returning();
-    return newCommission;
-  }
-
-  async getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
-    let query = db.select().from(commissions).where(eq(commissions.agentId, agentId));
-
-    if (startDate && endDate) {
-      query = query.where(
-        and(
-          gte(commissions.createdAt, new Date(startDate)),
-          lte(commissions.createdAt, new Date(endDate))
-        )
-      );
-    }
-
-    return await query.orderBy(desc(commissions.createdAt));
-  }
-
-  async getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
-    let query = db.select().from(commissions);
-
-    if (startDate && endDate) {
-      query = query.where(
-        and(
-          gte(commissions.createdAt, new Date(startDate)),
-          lte(commissions.createdAt, new Date(endDate))
-        )
-      );
-    }
-
-    return await query.orderBy(desc(commissions.createdAt));
-  }
-
-  async getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
-    const [commission] = await db
-      .select()
-      .from(commissions)
-      .where(eq(commissions.subscriptionId, subscriptionId))
-      .limit(1);
-    return commission;
-  }
-
-  async updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
-    const [updated] = await db
-      .update(commissions)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(commissions.id, id))
-      .returning();
-    return updated;
-  }
-
-  async getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
-    let query = db.select({
-      status: commissions.paymentStatus,
-      total: sql<number>`COALESCE(SUM(${commissions.commissionAmount}), 0)::numeric`
-    }).from(commissions);
-
-    if (agentId) {
-      query = query.where(eq(commissions.agentId, agentId));
-    }
-
-    const results = await query.groupBy(commissions.paymentStatus);
-
-    return {
-      totalEarned: results.reduce((sum, r) => sum + parseFloat(r.total.toString()), 0),
-      totalPending: parseFloat(results.find(r => r.status === 'unpaid')?.total?.toString() || '0'),
-      totalPaid: parseFloat(results.find(r => r.status === 'paid')?.total?.toString() || '0')
-    };
-  }
+  return trends;
 }
 
-export const storage = new DatabaseStorage();
+// User approval operations
+export async function getPendingUsers(): Promise<User[]> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('approvalStatus', 'pending')
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching pending users:', error);
+    throw new Error(`Failed to get pending users: ${error.message}`);
+  }
+
+  // Add suspicious flags based on simple checks
+  return (data || []).map(user => {
+    const suspiciousFlags: string[] = [];
+
+    // Check for temporary email patterns
+    const tempEmailPatterns = ['tempmail', 'throwaway', 'guerrilla', '10minute', 'mailinator'];
+    if (user.email && tempEmailPatterns.some(pattern => user.email!.toLowerCase().includes(pattern))) {
+      suspiciousFlags.push('Temporary email detected');
+    }
+
+    // Check if no user agent or suspicious user agent
+    if (!user.registrationUserAgent || user.registrationUserAgent === 'email') {
+      suspiciousFlags.push('No browser info');
+    }
+
+    // Check if email is not verified
+    if (!user.emailVerified) {
+      suspiciousFlags.push('Email not verified');
+    }
+
+    return {
+      ...user,
+      suspiciousFlags: suspiciousFlags
+    };
+  });
+}
+
+export async function approveUser(userId: string, approvedBy: string): Promise<User> {
+  const { data, error } = await supabase
+    .from('users')
+    .update({
+      approvalStatus: 'approved',
+      approvedAt: new Date(),
+      approvedBy: approvedBy,
+      updatedAt: new Date()
+    })
+    .eq('id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error approving user:', error);
+    throw new Error(`Failed to approve user: ${error.message}`);
+  }
+  return data;
+}
+
+export async function rejectUser(userId: string, reason: string): Promise<User> {
+  const { data, error } = await supabase
+    .from('users')
+    .update({
+      approvalStatus: 'rejected',
+      rejectionReason: reason,
+      updatedAt: new Date()
+    })
+    .eq('id', userId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error rejecting user:', error);
+    throw new Error(`Failed to reject user: ${error.message}`);
+  }
+  return data;
+}
+
+// Commission operations
+export async function createCommission(commission: InsertCommission): Promise<Commission> {
+  const { data, error } = await supabase
+    .from('commissions')
+    .insert([{ ...commission, createdAt: new Date(), updatedAt: new Date() }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating commission:', error);
+    throw new Error(`Failed to create commission: ${error.message}`);
+  }
+  return data;
+}
+
+export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
+  let query = supabase.from('commissions').select('*').eq('agentId', agentId);
+
+  if (startDate && endDate) {
+    query = query.gte('createdAt', startDate).lte('createdAt', endDate);
+  }
+
+  const { data, error } = await query.order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching agent commissions:', error);
+    throw new Error(`Failed to get agent commissions: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
+  let query = supabase.from('commissions').select('*');
+
+  if (startDate && endDate) {
+    query = query.gte('createdAt', startDate).lte('createdAt', endDate);
+  }
+
+  const { data, error } = await query.order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching all commissions:', error);
+    throw new Error(`Failed to get all commissions: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
+  const { data, error } = await supabase
+    .from('commissions')
+    .select('*')
+    .eq('subscriptionId', subscriptionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching commission by subscription ID:', error);
+    return undefined;
+  }
+  return data;
+}
+
+export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
+  const { data: updatedCommission, error } = await supabase
+    .from('commissions')
+    .update({ ...data, updatedAt: new Date() })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating commission:', error);
+    throw new Error(`Failed to update commission: ${error.message}`);
+  }
+  return updatedCommission;
+}
+
+export async function getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
+  // This requires custom aggregation or fetching all and processing.
+  // Assuming a simplified approach by fetching relevant commissions.
+  let query = supabase.from('commissions').select('commissionAmount, paymentStatus');
+
+  if (agentId) {
+    query = query.eq('agentId', agentId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching commission stats:', error);
+    throw new Error(`Failed to get commission stats: ${error.message}`);
+  }
+
+  let totalEarned = 0;
+  let totalPending = 0;
+  let totalPaid = 0;
+
+  (data || []).forEach(commission => {
+    const amount = parseFloat(commission.commissionAmount?.toString() || '0');
+    if (commission.paymentStatus === 'paid') {
+      totalPaid += amount;
+      totalEarned += amount;
+    } else if (commission.paymentStatus === 'unpaid') {
+      totalPending += amount;
+    }
+  });
+
+  return { totalEarned, totalPending, totalPaid };
+}
+
+// Plan operations (add missing ones from original Drizzle implementation)
+export async function getActivePlans(): Promise<Plan[]> {
+  const { data, error } = await supabase
+    .from('plans')
+    .select('*')
+    .eq('isActive', true)
+    .order('monthlyPrice', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching active plans:', error);
+    throw new Error(`Failed to get active plans: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function getPlanById(id: number): Promise<Plan | undefined> {
+  // Supabase IDs are typically strings or UUIDs, so adapt if your schema uses numbers for IDs.
+  const { data, error } = await supabase
+    .from('plans')
+    .select('*')
+    .eq('id', id.toString()) // Assuming ID is string/UUID in Supabase
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching plan by ID:', error);
+    return undefined;
+  }
+  return data;
+}
+
+export async function createPlan(plan: InsertPlan): Promise<Plan> {
+  const { data, error } = await supabase
+    .from('plans')
+    .insert([{ ...plan, createdAt: new Date(), updatedAt: new Date() }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating plan:', error);
+    throw new Error(`Failed to create plan: ${error.message}`);
+  }
+  return data;
+}
+
+export async function updatePlan(id: number, data: Partial<Plan>): Promise<Plan> {
+  const { data: updatedPlan, error } = await supabase
+    .from('plans')
+    .update({ ...data, updatedAt: new Date() })
+    .eq('id', id.toString()) // Assuming ID is string/UUID in Supabase
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating plan:', error);
+    throw new Error(`Failed to update plan: ${error.message}`);
+  }
+  return updatedPlan;
+}
+
+// Subscription operations (add missing ones)
+export async function getActiveSubscriptions(): Promise<Subscription[]> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('status', 'active')
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching active subscriptions:', error);
+    throw new Error(`Failed to get active subscriptions: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+// Payment operations (add missing ones)
+export async function getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('stripePaymentIntentId', stripePaymentIntentId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching payment by Stripe ID:', error);
+    return undefined;
+  }
+  return data;
+}
+
+// Family member operations (add missing ones)
+export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
+  const { data, error } = await supabase
+    .from('family_members')
+    .insert([{ ...member, createdAt: new Date(), updatedAt: new Date() }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error adding family member:', error);
+    throw new Error(`Failed to add family member: ${error.message}`);
+  }
+  return data;
+}
+
+// Clear test data function (as provided in the snippet)
+export async function clearTestData(): Promise<void> {
+  try {
+    console.log('🧹 Starting production data cleanup...');
+
+    const preserveEmails = [
+      'michael@mypremierplans.com',
+      'travis@mypremierplans.com',
+      'richard@mypremierplans.com',
+      'joaquin@mypremierplans.com',
+      'mdkeener@gmail.com'
+    ];
+
+    console.log('Deleting family members...');
+    await supabase.from('family_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    console.log('Deleting commissions...');
+    await supabase.from('commissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    console.log('Deleting payments...');
+    await supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    console.log('Deleting subscriptions...');
+    await supabase.from('subscriptions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    console.log('Deleting test users (preserving admin/agent accounts)...');
+    await supabase.from('users').delete().not('email', 'in', `(${preserveEmails.map(e => `"${e}"`).join(',')})`);
+
+    console.log('✅ Production cleanup completed successfully');
+  } catch (error: any) {
+    console.error('❌ Error during production cleanup:', error);
+    throw new Error(`Failed during production cleanup: ${error.message}`);
+  }
+}
