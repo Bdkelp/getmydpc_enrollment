@@ -14,13 +14,14 @@ import {
   CreditCard, 
   FileText,
   CheckCircle,
-  Phone
+  Phone,
+  User // Added User icon
 } from "lucide-react";
 
 export default function Dashboard() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
-  
+
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
     const hour = new Date().getHours();
@@ -28,7 +29,7 @@ export default function Dashboard() {
     if (hour < 17) return "Good afternoon";
     return "Good evening";
   };
-  
+
   // Get user's first name for personalized greeting
   const getUserName = () => {
     if (user?.firstName) return user.firstName;
@@ -210,12 +211,12 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
-        
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
+
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
-            
+
             {/* Quick Actions */}
             <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_0.7s_ease-out]">
               <CardContent className="p-6">
@@ -265,7 +266,7 @@ export default function Dashboard() {
 
           {/* Sidebar */}
           <div className="space-y-8">
-            
+
             {/* Current Plan */}
             <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_0.9s_ease-out]">
               <CardContent className="p-6">
@@ -287,7 +288,7 @@ export default function Dashboard() {
                       }
                     </div>
                   </div>
-                  
+
                   <div className="border-t border-gray-200 pt-4">
                     <div className="space-y-2 text-sm text-gray-600">
                       <div className="flex items-center group/item hover:translate-x-1 transition-transform">
@@ -304,7 +305,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="border-t border-gray-200 pt-4 space-y-2">
                     <Button variant="ghost" className="w-full text-medical-blue-600 hover:text-medical-blue-700">
                       Upgrade Plan
@@ -333,7 +334,7 @@ export default function Dashboard() {
                       <div className="text-sm text-gray-600">Primary Care Physician</div>
                     </div>
                   </div>
-                  
+
                   <div className="border-t border-gray-200 pt-4">
                     <Button className="w-full bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 hover:from-medical-blue-700 hover:to-medical-blue-600 text-white shadow-md hover:shadow-lg">
                       <MessageCircle className="h-4 w-4 mr-2" />
@@ -361,7 +362,7 @@ export default function Dashboard() {
                     <span className="text-sm text-gray-600">Last Visit</span>
                     <span className="text-sm font-medium text-gray-900">Feb 1, 2024</span>
                   </div>
-                  
+
                   <div className="border-t border-gray-200 pt-4">
                     <Button variant="ghost" className="w-full text-medical-blue-600 hover:text-medical-blue-700">
                       View Full Health Record

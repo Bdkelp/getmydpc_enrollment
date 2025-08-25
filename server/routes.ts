@@ -238,6 +238,30 @@ router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res)
     const updateData = req.body;
     delete updateData.id; // Prevent ID modification
     delete updateData.role; // Prevent role modification via profile update
+    delete updateData.createdAt; // Prevent creation date modification
+    delete updateData.approvalStatus; // Prevent approval status modification
+    
+    // Validate phone number format if provided
+    if (updateData.phone) {
+      const phoneRegex = /^\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}$/;
+      if (!phoneRegex.test(updateData.phone)) {
+        return res.status(400).json({ message: "Invalid phone number format" });
+      }
+    }
+    
+    // Validate email format if changed
+    if (updateData.email && updateData.email !== req.user!.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(updateData.email)) {
+        return res.status(400).json({ message: "Invalid email format" });
+      }
+      
+      // Check if email is already in use by another user
+      const existingUser = await storage.getUserByEmail(updateData.email);
+      if (existingUser && existingUser.id !== req.user!.id) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+    }
     
     const updatedUser = await storage.updateUser(req.user!.id, {
       ...updateData,

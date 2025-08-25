@@ -19,6 +19,26 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
+// Storage bucket for profile images
+export const createProfileImagesBucket = async () => {
+  try {
+    const { data, error } = await supabase.storage.createBucket('profile-images', {
+      public: true,
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+      fileSizeLimit: 2097152 // 2MB
+    });
+
+    if (error && error.message !== 'Bucket already exists') {
+      console.error('Error creating profile-images bucket:', error);
+    }
+  } catch (error) {
+    console.error('Error setting up storage:', error);
+  }
+};
+
+// Initialize storage on app start
+createProfileImagesBucket();
+
 // Auth helper functions
 export const signIn = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signInWithPassword({

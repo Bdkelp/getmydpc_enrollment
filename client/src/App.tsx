@@ -31,6 +31,7 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
 import TestAuth from "@/pages/test-auth";
+import { lazy } from "react";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -54,7 +55,7 @@ function Router() {
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />
-      
+
       {/* Protected routes - require authentication */}
       {isAuthenticated && (
         <>
@@ -79,7 +80,7 @@ function Router() {
               <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}
-          
+
           {/* Agent routes */}
           {user?.role === "agent" && (
             <>
@@ -94,17 +95,17 @@ function Router() {
               <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}
-          
+
           {/* Member route (enrolled healthcare subscriber) */}
           {user?.role === "member" && (
             <Route path="/no-access" component={NoAccess} />
           )}
         </>
       )}
-      
+
       {/* Registration requires authentication for agents/admins */}
       <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin") ? Registration : () => <Redirect to="/login" />} />
-      
+
       {/* 404 for all unmatched routes */}
       <Route path="*" component={NotFound} />
     </Switch>
