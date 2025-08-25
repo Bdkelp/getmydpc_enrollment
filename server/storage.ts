@@ -114,7 +114,7 @@ export interface IStorage {
 export async function createUser(userData: Partial<User>): Promise<User> {
   const { data, error } = await supabase
     .from('users')
-    .insert([{ ...userData, createdAt: new Date(), updatedAt: new Date() }]) // Added createdAt and updatedAt
+    .insert([{ ...userData, created_at: new Date(), updated_at: new Date() }]) // Added created_at and updated_at
     .select()
     .single();
 
@@ -184,8 +184,8 @@ function mapUserFromDB(data: any): User | null {
     ssn: data.ssn,
     dateOfHire: data.date_of_hire || data.dateOfHire,
     planStartDate: data.plan_start_date || data.planStartDate,
-    createdAt: data.created_at || data.createdAt || new Date(),
-    updatedAt: data.updated_at || data.updatedAt || new Date(),
+    created_at: data.created_at || data.created_at || new Date(),
+    updated_at: data.updated_at || data.updated_at || new Date(),
     username: data.username,
     passwordHash: data.password_hash || data.passwordHash,
     emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
@@ -220,7 +220,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
   const { data, error } = await supabase
     .from('users')
-    .update({ ...updates, updatedAt: new Date() }) // Added updatedAt
+    .update({ ...updates, updated_at: new Date() }) // Added updated_at
     .eq('id', id)
     .select()
     .single();
@@ -360,7 +360,7 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 
 
 export async function updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User> {
-  const updates: Partial<User> = { updatedAt: new Date() };
+  const updates: Partial<User> = { updated_at: new Date() };
   if (stripeCustomerId) updates.stripeCustomerId = stripeCustomerId;
   if (stripeSubscriptionId) updates.stripeSubscriptionId = stripeSubscriptionId;
 
@@ -371,7 +371,7 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<User[]> {
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .order('createdAt', { ascending: false })
+    .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
   if (error) {
@@ -407,7 +407,7 @@ export async function getRevenueStats(): Promise<{ totalRevenue: number; monthly
     .from('payments')
     .select('amount')
     .eq('status', 'completed')
-    .gte('createdAt', firstDayOfMonth.toISOString());
+    .gte('created_at', firstDayOfMonth.toISOString());
 
   if (totalRevenueError) {
     console.error('Error fetching total revenue:', totalRevenueError);
@@ -448,7 +448,7 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
     .eq('enrolledByAgentId', agentId);
 
   if (startDate && endDate) {
-    query = query.lt('createdAt', endDate).gt('createdAt', startDate); // Assuming createdAt for enrollment date
+    query = query.lt('created_at', endDate).gt('created_at', startDate); // Assuming created_at for enrollment date
   }
 
   const { data, error } = await query;
@@ -468,7 +468,7 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
     .eq('role', 'user'); // Assuming users with role 'user' are enrolled
 
   if (startDate && endDate) {
-    query = query.lt('createdAt', endDate).gt('createdAt', startDate);
+    query = query.lt('created_at', endDate).gt('created_at', startDate);
   }
 
   if (agentId) {
@@ -497,7 +497,7 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
   const { data, error } = await supabase
     .from('leads')
-    .insert([{ ...leadData, createdAt: new Date(), updatedAt: new Date() }])
+    .insert([{ ...leadData, created_at: new Date(), updated_at: new Date() }])
     .select()
     .single();
 
@@ -514,7 +514,7 @@ export async function getAgentLeads(agentId: string, status?: string): Promise<L
   if (status) {
     query = query.eq('status', status);
   }
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching leads by agent:', error);
@@ -559,7 +559,7 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
 export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
   const { data: updatedLead, error } = await supabase
     .from('leads')
-    .update({ ...data, updatedAt: new Date() })
+    .update({ ...data, updated_at: new Date() })
     .eq('id', id)
     .select()
     .single();
@@ -574,7 +574,7 @@ export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead>
 export async function assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
   const { data: updatedLead, error } = await supabase
     .from('leads')
-    .update({ assignedAgentId: agentId, status: 'qualified', updatedAt: new Date() })
+    .update({ assignedAgentId: agentId, status: 'qualified', updated_at: new Date() })
     .eq('id', leadId)
     .select()
     .single();
@@ -590,7 +590,7 @@ export async function assignLeadToAgent(leadId: number, agentId: string): Promis
 export async function addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity> {
   const { data, error } = await supabase
     .from('lead_activities')
-    .insert([{ ...activity, createdAt: new Date() }])
+    .insert([{ ...activity, created_at: new Date() }])
     .select()
     .single();
 
@@ -607,7 +607,7 @@ export async function getLeadActivities(leadId: number): Promise<LeadActivity[]>
     .from('lead_activities')
     .select('*')
     .eq('leadId', leadId)
-    .order('createdAt', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching lead activities:', error);
@@ -674,7 +674,7 @@ export async function getAllLeads(status?: string, assignedAgentId?: string): Pr
     query = query.eq('assignedAgentId', assignedAgentId);
   }
 
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching all leads:', error);
@@ -745,8 +745,8 @@ export async function getAnalytics(): Promise<any> {
     const monthlyRevenue = payments
       .filter(p =>
         p.status === 'completed' &&
-        new Date(p.createdAt).getMonth() === today.getMonth() &&
-        new Date(p.createdAt).getFullYear() === today.getFullYear()
+        new Date(p.created_at).getMonth() === today.getMonth() &&
+        new Date(p.created_at).getFullYear() === today.getFullYear()
       )
       .reduce((sum, p) => sum + (p.amount || 0), 0);
 
@@ -787,7 +787,7 @@ export async function getAnalyticsOverview(days: number): Promise<any> {
   }
 
   const newEnrollments = allEnrollments.filter(enrollment => {
-    const enrollmentDate = new Date(enrollment.createdAt);
+    const enrollmentDate = new Date(enrollment.created_at);
     return enrollmentDate >= startDate && enrollmentDate <= endDate;
   }).length;
 
@@ -858,9 +858,9 @@ export async function getPlanBreakdown(): Promise<any[]> {
 export async function getRecentEnrollments(limit: number): Promise<any[]> {
   const { data, error } = await supabase
     .from('users')
-    .select('id, firstName, lastName, email, subscriptions:subscriptionId(planId, amount, createdAt, status), plans:planId(name)')
+    .select('id, firstName, lastName, email, subscriptions:subscriptionId(planId, amount, created_at, status), plans:planId(name)')
     .eq('role', 'user')
-    .order('createdAt', { ascending: false }) // Ordering by user creation date
+    .order('created_at', { ascending: false }) // Ordering by user creation date
     .limit(limit);
 
   if (error) {
@@ -876,7 +876,7 @@ export async function getRecentEnrollments(limit: number): Promise<any[]> {
     email: user.email,
     planName: user.plans?.name,
     amount: user.subscriptions?.amount,
-    enrolledDate: user.subscriptions?.createdAt || user.createdAt, // Use subscription or user creation date
+    enrolledDate: user.subscriptions?.created_at || user.created_at, // Use subscription or user creation date
     status: user.subscriptions?.status
   }));
 }
@@ -898,22 +898,22 @@ export async function getMonthlyTrends(): Promise<any[]> {
     const enrollmentsResult = await supabase.from('subscriptions')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'active')
-      .gte('createdAt', monthStart.toISOString())
-      .lte('createdAt', monthEnd.toISOString());
+      .gte('created_at', monthStart.toISOString())
+      .lte('created_at', monthEnd.toISOString());
 
     // Fetch cancelled subscriptions updated in the month
     const cancellationsResult = await supabase.from('subscriptions')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'cancelled')
-      .gte('updatedAt', monthStart.toISOString())
-      .lte('updatedAt', monthEnd.toISOString());
+      .gte('updated_at', monthStart.toISOString())
+      .lte('updated_at', monthEnd.toISOString());
 
     // Fetch revenue for active subscriptions in the month
     const revenueResult = await supabase.from('subscriptions')
       .select('amount')
       .eq('status', 'active')
-      .gte('createdAt', monthStart.toISOString())
-      .lte('createdAt', monthEnd.toISOString());
+      .gte('created_at', monthStart.toISOString())
+      .lte('created_at', monthEnd.toISOString());
 
     const revenue = revenueResult.data?.reduce((sum, sub) => sum + (sub.amount || 0), 0) || 0;
 
@@ -935,7 +935,7 @@ export async function getPendingUsers(): Promise<User[]> {
     .from('users')
     .select('*')
     .eq('approvalStatus', 'pending')
-    .order('createdAt', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching pending users:', error);
@@ -976,7 +976,7 @@ export async function approveUser(userId: string, approvedBy: string): Promise<U
       approvalStatus: 'approved',
       approvedAt: new Date(),
       approvedBy: approvedBy,
-      updatedAt: new Date()
+      updated_at: new Date()
     })
     .eq('id', userId)
     .select()
@@ -995,7 +995,7 @@ export async function rejectUser(userId: string, reason: string): Promise<User> 
     .update({
       approvalStatus: 'rejected',
       rejectionReason: reason,
-      updatedAt: new Date()
+      updated_at: new Date()
     })
     .eq('id', userId)
     .select()
@@ -1012,7 +1012,7 @@ export async function rejectUser(userId: string, reason: string): Promise<User> 
 export async function createCommission(commission: InsertCommission): Promise<Commission> {
   const { data, error } = await supabase
     .from('commissions')
-    .insert([{ ...commission, createdAt: new Date(), updatedAt: new Date() }])
+    .insert([{ ...commission, created_at: new Date(), updated_at: new Date() }])
     .select()
     .single();
 
@@ -1027,10 +1027,10 @@ export async function getAgentCommissions(agentId: string, startDate?: string, e
   let query = supabase.from('commissions').select('*').eq('agentId', agentId);
 
   if (startDate && endDate) {
-    query = query.gte('createdAt', startDate).lte('createdAt', endDate);
+    query = query.gte('created_at', startDate).lte('created_at', endDate);
   }
 
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching agent commissions:', error);
@@ -1044,10 +1044,10 @@ export async function getAllCommissions(startDate?: string, endDate?: string): P
   let query = supabase.from('commissions').select('*');
 
   if (startDate && endDate) {
-    query = query.gte('createdAt', startDate).lte('createdAt', endDate);
+    query = query.gte('created_at', startDate).lte('created_at', endDate);
   }
 
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching all commissions:', error);
@@ -1075,7 +1075,7 @@ export async function getCommissionBySubscriptionId(subscriptionId: number): Pro
 export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
   const { data: updatedCommission, error } = await supabase
     .from('commissions')
-    .update({ ...data, updatedAt: new Date() })
+    .update({ ...data, updated_at: new Date() })
     .eq('id', id)
     .select()
     .single();
@@ -1155,7 +1155,7 @@ export async function getPlanById(id: number): Promise<Plan | undefined> {
 export async function createPlan(plan: InsertPlan): Promise<Plan> {
   const { data, error } = await supabase
     .from('plans')
-    .insert([{ ...plan, createdAt: new Date(), updatedAt: new Date() }])
+    .insert([{ ...plan, created_at: new Date(), updated_at: new Date() }])
     .select()
     .single();
 
@@ -1169,7 +1169,7 @@ export async function createPlan(plan: InsertPlan): Promise<Plan> {
 export async function updatePlan(id: number, data: Partial<Plan>): Promise<Plan> {
   const { data: updatedPlan, error } = await supabase
     .from('plans')
-    .update({ ...data, updatedAt: new Date() })
+    .update({ ...data, updated_at: new Date() })
     .eq('id', id.toString()) // Assuming ID is string/UUID in Supabase
     .select()
     .single();
@@ -1187,7 +1187,7 @@ export async function getActiveSubscriptions(): Promise<Subscription[]> {
     .from('subscriptions')
     .select('*')
     .eq('status', 'active')
-    .order('createdAt', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching active subscriptions:', error);
@@ -1217,7 +1217,7 @@ export async function getPaymentByStripeId(stripePaymentIntentId: string): Promi
 export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
   const { data, error } = await supabase
     .from('family_members')
-    .insert([{ ...member, createdAt: new Date(), updatedAt: new Date() }])
+    .insert([{ ...member, created_at: new Date(), updated_at: new Date() }])
     .select()
     .single();
 
