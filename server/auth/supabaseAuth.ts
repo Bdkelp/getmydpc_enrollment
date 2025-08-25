@@ -28,8 +28,16 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
     const { data: { user }, error } = await supabase.auth.getUser(token);
     
     if (error || !user) {
-      console.log('[verifySupabaseToken] Token verification failed:', error);
-      return res.status(401).json({ message: 'Invalid token' });
+      console.log('[verifySupabaseToken] Token verification failed:', error?.message || 'No user returned');
+      console.log('[verifySupabaseToken] Full error:', error);
+      return res.status(401).json({ 
+        message: 'Invalid token',
+        debug: {
+          error: error?.message,
+          tokenLength: token.length,
+          tokenSegments: token.split('.').length
+        }
+      });
     }
     
     console.log('[verifySupabaseToken] Supabase user verified:', { id: user.id, email: user.email });
@@ -40,7 +48,10 @@ export const verifySupabaseToken: RequestHandler = async (req: any, res, next) =
     next();
   } catch (error) {
     console.error('[verifySupabaseToken] Token verification error:', error);
-    res.status(401).json({ message: 'Token verification failed' });
+    res.status(401).json({ 
+      message: 'Token verification failed',
+      debug: error.message 
+    });
   }
 };
 

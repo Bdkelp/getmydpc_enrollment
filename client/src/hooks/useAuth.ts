@@ -56,11 +56,11 @@ export function useAuth() {
     queryKey: ['/api/auth/user'],
     queryFn: async () => {
       if (!session?.access_token) {
-        // No access token available
+        console.log("No access token available");
         return null;
       }
       
-      // Fetching user with token
+      console.log("Fetching user with token:", session.access_token.substring(0, 50) + '...');
       
       const response = await fetch('/api/auth/user', {
         headers: {
@@ -68,11 +68,14 @@ export function useAuth() {
         }
       });
       
-      // User fetch response
+      console.log("User fetch response status:", response.status);
       
       if (!response.ok) {
         if (response.status === 401) {
-          // Unauthorized - invalid token
+          console.log("Unauthorized - clearing session and redirecting to login");
+          // Clear the session and redirect to login
+          localStorage.removeItem('supabase.auth.token');
+          setSession(null);
           return null;
         }
         if (response.status === 403) {
@@ -86,11 +89,17 @@ export function useAuth() {
       }
       
       const userData = await response.json();
-      // User data received
+      console.log("User data received:", userData.email, userData.role);
       return userData;
     },
     enabled: !!session?.access_token && isInitialized,
-    retry: false,
+    retry: (failureCount, error: any) => {
+      // Don't retry on auth errors
+      if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+        return false;
+      }
+      return failureCount < 2;
+    },
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,

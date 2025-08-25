@@ -37,16 +37,30 @@ export const signUp = async (email: string, password: string, userData?: any) =>
   });
 };
 
-export const signIn = async (email: string, password: string) => {
-  return await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
-};
+// Sign in with email and password
+export async function signIn(email: string, password: string) {
+  try {
+    const result = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (result.data.session) {
+      console.log("Session established successfully");
+      // Ensure session is persisted
+      await supabase.auth.setSession(result.data.session);
+    }
+
+    return result;
+  } catch (error) {
+    console.error("Sign in error:", error);
+    throw error;
+  }
+}
 
 export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'apple') => {
   const redirectTo = `${window.location.origin}/auth/callback`;
-  
+
   return await supabase.auth.signInWithOAuth({
     provider,
     options: {
@@ -74,10 +88,20 @@ export const getCurrentUser = async () => {
   return user;
 };
 
-export const getSession = async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  return session;
-};
+// Get current session
+export async function getSession() {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error("Error getting session:", error);
+      return null;
+    }
+    return session;
+  } catch (error) {
+    console.error("Failed to get session:", error);
+    return null;
+  }
+}
 
 // Listen for auth state changes
 export const onAuthStateChange = (callback: (event: string, session: any) => void) => {

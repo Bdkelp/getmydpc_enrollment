@@ -46,17 +46,23 @@ export default function Login() {
         throw new Error(error.message);
       }
       
-      if (result.user) {
+      if (result.user && result.session) {
         console.log("Login successful, user:", result.user);
+        console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
+        
+        // Store session data in localStorage as backup
+        localStorage.setItem('supabase.auth.token', result.session.access_token);
+        
         toast({
           title: "Welcome back!",
           description: `Logged in successfully`,
         });
         
-        // Add a small delay before redirect to ensure session is stored
+        // Wait longer to ensure session is properly stored
         setTimeout(() => {
-          window.location.href = "/";
-        }, 500);
+          // Force a full page reload to ensure auth state is properly initialized
+          window.location.reload();
+        }, 1000);
       }
     } catch (error: any) {
       console.error("Login failed:", error);
