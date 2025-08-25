@@ -202,4 +202,11 @@ router.get("/api/agent/commissions", async (req: AuthRequest, res) => {
   }
 });
 
-export default router;
+export async function registerRoutes(app: any) {
+  // Use the router
+  app.use(router);
+  
+  // Create and return the server
+  const { createServer } = await import("http");
+  return createServer(app);
+}

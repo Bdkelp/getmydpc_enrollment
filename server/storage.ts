@@ -1,4 +1,4 @@
-import { supabase } from './auth/supabaseAuth';
+import { supabase } from './lib/supabaseClient';
 import type {
   User,
   Plan,

@@ -1,15 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import { Request, Response, NextFunction } from 'express';
 import { storage } from '../storage';
-
-const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase environment variables');
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+import { supabase } from '../lib/supabaseClient';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -103,4 +94,3 @@ function determineUserRole(email: string): "admin" | "agent" | "member" {
   return "member";
 }
 
-export default supabase;
