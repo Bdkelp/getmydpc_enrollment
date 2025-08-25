@@ -50,16 +50,48 @@ export default function Login() {
         console.log("Login successful, user:", result.user);
         console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
         
-        toast({
-          title: "Welcome back!",
-          description: `Logged in successfully`,
+        // Wait for the session to be properly stored in Supabase
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Verify the session is stored
+        const { getSession } = await import("@/lib/supabase");
+        const storedSession = await getSession();
+        console.log("Stored session verified:", !!storedSession);
+        
+        // Now fetch user data from backend to get role
+        const response = await fetch('/api/auth/user', {
+          headers: {
+            'Authorization': `Bearer ${result.session.access_token}`
+          }
         });
         
-        // Navigate to appropriate dashboard based on role
-        // The auth hook will handle the session automatically
-        setTimeout(() => {
-          window.location.href = '/'; // Go to home and let router handle redirect
-        }, 500);
+        if (response.ok) {
+          const userData = await response.json();
+          console.log("User role:", userData.role);
+          
+          toast({
+            title: "Welcome back!",
+            description: `Logged in as ${userData.role}`,
+          });
+          
+          // Navigate to appropriate dashboard based on role
+          setTimeout(() => {
+            if (userData.role === "admin") {
+              window.location.href = '/admin';
+            } else if (userData.role === "agent") {
+              window.location.href = '/agent';
+            } else {
+              window.location.href = '/no-access';
+            }
+          }, 500);
+        } else {
+          console.error("Failed to get user data:", response.status);
+          toast({
+            title: "Login issue",
+            description: "Logged in but couldn't load user data. Please refresh the page.",
+            variant: "destructive",
+          });
+        }
       }
     } catch (error: any) {
       console.error("Login failed:", error);
