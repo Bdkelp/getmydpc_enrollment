@@ -1,245 +1,106 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Express, RequestHandler } from "express";
-import { storage } from "../storage";
-import { determineUserRole } from "./authService";
+import { Request, Response, NextFunction } from 'express';
+import { storage } from '../storage';
 
-// Initialize Supabase client
-const supabaseUrl = process.env.SUPABASE_URL!;
+const supabaseUrl = process.env.VITE_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+if (!supabaseUrl || !supabaseServiceKey) {
+  throw new Error('Missing Supabase environment variables');
+}
 
-// Middleware to verify JWT token from Supabase
-export const verifySupabaseToken: RequestHandler = async (req: any, res, next) => {
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+export interface AuthRequest extends Request {
+  user?: any;
+  token?: string;
+}
+
+export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.log('[verifySupabaseToken] No token provided');
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
       return res.status(401).json({ message: 'No token provided' });
     }
-    
-    const token = authHeader.substring(7);
-    console.log('[verifySupabaseToken] Verifying token:', token.substring(0, 50) + '...');
-    console.log('[verifySupabaseToken] Token length:', token.length);
-    console.log('[verifySupabaseToken] Token segments:', token.split('.').length);
-    
-    // Verify token with Supabase
+
+    // Verify the JWT token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);
-    
+
     if (error || !user) {
-      console.log('[verifySupabaseToken] Token verification failed:', error?.message || 'No user returned');
-      console.log('[verifySupabaseToken] Full error:', error);
-      return res.status(401).json({ 
-        message: 'Invalid token',
-        debug: {
-          error: error?.message,
-          tokenLength: token.length,
-          tokenSegments: token.split('.').length
-        }
+      console.error('Token verification failed:', error?.message);
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    // Try to get user from our database
+    let dbUser = await storage.getUserByEmail(user.email!);
+
+    if (!dbUser) {
+      // Create user in our database if they don't exist
+      console.log('Creating new user in database:', user.email);
+
+      dbUser = await storage.createUser({
+        id: user.id,
+        email: user.email!,
+        firstName: user.user_metadata?.firstName || user.user_metadata?.first_name || 'User',
+        lastName: user.user_metadata?.lastName || user.user_metadata?.last_name || '',
+        emailVerified: user.email_confirmed_at ? true : false,
+        role: determineUserRole(user.email!),
+        isActive: true,
+        approvalStatus: 'approved',
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
     }
-    
-    console.log('[verifySupabaseToken] Supabase user verified:', { id: user.id, email: user.email });
-    
-    // Pass the Supabase user data directly to the /api/auth/user endpoint
-    // The endpoint will handle database syncing
-    req.user = user;
+
+    // Check if user needs approval
+    if (dbUser.approvalStatus === 'pending') {
+      return res.status(403).json({ 
+        message: 'Account pending approval',
+        requiresApproval: true 
+      });
+    }
+
+    if (dbUser.approvalStatus === 'rejected') {
+      return res.status(403).json({ 
+        message: 'Account has been rejected',
+        rejected: true 
+      });
+    }
+
+    if (!dbUser.isActive) {
+      return res.status(403).json({ 
+        message: 'Account has been deactivated' 
+      });
+    }
+
+    req.user = dbUser;
+    req.token = token;
     next();
   } catch (error) {
-    console.error('[verifySupabaseToken] Token verification error:', error);
-    res.status(401).json({ 
-      message: 'Token verification failed',
-      debug: error.message 
-    });
+    console.error('Authentication error:', error);
+    return res.status(401).json({ message: 'Authentication failed' });
   }
 };
 
-// Helper function to sync user data from Supabase to our database
-export async function syncSupabaseUser(supabaseUser: any) {
-  try {
-    let dbUser = await storage.getUserByEmail(supabaseUser.email);
-    
-    if (!dbUser) {
-      const role = determineUserRole(supabaseUser.email);
-      
-      dbUser = await storage.createUser({
-        id: supabaseUser.id,
-        email: supabaseUser.email,
-        firstName: supabaseUser.user_metadata?.first_name || supabaseUser.user_metadata?.full_name?.split(' ')[0] || '',
-        lastName: supabaseUser.user_metadata?.last_name || supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
-        profileImageUrl: supabaseUser.user_metadata?.avatar_url,
-        emailVerified: supabaseUser.email_confirmed_at !== null,
-        emailVerifiedAt: supabaseUser.email_confirmed_at ? new Date(supabaseUser.email_confirmed_at) : null,
-        role,
-        // approvalStatus: role === 'admin' ? 'approved' : 'pending', // TODO: Add if approval system needed
-        registrationIp: supabaseUser.last_sign_in_at ? supabaseUser.ip_address : null,
-        registrationUserAgent: supabaseUser.app_metadata?.provider || 'email',
-        lastLoginAt: new Date()
-      });
-    } else {
-      // Update existing user
-      await storage.updateUserProfile(dbUser.id, {
-        firstName: supabaseUser.user_metadata?.first_name || dbUser.firstName,
-        lastName: supabaseUser.user_metadata?.last_name || dbUser.lastName,
-        profileImageUrl: supabaseUser.user_metadata?.avatar_url || dbUser.profileImageUrl,
-        emailVerified: supabaseUser.email_confirmed_at !== null,
-        lastLoginAt: new Date()
-      });
-    }
-    
-    return dbUser;
-  } catch (error) {
-    console.error('Error syncing Supabase user:', error);
-    throw error;
-  }
+function determineUserRole(email: string): "admin" | "agent" | "member" {
+  const adminEmails = [
+    'michael@mypremierplans.com',
+    'travis@mypremierplans.com', 
+    'richard@mypremierplans.com',
+    'joaquin@mypremierplans.com'
+  ];
+
+  const agentEmails = [
+    'mdkeener@gmail.com',
+    'tmatheny77@gmail.com',
+    'svillarreal@cyariskmanagement.com'
+  ];
+
+  if (adminEmails.includes(email)) return "admin";
+  if (agentEmails.includes(email)) return "agent";
+  return "member";
 }
 
-// Setup Supabase auth routes
-export function setupSupabaseAuth(app: Express) {
-  // Get current user (for JWT authentication)
-  app.get('/api/auth/user', verifySupabaseToken, async (req: any, res) => {
-    try {
-      console.log('[Supabase Auth] Fetching user data for:', { 
-        supabaseId: req.user.id, 
-        email: req.user.email 
-      });
-      
-      // Try to find user by email first (more reliable than ID)
-      let dbUser = null;
-      
-      if (req.user.email) {
-        dbUser = await storage.getUserByEmail(req.user.email);
-        if (dbUser) {
-          console.log('[Supabase Auth] Found user by email:', req.user.email, 'with ID:', dbUser.id);
-        }
-      }
-      
-      // If not found by email, try by Supabase ID
-      if (!dbUser) {
-        dbUser = await storage.getUser(req.user.id);
-        if (dbUser) {
-          console.log('[Supabase Auth] Found user by Supabase ID:', req.user.id);
-        }
-      }
-      
-      console.log('[Supabase Auth] User from database:', dbUser);
-      
-      if (!dbUser) {
-        console.log('[Supabase Auth] User not found in database, creating new user');
-        
-        // Determine role based on email domain
-        let role = 'member'; // default role for healthcare members
-        const email = req.user.email?.toLowerCase() || '';
-        
-        // Admin emails
-        const adminEmails = [
-          'michael@mypremierplans.com',
-          'travis@mypremierplans.com', 
-          'richard@mypremierplans.com',
-          'joaquin@mypremierplans.com'
-        ];
-        
-        // Agent emails
-        const agentEmails = [
-          'mdkeener@gmail.com',
-          'tmatheny77@gmail.com',
-          'svillarreal@cyariskmanagement.com'
-        ];
-        
-        if (adminEmails.includes(email)) {
-          role = 'admin';
-        } else if (agentEmails.includes(email)) {
-          role = 'agent';
-        }
-        
-        console.log('[Supabase Auth] Creating user with role:', role);
-        
-        // Create the user
-        const fullName = req.user.user_metadata?.name || req.user.user_metadata?.full_name || req.user.email?.split('@')[0] || 'User';
-        const nameParts = fullName.split(' ');
-        const firstName = nameParts[0] || '';
-        const lastName = nameParts.slice(1).join(' ') || '';
-        
-        dbUser = await storage.createUser({
-          id: req.user.id,
-          email: req.user.email,
-          firstName,
-          lastName,
-          role,
-          approvalStatus: (role === 'admin' || role === 'agent') ? 'approved' : 'pending' // Auto-approve admins and agents
-        });
-        
-        console.log('[Supabase Auth] Created new user:', dbUser);
-      }
-      
-      // Auto-approve admin and agent users if not already approved
-      if (dbUser && (dbUser.role === 'admin' || dbUser.role === 'agent') && dbUser.approvalStatus !== 'approved') {
-        console.log('[Supabase Auth] Auto-approving admin/agent user');
-        await storage.updateUser(dbUser.id, { approvalStatus: 'approved' });
-        dbUser = await storage.getUser(dbUser.id);
-      }
-      
-      // Get user's current subscription and plan
-      const subscription = await storage.getUserSubscription(dbUser.id);
-      let plan = null;
-      if (subscription) {
-        plan = await storage.getPlan(subscription.planId);
-      }
-      
-      // Return the database user with auth metadata
-      const enrichedUser = {
-        ...dbUser,
-        email: req.user.email, // Use email from JWT
-        metadata: req.user.user_metadata,
-        subscription,
-        plan
-      };
-      
-      console.log('[Supabase Auth] Returning enriched user:', enrichedUser);
-      res.json(enrichedUser);
-    } catch (error) {
-      console.error("[Supabase Auth] Error fetching user:", error);
-      console.error("[Supabase Auth] Error stack:", error.stack);
-      console.error("[Supabase Auth] Request user:", req.user);
-      res.status(500).json({ message: "Failed to fetch user data", error: error.message });
-    }
-  });
-
-  // Webhook endpoint for Supabase auth events
-  app.post('/api/auth/webhook', async (req, res) => {
-    try {
-      const { type, record } = req.body;
-      
-      switch (type) {
-        case 'INSERT':
-          // New user signed up
-          await syncSupabaseUser(record);
-          break;
-        case 'UPDATE':
-          // User updated their profile
-          await syncSupabaseUser(record);
-          break;
-        case 'DELETE':
-          // User deleted their account
-          if (record.email) {
-            const user = await storage.getUserByEmail(record.email);
-            if (user) {
-              await storage.updateUser(user.id, { isActive: false });
-            }
-          }
-          break;
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Webhook error:', error);
-      res.status(500).json({ error: 'Webhook processing failed' });
-    }
-  });
-
-  // Logout endpoint
-  app.post('/api/auth/logout', (req, res) => {
-    res.json({ message: 'Logged out successfully' });
-  });
-}
+export default supabase;

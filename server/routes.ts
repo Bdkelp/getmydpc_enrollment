@@ -1,1750 +1,205 @@
-import type { Express } from "express";
-import { createServer, type Server } from "http";
 
+import { Router } from "express";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
-import { z } from "zod";
-import { registrationSchema, insertPlanSchema } from "@shared/schema";
-import { calculateEnrollmentCommission } from "./utils/commission";
-import { sendEnrollmentNotification, sendPaymentNotification } from "./utils/notifications";
+import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { paymentService } from "./services/payment-service";
-import { handlePayAnywhereWebhook } from "./webhooks/payanywhere";
-import authRoutes from "./auth/authRoutes";
-import { configurePassportStrategies } from "./auth/authService";
-import { setupSupabaseAuth, verifySupabaseToken } from "./auth/supabaseAuth";
-import passport from "passport";
-import express from "express";
-import { format } from "date-fns";
+import { notificationService } from "./utils/notifications";
+import { calculateCommission } from "./utils/commission";
+import { commissions, plans, subscriptions } from "@shared/schema";
+import { eq, and, desc, count, sum, sql } from "drizzle-orm";
+import { z } from "zod";
 
+const router = Router();
 
+// Public routes (no authentication required)
+router.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  // Serve attached assets
-  app.use('/attached_assets', express.static('attached_assets'));
+router.get("/api/plans", async (req, res) => {
+  try {
+    const allPlans = await storage.getPlans();
+    const activePlans = allPlans.filter(plan => plan.isActive);
+    res.json(activePlans);
+  } catch (error) {
+    console.error("Error fetching plans:", error);
+    res.status(500).json({ message: "Failed to fetch plans" });
+  }
+});
 
-  // Determine which authentication system to use
-  const useSupabaseAuth = process.env.SUPABASE_URL;
-  const authMiddleware = useSupabaseAuth ? verifySupabaseToken : isAuthenticated;
-
-  if (useSupabaseAuth) {
-    setupSupabaseAuth(app);
-  } else {
-    // Fallback to Replit auth for development
-    if (process.env.REPLIT_DOMAINS) {
-      await setupAuth(app);
+// Authentication route
+router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "User not found" });
     }
 
-    // Configure passport strategies for production auth
-    configurePassportStrategies();
-    app.use(passport.initialize());
-    app.use(passport.session());
+    // Get user's subscription and plan info
+    const userSubscriptions = await storage.getUserSubscriptions(req.user.id);
+    const activeSubscription = userSubscriptions.find(sub => sub.status === 'active');
+    
+    let planInfo = null;
+    if (activeSubscription) {
+      const plan = await storage.getPlan(activeSubscription.planId);
+      planInfo = plan;
+    }
 
-    // Use new auth routes for production
-    app.use(authRoutes);
+    const userResponse = {
+      id: req.user.id,
+      email: req.user.email,
+      firstName: req.user.firstName,
+      lastName: req.user.lastName,
+      role: req.user.role,
+      subscription: activeSubscription,
+      plan: planInfo,
+      isActive: req.user.isActive,
+      approvalStatus: req.user.approvalStatus
+    };
+
+    res.json(userResponse);
+  } catch (error) {
+    console.error("Error in /api/auth/user:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
+});
 
-  // Auth routes - only add if NOT using Supabase (since Supabase adds its own)
-  if (!useSupabaseAuth) {
-    app.get('/api/auth/user', authMiddleware, async (req: any, res) => {
-      try {
-        const userId = req.user.claims.sub;
-        const user = await storage.getUser(userId);
-        if (!user) {
-          return res.status(404).json({ message: "User not found" });
-        }
+// Protected routes (require authentication)
+router.use(authenticateToken);
 
-        // Get user's current subscription and plan
-        const subscription = await storage.getUserSubscription(userId);
-        let plan = null;
-        if (subscription) {
-          plan = await storage.getPlan(subscription.planId);
-        }
+// User profile routes
+router.get("/api/user/profile", async (req: AuthRequest, res) => {
+  try {
+    const user = await storage.getUser(req.user!.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({ message: "Failed to fetch profile" });
+  }
+});
 
-        res.json({ ...user, subscription, plan });
-      } catch (error) {
-        console.error("Error fetching user:", error);
-        res.status(500).json({ message: "Failed to fetch user" });
-      }
+router.put("/api/user/profile", async (req: AuthRequest, res) => {
+  try {
+    const updateData = req.body;
+    delete updateData.id; // Prevent ID modification
+    delete updateData.role; // Prevent role modification via profile update
+    
+    const updatedUser = await storage.updateUser(req.user!.id, {
+      ...updateData,
+      updatedAt: new Date()
     });
+    
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Failed to update profile" });
   }
+});
 
-  /**
-   * Middleware to check if user is a member (enrolled healthcare subscriber)
-   * Members are individuals who have healthcare plans and subscriptions
-   */
-  const isMember = async (req: any, res: any, next: any) => {
-    const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
+// Subscription routes
+router.get("/api/user/subscription", async (req: AuthRequest, res) => {
+  try {
+    const subscriptions = await storage.getUserSubscriptions(req.user!.id);
+    res.json(subscriptions);
+  } catch (error) {
+    console.error("Error fetching subscriptions:", error);
+    res.status(500).json({ message: "Failed to fetch subscriptions" });
+  }
+});
+
+// Lead management routes
+router.get("/api/leads", async (req: AuthRequest, res) => {
+  try {
+    let leads;
+    
+    if (req.user!.role === 'admin') {
+      leads = await storage.getAllLeads();
+    } else if (req.user!.role === 'agent') {
+      leads = await storage.getAgentLeads(req.user!.id);
+    } else {
+      return res.status(403).json({ message: "Not authorized to view leads" });
     }
-
-    const user = await storage.getUser(userId);
-    if (!user || user.role !== 'member') {
-      return res.status(403).json({ message: "Access denied. Member access required." });
-    }
-
-    req.userRole = user.role;
-    next();
-  };
-
-  /**
-   * Middleware to check if user is an agent or admin
-   * Agents: Insurance/sales agents who can enroll members and track commissions
-   * Admins: System administrators with full platform control
-   */
-  const isAgentOrAdmin = async (req: any, res: any, next: any) => {
-    // Get user ID based on authentication system
-    const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-    if (!userId) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const user = await storage.getUser(userId);
-    if (!user || (user.role !== 'agent' && user.role !== 'admin')) {
-      return res.status(403).json({ message: "Access denied. Agent or admin role required." });
-    }
-
-    req.userRole = user.role;
-    next();
-  };
-
-  // Define super admin emails
-  const SUPER_ADMIN_EMAILS = ['michael@mypremierplans.com', 'travis@mypremierplans.com'];
-
-  // Middleware to check if user is admin
-  const isAdmin = async (req: any, res: any, next: any) => {
-    try {
-      // Get user ID based on authentication system
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      console.log('[Admin Middleware] Checking admin access:', {
-        userId,
-        hasUser: !!req.user,
-        userEmail: req.user?.email
-      });
-
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized - No user ID found" });
-      }
-
-      const user = await storage.getUser(userId);
-      if (!user) {
-        console.error('[Admin Middleware] User not found in database:', userId);
-        return res.status(403).json({ message: "Access denied. User not found in database." });
-      }
-
-      // Check if user is a super admin or regular admin
-      const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
-
-      console.log('[Admin Middleware] User details:', {
-        email: user.email,
-        role: user.role,
-        isSuperAdmin,
-        willAllow: isSuperAdmin || user.role === 'admin'
-      });
-
-      if (!isSuperAdmin && user.role !== 'admin') {
-        return res.status(403).json({ message: "Access denied. Admin role required." });
-      }
-
-      // Attach super admin status to request
-      req.isSuperAdmin = isSuperAdmin;
-      req.userRole = user.role;
-      req.userEmail = user.email;
-
-      next();
-    } catch (error) {
-      console.error('[Admin Middleware] Error:', error);
-      return res.status(500).json({ message: "Internal server error checking admin access" });
-    }
-  };
-
-  // Super Admin only middleware - restricts certain actions to super admins only
-  const isSuperAdminOnly = async (req: any, res: any, next: any) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      if (!userId) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(403).json({ message: "User not found" });
-      }
-
-      // Only super admins can perform these actions
-      const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(user.email?.toLowerCase() || '');
-
-      if (!isSuperAdmin) {
-        console.log('[Super Admin Only] Access denied - not a super admin:', user.email);
-        return res.status(403).json({ 
-          message: "Super admin access required. Only super admins can perform this action." 
-        });
-      }
-
-      req.isSuperAdmin = true;
-      req.userRole = user.role;
-      req.userEmail = user.email;
-
-      console.log('[Super Admin Only] Access granted:', user.email);
-      next();
-    } catch (error) {
-      console.error('[Super Admin Only] Error:', error);
-      return res.status(500).json({ message: "Internal server error" });
-    }
-  };
-
-  // Mock payment endpoint for testing
-  app.post("/api/mock-payment", authMiddleware, async (req: any, res) => {
-    try {
-      const { planId } = req.body;
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      console.log("Mock payment request:", { planId, userId });
-
-      if (!planId) {
-        return res.status(400).json({ message: "Plan ID is required" });
-      }
-
-      // Get plan details
-      const plan = await storage.getPlan(planId);
-      if (!plan) {
-        console.error("Plan not found:", planId);
-        return res.status(404).json({ message: "Plan not found" });
-      }
-
-      console.log("Plan details:", { id: plan.id, name: plan.name, price: plan.price });
-
-      // Get total price from session storage (includes processing fees and add-ons)
-      const planPrice = parseFloat(plan.price);
-      const totalPrice = planPrice * 1.04; // Include 4% processing fee
-
-      // Create subscription
-      const subscription = await storage.createSubscription({
-        userId,
-        planId,
-        status: "active",
-        amount: totalPrice.toFixed(2), // Convert to string with 2 decimal places
-        startDate: new Date(),
-        nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-      });
-
-      console.log("Subscription created:", subscription.id);
-
-      // Create payment record
-      const payment = await storage.createPayment({
-        userId,
-        subscriptionId: subscription.id,
-        amount: totalPrice.toFixed(2), // Convert to string with 2 decimal places
-        status: "succeeded",
-        stripePaymentIntentId: `mock_${Date.now()}`, // Mock payment ID
-      });
-
-      console.log("Payment created:", payment.id);
-
-      // Get user details for notifications
-      const user = await storage.getUser(userId);
-
-      // Check if the user has a lead and mark it as enrolled
-      if (user && user.email) {
-        const lead = await storage.getLeadByEmail(user.email);
-        if (lead && lead.status !== 'enrolled') {
-          await storage.updateLead(lead.id, { status: 'enrolled' });
-
-          // Add activity note about enrollment
-          if (lead.assignedAgentId) {
-            await storage.addLeadActivity({
-              leadId: lead.id,
-              agentId: lead.assignedAgentId,
-              activityType: 'note',
-              notes: `Lead successfully enrolled in ${plan.name}`
-            });
-          }
-          console.log("Lead marked as enrolled:", lead.id);
-        }
-      }
-
-      // Send email notifications
-      if (user) {
-        try {
-          // Get agent information if available
-          let agentInfo = null;
-          if (user.email) {
-            const lead = await storage.getLeadByEmail(user.email);
-            if (lead && lead.assignedAgentId) {
-              const agent = await storage.getUser(lead.assignedAgentId);
-              if (agent) {
-                // Determine tier from plan name
-                let tier: 'base' | 'plus' | 'elite' = 'base';
-                if (plan.name.toLowerCase().includes('plus')) {
-                  tier = 'plus';
-                } else if (plan.name.toLowerCase().includes('elite')) {
-                  tier = 'elite';
-                }
-
-                agentInfo = {
-                  name: `${agent.firstName || ''} ${agent.lastName || ''}`.trim() || 'Agent',
-                  number: agent.agentNumber || 'N/A',
-                  commission: calculateEnrollmentCommission(plan.name, 'member', false)
-                };
-              }
-            }
-          }
-
-          // Send enrollment notification
-          await sendEnrollmentNotification({
-            memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
-            memberEmail: user.email || '',
-            planName: plan.name,
-            memberType: 'Individual', // Default to Individual for now
-            amount: totalPrice,
-            agentName: agentInfo?.name,
-            agentNumber: agentInfo?.number,
-            commission: agentInfo?.commission,
-            enrollmentDate: new Date()
-          });
-
-          // Send payment notification
-          await sendPaymentNotification({
-            memberName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Member',
-            memberEmail: user.email || '',
-            amount: totalPrice,
-            paymentMethod: 'Mock Payment',
-            paymentStatus: 'succeeded',
-            transactionId: payment.stripePaymentIntentId || 'N/A',
-            paymentDate: new Date()
-          });
-
-          console.log('[Notifications] Email notifications sent successfully');
-        } catch (notificationError) {
-          console.error('[Notifications] Failed to send email notifications:', notificationError);
-          // Don't fail the payment if notifications fail
-        }
-      }
-
-      res.json({
-        success: true,
-        subscriptionId: subscription.id,
-        paymentId: payment.id,
-      });
-    } catch (error: any) {
-      console.error("Error processing mock payment:", error);
-      console.error("Error stack:", error.stack);
-      res.status(500).json({ message: "Failed to process mock payment: " + error.message });
-    }
-  });
-
-  // Public routes - Plans
-  app.get("/api/plans", async (req, res) => {
-    try {
-      const plans = await storage.getActivePlans();
-      res.json(plans);
-    } catch (error) {
-      console.error("Error fetching plans:", error);
-      res.status(500).json({ message: "Failed to fetch plans" });
-    }
-  });
-
-  app.get("/api/plans/:id", async (req, res) => {
-    try {
-      const planId = parseInt(req.params.id);
-      const plan = await storage.getPlan(planId);
-      if (!plan) {
-        return res.status(404).json({ message: "Plan not found" });
-      }
-      res.json(plan);
-    } catch (error) {
-      console.error("Error fetching plan:", error);
-      res.status(500).json({ message: "Failed to fetch plan" });
-    }
-  });
-
-  // Protected routes - User registration/profile
-  app.post("/api/registration", authMiddleware, async (req: any, res) => {
-    try {
-      console.log("[ENROLLMENT] Starting new enrollment process");
-      const validatedData = registrationSchema.parse(req.body);
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      console.log(`[ENROLLMENT] Current user ID: ${userId}`);
-
-      // Extract planId separately (not part of user profile)
-      const { planId, ...userProfileData } = validatedData;
-
-      // Get the current user (agent or admin) to track who enrolled this member
-      const currentUser = await storage.getUser(userId);
-      const agentId = (currentUser?.role === 'agent' || currentUser?.role === 'admin') ? userId : undefined;
-
-      // Validate family members based on member type
-      const familyMembers = (req.body as any).familyMembers || [];
-      const memberType = userProfileData.memberType;
-
-      // Determine coverage type based on member type
-      let coverageType = "Member Only";
-      if (memberType === "member-spouse") {
-        coverageType = "Member/Spouse";
-      } else if (memberType === "member-children") {
-        coverageType = "Member/Child";
-      } else if (memberType === "family") {
-        coverageType = "Family";
-      }
-
-      // Validate family members are provided when required
-      if (coverageType === "Member/Spouse") {
-        const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
-        if (!spouse || !spouse.firstName || !spouse.lastName || !spouse.dateOfBirth) {
-          return res.status(400).json({ 
-            message: "Spouse information is required for Member/Spouse coverage",
-            errors: ["Please provide complete spouse information including first name, last name, and date of birth"]
-          });
-        }
-      } else if (coverageType === "Member/Child") {
-        const children = familyMembers.filter((m: any) => m.relationship === "child");
-        if (children.length === 0 || !children.some((c: any) => c.firstName && c.lastName && c.dateOfBirth)) {
-          return res.status(400).json({ 
-            message: "At least one child's information is required for Member/Child coverage",
-            errors: ["Please provide complete information for at least one child including first name, last name, and date of birth"]
-          });
-        }
-      } else if (coverageType === "Family") {
-        const spouse = familyMembers.find((m: any) => m.relationship === "spouse");
-        const children = familyMembers.filter((m: any) => m.relationship === "child");
-
-        if (!spouse || !spouse.firstName || !spouse.lastName || !spouse.dateOfBirth) {
-          return res.status(400).json({ 
-            message: "Spouse information is required for Family coverage",
-            errors: ["Please provide complete spouse information including first name, last name, and date of birth"]
-          });
-        }
-
-        if (children.length === 0 || !children.some((c: any) => c.firstName && c.lastName && c.dateOfBirth)) {
-          return res.status(400).json({ 
-            message: "At least one child's information is required for Family coverage",
-            errors: ["Please provide complete information for at least one child including first name, last name, and date of birth"]
-          });
-        }
-      }
-
-      // Create new member user record for the enrollment (separate from agent/admin user)
-      const memberId = `member_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      console.log(`[ENROLLMENT] Creating member user with ID: ${memberId}, Email: ${userProfileData.email}`);
-      console.log(`[ENROLLMENT] Agent ID who is enrolling: ${agentId}`);
-
-      const memberUser = await storage.createUser({
-        id: memberId,
-        firstName: userProfileData.firstName,
-        lastName: userProfileData.lastName,
-        middleName: userProfileData.middleName,
-        ssn: userProfileData.ssn, // Should be encrypted in production
-        email: userProfileData.email,
-        phone: userProfileData.phone,
-        dateOfBirth: userProfileData.dateOfBirth,
-        gender: userProfileData.gender,
-        address: userProfileData.address,
-        address2: userProfileData.address2,
-        city: userProfileData.city,
-        state: userProfileData.state,
-        zipCode: userProfileData.zipCode,
-        employerName: userProfileData.employerName,
-        divisionName: userProfileData.divisionName,
-        dateOfHire: userProfileData.dateOfHire,
-        memberType: userProfileData.memberType,
-        planStartDate: userProfileData.planStartDate,
-        emergencyContactName: userProfileData.emergencyContactName,
-        emergencyContactPhone: userProfileData.emergencyContactPhone,
-        enrolledByAgentId: agentId,
-        role: 'user',
-        approvalStatus: 'approved' // Auto-approve enrolled members
-      });
-
-      console.log(`[ENROLLMENT] Member user created successfully: ${memberUser.id}`);
-
-      // Get the plan details
-      const plan = await storage.getPlan(planId);
-      if (!plan) {
-        return res.status(400).json({ message: "Invalid plan selected" });
-      }
-
-      // Calculate subscription amount based on coverage type
-      let subscriptionAmount = parseFloat(plan.price.toString());
-      if (coverageType === "Member/Spouse") {
-        subscriptionAmount *= 2;
-      } else if (coverageType === "Member/Child") {
-        subscriptionAmount *= 1.5;
-      } else if (coverageType === "Family") {
-        subscriptionAmount *= 2.5;
-      }
-
-      // Create subscription for the member
-      console.log(`[ENROLLMENT] Creating subscription for member ${memberId}, Plan: ${planId}, Amount: ${subscriptionAmount}`);
-      const subscription = await storage.createSubscription({
-        userId: memberId,
-        planId: planId,
-        status: 'pending',
-        pendingReason: 'payment_required',
-        amount: subscriptionAmount.toString(),
-        startDate: new Date(userProfileData.planStartDate),
-        nextBillingDate: new Date(userProfileData.planStartDate)
-      });
-      console.log(`[ENROLLMENT] Subscription created with ID: ${subscription.id}`);
-
-      // Add family members if any
-      for (const member of familyMembers) {
-        if (member && member.firstName) { // Only add valid family members
-          await storage.addFamilyMember({
-            primaryUserId: memberId,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            middleName: member.middleName,
-            dateOfBirth: member.dateOfBirth,
-            gender: member.gender,
-            ssn: member.ssn,
-            email: member.email,
-            phone: member.phone,
-            relationship: member.relationship,
-            memberType: member.relationship === "spouse" ? "spouse" : "dependent",
-            planStartDate: userProfileData.planStartDate,
-            isActive: true,
-          });
-        }
-      }
-
-      // Process payment using PaymentService
-      // Extract payment data from request body
-      const paymentData = (req.body as any).payment || {};
-
-      const paymentResult = await paymentService.processPayment({
-        amount: subscriptionAmount,
-        currency: 'USD',
-        cardToken: paymentData.cardToken, // Token from frontend (when available)
-        customerId: memberId,
-        customerEmail: userProfileData.email,
-        description: `DPC Subscription - ${plan.name} (${coverageType})`,
-        metadata: {
-          subscriptionId: subscription.id,
-          planId: planId,
-          coverageType: coverageType,
-          agentId: agentId
-        }
-      });
-
-      console.log(`[ENROLLMENT] Payment processing result:`, paymentResult);
-
-      if (!paymentResult.success) {
-        // Payment failed - update subscription status
-        await storage.updateSubscription(subscription.id, {
-          status: 'pending',
-          pendingReason: 'payment_failed'
-        });
-
-        return res.status(400).json({
-          message: 'Payment processing failed',
-          error: paymentResult.message || 'Unable to process payment',
-          transactionId: paymentResult.transactionId
-        });
-      }
-
-      // Store successful payment
-      const payment = await storage.createPayment({
-        userId: memberId,
-        subscriptionId: subscription.id,
-        amount: subscriptionAmount.toString(),
-        status: 'succeeded',
-        stripePaymentIntentId: paymentResult.transactionId,
-        paymentMethod: 'card'
-      });
-
-      // Activate subscription after successful payment
-      await storage.updateSubscription(subscription.id, {
-        status: 'active',
-        pendingReason: null
-      });
-
-      // Calculate commission if enrolled by agent
-      let commission = 0;
-      let agentInfo = null;
-      if (agentId) {
-        const agent = await storage.getUser(agentId);
-        if (agent) {
-          agentInfo = agent;
-          const hasRx = (req.body as any).hasRxValet || false;
-          commission = calculateEnrollmentCommission(plan.name, coverageType, hasRx);
-        }
-      }
-
-      // Send enrollment notification to admins
-      try {
-        await sendEnrollmentNotification({
-          memberName: `${userProfileData.firstName} ${userProfileData.lastName}`,
-          memberEmail: userProfileData.email,
-          planName: plan.name,
-          memberType: coverageType,
-          amount: subscriptionAmount,
-          agentName: agentInfo ? `${agentInfo.firstName} ${agentInfo.lastName}` : undefined,
-          agentNumber: agentInfo?.agentNumber || undefined,
-          commission: commission > 0 ? commission : 0,
-          enrollmentDate: new Date()
-        });
-      } catch (notificationError) {
-        console.error('Failed to send enrollment notification:', notificationError);
-      }
-
-      // Send payment notification
-      try {
-        await sendPaymentNotification({
-          memberName: `${userProfileData.firstName} ${userProfileData.lastName}`,
-          memberEmail: userProfileData.email,
-          amount: subscriptionAmount,
-          paymentMethod: 'Card',
-          paymentStatus: 'succeeded',
-          transactionId: paymentResult.transactionId,
-          paymentDate: new Date()
-        });
-      } catch (notificationError) {
-        console.error('Failed to send payment notification:', notificationError);
-      }
-
-      res.json({
-        user: memberUser,
-        subscription,
-        payment,
-        message: "Enrollment completed successfully"
-      });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        console.error("Validation error:", error.errors);
-        return res.status(400).json({ message: "Validation error", errors: error.errors });
-      }
-      console.error("Error updating user profile:", error);
-      res.status(500).json({ message: "Failed to update profile" });
-    }
-  });
-
-  // Family member enrollment
-  app.post('/api/family-enrollment', authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { members } = req.body;
-
-      if (!members || !Array.isArray(members)) {
-        return res.status(400).json({ message: "Invalid family member data" });
-      }
-
-      // Add each family member
-      for (const member of members) {
-        await storage.addFamilyMember({
-          primaryUserId: userId,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          middleName: member.middleName,
-          dateOfBirth: member.dateOfBirth,
-          gender: member.gender,
-          ssn: member.ssn, // Should be encrypted in production
-          email: member.email,
-          phone: member.phone,
-          relationship: member.relationship,
-          memberType: member.memberType,
-          address: member.address,
-          address2: member.address2,
-          city: member.city,
-          state: member.state,
-          zipCode: member.zipCode,
-          planStartDate: member.planStartDate,
-        });
-      }
-
-      res.json({ message: "Family members enrolled successfully" });
-    } catch (error) {
-      console.error("Family enrollment error:", error);
-      res.status(500).json({ message: "Failed to enroll family members" });
-    }
-  });
-
-  // Agent routes
-  app.get("/api/agent/stats", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      // Get enrollments created by this agent
-      const enrollments = await storage.getAgentEnrollments(agentId);
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      // Calculate stats
-      const monthlyEnrollments = enrollments.filter((e: any) => 
-        new Date(e.createdAt) >= monthStart
-      );
-
-      // Calculate commissions with new structure
-      const enrollmentDetails = await Promise.all(enrollments.map(async (user: any) => {
-        const subscription = await storage.getUserSubscription(user.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-        return {
-          planName: plan?.name || '',
-          memberType: user.memberType || 'member',
-          hasRx: user.hasRxValet || false
-        };
-      }));
-
-      const monthlyEnrollmentDetails = await Promise.all(monthlyEnrollments.map(async (user: any) => {
-        const subscription = await storage.getUserSubscription(user.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-        return {
-          planName: plan?.name || '',
-          memberType: user.memberType || 'member',
-          hasRx: user.hasRxValet || false
-        };
-      }));
-
-      const totalCommission = enrollmentDetails.reduce((total, enrollment) => {
-        return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
-      }, 0);
-
-      const monthlyCommission = monthlyEnrollmentDetails.reduce((total, enrollment) => {
-        return total + calculateEnrollmentCommission(enrollment.planName, enrollment.memberType, enrollment.hasRx);
-      }, 0);
-
-      // Get lead stats and recent leads
-      const leadStats = await storage.getAgentLeadStats(agentId);
-      const recentLeads = await storage.getAgentLeads(agentId);
-
-      res.json({
-        totalEnrollments: enrollments.length,
-        monthlyEnrollments: monthlyEnrollments.length,
-        totalCommission,
-        monthlyCommission,
-        activeLeads: leadStats.new + leadStats.contacted + leadStats.qualified,
-        conversionRate: (leadStats.new + leadStats.contacted + leadStats.qualified + leadStats.enrolled + leadStats.closed) > 0 
-          ? (leadStats.enrolled / (leadStats.new + leadStats.contacted + leadStats.qualified + leadStats.enrolled + leadStats.closed)) * 100 
-          : 0,
-        leads: recentLeads.slice(0, 5).map(lead => ({
-          id: lead.id,
-          name: `${lead.firstName} ${lead.lastName}`,
-          email: lead.email,
-          phone: lead.phone,
-          lastContact: lead.updatedAt,
-          status: lead.status
-        }))
-      });
-    } catch (error) {
-      console.error("Agent stats error:", error);
-      res.status(500).json({ message: "Failed to fetch agent stats" });
-    }
-  });
-
-  app.get("/api/agent/enrollments", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { startDate, endDate } = req.query;
-
-      const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
-
-      // Format enrollments with plan details
-      const formattedEnrollments = await Promise.all(enrollments.map(async (user: any) => {
-        const subscription = await storage.getUserSubscription(user.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-
-        return {
-          id: user.id,
-          createdAt: user.createdAt,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          planName: plan?.name || 'No Plan',
-          memberType: user.memberType,
-          monthlyPrice: plan?.price || 0,
-          commission: calculateEnrollmentCommission(plan?.name || '', user.memberType || 'member', user.hasRxValet || false),
-          status: subscription?.status || 'pending',
-          pendingReason: subscription?.pendingReason,
-          pendingDetails: subscription?.pendingDetails,
-          subscriptionId: subscription?.id
-        };
-      }));
-
-      res.json(formattedEnrollments);
-    } catch (error) {
-      console.error("Agent enrollments error:", error);
-      res.status(500).json({ message: "Failed to fetch enrollments" });
-    }
-  });
-
-  app.post("/api/agent/export-enrollments", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { startDate, endDate } = req.body;
-
-      const enrollments = await storage.getAgentEnrollments(agentId, startDate, endDate);
-
-      // Get agent info for the export
-      const agent = await storage.getUser(agentId);
-      const agentNumber = agent?.agentNumber || 'Not Assigned';
-
-      // Create CSV content
-      const headers = ['Agent Number', 'Agent Name', 'Date', 'First Name', 'Last Name', 'Email', 'Phone', 'Plan', 'Member Type', 'Monthly Price', 'Commission', 'Status'];
-      const rows = await Promise.all(enrollments.map(async (user: any) => {
-        const subscription = await storage.getUserSubscription(user.id);
-        const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-
-        return [
-          agentNumber,
-          `${agent?.firstName || ''} ${agent?.lastName || ''}`.trim() || 'Unknown',
-          new Date(user.createdAt).toLocaleDateString(),
-          user.firstName,
-          user.lastName,
-          user.email || '',
-          user.phone || '',
-          plan?.name || 'No Plan',
-          user.memberType || '',
-          plan?.price || '0',
-          calculateEnrollmentCommission(plan?.name || '', user.memberType || 'member', user.hasRxValet || false).toFixed(2),
-          subscription?.status || 'pending'
-        ];
-      }));
-
-      const csvContent = [
-        headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-      ].join('\n');
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=enrollments-${startDate}-to-${endDate}.csv`);
-      res.send(csvContent);
-    } catch (error) {
-      console.error("Export error:", error);
-      res.status(500).json({ message: "Failed to export enrollments" });
-    }
-  });
-
-  // Agent commission endpoints
-  app.get("/api/agent/commission-stats", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const stats = await storage.getCommissionStats(agentId);
-      res.json(stats);
-    } catch (error) {
-      console.error("Commission stats error:", error);
-      res.status(500).json({ message: "Failed to fetch commission stats" });
-    }
-  });
-
-  app.get("/api/agent/commissions", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { startDate, endDate } = req.query;
-
-      const commissions = await storage.getAgentCommissions(
-        agentId, 
-        startDate as string, 
-        endDate as string
-      );
-
-      // Enrich with user names
-      const enrichedCommissions = await Promise.all(commissions.map(async (commission) => {
-        const user = await storage.getUser(commission.userId);
-        return {
-          ...commission,
-          userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown'
-        };
-      }));
-
-      res.json(enrichedCommissions);
-    } catch (error) {
-      console.error("Agent commissions error:", error);
-      res.status(500).json({ message: "Failed to fetch commissions" });
-    }
-  });
-
-  app.get("/api/agent/export-commissions", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { startDate, endDate } = req.query;
-
-      const commissions = await storage.getAgentCommissions(
-        agentId,
-        startDate as string,
-        endDate as string
-      );
-
-      // Get agent info
-      const agent = await storage.getUser(agentId);
-      const agentNumber = agent?.agentNumber || 'Not Assigned';
-
-      // Create CSV content
-      const headers = ['Date', 'Member Name', 'Plan Tier', 'Plan Type', 'Total Cost', 'Commission', 'Status', 'Payment Status', 'Paid Date'];
-      const rows = await Promise.all(commissions.map(async (commission) => {
-        const user = await storage.getUser(commission.userId);
-        return [
-          commission.createdAt ? new Date(commission.createdAt).toLocaleDateString() : '',
-          user ? `${user.firstName} ${user.lastName}` : 'Unknown',
-          commission.planTier,
-          commission.planType,
-          commission.totalPlanCost,
-          commission.commissionAmount,
-          commission.status,
-          commission.paymentStatus,
-          commission.paidDate ? new Date(commission.paidDate).toLocaleDateString() : ''
-        ];
-      }));
-
-      const csvContent = [
-        `Agent: ${agent?.firstName} ${agent?.lastName} (${agentNumber})`,
-        `Date Range: ${startDate} to ${endDate}`,
-        '',
-        headers.join(','),
-        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-      ].join('\n');
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=commissions-${startDate}-to-${endDate}.csv`);
-      res.send(csvContent);
-    } catch (error) {
-      console.error("Export commissions error:", error);
-      res.status(500).json({ message: "Failed to export commissions" });
-    }
-  });
-
-  // Resolve pending enrollment with consent
-  app.put("/api/enrollment/:userId/resolve", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const { subscriptionId, consentType, consentNotes } = req.body;
-      const modifiedBy = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      // Update subscription status to active
-      await storage.updateSubscription(subscriptionId, {
-        status: 'active',
-        pendingReason: null,
-        pendingDetails: null,
-      });
-
-      // Record the modification with consent
-      await storage.recordEnrollmentModification({
-        userId,
-        subscriptionId,
-        modifiedBy,
-        changeType: 'status_change',
-        changeDetails: {
-          before: { status: 'pending' },
-          after: { status: 'active' }
-        },
-        consentType,
-        consentNotes,
-        consentDate: new Date(),
-      });
-
-      res.json({ message: "Enrollment resolved successfully" });
-    } catch (error) {
-      console.error("Error resolving enrollment:", error);
-      res.status(500).json({ message: "Failed to resolve enrollment" });
-    }
-  });
-
-  // User dashboard routes
-  app.get("/api/user/payments", authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const payments = await storage.getUserPayments(userId);
-      res.json(payments);
-    } catch (error) {
-      console.error("Error fetching payments:", error);
-      res.status(500).json({ message: "Failed to fetch payments" });
-    }
-  });
-
-  app.get("/api/user/family-members", authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const members = await storage.getFamilyMembers(userId);
-      res.json(members);
-    } catch (error) {
-      console.error("Error fetching family members:", error);
-      res.status(500).json({ message: "Failed to fetch family members" });
-    }
-  });
-
-  // Admin routes
-  app.get("/api/admin/users", authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const user = await storage.getUser(userId);
-
-      if (!user || user.role !== "admin") {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      const limit = parseInt(req.query.limit as string) || 50;
-      const offset = parseInt(req.query.offset as string) || 0;
-
-      const users = await storage.getAllUsers(limit, offset);
-      const totalCount = await storage.getUsersCount();
-
-      res.json({ users, totalCount });
-    } catch (error) {
-      console.error("Error fetching users:", error);
-      res.status(500).json({ message: "Failed to fetch users" });
-    }
-  });
-
-  app.get("/api/admin/stats", authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const user = await storage.getUser(userId);
-
-      if (!user || user.role !== "admin") {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      const revenueStats = await storage.getRevenueStats();
-      const subscriptionStats = await storage.getSubscriptionStats();
-      const totalUsers = await storage.getUsersCount();
-
-      res.json({
-        totalUsers,
-        ...revenueStats,
-        subscriptions: subscriptionStats,
-      });
-    } catch (error) {
-      console.error("Error fetching admin stats:", error);
-      res.status(500).json({ message: "Failed to fetch stats" });
-    }
-  });
-
-  // Super Admin Only: Update user agent number endpoint
-  app.patch("/api/admin/user/:userId/agent-number", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const { agentNumber } = req.body;
-
-      // Check if agent number is already in use
-      if (agentNumber) {
-        const existingUser = await storage.getUserByAgentNumber(agentNumber);
-        if (existingUser && existingUser.id !== userId) {
-          return res.status(400).json({ message: "Agent number is already in use" });
-        }
-      }
-
-      const user = await storage.updateUserProfile(userId, { agentNumber });
-
-      res.json({ 
-        message: "Agent number updated successfully",
-        user: {
-          id: user.id,
-          email: user.email,
-          agentNumber: user.agentNumber
-        }
-      });
-    } catch (error) {
-      console.error("Error updating agent number:", error);
-      res.status(500).json({ message: "Failed to update agent number" });
-    }
-  });
-
-
-  // Get enrollment details by ID
-  app.get("/api/admin/enrollment/:id", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-
-      const user = await storage.getUser(id);
-      if (!user) {
-        return res.status(404).json({ message: "Enrollment not found" });
-      }
-
-      const subscription = await storage.getUserSubscription(id);
-      const plan = subscription ? await storage.getPlan(subscription.planId) : null;
-      const enrolledByAgent = user.enrolledByAgentId ? await storage.getUser(user.enrolledByAgentId) : null;
-      const familyMembers = await storage.getFamilyMembers(id);
-
-      const enrollmentDetails = {
-        id: user.id,
-        userId: user.id,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-        // Personal Info
-        firstName: user.firstName,
-        lastName: user.lastName,
-        middleName: user.middleName,
-        email: user.email,
-        phone: user.phone,
-        dateOfBirth: user.dateOfBirth,
-        gender: user.gender,
-        ssn: user.ssn,
-        // Address
-        address: user.address,
-        address2: user.address2,
-        city: user.city,
-        state: user.state,
-        zipCode: user.zipCode,
-        // Employment
-        employerName: user.employerName,
-        divisionName: user.divisionName,
-        dateOfHire: user.dateOfHire,
-        // Plan Info
-        planId: subscription?.planId || 0,
-        planName: plan?.name || 'No Plan',
-        memberType: user.memberType,
-        planStartDate: user.planStartDate,
-        monthlyPrice: plan?.price || 0,
-        status: subscription?.status || 'pending',
-        // Emergency Contact
-        emergencyContactName: user.emergencyContactName,
-        emergencyContactPhone: user.emergencyContactPhone,
-        // Agent Info
-        enrolledBy: enrolledByAgent ? `${enrolledByAgent.firstName} ${enrolledByAgent.lastName}` : undefined,
-        enrolledByAgentId: user.enrolledByAgentId,
-        // Subscription
-        subscriptionId: subscription?.id,
-        // Family Members
-        familyMembers: familyMembers
-      };
-
-      res.json(enrollmentDetails);
-    } catch (error) {
-      console.error("Error fetching enrollment details:", error);
-      res.status(500).json({ message: "Failed to fetch enrollment details" });
-    }
-  });
-
-  // Update contact information
-  app.patch("/api/admin/enrollment/:id/contact", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-      const { email, phone, emergencyContactName, emergencyContactPhone } = req.body;
-
-      // Validate phone numbers
-      const phoneRegex = /^\d{10,11}$/;
-      if (phone && !phoneRegex.test(phone)) {
-        return res.status(400).json({ message: "Invalid phone number. Must be 10-11 digits." });
-      }
-      if (emergencyContactPhone && !phoneRegex.test(emergencyContactPhone)) {
-        return res.status(400).json({ message: "Invalid emergency contact phone number. Must be 10-11 digits." });
-      }
-
-      // Validate email
-      if (email && !z.string().email().safeParse(email).success) {
-        return res.status(400).json({ message: "Invalid email address" });
-      }
-
-      const user = await storage.updateUserProfile(id, {
-        email: email?.toLowerCase(),
-        phone,
-        emergencyContactName,
-        emergencyContactPhone
-      });
-
-      res.json(user);
-    } catch (error) {
-      console.error("Error updating contact info:", error);
-      res.status(500).json({ message: "Failed to update contact information" });
-    }
-  });
-
-  // Update address information
-  app.patch("/api/admin/enrollment/:id/address", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { id } = req.params;
-      const { address, address2, city, state, zipCode } = req.body;
-
-      // Validate ZIP code
-      if (zipCode && !/^\d{5,9}$/.test(zipCode)) {
-        return res.status(400).json({ message: "Invalid ZIP code" });
-      }
-
-      const user = await storage.updateUserProfile(id, {
-        address,
-        address2,
-        city,
-        state,
-        zipCode
-      });
-
-      res.json(user);
-    } catch (error) {
-      console.error("Error updating address:", error);
-      res.status(500).json({ message: "Failed to update address" });
-    }
-  });
-
-  // Super Admin Only: Update user role endpoint
-  app.patch("/api/admin/user/:userId/role", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const { role } = req.body;
-      const requestingUserId = useSupabaseAuth ? req.user?.id : req.user?.claims?.sub;
-
-      console.log('[Role Update] Request details:', {
-        targetUserId: userId,
-        newRole: role,
-        requestingUserId,
-        isSuperAdmin: req.isSuperAdmin,
-        userEmail: req.user?.email
-      });
-
-      // Validate role
-      if (!["user", "agent", "admin"].includes(role)) {
-        return res.status(400).json({ message: "Invalid role. Must be 'user', 'agent', or 'admin'" });
-      }
-
-      const user = await storage.updateUserProfile(userId, { role });
-
-      console.log('[Role Update] Successfully updated user:', user.email, 'to role:', role);
-
-      res.json({ 
-        message: "User role updated successfully",
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role
-        }
-      });
-    } catch (error: any) {
-      console.error("[Role Update] Error updating user role:", error);
-      console.error("[Role Update] Error stack:", error.stack);
-      res.status(500).json({ message: "Failed to update user role", error: error.message });
-    }
-  });
-
-  // Admin analytics endpoint
-  app.get("/api/admin/analytics", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { days = '30' } = req.query;
-      const daysNumber = parseInt(days as string);
-
-      console.log(`[Analytics API] FORCE REFRESH - Fetching analytics for ${daysNumber} days - ${Date.now()}`);
-
-      // Add aggressive cache-busting headers
-      res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-        'Pragma': 'no-cache',
-        'Expires': '-1',
-        'X-Timestamp': Date.now().toString(),
-        'X-Cache-Bust': Math.random().toString(),
-        'Last-Modified': new Date().toUTCString(),
-        'ETag': `"${Date.now()}-${Math.random()}"`
-      });
-
-      // Get analytics data using consistent enrollment counting
-      const enrollments = await storage.getAllEnrollments();
-      const activeSubscriptions = await storage.getActiveSubscriptionsCount();
-      const totalUsers = await storage.getUsersCount();
-      const revenueStats = await storage.getRevenueStats();
-
-      // Calculate date range
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - daysNumber);
-
-      // Filter enrollments by date range
-      const enrollmentsInRange = enrollments.filter(enrollment => {
-        const enrollmentDate = new Date(enrollment.createdAt);
-        return enrollmentDate >= startDate && enrollmentDate <= endDate;
-      });
-
-      // Calculate metrics consistently with enrollments page
-      const totalMembers = enrollments.length;
-      const newEnrollmentsThisMonth = enrollmentsInRange.length;
-
-      const overview = {
-        totalMembers,
-        activeSubscriptions: activeSubscriptions || totalMembers,
-        monthlyRevenue: revenueStats?.monthlyRevenue || 0,
-        averageRevenue: totalMembers > 0 ? (revenueStats?.monthlyRevenue || 0) / totalMembers : 0,
-        churnRate: 0, // Calculate based on actual data
-        growthRate: 10, // Calculate based on actual data
-        newEnrollmentsThisMonth,
-        cancellationsThisMonth: 0
-      };
-
-      const planBreakdown = await storage.getPlanBreakdown();
-      const recentEnrollments = enrollments.slice(0, 10).map(enrollment => ({
-        id: enrollment.id,
-        firstName: enrollment.firstName || '',
-        lastName: enrollment.lastName || '',
-        email: enrollment.email || '',
-        planName: 'DPC Plan', // Would need to fetch from plan data
-        amount: 49.99, // Default amount
-        enrolledDate: enrollment.createdAt,
-        status: 'active'
-      }));
-
-      const monthlyTrends = await storage.getMonthlyTrends();
-
-      console.log(`[Analytics API] Returning data - Total Members: ${totalMembers}, New Enrollments: ${newEnrollmentsThisMonth}`);
-
-      res.json({
-        overview,
-        planBreakdown,
-        recentEnrollments,
-        monthlyTrends
-      });
-    } catch (error) {
-      console.error("Analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch analytics" });
-    }
-  });
-
-  // Admin approval endpoints
-  app.get('/api/admin/pending-users', authMiddleware, isAdmin, async (req, res) => {
-    try {
-      const pendingUsers = await storage.getPendingUsers();
-      res.json(pendingUsers);
-    } catch (error) {
-      console.error("Error fetching pending users:", error);
-      res.status(500).json({ message: "Failed to fetch pending users" });
-    }
-  });
-
-  // Super Admin Only: Approve user
-  app.post('/api/admin/approve-user/:userId', authMiddleware, isSuperAdminOnly, async (req: any, res) => {
-    try {
-      const { userId } = req.params;
-      const adminId = req.user.id;
-
-      await storage.approveUser(userId, adminId);
-
-      // TODO: Send approval email to user
-
-      res.json({ message: "User approved successfully" });
-    } catch (error) {
-      console.error("Error approving user:", error);
-      res.status(500).json({ message: "Failed to approve user" });
-    }
-  });
-
-  app.post('/api/admin/reject-user/:userId', authMiddleware, isAdmin, async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const { reason } = req.body;
-
-      await storage.rejectUser(userId, reason);
-
-      // TODO: Send rejection email to user
-
-      res.json({ message: "User rejected" });
-    } catch (error) {
-      console.error("Error rejecting user:", error);
-      res.status(500).json({ message: "Failed to reject user" });
-    }
-  });
-
-  app.post("/api/admin/plans", authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const user = await storage.getUser(userId);
-
-      if (!user || user.role !== "admin") {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-
-      const validatedData = insertPlanSchema.parse(req.body);
-      const plan = await storage.createPlan(validatedData);
-      res.json(plan);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Validation error", errors: error.errors });
-      }
-      console.error("Error creating plan:", error);
-      res.status(500).json({ message: "Failed to create plan" });
-    }
-  });
-
-
-  app.get("/api/admin/agents", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      console.log('[Admin Agents API] Fetching agents...');
-      const agents = await storage.getAgents();
-      console.log('[Admin Agents API] Found agents:', agents ? agents.length : 0);
-      res.json(agents || []);
-    } catch (error) {
-      console.error("[Admin Agents API] Fetch agents error - Full details:", error);
-      console.error("[Admin Agents API] Error message:", (error as any).message);
-      console.error("[Admin Agents API] Error stack:", (error as any).stack);
-      res.status(500).json({ message: "Failed to fetch agents" });
-    }
-  });
-
-  // Lead management routes
-  app.post("/api/leads", async (req, res) => {
-    try {
-      const { firstName, lastName, email, phone, message } = req.body;
-
-      console.log("Creating lead with data:", { firstName, lastName, email, phone, message });
-
-      // Validate required fields
-      if (!firstName || !lastName || !email || !phone) {
-        return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      // Create the lead without auto-assignment - goes to admin for qualification
-      const lead = await storage.createLead({
-        firstName,
-        lastName,
-        email,
-        phone,
-        message: message || '',
-        source: 'contact_form',
-        status: 'new'
-      });
-
-      console.log("Lead created successfully for admin review:", lead.id);
-
-      res.json({ success: true, lead });
-    } catch (error: any) {
-      console.error("Lead creation error:", error);
-      console.error("Error stack:", error.stack);
-      res.status(500).json({ message: "Failed to create lead", error: error.message });
-    }
-  });
-
-  app.get("/api/agent/leads", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { status } = req.query;
-
-      const leads = await storage.getAgentLeads(agentId, status);
-      res.json(leads);
-    } catch (error) {
-      console.error("Fetch leads error:", error);
-      res.status(500).json({ message: "Failed to fetch leads" });
-    }
-  });
-
-  app.put("/api/leads/:id", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const leadId = parseInt(req.params.id);
-      const updates = req.body;
-
-      const lead = await storage.updateLead(leadId, updates);
-      res.json(lead);
-    } catch (error) {
-      console.error("Update lead error:", error);
-      res.status(500).json({ message: "Failed to update lead" });
-    }
-  });
-
-  app.post("/api/leads/:id/activities", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const leadId = parseInt(req.params.id);
-      const agentId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const { activityType, notes } = req.body;
-
-      const activity = await storage.addLeadActivity({
-        leadId,
-        agentId,
-        activityType,
-        notes
-      });
-
-      res.json(activity);
-    } catch (error) {
-      console.error("Add activity error:", error);
-      res.status(500).json({ message: "Failed to add activity" });
-    }
-  });
-
-  // Debug endpoint to check data
-  app.get("/api/debug/data", async (req, res) => {
-    try {
-      const leads = await storage.getAllLeads();
-      const enrollments = await storage.getAllEnrollments();
-      const agents = await storage.getAgents();
-
-      res.json({
-        leads: {
-          count: leads.length,
-          sample: leads.slice(0, 2)
-        },
-        enrollments: {
-          count: enrollments.length,
-          sample: enrollments.slice(0, 2)
-        },
-        agents: {
-          count: agents.length,
-          sample: agents.slice(0, 2)
-        }
-      });
-    } catch (error) {
-      console.error("Debug endpoint error:", error);
-      res.status(500).json({ error: (error as any).message });
-    }
-  });
-
-  // Admin lead management endpoints
-  app.get("/api/admin/leads", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const status = req.query.status as string | undefined;
-      const assignedAgentId = req.query.assignedAgentId as string | undefined;
-
-      console.log('[Admin Leads API] Fetching leads with filters:', { status, assignedAgentId });
-      const leads = await storage.getAllLeads(status, assignedAgentId);
-      console.log('[Admin Leads API] Found leads:', leads.length);
-      console.log('[Admin Leads API] First lead:', leads[0]);
-
-      res.json(leads);
-    } catch (error) {
-      console.error("Fetch all leads error:", error);
-      res.status(500).json({ message: "Failed to fetch leads" });
-    }
-  });
-
-  app.put("/api/admin/leads/:id/assign", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const leadId = parseInt(req.params.id);
-      const { agentId } = req.body;
-
-      if (!agentId) {
-        return res.status(400).json({ message: "Agent ID is required" });
-      }
-
-      const lead = await storage.assignLeadToAgent(leadId, agentId);
-      res.json(lead);
-    } catch (error) {
-      console.error("Assign lead error:", error);
-      res.status(500).json({ message: "Failed to assign lead" });
-    }
-  });
-
-  // Admin enrollment management endpoints
-  app.get("/api/admin/enrollments", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { startDate, endDate, agentId } = req.query;
-      console.log(`[Enrollments API] Admin fetching enrollments - startDate: ${startDate}, endDate: ${endDate}, agentId: ${agentId}`);
-
-      const enrollments = await storage.getAllEnrollments(
-        startDate as string,
-        endDate as string,
-        agentId as string
-      );
-
-      console.log(`[Enrollments API] Found ${enrollments.length} total enrollments`);
-      console.log(`[Enrollments API] Sample enrollment:`, enrollments[0]);
-
-      // Add cache-busting headers
-      res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0',
-        'X-Timestamp': Date.now().toString()
-      });
-
-      // Enrich with agent info and plan details
-      const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment) => {
-        // Get plan details
-        const plan = enrollment.planId ? await storage.getPlan(enrollment.planId) : null;
-        const agent = enrollment.enrolledByAgentId ? await storage.getUser(enrollment.enrolledByAgentId) : null;
-
-        return {
-          id: enrollment.id,
-          firstName: enrollment.firstName || '',
-          lastName: enrollment.lastName || '',
-          email: enrollment.email || '',
-          createdAt: enrollment.createdAt,
-          planName: plan?.name || 'Unknown Plan',
-          memberType: 'employee', // Default, can be enhanced later
-          monthlyPrice: enrollment.amount || 0,
-          status: enrollment.status || 'pending',
-          enrolledBy: agent ? `${agent.firstName} ${agent.lastName}` : 'Self-enrolled',
-          enrolledByAgentId: enrollment.enrolledByAgentId,
-          subscriptionId: enrollment.subscriptionId
-        };
-      }));
-
-      console.log(`[Enrollments API] Returning ${enrichedEnrollments.length} enriched enrollments`);
-      res.json(enrichedEnrollments);
-    } catch (error) {
-      console.error("Fetch enrollments error:", error);
-      res.status(500).json({ message: "Failed to fetch enrollments" });
-    }
-  });
-
-  // Get all agents (for filters)
-  app.get("/api/agents", authMiddleware, isAgentOrAdmin, async (req: any, res) => {
-    try {
-      const agents = await storage.getAgents();
-      res.json(agents);
-    } catch (error) {
-      console.error("Fetch agents error:", error);
-      res.status(500).json({ message: "Failed to fetch agents" });
-    }
-  });
-
-  // Super Admin Only: Generate agent number
-  app.post("/api/admin/generate-agent-number/:agentId", authMiddleware, isSuperAdminOnly, async (req: any, res) => {
-    try {
-      const { agentId } = req.params;
-
-      // Generate a unique agent number (e.g., AGT + year + 4-digit sequence)
-      const year = new Date().getFullYear();
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const agentNumber = `AGT${year}${randomNum}`;
-
-      // Update user with agent number
-      await storage.updateUser(agentId, { agentNumber });
-
-      res.json({ agentNumber });
-    } catch (error) {
-      console.error("Generate agent number error:", error);
-      res.status(500).json({ message: "Failed to generate agent number" });
-    }
-  });
-
-  // Analytics endpoints
-  app.get("/api/admin/analytics", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const days = parseInt(req.query.days as string) || 30;
-      const analytics = await storage.getAnalytics(days);
-      res.json(analytics);
-    } catch (error) {
-      console.error("Analytics error:", error);
-      res.status(500).json({ message: "Failed to fetch analytics" });
-    }
-  });
-
-  // Database viewer endpoints
-  app.get("/api/admin/database/stats", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const stats = await storage.getDatabaseStats();
-      res.json(stats);
-    } catch (error) {
-      console.error("Database stats error:", error);
-      res.status(500).json({ message: "Failed to fetch database stats" });
-    }
-  });
-
-  app.get("/api/admin/database/:table", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { table } = req.params;
-      const allowedTables = ['users', 'leads', 'subscriptions', 'plans', 'family_members', 'payments', 'lead_activities'];
-
-      if (!allowedTables.includes(table)) {
-        return res.status(400).json({ message: "Invalid table name" });
-      }
-
-      const data = await storage.getTableData(table);
-      res.json({ table, data });
-    } catch (error) {
-      console.error("Table data error:", error);
-      res.status(500).json({ message: "Failed to fetch table data" });
-    }
-  });
-
-  // Export enrollments as CSV
-  app.post("/api/admin/export-enrollments", authMiddleware, isAdmin, async (req: any, res) => {
-    try {
-      const { startDate, endDate, agentId } = req.query;
-
-      const enrollments = await storage.getAllEnrollments(
-        startDate as string,
-        endDate as string,
-        agentId as string
-      );
-
-      // Create CSV content
-      const csvHeaders = [
-        'Enrollment Date',
-        'First Name',
-        'Last Name',
-        'Email',
-        'Phone',
-        'Plan',
-        'Member Type',
-        'Monthly Price',
-        'Status',
-        'Enrolled By',
-        'SSN (Last 4)',
-        'DOB',
-        'Address'
-      ];
-
-      const csvRows = enrollments.map(enrollment => [
-        enrollment.createdAt ? format(new Date(enrollment.createdAt), 'yyyy-MM-dd') : '',
-        enrollment.firstName || '',
-        enrollment.lastName || '',
-        enrollment.email || '',
-        enrollment.phone || '',
-        'Plan Name', // Would need to fetch from plan data
-        enrollment.memberType || '',
-        '0', // Would need to fetch from plan data
-        'active', // Would need to fetch from subscription data
-        'Agent Name', // Would need to fetch from agent data
-        enrollment.ssn ? enrollment.ssn.slice(-4) : '',
-        enrollment.dateOfBirth || '',
-        `${enrollment.address || ''} ${enrollment.address2 || ''}, ${enrollment.city || ''}, ${enrollment.state || ''} ${enrollment.zipCode || ''}`
-      ]);
-
-      const csvContent = [
-        csvHeaders.join(','),
-        ...csvRows.map(row => row.map(cell => `"${cell}"`).join(','))
-      ].join('\n');
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="enrollments-export.csv"`);
-      res.send(csvContent);
-    } catch (error) {
-      console.error("Export enrollments error:", error);
-      res.status(500).json({ message: "Failed to export enrollments" });
-    }
-  });
-
-  // Session Management Endpoints
-
-  // Track user activity
-  app.post('/api/user/activity', authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-
-      // Update last activity timestamp
-      await storage.updateUserProfile(userId, {
-        lastActivityAt: new Date()
-      });
-
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Activity tracking error:", error);
-      res.status(500).json({ message: "Failed to track activity" });
-    }
-  });
-
-  // Get current user with session info
-  app.get('/api/user', authMiddleware, async (req: any, res) => {
-    try {
-      const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
-      const user = await storage.getUser(userId);
-
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Update last login if it's been more than 5 minutes
-      const lastLogin = user.lastLoginAt;
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-
-      if (!lastLogin || new Date(lastLogin) < fiveMinutesAgo) {
-        await storage.updateUserProfile(userId, {
-          lastLoginAt: new Date(),
-          lastActivityAt: new Date()
-        });
-      }
-
-      res.json({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        agentNumber: user.agentNumber,
-        lastLoginAt: user.lastLoginAt,
-        lastActivityAt: user.lastActivityAt,
-        approvalStatus: user.approvalStatus
-      });
-    } catch (error) {
-      console.error("Get user error:", error);
-      res.status(500).json({ message: "Failed to get user" });
-    }
-  });
-
-  // PayAnywhere Webhook endpoint (no auth required for webhooks)
-  app.post('/webhooks/payanywhere', express.raw({ type: 'application/json' }), handlePayAnywhereWebhook);
-
-  const httpServer = createServer(app);
-  return httpServer;
-}
+    
+    res.json(leads);
+  } catch (error) {
+    console.error("Error fetching leads:", error);
+    res.status(500).json({ message: "Failed to fetch leads" });
+  }
+});
+
+router.post("/api/leads", async (req: AuthRequest, res) => {
+  try {
+    const { firstName, lastName, email, phone, message, source } = req.body;
+    
+    const lead = await storage.createLead({
+      firstName,
+      lastName,
+      email,
+      phone,
+      message: message || '',
+      source: source || 'contact_form',
+      status: 'new',
+      assignedAgentId: req.user!.role === 'agent' ? req.user!.id : null
+    });
+    
+    res.status(201).json(lead);
+  } catch (error) {
+    console.error("Error creating lead:", error);
+    res.status(500).json({ message: "Failed to create lead" });
+  }
+});
+
+// Admin routes
+router.get("/api/admin/users", async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const users = await storage.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Failed to fetch users" });
+  }
+});
+
+router.put("/api/admin/users/:userId", async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { userId } = req.params;
+    const updateData = req.body;
+    
+    const updatedUser = await storage.updateUser(userId, {
+      ...updateData,
+      updatedAt: new Date()
+    });
+    
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error updating user:", error);
+    res.status(500).json({ message: "Failed to update user" });
+  }
+});
+
+// Agent routes
+router.get("/api/agent/commissions", async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+  
+  try {
+    const agentCommissions = await storage.getAgentCommissions(req.user!.id);
+    res.json(agentCommissions);
+  } catch (error) {
+    console.error("Error fetching commissions:", error);
+    res.status(500).json({ message: "Failed to fetch commissions" });
+  }
+});
+
+export default router;
