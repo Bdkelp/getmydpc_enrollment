@@ -305,6 +305,20 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // Admin routes
+router.get("/api/admin/stats", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const stats = await storage.getAdminDashboardStats();
+    res.json(stats);
+  } catch (error) {
+    console.error("Error fetching admin stats:", error);
+    res.status(500).json({ message: "Failed to fetch admin stats" });
+  }
+});
+
 router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
@@ -312,10 +326,261 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
   
   try {
     const users = await storage.getAllUsers();
-    res.json(users);
+    const totalCount = users.users?.length || 0;
+    res.json({ users: users.users || [], totalCount });
   } catch (error) {
     console.error("Error fetching users:", error);
     res.status(500).json({ message: "Failed to fetch users" });
+  }
+});
+
+router.get("/api/admin/pending-users", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const users = await storage.getAllUsers();
+    const pendingUsers = users.users?.filter((user: any) => user.approvalStatus === 'pending') || [];
+    res.json(pendingUsers);
+  } catch (error) {
+    console.error("Error fetching pending users:", error);
+    res.status(500).json({ message: "Failed to fetch pending users" });
+  }
+});
+
+router.post("/api/admin/approve-user/:userId", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { userId } = req.params;
+    const updatedUser = await storage.updateUser(userId, {
+      approvalStatus: 'approved',
+      updatedAt: new Date()
+    });
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error approving user:", error);
+    res.status(500).json({ message: "Failed to approve user" });
+  }
+});
+
+router.post("/api/admin/reject-user/:userId", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+    const updatedUser = await storage.updateUser(userId, {
+      approvalStatus: 'rejected',
+      rejectionReason: reason,
+      updatedAt: new Date()
+    });
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error rejecting user:", error);
+    res.status(500).json({ message: "Failed to reject user" });
+  }
+});
+
+router.patch("/api/admin/user/:userId/role", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+    
+    if (!['user', 'agent', 'admin'].includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+    
+    const updatedUser = await storage.updateUser(userId, {
+      role,
+      updatedAt: new Date()
+    });
+    
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error updating user role:", error);
+    res.status(500).json({ message: "Failed to update user role" });
+  }
+});
+
+router.patch("/api/admin/user/:userId/agent-number", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { userId } = req.params;
+    const { agentNumber } = req.body;
+    
+    const updatedUser = await storage.updateUser(userId, {
+      agentNumber,
+      updatedAt: new Date()
+    });
+    
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error updating agent number:", error);
+    res.status(500).json({ message: "Failed to update agent number" });
+  }
+});
+
+router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const leads = await storage.getAllLeads();
+    res.json(leads);
+  } catch (error) {
+    console.error("Error fetching admin leads:", error);
+    res.status(500).json({ message: "Failed to fetch leads" });
+  }
+});
+
+router.get("/api/admin/agents", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const agents = await storage.getAgents();
+    res.json(agents);
+  } catch (error) {
+    console.error("Error fetching agents:", error);
+    res.status(500).json({ message: "Failed to fetch agents" });
+  }
+});
+
+router.put("/api/admin/leads/:leadId/assign", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { leadId } = req.params;
+    const { agentId } = req.body;
+    
+    const result = await storage.assignLead(parseInt(leadId), agentId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error assigning lead:", error);
+    res.status(500).json({ message: "Failed to assign lead" });
+  }
+});
+
+router.get("/api/admin/enrollments", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { startDate, endDate, agentId } = req.query;
+    // For now, return mock data since storage methods aren't implemented
+    const enrollments = [
+      {
+        id: "1",
+        createdAt: new Date().toISOString(),
+        firstName: "John",
+        lastName: "Doe",
+        email: "john@example.com",
+        planName: "Individual Plan",
+        memberType: "individual",
+        monthlyPrice: 79,
+        status: "active",
+        enrolledBy: "Admin",
+        enrolledByAgentId: req.user!.id
+      }
+    ];
+    res.json(enrollments);
+  } catch (error) {
+    console.error("Error fetching enrollments:", error);
+    res.status(500).json({ message: "Failed to fetch enrollments" });
+  }
+});
+
+router.get("/api/admin/analytics", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  
+  try {
+    const { days = "30" } = req.query;
+    
+    // Return mock analytics data for now
+    const analytics = {
+      overview: {
+        totalMembers: 150,
+        activeSubscriptions: 142,
+        monthlyRevenue: 11000,
+        averageRevenue: 77.46,
+        churnRate: 2.5,
+        growthRate: 8.2,
+        newEnrollmentsThisMonth: 12,
+        cancellationsThisMonth: 3
+      },
+      planBreakdown: [
+        {
+          planId: 1,
+          planName: "Individual Plan",
+          memberCount: 89,
+          monthlyRevenue: 7031,
+          percentage: 63.9
+        },
+        {
+          planId: 2,
+          planName: "Family Plan",
+          memberCount: 53,
+          monthlyRevenue: 3969,
+          percentage: 36.1
+        }
+      ],
+      recentEnrollments: [
+        {
+          id: "1",
+          firstName: "John",
+          lastName: "Doe",
+          email: "john@example.com",
+          planName: "Individual Plan",
+          amount: 79,
+          enrolledDate: new Date().toISOString(),
+          status: "active"
+        }
+      ],
+      monthlyTrends: [
+        {
+          month: "2024-01",
+          enrollments: 15,
+          cancellations: 2,
+          netGrowth: 13,
+          revenue: 1027
+        }
+      ]
+    };
+    
+    res.json(analytics);
+  } catch (error) {
+    console.error("Error fetching analytics:", error);
+    res.status(500).json({ message: "Failed to fetch analytics" });
+  }
+});
+
+router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const agents = await storage.getAgents();
+    res.json(agents);
+  } catch (error) {
+    console.error("Error fetching agents:", error);
+    res.status(500).json({ message: "Failed to fetch agents" });
   }
 });
 

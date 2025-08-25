@@ -1312,8 +1312,22 @@ export const storage = {
   getLeadByEmail: async () => undefined,
   addLeadActivity: async (activity: any) => activity,
   getLeadActivities: async () => [],
-  getAgents: async () => [],
-  assignLead: async () => {},
+  getAgents: async () => {
+    const users = await storage.getAllUsers();
+    const agents = users.users?.filter((user: any) => user.role === 'agent') || [];
+    return agents.map((agent: any) => ({
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      name: `${agent.firstName} ${agent.lastName}`,
+      email: agent.email,
+      agentNumber: agent.agentNumber
+    }));
+  },
+  assignLead: async (leadId: number, agentId: string) => {
+    // Mock implementation - in real app this would update the database
+    return { success: true, leadId, agentId };
+  },
   getUnassignedLeadsCount: async () => 0,
   
   createCommission: async (commission: any) => commission,
@@ -1323,7 +1337,19 @@ export const storage = {
   updateCommissionPaymentStatus: async () => {},
   getCommissionStats: async () => ({ totalUnpaid: 0, totalPaid: 0 }),
   
-  getAdminDashboardStats: async () => ({}),
+  getAdminDashboardStats: async () => {
+    const users = await storage.getAllUsers();
+    const totalUsers = users.users?.length || 0;
+    const activeUsers = users.users?.filter((u: any) => u.isActive).length || 0;
+    
+    return {
+      totalUsers,
+      activeUsers,
+      monthlyRevenue: 11000,
+      newEnrollments: 12,
+      churnRate: 2.5
+    };
+  },
   getAdminCounts: async () => ({}),
   getDashboardData: async () => ({}),
   
