@@ -68,7 +68,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
-  // Middleware to check if user is agent or admin
+  /**
+   * Middleware to check if user is a member (enrolled healthcare subscriber)
+   * Members are individuals who have healthcare plans and subscriptions
+   */
+  const isMember = async (req: any, res: any, next: any) => {
+    const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await storage.getUser(userId);
+    if (!user || user.role !== 'member') {
+      return res.status(403).json({ message: "Access denied. Member access required." });
+    }
+
+    req.userRole = user.role;
+    next();
+  };
+
+  /**
+   * Middleware to check if user is an agent or admin
+   * Agents: Insurance/sales agents who can enroll members and track commissions
+   * Admins: System administrators with full platform control
+   */
   const isAgentOrAdmin = async (req: any, res: any, next: any) => {
     // Get user ID based on authentication system
     const userId = useSupabaseAuth ? req.user.id : req.user.claims.sub;

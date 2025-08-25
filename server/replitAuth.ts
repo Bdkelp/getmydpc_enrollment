@@ -73,7 +73,7 @@ async function upsertUser(
   ];
   
   const email = claims["email"];
-  let role = "user"; // default role
+  let role = "member"; // default role for healthcare members
   
   if (adminEmails.includes(email)) {
     role = "admin";

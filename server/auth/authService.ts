@@ -129,7 +129,7 @@ export function configurePassportStrategies() {
               lastName: profile.name?.familyName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "user"
+              role: "member"
             });
           }
         }
@@ -169,7 +169,7 @@ export function configurePassportStrategies() {
               lastName: profile.name?.familyName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "user"
+              role: "member"
             });
           }
         }
@@ -208,7 +208,7 @@ export function configurePassportStrategies() {
               firstName: profile.displayName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "user"
+              role: "member"
             });
           }
         }
@@ -268,7 +268,7 @@ export async function sendPasswordResetEmail(email: string, token: string) {
 }
 
 // Role assignment based on email
-export function determineUserRole(email: string): "admin" | "agent" | "user" {
+export function determineUserRole(email: string): "admin" | "agent" | "member" {
   const adminEmails = [
     'michael@mypremierplans.com',
     'travis@mypremierplans.com', 
@@ -284,5 +284,5 @@ export function determineUserRole(email: string): "admin" | "agent" | "user" {
   
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
-  return "user";
+  return "member"; // Default role for enrolled healthcare members
 }

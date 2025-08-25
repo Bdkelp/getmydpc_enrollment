@@ -95,8 +95,8 @@ function Router() {
             </>
           )}
           
-          {/* Regular user route */}
-          {user?.role === "user" && (
+          {/* Member route (enrolled healthcare subscriber) */}
+          {user?.role === "member" && (
             <Route path="/no-access" component={NoAccess} />
           )}
         </>

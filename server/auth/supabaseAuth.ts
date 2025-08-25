@@ -118,7 +118,7 @@ export function setupSupabaseAuth(app: Express) {
         console.log('[Supabase Auth] User not found in database, creating new user');
         
         // Determine role based on email domain
-        let role = 'user'; // default role
+        let role = 'member'; // default role for healthcare members
         const email = req.user.email?.toLowerCase() || '';
         
         // Admin emails
