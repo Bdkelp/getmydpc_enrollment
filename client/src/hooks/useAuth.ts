@@ -29,24 +29,9 @@ export function useAuth() {
         });
 
         if (session?.user && session?.access_token) {
-          console.log('[useAuth] Valid session found, fetching user data...');
-
-          try {
-            const response = await apiRequest('/api/auth/user', {
-              method: 'GET'
-            });
-            console.log('[useAuth] User data fetched successfully:', response);
-            setSession(response.user); // Assuming setSession should store user data as well
-            setIsInitialized(true);
-          } catch (apiError) {
-            console.error('[useAuth] API request failed:', apiError);
-
-            // If API call fails, it might be due to invalid token
-            console.log('[useAuth] Clearing invalid session...');
-            await signOut();
-            setSession(null);
-            setIsInitialized(true);
-          }
+          console.log('[useAuth] Valid session found');
+          setSession(session); // Keep the actual session object, not the user data
+          setIsInitialized(true);
         } else {
           console.log('[useAuth] No valid session found');
           setSession(null);
@@ -65,28 +50,13 @@ export function useAuth() {
 
     // Listen for auth changes
     const { data: { subscription } } = onAuthStateChange((event, session) => {
-      // Auth state changed
+      console.log('[useAuth] Auth state changed:', event, !!session);
       setSession(session);
       setIsInitialized(true);
-      // Invalidate all queries when auth state changes to ensure fresh data
+      
+      // Invalidate queries when auth state changes
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
-        // Clear all cached data to prevent stale information
-        queryClient.clear();
-
-        // Force clear browser storage
-        try {
-          localStorage.clear();
-          sessionStorage.clear();
-          // Clear service worker cache if available
-          if ('caches' in window) {
-            caches.keys().then(names => {
-              names.forEach(name => caches.delete(name));
-            });
-          }
-        } catch (e) {
-          console.log('Storage clear attempt:', e);
-        }
       }
     });
 

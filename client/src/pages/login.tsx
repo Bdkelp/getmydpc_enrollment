@@ -50,19 +50,16 @@ export default function Login() {
         console.log("Login successful, user:", result.user);
         console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
         
-        // Store session data in localStorage as backup
-        localStorage.setItem('supabase.auth.token', result.session.access_token);
-        
         toast({
           title: "Welcome back!",
           description: `Logged in successfully`,
         });
         
-        // Wait longer to ensure session is properly stored
+        // Navigate to appropriate dashboard based on role
+        // The auth hook will handle the session automatically
         setTimeout(() => {
-          // Force a full page reload to ensure auth state is properly initialized
-          window.location.reload();
-        }, 1000);
+          window.location.href = '/'; // Go to home and let router handle redirect
+        }, 500);
       }
     } catch (error: any) {
       console.error("Login failed:", error);
