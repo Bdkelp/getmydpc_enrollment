@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { getSession, onAuthStateChange } from "@/lib/supabase";
+import { getSession, onAuthStateChange, signOut } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 import { queryClient } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
+import { apiRequest } from "@/lib/api"; // Assuming apiRequest is available
 
 interface AuthUser extends Omit<User, 'role'> {
   role: string | null;
@@ -16,10 +17,51 @@ export function useAuth() {
 
   // Initialize session on mount
   useEffect(() => {
-    getSession().then((session) => {
-      setSession(session);
-      setIsInitialized(true);
-    });
+    const initializeAuth = async () => {
+      try {
+        console.log('[useAuth] Initializing authentication...');
+
+        const session = await getSession();
+        console.log('[useAuth] Session check:', {
+          hasSession: !!session,
+          hasUser: !!session?.user,
+          hasToken: !!session?.access_token
+        });
+
+        if (session?.user && session?.access_token) {
+          console.log('[useAuth] Valid session found, fetching user data...');
+
+          try {
+            const response = await apiRequest('/api/auth/user', {
+              method: 'GET'
+            });
+            console.log('[useAuth] User data fetched successfully:', response);
+            setSession(response.user); // Assuming setSession should store user data as well
+            setIsInitialized(true);
+          } catch (apiError) {
+            console.error('[useAuth] API request failed:', apiError);
+
+            // If API call fails, it might be due to invalid token
+            console.log('[useAuth] Clearing invalid session...');
+            await signOut();
+            setSession(null);
+            setIsInitialized(true);
+          }
+        } else {
+          console.log('[useAuth] No valid session found');
+          setSession(null);
+          setIsInitialized(true);
+        }
+      } catch (error) {
+        console.error('[useAuth] Auth initialization error:', error);
+        // Clear any invalid session
+        await signOut();
+        setSession(null);
+        setIsInitialized(true);
+      }
+    };
+
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = onAuthStateChange((event, session) => {
@@ -31,7 +73,7 @@ export function useAuth() {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
         // Clear all cached data to prevent stale information
         queryClient.clear();
-        
+
         // Force clear browser storage
         try {
           localStorage.clear();
@@ -48,7 +90,10 @@ export function useAuth() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      console.log('[useAuth] Unsubscribed from auth state changes.');
+    };
   }, []);
 
   // Query user data from our backend when authenticated
@@ -56,26 +101,27 @@ export function useAuth() {
     queryKey: ['/api/auth/user'],
     queryFn: async () => {
       if (!session?.access_token) {
-        console.log("No access token available");
+        console.log("[useAuth] No access token available, skipping user fetch.");
         return null;
       }
-      
-      console.log("Fetching user with token:", session.access_token.substring(0, 50) + '...');
-      
+
+      console.log("[useAuth] Fetching user with token:", session.access_token.substring(0, 50) + '...');
+
       const response = await fetch('/api/auth/user', {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
       });
-      
-      console.log("User fetch response status:", response.status);
-      
+
+      console.log("[useAuth] User fetch response status:", response.status);
+
       if (!response.ok) {
         if (response.status === 401) {
-          console.log("Unauthorized - clearing session and redirecting to login");
+          console.log("[useAuth] Unauthorized - clearing session and redirecting to login");
           // Clear the session and redirect to login
-          localStorage.removeItem('supabase.auth.token');
+          localStorage.removeItem('supabase.auth.token'); // This might not be the correct key
           setSession(null);
+          await signOut();
           return null;
         }
         if (response.status === 403) {
@@ -85,19 +131,22 @@ export function useAuth() {
             return null;
           }
         }
-        throw new Error('Failed to fetch user');
+        console.error(`[useAuth] Failed to fetch user: ${response.status}`);
+        throw new Error(`Failed to fetch user (Status: ${response.status})`);
       }
-      
+
       const userData = await response.json();
-      console.log("User data received:", userData.email, userData.role);
+      console.log("[useAuth] User data received:", userData.email, userData.role);
       return userData;
     },
     enabled: !!session?.access_token && isInitialized,
     retry: (failureCount, error: any) => {
       // Don't retry on auth errors
       if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+        console.warn("[useAuth] Not retrying failed fetch due to unauthorized error.");
         return false;
       }
+      console.log(`[useAuth] Retrying fetch attempt ${failureCount} for error:`, error?.message);
       return failureCount < 2;
     },
     refetchOnWindowFocus: false,
@@ -105,17 +154,13 @@ export function useAuth() {
     refetchInterval: false,
   });
 
-  // Only show loading during initial load
-  // Don't show loading if we're just waiting for user data after initialization
-  const isLoading = !isInitialized;
-
   // Auth state ready
 
   return {
-    user,
-    session,
+    user, // This should be the data fetched from /api/auth/user
+    session, // This should be the session object from supabase
     isAuthenticated: !!session && !!user,
-    isLoading,
+    isLoading: !isInitialized, // Use isInitialized to determine initial loading state
     error
   };
 }
