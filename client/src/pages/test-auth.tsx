@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSession, getCurrentUser } from "@/lib/supabase";
+import { getSession, getUser } from "@/lib/supabase";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -33,7 +33,7 @@ export default function TestAuth() {
     
     // Test 2: Check Supabase current user
     try {
-      const user = await getCurrentUser();
+      const user = await getUser();
       results.supabaseUser = {
         success: !!user,
         userId: user?.id,
