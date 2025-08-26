@@ -388,24 +388,28 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
 
     if (countError) {
       console.error('[Storage] Error fetching user count:', countError);
-      return { users: data || [], totalCount: 0 }; // Return data even if count fails
     }
 
-    console.log('[Storage] Found users:', count);
+    console.log('[Storage] Found users:', count || data?.length || 0);
+
+    // Map all users using the helper function
+    const mappedUsers = (data || []).map(mapUserFromDB).filter(Boolean);
 
     // Log first user for debugging (without sensitive data)
-    if (data && data.length > 0) {
-      console.log('[Storage] Sample user:', {
-        id: data[0].id,
-        email: data[0].email,
-        role: data[0].role,
-        approvalStatus: data[0].approvalStatus
+    if (mappedUsers.length > 0) {
+      console.log('[Storage] Sample mapped user:', {
+        id: mappedUsers[0].id,
+        email: mappedUsers[0].email,
+        firstName: mappedUsers[0].firstName,
+        lastName: mappedUsers[0].lastName,
+        role: mappedUsers[0].role,
+        approvalStatus: mappedUsers[0].approvalStatus
       });
     }
 
     return {
-      users: data || [],
-      totalCount: count || 0
+      users: mappedUsers,
+      totalCount: count || mappedUsers.length
     };
   } catch (error: any) {
     console.error("[Storage] Unexpected error fetching all users:", error);
@@ -1420,15 +1424,20 @@ export const storage = {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
 
-      const [userCounts, subscriptionCounts] = await Promise.all([
+      // Get counts for different user types (admins, agents, and potential members)
+      const [allUserCounts, adminCounts, agentCounts, subscriptionCounts] = await Promise.all([
         supabase.from('users').select('id', { count: 'exact', head: true }),
+        supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'admin'),
+        supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'agent'),
         supabase.from('subscriptions').select('id', { count: 'exact', head: true }).eq('status', 'active')
       ]);
 
-      console.log('[Storage] User counts result:', userCounts);
-      console.log('[Storage] Subscription counts result:', subscriptionCounts);
+      console.log('[Storage] User counts - Total:', allUserCounts.count, 'Admins:', adminCounts.count, 'Agents:', agentCounts.count);
+      console.log('[Storage] Subscription counts result:', subscriptionCounts.count);
 
-      const totalUsers = userCounts.count || 0;
+      const totalUsers = allUserCounts.count || 0;
+      const totalAdmins = adminCounts.count || 0;
+      const totalAgents = agentCounts.count || 0;
       const activeSubscriptions = subscriptionCounts.count || 0;
 
       // Calculate other stats
@@ -1438,6 +1447,8 @@ export const storage = {
 
       const stats = {
         totalUsers,
+        totalAdmins,
+        totalAgents,
         activeSubscriptions,
         monthlyRevenue,
         recentEnrollments,
@@ -1452,6 +1463,8 @@ export const storage = {
       console.error("[Storage] Error details:", error.message);
       return {
         totalUsers: 0,
+        totalAdmins: 0,
+        totalAgents: 0,
         activeSubscriptions: 0,
         monthlyRevenue: 0,
         recentEnrollments: 0,

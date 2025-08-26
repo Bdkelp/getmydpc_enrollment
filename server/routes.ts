@@ -373,13 +373,30 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
 
   try {
     console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
-    const users = await storage.getAllUsers();
-    const totalCount = users.users?.length || 0;
+    const result = await storage.getAllUsers();
+    const users = result.users || [];
+    const totalCount = result.totalCount || 0;
     
     console.log('[Admin Users API] Retrieved users count:', totalCount);
-    console.log('[Admin Users API] Sample data:', users.users?.slice(0, 2));
+    console.log('[Admin Users API] User roles breakdown:', {
+      admins: users.filter(u => u.role === 'admin').length,
+      agents: users.filter(u => u.role === 'agent').length,
+      members: users.filter(u => u.role === 'member' || u.role === 'user').length,
+      others: users.filter(u => !['admin', 'agent', 'member', 'user'].includes(u.role)).length
+    });
     
-    res.json({ users: users.users || [], totalCount });
+    if (users.length > 0) {
+      console.log('[Admin Users API] Sample user data:', {
+        id: users[0].id,
+        email: users[0].email,
+        firstName: users[0].firstName,
+        lastName: users[0].lastName,
+        role: users[0].role,
+        approvalStatus: users[0].approvalStatus
+      });
+    }
+    
+    res.json({ users, totalCount });
   } catch (error) {
     console.error("[Admin Users API] Error fetching users:", error);
     res.status(500).json({ message: "Failed to fetch users" });
