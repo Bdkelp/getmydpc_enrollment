@@ -47,8 +47,18 @@ export default function AdminUsers() {
   }, []);
 
   // Fetch all users
-  const { data: usersData, isLoading } = useQuery({
+  const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],
+    retry: 3,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+  });
+
+  // Debug query state
+  console.log('[AdminUsers] Query state:', {
+    isLoading,
+    hasData: !!usersData,
+    hasError: !!error,
+    errorMessage: error?.message
   });
 
   // Update user role mutation
@@ -128,22 +138,50 @@ export default function AdminUsers() {
     },
   });
 
-  // Safe array handling for users data with comprehensive checks
-  const safeUsers = Array.isArray(usersData?.users) ? usersData.users : [];
+  // Safe array handling for users data with comprehensive checks and debugging
+  const rawUsers = usersData?.users;
+  const safeUsers = Array.isArray(rawUsers) ? rawUsers : [];
   const safeUsersData = usersData || { users: [], totalCount: 0 };
+
+  // Debug logging
+  console.log('[AdminUsers] Raw data check:', {
+    hasUsersData: !!usersData,
+    usersDataType: typeof usersData,
+    rawUsersType: typeof rawUsers,
+    rawUsersIsArray: Array.isArray(rawUsers),
+    rawUsersLength: rawUsers?.length || 0,
+    safeUsersLength: safeUsers.length,
+    firstUser: safeUsers[0] ? {
+      id: safeUsers[0].id,
+      email: safeUsers[0].email,
+      role: safeUsers[0].role
+    } : null
+  });
 
   // Filter users based on search and role with safe array operations
   const filteredUsers = safeUsers.filter((user: UserType) => {
-    if (!user) return false;
+    if (!user || typeof user !== 'object') {
+      console.warn('[AdminUsers] Invalid user object:', user);
+      return false;
+    }
 
-    const matchesSearch = 
-      user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = !searchTerm || 
+      user.email?.toLowerCase().includes(searchLower) ||
+      user.firstName?.toLowerCase().includes(searchLower) ||
+      user.lastName?.toLowerCase().includes(searchLower);
 
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
 
     return matchesSearch && matchesRole;
+  });
+
+  // Debug filtered results
+  console.log('[AdminUsers] Filter results:', {
+    searchTerm,
+    roleFilter,
+    totalUsers: safeUsers.length,
+    filteredCount: filteredUsers.length
   });
 
   const getRoleBadgeVariant = (role: string) => {
@@ -316,10 +354,26 @@ export default function AdminUsers() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {!Array.isArray(filteredUsers) || filteredUsers.length === 0 ? (
+                    {isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                          Loading users...
+                        </TableCell>
+                      </TableRow>
+                    ) : error ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-red-500">
+                          Error loading users: {error.message}
+                        </TableCell>
+                      </TableRow>
+                    ) : !Array.isArray(filteredUsers) || filteredUsers.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                           No users found matching your criteria
+                          <br />
+                          <small className="text-xs">
+                            Debug: {safeUsers.length} total users, {filteredUsers.length} after filtering
+                          </small>
                         </TableCell>
                       </TableRow>
                     ) : (
