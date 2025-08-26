@@ -1,11 +1,10 @@
-
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { paymentService } from "./services/payment-service";
 import { notificationService } from "./utils/notifications";
-import { calculateCommission } from "./utils/commission";
-import { commissions, plans, subscriptions } from "@shared/schema";
+import { calculateCommission, getPlanTierFromName, getPlanTypeFromMemberType } from "./utils/commission";
+import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -31,25 +30,25 @@ router.get("/api/plans", async (req, res) => {
 router.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     // Sign in with Supabase
     const { data, error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signInWithPassword({
       email,
       password
     }));
-    
+
     if (error) {
       console.error('Login error:', error);
       return res.status(401).json({ message: error.message || 'Invalid credentials' });
     }
-    
+
     if (!data.session) {
       return res.status(401).json({ message: 'Failed to create session' });
     }
-    
+
     // Get or create user in our database
     let user = await storage.getUserByEmail(email);
-    
+
     if (!user) {
       // Create user in our database if they don't exist
       user = await storage.createUser({
@@ -65,7 +64,7 @@ router.post("/api/auth/login", async (req, res) => {
         updatedAt: new Date()
       });
     }
-    
+
     res.json({
       user: {
         id: user.id,
@@ -91,7 +90,7 @@ router.post("/api/auth/login", async (req, res) => {
 router.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
-    
+
     // Sign up with Supabase
     const { data, error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signUp({
       email,
@@ -103,16 +102,16 @@ router.post("/api/auth/register", async (req, res) => {
         }
       }
     }));
-    
+
     if (error) {
       console.error('Registration error:', error);
       return res.status(400).json({ message: error.message || 'Registration failed' });
     }
-    
+
     if (!data.user) {
       return res.status(400).json({ message: 'Failed to create user' });
     }
-    
+
     // Create user in our database
     const user = await storage.createUser({
       id: data.user.id,
@@ -126,7 +125,7 @@ router.post("/api/auth/register", async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date()
     });
-    
+
     res.json({
       message: 'Registration successful. Please check your email to verify your account.',
       user: {
@@ -146,14 +145,14 @@ router.post("/api/auth/logout", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
-    
+
     if (token) {
       const { error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signOut());
       if (error) {
         console.error('Logout error:', error);
       }
     }
-    
+
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
     console.error('Logout error:', error);
@@ -165,7 +164,7 @@ router.post("/api/auth/logout", async (req, res) => {
 function determineUserRole(email: string): "admin" | "agent" | "member" {
   const adminEmails = [
     'michael@mypremierplans.com',
-    'travis@mypremierplans.com', 
+    'travis@mypremierplans.com',
     'richard@mypremierplans.com',
     'joaquin@mypremierplans.com'
   ];
@@ -191,7 +190,7 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
     // Get user's subscription and plan info
     const userSubscriptions = await storage.getUserSubscriptions(req.user.id);
     const activeSubscription = userSubscriptions.find(sub => sub.status === 'active');
-    
+
     let planInfo = null;
     if (activeSubscription) {
       const plan = await storage.getPlan(activeSubscription.planId);
@@ -240,7 +239,7 @@ router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res)
     delete updateData.role; // Prevent role modification via profile update
     delete updateData.createdAt; // Prevent creation date modification
     delete updateData.approvalStatus; // Prevent approval status modification
-    
+
     // Validate phone number format if provided
     if (updateData.phone) {
       const phoneRegex = /^\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}$/;
@@ -248,26 +247,26 @@ router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res)
         return res.status(400).json({ message: "Invalid phone number format" });
       }
     }
-    
+
     // Validate email format if changed
     if (updateData.email && updateData.email !== req.user!.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(updateData.email)) {
         return res.status(400).json({ message: "Invalid email format" });
       }
-      
+
       // Check if email is already in use by another user
       const existingUser = await storage.getUserByEmail(updateData.email);
       if (existingUser && existingUser.id !== req.user!.id) {
         return res.status(400).json({ message: "Email already in use" });
       }
     }
-    
+
     const updatedUser = await storage.updateUser(req.user!.id, {
       ...updateData,
       updatedAt: new Date()
     });
-    
+
     res.json(updatedUser);
   } catch (error) {
     console.error("Error updating profile:", error);
@@ -290,7 +289,7 @@ router.get("/api/user/subscription", authenticateToken, async (req: AuthRequest,
 router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     let leads;
-    
+
     if (req.user!.role === 'admin') {
       leads = await storage.getAllLeads();
     } else if (req.user!.role === 'agent') {
@@ -298,7 +297,7 @@ router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
     } else {
       return res.status(403).json({ message: "Not authorized to view leads" });
     }
-    
+
     res.json(leads);
   } catch (error) {
     console.error("Error fetching leads:", error);
@@ -309,7 +308,7 @@ router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const { firstName, lastName, email, phone, message, source } = req.body;
-    
+
     const lead = await storage.createLead({
       firstName,
       lastName,
@@ -320,7 +319,7 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
       status: 'new',
       assignedAgentId: req.user!.role === 'agent' ? req.user!.id : null
     });
-    
+
     res.status(201).json(lead);
   } catch (error) {
     console.error("Error creating lead:", error);
@@ -333,7 +332,7 @@ router.get("/api/admin/stats", authenticateToken, async (req: AuthRequest, res) 
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const stats = await storage.getAdminDashboardStats();
     res.json(stats);
@@ -347,7 +346,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const users = await storage.getAllUsers();
     const totalCount = users.users?.length || 0;
@@ -362,7 +361,7 @@ router.get("/api/admin/pending-users", authenticateToken, async (req: AuthReques
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const users = await storage.getAllUsers();
     const pendingUsers = users.users?.filter((user: any) => user.approvalStatus === 'pending') || [];
@@ -377,7 +376,7 @@ router.post("/api/admin/approve-user/:userId", authenticateToken, async (req: Au
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { userId } = req.params;
     const updatedUser = await storage.updateUser(userId, {
@@ -395,7 +394,7 @@ router.post("/api/admin/reject-user/:userId", authenticateToken, async (req: Aut
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { userId } = req.params;
     const { reason } = req.body;
@@ -415,20 +414,20 @@ router.patch("/api/admin/user/:userId/role", authenticateToken, async (req: Auth
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { userId } = req.params;
     const { role } = req.body;
-    
+
     if (!['user', 'agent', 'admin'].includes(role)) {
       return res.status(400).json({ message: "Invalid role" });
     }
-    
+
     const updatedUser = await storage.updateUser(userId, {
       role,
       updatedAt: new Date()
     });
-    
+
     res.json(updatedUser);
   } catch (error) {
     console.error("Error updating user role:", error);
@@ -440,16 +439,16 @@ router.patch("/api/admin/user/:userId/agent-number", authenticateToken, async (r
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { userId } = req.params;
     const { agentNumber } = req.body;
-    
+
     const updatedUser = await storage.updateUser(userId, {
       agentNumber,
       updatedAt: new Date()
     });
-    
+
     res.json(updatedUser);
   } catch (error) {
     console.error("Error updating agent number:", error);
@@ -461,7 +460,7 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const leads = await storage.getAllLeads();
     res.json(leads);
@@ -475,7 +474,7 @@ router.get("/api/admin/agents", authenticateToken, async (req: AuthRequest, res)
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const agents = await storage.getAgents();
     res.json(agents);
@@ -489,11 +488,11 @@ router.put("/api/admin/leads/:leadId/assign", authenticateToken, async (req: Aut
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { leadId } = req.params;
     const { agentId } = req.body;
-    
+
     const result = await storage.assignLead(parseInt(leadId), agentId);
     res.json(result);
   } catch (error) {
@@ -506,7 +505,7 @@ router.get("/api/admin/enrollments", authenticateToken, async (req: AuthRequest,
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { startDate, endDate, agentId } = req.query;
     // For now, return mock data since storage methods aren't implemented
@@ -536,10 +535,10 @@ router.get("/api/admin/analytics", authenticateToken, async (req: AuthRequest, r
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { days = "30" } = req.query;
-    
+
     // Return mock analytics data for now
     const analytics = {
       overview: {
@@ -590,7 +589,7 @@ router.get("/api/admin/analytics", authenticateToken, async (req: AuthRequest, r
         }
       ]
     };
-    
+
     res.json(analytics);
   } catch (error) {
     console.error("Error fetching analytics:", error);
@@ -612,16 +611,16 @@ router.put("/api/admin/users/:userId", authenticateToken, async (req: AuthReques
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
-  
+
   try {
     const { userId } = req.params;
     const updateData = req.body;
-    
+
     const updatedUser = await storage.updateUser(userId, {
       ...updateData,
       updatedAt: new Date()
     });
-    
+
     res.json(updatedUser);
   } catch (error) {
     console.error("Error updating user:", error);
@@ -634,7 +633,7 @@ router.get("/api/agent/commissions", authenticateToken, async (req: AuthRequest,
   if (req.user!.role !== 'agent') {
     return res.status(403).json({ message: "Agent access required" });
   }
-  
+
   try {
     const agentCommissions = await storage.getAgentCommissions(req.user!.id);
     res.json(agentCommissions);
@@ -644,10 +643,97 @@ router.get("/api/agent/commissions", authenticateToken, async (req: AuthRequest,
   }
 });
 
+
+// Commission Generation Logic
+// This function will be called when a new subscription is created or updated.
+// It calculates and creates commission records for agents.
+router.post("/api/commissions/generate", authenticateToken, async (req: AuthRequest, res) => {
+  // Only admins can trigger commission generation directly, but the logic
+  // should also be callable from subscription creation/updates.
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required to generate commissions" });
+  }
+
+  try {
+    const { subscriptionId, userId, enrolledByAgentId, planName, memberType } = req.body;
+
+    if (!subscriptionId || !userId || !planName || !memberType) {
+      return res.status(400).json({ message: "Missing required fields: subscriptionId, userId, planName, memberType" });
+    }
+
+    // Use the helper function to create commission with admin check
+    const commissionResult = await createCommissionWithCheck(
+      enrolledByAgentId,
+      parseInt(subscriptionId),
+      userId,
+      planName,
+      memberType
+    );
+
+    if (commissionResult.skipped) {
+      return res.status(200).json({ message: "Commission generation skipped", ...commissionResult });
+    } else if (commissionResult.error) {
+      return res.status(500).json({ message: "Failed to generate commission", ...commissionResult });
+    } else {
+      return res.status(201).json({ message: "Commission generated successfully", commission: commissionResult.commission });
+    }
+
+  } catch (error) {
+    console.error("Error initiating commission generation:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Helper function to create commission with admin check
+async function createCommissionWithCheck(agentId: string | null, subscriptionId: number, userId: string, planName: string, memberType: string) {
+  try {
+    // Get agent profile to check role
+    const agent = agentId ? await storage.getUser(agentId) : null;
+    const enrollingUser = await storage.getUser(userId);
+
+    // Check if agent or enrolling user is admin
+    if (agent?.role === 'admin' || enrollingUser?.role === 'admin') {
+      console.log('Commission creation skipped - admin involved:', {
+        agentRole: agent?.role,
+        enrollingUserRole: enrollingUser?.role,
+        agentId,
+        userId
+      });
+      return { skipped: true, reason: 'admin_no_commission' };
+    }
+
+    // Calculate commission using existing logic
+    const commissionResult = calculateCommission(planName, memberType);
+    if (!commissionResult) {
+      console.warn(`No commission rate found for plan: ${planName}, member type: ${memberType}`);
+      return { skipped: true, reason: 'no_commission_rate' };
+    }
+
+    // Create commission record
+    const commission = await storage.createCommission({
+      agentId: agentId || 'HOUSE', // Assign to 'HOUSE' if no agent is assigned
+      subscriptionId,
+      userId,
+      planName,
+      planType: getPlanTypeFromMemberType(memberType),
+      planTier: getPlanTierFromName(planName),
+      commissionAmount: commissionResult.commission,
+      totalPlanCost: commissionResult.totalCost,
+      status: 'pending',
+      paymentStatus: 'unpaid'
+    });
+
+    return { success: true, commission };
+  } catch (error) {
+    console.error('Error creating commission:', error);
+    return { error: error.message };
+  }
+}
+
 export async function registerRoutes(app: any) {
   // Use the router
   app.use(router);
-  
+
   // Create and return the server
   const { createServer } = await import("http");
   return createServer(app);

@@ -129,7 +129,7 @@ export async function createUser(userData: Partial<User>): Promise<User> {
 export async function getUser(id: string): Promise<User | null> {
   const { data, error } = await supabase
     .from('users')
-    .select('*')
+    .select('*, role') // Explicitly include role
     .eq('id', id)
     .single();
 
@@ -145,7 +145,7 @@ export async function getUser(id: string): Promise<User | null> {
 // Helper function to map database snake_case to camelCase
 function mapUserFromDB(data: any): User | null {
   if (!data) return null;
-  
+
   return {
     id: data.id,
     email: data.email,
@@ -1010,6 +1010,29 @@ export async function rejectUser(userId: string, reason: string): Promise<User> 
 
 // Commission operations
 export async function createCommission(commission: InsertCommission): Promise<Commission> {
+  // Check if the agent is an admin. If so, skip commission creation.
+  const agent = await getUser(commission.agentId);
+  if (agent && agent.role === 'admin') {
+    console.log(`Skipping commission for admin agent: ${commission.agentId}`);
+    return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
+  }
+
+  // Check if the enrolling user is an admin. If so, skip commission creation.
+  // Assuming enrollingUser is available in commission object or can be fetched
+  // For now, let's assume enrolling user ID is passed or fetched via subscription
+  // If subscriptionId is available, we can fetch the user who owns the subscription
+  if (commission.subscriptionId) {
+    const subscription = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
+    if (subscription.data && subscription.data.userId) {
+      const enrollingUser = await getUser(subscription.data.userId);
+      if (enrollingUser && enrollingUser.role === 'admin') {
+        console.log(`Skipping commission for enrolling admin user: ${subscription.data.userId}`);
+        return { skipped: true, reason: 'admin_no_commission' } as any;
+      }
+    }
+  }
+
+
   const { data, error } = await supabase
     .from('commissions')
     .insert([{ ...commission, created_at: new Date(), updated_at: new Date() }])
@@ -1288,7 +1311,7 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   recordEnrollmentModification,
-  
+
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
   getUserSubscription: async () => undefined,
@@ -1296,14 +1319,14 @@ export const storage = {
   createSubscription: async (sub: any) => sub,
   updateSubscription: async (id: number, data: any) => ({ id, ...data }),
   getActiveSubscriptions: async () => [],
-  
+
   createPayment: async (payment: any) => payment,
   getUserPayments: async () => [],
   getPaymentByStripeId: async () => undefined,
-  
+
   getFamilyMembers: async () => [],
   addFamilyMember: async (member: any) => member,
-  
+
   createLead: async (lead: any) => lead,
   updateLead: async (id: string, data: any) => ({ id, ...data }),
   getLeadById: async () => undefined,
@@ -1329,19 +1352,42 @@ export const storage = {
     return { success: true, leadId, agentId };
   },
   getUnassignedLeadsCount: async () => 0,
-  
-  createCommission: async (commission: any) => commission,
+
+  createCommission: async (commission: any) => {
+    // Check if the agent is an admin. If so, skip commission creation.
+    const agent = await getUser(commission.agentId);
+    if (agent && agent.role === 'admin') {
+      console.log(`Skipping commission for admin agent: ${commission.agentId}`);
+      return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
+    }
+
+    // Check if the enrolling user is an admin. If so, skip commission creation.
+    if (commission.subscriptionId) {
+      const { data: subscription, error: subError } = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
+      if (subError) {
+        console.error('Error fetching subscription for enrolling user check:', subError);
+      } else if (subscription && subscription.userId) {
+        const enrollingUser = await getUser(subscription.userId);
+        if (enrollingUser && enrollingUser.role === 'admin') {
+          console.log(`Skipping commission for enrolling admin user: ${subscription.userId}`);
+          return { skipped: true, reason: 'admin_no_commission' } as any;
+        }
+      }
+    }
+    // Call the actual createCommission function if checks pass
+    return storage.createCommission(commission);
+  },
   updateCommissionStatus: async () => {},
   getAgentCommissions: async () => [],
   getAllCommissions: async () => [],
   updateCommissionPaymentStatus: async () => {},
   getCommissionStats: async () => ({ totalUnpaid: 0, totalPaid: 0 }),
-  
+
   getAdminDashboardStats: async () => {
     const users = await storage.getAllUsers();
     const totalUsers = users.users?.length || 0;
     const activeUsers = users.users?.filter((u: any) => u.isActive).length || 0;
-    
+
     return {
       totalUsers,
       activeUsers,
@@ -1352,7 +1398,7 @@ export const storage = {
   },
   getAdminCounts: async () => ({}),
   getDashboardData: async () => ({}),
-  
+
   getPlans: async () => [],
   getActivePlans: async () => [],
   getPlan: async () => undefined,
