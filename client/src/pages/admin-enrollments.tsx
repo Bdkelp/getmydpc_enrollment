@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Navigate } from "wouter/use-location";
 
 interface Enrollment {
   id: string;

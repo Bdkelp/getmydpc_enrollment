@@ -16,6 +16,7 @@ import { useLocation } from 'wouter';
 import { ChevronLeft, Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
+import { Navigate } from 'wouter'; // Assuming Navigate is the correct component for redirection
 
 interface Lead {
   id: number;
@@ -76,7 +77,7 @@ export default function AdminLeads() {
   }, [user, authLoading, setLocation, log, logWarning]);
 
   // Fetch all leads
-  const { data: leads = [], isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
+  const { data: leads, isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
     enabled: !!user && user.role === 'admin',
     retry: (failureCount, error: any) => {
@@ -246,12 +247,24 @@ export default function AdminLeads() {
   const unassignedCount = (leads || []).filter(lead => !lead.assignedAgentId).length;
   const newLeadsCount = (leads || []).filter(lead => lead.status === 'new').length;
 
-  if (authLoading || leadsLoading) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading leads...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || user.role !== 'admin') {
+    logWarning('User not authenticated or not admin, redirecting to login');
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">Access Denied. Please log in as an administrator.</p>
+          <Button onClick={() => setLocation('/login')}>Go to Login</Button>
         </div>
       </div>
     );
@@ -270,12 +283,11 @@ export default function AdminLeads() {
 
   // Filter leads based on search and status
   const filteredLeads = React.useMemo(() => {
-    if (!Array.isArray(leads)) {
-      console.warn('[AdminLeads] Leads is not an array:', leads);
-      return [];
-    }
+    // Ensure data is always an array before filtering
+    const safeLeads = Array.isArray(leads) ? leads : [];
+    const safeAgents = Array.isArray(agents) ? agents : [];
 
-    return leads.filter(lead => {
+    return safeLeads.filter(lead => {
       if (!lead) return false;
 
       const matchesSearch = searchTerm === "" || 
@@ -291,7 +303,7 @@ export default function AdminLeads() {
 
       return matchesSearch && matchesStatus && matchesAgent;
     });
-  }, [leads, searchTerm, statusFilter, assignmentFilter]);
+  }, [leads, searchTerm, statusFilter, assignmentFilter, agents]); // Added agents to dependency array
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">

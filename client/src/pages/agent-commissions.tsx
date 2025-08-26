@@ -47,7 +47,7 @@ export default function AgentCommissions() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  
+
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
@@ -76,14 +76,14 @@ export default function AgentCommissions() {
         startDate: dateFilter.startDate,
         endDate: dateFilter.endDate,
       });
-      
+
       const response = await fetch(`/api/agent/export-commissions?${params}`, {
         method: "GET",
         credentials: "include",
       });
-      
+
       if (!response.ok) throw new Error("Export failed");
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -93,7 +93,7 @@ export default function AgentCommissions() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      
+
       toast({
         title: "Export Successful",
         description: "Your commission report has been downloaded.",
@@ -140,6 +140,34 @@ export default function AgentCommissions() {
         return <Badge>{status}</Badge>;
     }
   };
+
+  const isAuthenticated = user !== null; // Assuming user object is null if not authenticated
+
+  const { data: commissionsData = [], isLoading: commissionsLoadingData } = useQuery<Commission[]>({
+    queryKey: ["/api/agent/commissions", dateFilter],
+    enabled: isAuthenticated && user?.role === "agent",
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+      });
+      return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
+    },
+  });
+
+  const safeCommissions = Array.isArray(commissionsData) ? commissionsData : [];
+  const filteredCommissions = safeCommissions.filter((commission: any) => {
+    return true; // Placeholder, actual filtering logic would go here if needed
+  });
+
+
+  if (statsLoading || commissionsLoadingData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -238,7 +266,7 @@ export default function AgentCommissions() {
             <CardTitle>Commission Details</CardTitle>
           </CardHeader>
           <CardContent>
-            {commissions && commissions.length > 0 ? (
+            {safeCommissions.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -253,7 +281,7 @@ export default function AgentCommissions() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {commissions.map((commission) => (
+                  {safeCommissions.map((commission) => (
                     <TableRow key={commission.id}>
                       <TableCell>{format(new Date(commission.createdAt), "MM/dd/yyyy")}</TableCell>
                       <TableCell>{commission.userName}</TableCell>

@@ -58,7 +58,7 @@ export default function AgentLeads() {
   const [showAddLeadDialog, setShowAddLeadDialog] = useState(false);
   const [activityType, setActivityType] = useState<string>("call");
   const [activityNotes, setActivityNotes] = useState<string>("");
-  
+
   // New lead form state
   const [newLead, setNewLead] = useState({
     firstName: "",
@@ -183,9 +183,10 @@ export default function AgentLeads() {
     );
   }
 
+  const safeLeads = Array.isArray(leads) ? leads : [];
   const filteredLeads = statusFilter === 'all' 
-    ? leads 
-    : leads?.filter(lead => lead.status === statusFilter);
+    ? safeLeads 
+    : safeLeads.filter(lead => lead.status === statusFilter);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -198,10 +199,10 @@ export default function AgentLeads() {
           <ChevronLeft className="h-4 w-4 mr-2" />
           Back to Dashboard
         </Button>
-        
+
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold">Lead Management</h1>
-          
+
           <div className="flex gap-4">
             <Button 
               onClick={() => setShowAddLeadDialog(true)}
@@ -210,7 +211,7 @@ export default function AgentLeads() {
               <Plus className="h-4 w-4 mr-2" />
               Add Lead
             </Button>
-            
+
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by status" />
@@ -242,7 +243,7 @@ export default function AgentLeads() {
                       {lead.status.charAt(0).toUpperCase() + lead.status.slice(1)}
                     </span>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 mb-3">
                     <div className="flex items-center gap-2">
                       <Mail className="h-4 w-4" />
@@ -257,20 +258,20 @@ export default function AgentLeads() {
                       </a>
                     </div>
                   </div>
-                  
+
                   {lead.message && (
                     <div className="bg-gray-50 p-3 rounded mb-3">
                       <p className="text-sm text-gray-700">{lead.message}</p>
                     </div>
                   )}
-                  
+
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <span>Created: {format(new Date(lead.createdAt), "MMM d, yyyy h:mm a")}</span>
                     <span>•</span>
                     <span>Last updated: {format(new Date(lead.updatedAt), "MMM d, yyyy h:mm a")}</span>
                   </div>
                 </div>
-                
+
                 <div className="flex flex-col gap-2 ml-4">
                   <Select
                     value={lead.status}
@@ -287,7 +288,7 @@ export default function AgentLeads() {
                       <SelectItem value="closed">Closed</SelectItem>
                     </SelectContent>
                   </Select>
-                  
+
                   <Button
                     variant="outline"
                     size="sm"
@@ -299,7 +300,7 @@ export default function AgentLeads() {
                     <MessageSquare className="h-4 w-4 mr-2" />
                     Add Activity
                   </Button>
-                  
+
                   {lead.status === 'qualified' && (
                     <Button
                       size="sm"
@@ -334,7 +335,7 @@ export default function AgentLeads() {
               Enter the lead's information to add them to your pipeline
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -356,7 +357,7 @@ export default function AgentLeads() {
                 />
               </div>
             </div>
-            
+
             <div>
               <Label htmlFor="email">Email *</Label>
               <Input
@@ -367,7 +368,7 @@ export default function AgentLeads() {
                 placeholder="john@example.com"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="phone">Phone *</Label>
               <Input
@@ -378,7 +379,7 @@ export default function AgentLeads() {
                 placeholder="(210) 555-0123"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="message">Notes</Label>
               <Textarea
@@ -390,7 +391,7 @@ export default function AgentLeads() {
               />
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddLeadDialog(false)}>
               Cancel
@@ -414,7 +415,7 @@ export default function AgentLeads() {
               Record an interaction with {selectedLead?.firstName} {selectedLead?.lastName}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Activity Type</label>
@@ -430,7 +431,7 @@ export default function AgentLeads() {
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div>
               <label className="text-sm font-medium">Notes</label>
               <Textarea
@@ -441,7 +442,7 @@ export default function AgentLeads() {
               />
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowActivityDialog(false)}>
               Cancel
