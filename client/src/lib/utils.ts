@@ -6,6 +6,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Safe event handler wrapper to prevent undefined errors
+export function safeOnChange(handler?: (value: any) => void) {
+  return handler || (() => {});
+}
+
+// Safe field value getter
+export function getFieldValue(field: any, defaultValue: any = "") {
+  return field?.value ?? defaultValue;
+}
+
+// Safe field onChange wrapper
+export function safeFieldOnChange(field: any) {
+  return field?.onChange || (() => {});
+}
+
 // Safe property access helpers
 export function safeAccess<T>(obj: any, path: string[]): T | undefined {
   try {

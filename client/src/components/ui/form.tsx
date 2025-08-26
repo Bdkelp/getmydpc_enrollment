@@ -36,7 +36,25 @@ const FormField = <
 }: ControllerProps<TFieldValues, TName>) => {
   return (
     <FormFieldContext.Provider value={{ name: props.name }}>
-      <Controller {...props} />
+      <Controller 
+        {...props}
+        render={({ field, fieldState, formState }) => {
+          // Ensure field object is properly defined with safe defaults
+          const safeField = {
+            ...field,
+            onChange: field?.onChange || (() => {}),
+            onBlur: field?.onBlur || (() => {}),
+            value: field?.value ?? "",
+            name: field?.name || props.name
+          };
+          
+          return props.render({ 
+            field: safeField, 
+            fieldState: fieldState || {}, 
+            formState: formState || {} 
+          });
+        }}
+      />
     </FormFieldContext.Provider>
   )
 }
