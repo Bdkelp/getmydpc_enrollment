@@ -104,7 +104,7 @@ export default function AdminAnalytics() {
     // Plan breakdown section
     csvSections.push('PLAN BREAKDOWN');
     csvSections.push('Plan Name,Members,Monthly Revenue,Percentage');
-    analytics.planBreakdown.forEach(plan => {
+    (analytics.planBreakdown || []).forEach(plan => {
       csvSections.push(`${plan.planName},${plan.memberCount},$${plan.monthlyRevenue.toFixed(2)},${plan.percentage.toFixed(1)}%`);
     });
     csvSections.push('');
@@ -112,7 +112,7 @@ export default function AdminAnalytics() {
     // Monthly trends section
     csvSections.push('MONTHLY TRENDS');
     csvSections.push('Month,Enrollments,Cancellations,Net Growth,Revenue');
-    analytics.monthlyTrends.forEach(trend => {
+    (analytics.monthlyTrends || []).forEach(trend => {
       csvSections.push(`${trend.month},${trend.enrollments},${trend.cancellations},${trend.netGrowth},$${trend.revenue.toFixed(2)}`);
     });
     csvSections.push('');
@@ -120,7 +120,7 @@ export default function AdminAnalytics() {
     // Recent enrollments section
     csvSections.push('RECENT ENROLLMENTS');
     csvSections.push('Name,Email,Plan,Amount,Enrolled Date,Status');
-    analytics.recentEnrollments.forEach(enrollment => {
+    (analytics.recentEnrollments || []).forEach(enrollment => {
       csvSections.push(`"${enrollment.firstName} ${enrollment.lastName}",${enrollment.email},${enrollment.planName},$${enrollment.amount},${enrollment.enrolledDate},${enrollment.status}`);
     });
 
@@ -303,7 +303,7 @@ export default function AdminAnalytics() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {analytics.planBreakdown.map((plan) => (
+                    {(analytics.planBreakdown || []).map((plan) => (
                       <TableRow key={plan.planId}>
                         <TableCell className="font-medium">{plan.planName}</TableCell>
                         <TableCell className="text-right">{plan.memberCount}</TableCell>
@@ -333,7 +333,7 @@ export default function AdminAnalytics() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {analytics.monthlyTrends.map((trend, index) => (
+                    {(analytics.monthlyTrends || []).map((trend, index) => (
                       <TableRow key={index}>
                         <TableCell className="font-medium">{trend.month}</TableCell>
                         <TableCell className="text-right text-green-600">+{trend.enrollments}</TableCell>
@@ -367,7 +367,7 @@ export default function AdminAnalytics() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {analytics.recentEnrollments.map((enrollment) => (
+                    {(analytics.recentEnrollments || []).map((enrollment) => (
                       <TableRow key={enrollment.id}>
                         <TableCell className="font-medium">
                           {enrollment.firstName} {enrollment.lastName}
