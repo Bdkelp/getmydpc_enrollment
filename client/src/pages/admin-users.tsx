@@ -129,7 +129,7 @@ export default function AdminUsers() {
   });
 
   // Filter users based on search and role
-  const filteredUsers = usersData?.users?.filter((user: UserType) => {
+  const filteredUsers = Array.isArray(usersData?.users) ? usersData.users.filter((user: UserType) => {
     const matchesSearch = 
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -138,7 +138,7 @@ export default function AdminUsers() {
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
 
     return matchesSearch && matchesRole;
-  }) || [];
+  }) : [];
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -201,7 +201,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Admins</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {usersData?.users?.filter((u: UserType) => u.role === 'admin').length || 0}
+                    {Array.isArray(usersData?.users) ? usersData.users.filter((u: UserType) => u.role === 'admin').length : 0}
                   </p>
                 </div>
                 <Shield className="h-8 w-8 text-blue-600" />
@@ -214,7 +214,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Agents</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {usersData?.users?.filter((u: UserType) => u.role === 'agent').length || 0}
+                    {Array.isArray(usersData?.users) ? usersData.users.filter((u: UserType) => u.role === 'agent').length : 0}
                   </p>
                 </div>
                 <UserCheck className="h-8 w-8 text-green-600" />
@@ -227,7 +227,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Regular Users</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {usersData?.users?.filter((u: UserType) => u.role === 'user').length || 0}
+                    {Array.isArray(usersData?.users) ? usersData.users.filter((u: UserType) => u.role === 'user').length : 0}
                   </p>
                 </div>
                 <User className="h-8 w-8 text-gray-600" />
@@ -240,7 +240,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Pending Approval</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {usersData?.users?.filter((u: UserType) => u.approvalStatus === 'pending').length || 0}
+                    {Array.isArray(usersData?.users) ? usersData.users.filter((u: UserType) => u.approvalStatus === 'pending').length : 0}
                   </p>
                 </div>
                 <AlertCircle className="h-8 w-8 text-yellow-600" />

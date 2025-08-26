@@ -186,7 +186,7 @@ export default function AgentLeads() {
   const safeLeads = Array.isArray(leads) ? leads : [];
   const filteredLeads = statusFilter === 'all' 
     ? safeLeads 
-    : safeLeads.filter(lead => lead.status === statusFilter);
+    : safeLeads.filter(lead => lead && lead.status === statusFilter);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">

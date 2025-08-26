@@ -141,27 +141,10 @@ export default function AgentCommissions() {
     }
   };
 
-  const isAuthenticated = user !== null; // Assuming user object is null if not authenticated
-
-  const { data: commissionsData = [], isLoading: commissionsLoadingData } = useQuery<Commission[]>({
-    queryKey: ["/api/agent/commissions", dateFilter],
-    enabled: isAuthenticated && user?.role === "agent",
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-      });
-      return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
-    },
-  });
-
-  const safeCommissions = Array.isArray(commissionsData) ? commissionsData : [];
-  const filteredCommissions = safeCommissions.filter((commission: any) => {
-    return true; // Placeholder, actual filtering logic would go here if needed
-  });
+  const safeCommissions = Array.isArray(commissions) ? commissions : [];
 
 
-  if (statsLoading || commissionsLoadingData) {
+  if (statsLoading || commissionsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />

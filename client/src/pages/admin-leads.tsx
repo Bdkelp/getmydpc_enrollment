@@ -244,8 +244,10 @@ export default function AdminLeads() {
     );
   };
 
-  const unassignedCount = (leads || []).filter(lead => !lead.assignedAgentId).length;
-  const newLeadsCount = (leads || []).filter(lead => lead.status === 'new').length;
+  // Safely calculate counts, ensuring 'leads' is an array
+  const safeLeadsForCount = Array.isArray(leads) ? leads : [];
+  const unassignedCount = safeLeadsForCount.filter(lead => !lead.assignedAgentId).length;
+  const newLeadsCount = safeLeadsForCount.filter(lead => lead.status === 'new').length;
 
   if (authLoading) {
     return (
@@ -283,7 +285,6 @@ export default function AdminLeads() {
 
   // Filter leads based on search and status
   const filteredLeads = React.useMemo(() => {
-    // Ensure data is always an array before filtering
     const safeLeads = Array.isArray(leads) ? leads : [];
     const safeAgents = Array.isArray(agents) ? agents : [];
 
@@ -327,7 +328,7 @@ export default function AdminLeads() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{leads.length}</div>
+              <div className="text-2xl font-bold">{safeLeadsForCount.length}</div>
             </CardContent>
           </Card>
 
@@ -358,8 +359,8 @@ export default function AdminLeads() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                {leads.length > 0 
-                  ? Math.round((leads.filter(l => l.status === 'enrolled').length / leads.length) * 100) 
+                {safeLeadsForCount.length > 0 
+                  ? Math.round((safeLeadsForCount.filter(l => l.status === 'enrolled').length / safeLeadsForCount.length) * 100) 
                   : 0}%
               </div>
             </CardContent>
@@ -389,7 +390,7 @@ export default function AdminLeads() {
             <SelectContent>
               <SelectItem value="all">All Leads</SelectItem>
               <SelectItem value="unassigned">Unassigned Only</SelectItem>
-              {agents.map(agent => (
+              {safeAgents.map(agent => (
                 <SelectItem key={agent.id} value={agent.id}>
                   {agent.name}
                 </SelectItem>
@@ -435,7 +436,7 @@ export default function AdminLeads() {
                 </TableHeader>
                 <TableBody>
                   {filteredLeads.map((lead) => {
-                    const assignedAgent = agents.find(a => a.id === lead.assignedAgentId);
+                    const assignedAgent = safeAgents.find(a => a.id === lead.assignedAgentId);
                     return (
                       <TableRow key={lead.id}>
                         <TableCell className="font-medium">
@@ -541,7 +542,7 @@ export default function AdminLeads() {
                     <SelectValue placeholder="Choose an agent" />
                   </SelectTrigger>
                   <SelectContent>
-                    {agents.map(agent => (
+                    {safeAgents.map(agent => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.name} {agent.agentNumber && `(#${agent.agentNumber})`}
                       </SelectItem>
