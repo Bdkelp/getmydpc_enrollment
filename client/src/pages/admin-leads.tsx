@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
+import { useDebugLog } from '@/hooks/useDebugLog';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,9 +39,12 @@ interface Agent {
 }
 
 export default function AdminLeads() {
+  const { log, logError, logWarning } = useDebugLog('AdminLeads');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
+
+  log('Component initialized', { user: user?.email, authLoading });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<string>('all'); // Changed from agentFilter to assignmentFilter to match the Select component's state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -50,32 +55,67 @@ export default function AdminLeads() {
 
   // Check if user is admin
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== 'admin')) {
-      setLocation('/login');
+    log('Auth check useEffect triggered', { 
+      authLoading, 
+      hasUser: !!user, 
+      userRole: user?.role 
+    });
+
+    if (!authLoading) {
+      if (!user) {
+        logWarning('No user found, redirecting to login');
+        setLocation('/login');
+      } else if (user.role !== 'admin') {
+        logWarning('User is not admin, redirecting to login', { role: user.role });
+        setLocation('/login');
+      } else {
+        log('Admin user confirmed', { email: user.email });
+      }
     }
-  }, [user, authLoading, setLocation]);
+  }, [user, authLoading, setLocation, log, logWarning]);
 
   // Fetch all leads
   const { data: leads = [], isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
     enabled: !!user && user.role === 'admin',
+    retry: (failureCount, error: any) => {
+      logWarning('Query retry attempt', { failureCount, error: error?.message });
+      if (error?.message?.includes('401') || error?.message?.includes('403')) {
+        logError('Authentication error in query, not retrying');
+        return false;
+      }
+      return failureCount < 2;
+    },
     queryFn: async () => {
-      let url = '/api/admin/leads?';
-      if (statusFilter !== 'all') url += `status=${statusFilter}&`;
-      if (assignmentFilter === 'unassigned') url += 'assignedAgentId=unassigned&';
-      else if (assignmentFilter !== 'all') url += `assignedAgentId=${assignmentFilter}&`;
+      try {
+        let url = '/api/admin/leads?';
+        if (statusFilter !== 'all') url += `status=${statusFilter}&`;
+        if (assignmentFilter === 'unassigned') url += 'assignedAgentId=unassigned&';
+        else if (assignmentFilter !== 'all') url += `assignedAgentId=${assignmentFilter}&`;
 
-      console.log('[AdminLeads] Fetching leads from URL:', url.slice(0, -1));
+        const finalUrl = url.slice(0, -1);
+        log('Fetching leads', { url: finalUrl, statusFilter, assignmentFilter });
 
-      const response = await apiRequest(url.slice(0, -1), {
-        method: "GET"
-      });
+        const response = await apiRequest(finalUrl, {
+          method: "GET"
+        });
 
-      console.log('[AdminLeads] API Response:', response);
-      console.log('[AdminLeads] Response type:', typeof response);
-      console.log('[AdminLeads] Is array:', Array.isArray(response));
+        log('Leads API response received', { 
+          responseType: typeof response, 
+          isArray: Array.isArray(response),
+          length: Array.isArray(response) ? response.length : 'N/A'
+        });
 
-      return response; // apiRequest already returns parsed JSON
+        if (!Array.isArray(response)) {
+          logWarning('Expected array response but got', typeof response);
+          return [];
+        }
+
+        return response;
+      } catch (error) {
+        logError('Failed to fetch leads', error);
+        throw error;
+      }
     }
   });
 

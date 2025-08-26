@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useDebugLog } from "@/hooks/useDebugLog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -55,11 +57,12 @@ interface Agent {
 }
 
 export default function AdminEnrollments() {
+  const { log, logError, logWarning } = useDebugLog('AdminEnrollments');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
 
-  console.log('[Admin Enrollments] Component mounted - user:', user, 'authLoading:', authLoading);
+  log('Component mounted', { user: user?.email, authLoading });
 
   // Check if user is admin
   useEffect(() => {

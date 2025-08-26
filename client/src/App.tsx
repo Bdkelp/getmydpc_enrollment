@@ -31,7 +31,9 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
 import TestAuth from "@/pages/test-auth";
+import Profile from "@/pages/profile"; // Assuming Profile component exists
 import { lazy } from "react";
+import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();

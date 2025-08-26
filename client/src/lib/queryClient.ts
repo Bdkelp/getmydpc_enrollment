@@ -15,13 +15,23 @@ const getAuthToken = async (): Promise<string | null> => {
 };
 
 export const apiRequest = async (url: string, options: RequestInit = {}): Promise<any> => {
-  const token = await getAuthToken();
-
-  if (!token) {
-    throw new Error('No authentication token available');
-  }
+  const requestId = Math.random().toString(36).substr(2, 9);
+  const startTime = Date.now();
+  
+  console.log(`[apiRequest:${requestId}] Starting request to ${url}`, {
+    method: options.method || 'GET',
+    hasBody: !!options.body,
+    timestamp: new Date().toISOString()
+  });
 
   try {
+    const token = await getAuthToken();
+
+    if (!token) {
+      console.error(`[apiRequest:${requestId}] No authentication token available`);
+      throw new Error('No authentication token available');
+    }
+
     const response = await fetch(url, {
       ...options,
       headers: {
@@ -32,30 +42,75 @@ export const apiRequest = async (url: string, options: RequestInit = {}): Promis
       credentials: 'include',
     });
 
+    const duration = Date.now() - startTime;
+    console.log(`[apiRequest:${requestId}] Response received`, {
+      status: response.status,
+      statusText: response.statusText,
+      duration: `${duration}ms`,
+      url
+    });
+
     if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Failed to read error response');
+      console.error(`[apiRequest:${requestId}] HTTP Error`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorText,
+        url
+      });
+
       if (response.status === 401) {
-        // Token might be expired, clear it and throw auth error
+        console.warn(`[apiRequest:${requestId}] Token expired, clearing auth`);
         localStorage.removeItem('auth_token');
         throw new Error('Authentication expired');
       }
 
-      const errorText = await response.text();
       throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
     const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      const data = await response.json();
-      // Ensure we always return an array for list endpoints
-      if (url.includes('/leads') || url.includes('/enrollments') || url.includes('/agents')) {
-        return Array.isArray(data) ? data : [];
+    let data;
+
+    try {
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+        console.log(`[apiRequest:${requestId}] JSON response parsed`, {
+          dataType: typeof data,
+          isArray: Array.isArray(data),
+          length: Array.isArray(data) ? data.length : 'N/A'
+        });
+      } else {
+        data = await response.text();
+        console.log(`[apiRequest:${requestId}] Text response received`, {
+          length: data.length
+        });
       }
-      return data;
+    } catch (parseError) {
+      console.error(`[apiRequest:${requestId}] Failed to parse response`, parseError);
+      throw new Error('Failed to parse server response');
     }
 
-    return await response.text();
+    // Ensure we always return an array for list endpoints
+    if (url.includes('/leads') || url.includes('/enrollments') || url.includes('/agents')) {
+      if (!Array.isArray(data)) {
+        console.warn(`[apiRequest:${requestId}] Expected array but got ${typeof data} for ${url}`, data);
+        return [];
+      }
+    }
+
+    console.log(`[apiRequest:${requestId}] Request completed successfully`, {
+      duration: `${Date.now() - startTime}ms`
+    });
+
+    return data;
   } catch (error) {
-    console.error(`[apiRequest] Error for ${url}:`, error);
+    const duration = Date.now() - startTime;
+    console.error(`[apiRequest:${requestId}] Request failed`, {
+      error: error.message,
+      duration: `${duration}ms`,
+      url,
+      stack: error.stack
+    });
     throw error;
   }
 };
