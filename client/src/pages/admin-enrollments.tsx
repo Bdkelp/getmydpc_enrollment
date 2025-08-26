@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react"; // Added React import
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,11 +18,17 @@ import {
   ChevronLeft,
   Plus,
   FileEdit,
-  DollarSign
+  DollarSign,
 } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -57,29 +63,32 @@ interface Agent {
 }
 
 export default function AdminEnrollments() {
-  const { log, logError, logWarning } = useDebugLog('AdminEnrollments');
+  const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
 
-  log('Component mounted', { user: user?.email, authLoading });
+  log("Component mounted", { user: user?.email, authLoading });
 
   // Check if user is admin
   useEffect(() => {
     if (!authLoading) {
       if (!user) {
-        console.log('[AdminEnrollments] No user found, redirecting to login');
-        setLocation('/login');
-      } else if (user.role !== 'admin') {
-        console.log('[AdminEnrollments] User role is not admin:', user.role);
-        setLocation('/no-access');
+        console.log("[AdminEnrollments] No user found, redirecting to login");
+        setLocation("/login");
+      } else if (user.role !== "admin") {
+        console.log("[AdminEnrollments] User role is not admin:", user.role);
+        setLocation("/no-access");
       }
     }
   }, [user, authLoading, setLocation]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"), // First day of current month
+    startDate: format(
+      new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+      "yyyy-MM-dd",
+    ), // First day of current month
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
@@ -88,11 +97,15 @@ export default function AdminEnrollments() {
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && user.role === "admin",
   });
 
   // Fetch enrollments with filters
-  const { data: enrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useQuery<Enrollment[]>({
+  const {
+    data: enrollments,
+    isLoading: enrollmentsLoading,
+    error: enrollmentsError,
+  } = useQuery<Enrollment[]>({
     queryKey: ["/api/admin/enrollments", dateFilter, selectedAgentId],
     queryFn: async () => {
       try {
@@ -102,25 +115,30 @@ export default function AdminEnrollments() {
           ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
         });
 
-        console.log('[AdminEnrollments] Fetching enrollments with params:', params.toString());
-        const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
-        console.log('[AdminEnrollments] Response:', response);
+        console.log(
+          "[AdminEnrollments] Fetching enrollments with params:",
+          params.toString(),
+        );
+        const response = await apiRequest(`/api/admin/enrollments?${params}`, {
+          method: "GET",
+        });
+        console.log("[AdminEnrollments] Response:", response);
 
         // Ensure we return an array
         return Array.isArray(response) ? response : [];
       } catch (error) {
-        console.error('[AdminEnrollments] Error fetching enrollments:', error);
+        console.error("[AdminEnrollments] Error fetching enrollments:", error);
         throw error;
       }
     },
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && user.role === "admin",
     retry: (failureCount, error: any) => {
       // Don't retry on auth errors
-      if (error?.message?.includes('401') || error?.message?.includes('403')) {
+      if (error?.message?.includes("401") || error?.message?.includes("403")) {
         return false;
       }
       return failureCount < 2;
-    }
+    },
   });
 
   // Export enrollments mutation
@@ -136,8 +154,8 @@ export default function AdminEnrollments() {
         method: "POST",
         credentials: "include",
         headers: {
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
       if (!response.ok) {
         throw new Error("Failed to export enrollments");
@@ -145,7 +163,7 @@ export default function AdminEnrollments() {
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `all-enrollments-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
       document.body.appendChild(a);
@@ -171,7 +189,10 @@ export default function AdminEnrollments() {
   // Generate agent number mutation
   const generateAgentNumberMutation = useMutation({
     mutationFn: async (agentId: string) => {
-      const response = await apiRequest(`/api/admin/generate-agent-number/${agentId}`, { method: "POST" });
+      const response = await apiRequest(
+        `/api/admin/generate-agent-number/${agentId}`,
+        { method: "POST" },
+      );
       return response;
     },
     onSuccess: (data) => {
@@ -214,29 +235,46 @@ export default function AdminEnrollments() {
 
   // Filter enrollments based on search and status
   const filteredEnrollments = React.useMemo(() => {
-    if (!Array.isArray(enrollments)) {
-      console.warn('[AdminEnrollments] Enrollments is not an array:', enrollments);
+    // Safe array check
+    const enrollmentsArray = Array.isArray(enrollments) ? enrollments : [];
+
+    if (enrollmentsArray.length === 0) {
+      console.warn("[AdminEnrollments] No enrollments data available");
       return [];
     }
-    
-    return enrollments.filter(enrollment => {
+
+    return enrollmentsArray.filter((enrollment) => {
       if (!enrollment) return false;
-      
-      const matchesSearch = searchTerm === "" ||
-        enrollment.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+
+      const matchesSearch =
+        searchTerm === "" ||
+        enrollment.firstName
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
         enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all" || enrollment.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
   }, [enrollments, searchTerm, statusFilter]);
 
-  // Calculate total revenue
-  const totalRevenue = (filteredEnrollments || []).reduce((sum, enrollment) => {
-    return sum + (enrollment.status === "active" ? Number(enrollment.monthlyPrice || 0) : 0);
-  }, 0);
+  // Calculate total revenue - safe array handling
+  const totalRevenue = React.useMemo(() => {
+    const enrollmentsArray = Array.isArray(filteredEnrollments)
+      ? filteredEnrollments
+      : [];
+    return enrollmentsArray.reduce((sum, enrollment) => {
+      return (
+        sum +
+        (enrollment?.status === "active"
+          ? Number(enrollment.monthlyPrice || 0)
+          : 0)
+      );
+    }, 0);
+  }, [filteredEnrollments]);
 
   if (authLoading || enrollmentsLoading) {
     return (
@@ -248,6 +286,12 @@ export default function AdminEnrollments() {
       </div>
     );
   }
+
+  // Safe array for rendering
+  const safeFilteredEnrollments = Array.isArray(filteredEnrollments)
+    ? filteredEnrollments
+    : [];
+  const safeAgents = Array.isArray(agents) ? agents : [];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -264,15 +308,16 @@ export default function AdminEnrollments() {
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">All Enrollments</h1>
-                <p className="text-gray-600 mt-1">View and manage all member enrollments across all agents</p>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  All Enrollments
+                </h1>
+                <p className="text-gray-600 mt-1">
+                  View and manage all member enrollments across all agents
+                </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Button
-                variant="outline"
-                onClick={handleNewEnrollment}
-              >
+              <Button variant="outline" onClick={handleNewEnrollment}>
                 <Plus className="h-4 w-4 mr-2" />
                 New Enrollment
               </Button>
@@ -299,8 +344,12 @@ export default function AdminEnrollments() {
                   <Users className="h-6 w-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Enrollments</p>
-                  <p className="text-2xl font-bold text-gray-900">{filteredEnrollments?.length || 0}</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Total Enrollments
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {safeFilteredEnrollments.length}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -313,8 +362,12 @@ export default function AdminEnrollments() {
                   <DollarSign className="h-6 w-6 text-green-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Monthly Revenue</p>
-                  <p className="text-2xl font-bold text-gray-900">${totalRevenue.toFixed(2)}</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Monthly Revenue
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    ${totalRevenue.toFixed(2)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -327,9 +380,12 @@ export default function AdminEnrollments() {
                   <Calendar className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Date Range</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Date Range
+                  </p>
                   <p className="text-sm font-bold text-gray-900">
-                    {format(new Date(dateFilter.startDate), 'MMM d')} - {format(new Date(dateFilter.endDate), 'MMM d')}
+                    {format(new Date(dateFilter.startDate), "MMM d")} -{" "}
+                    {format(new Date(dateFilter.endDate), "MMM d")}
                   </p>
                 </div>
               </div>
@@ -343,9 +399,12 @@ export default function AdminEnrollments() {
                   <Filter className="h-6 w-6 text-purple-600" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Active Filters</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Active Filters
+                  </p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {(selectedAgentId !== "all" ? 1 : 0) + (statusFilter !== "all" ? 1 : 0)}
+                    {(selectedAgentId !== "all" ? 1 : 0) +
+                      (statusFilter !== "all" ? 1 : 0)}
                   </p>
                 </div>
               </div>
@@ -380,13 +439,16 @@ export default function AdminEnrollments() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Agent
                 </label>
-                <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <Select
+                  value={selectedAgentId}
+                  onValueChange={setSelectedAgentId}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="All Agents" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Agents</SelectItem>
-                    {agents?.map((agent) => (
+                    {safeAgents.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.firstName} {agent.lastName}
                         {agent.agentNumber && ` (${agent.agentNumber})`}
@@ -420,7 +482,9 @@ export default function AdminEnrollments() {
                 <Input
                   type="date"
                   value={dateFilter.startDate}
-                  onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
+                  onChange={(e) =>
+                    setDateFilter({ ...dateFilter, startDate: e.target.value })
+                  }
                 />
               </div>
 
@@ -431,7 +495,9 @@ export default function AdminEnrollments() {
                 <Input
                   type="date"
                   value={dateFilter.endDate}
-                  onChange={(e) => setDateFilter({ ...dateFilter, endDate: e.target.value })}
+                  onChange={(e) =>
+                    setDateFilter({ ...dateFilter, endDate: e.target.value })
+                  }
                 />
               </div>
             </div>
@@ -443,7 +509,9 @@ export default function AdminEnrollments() {
           <Card className="mb-8">
             <CardContent className="p-6">
               <div className="text-center text-red-600">
-                <p className="mb-4">Error loading enrollments: {enrollmentsError.message}</p>
+                <p className="mb-4">
+                  Error loading enrollments: {enrollmentsError.message}
+                </p>
                 <Button onClick={() => window.location.reload()}>Retry</Button>
               </div>
             </CardContent>
@@ -472,15 +540,19 @@ export default function AdminEnrollments() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(filteredEnrollments || []).map((enrollment) => (
+                  {safeFilteredEnrollments.map((enrollment) => (
                     <TableRow key={enrollment.id}>
-                      <TableCell>{format(new Date(enrollment.createdAt), 'MMM d, yyyy')}</TableCell>
+                      <TableCell>
+                        {format(new Date(enrollment.createdAt), "MMM d, yyyy")}
+                      </TableCell>
                       <TableCell className="font-medium">
                         {enrollment.firstName} {enrollment.lastName}
                       </TableCell>
                       <TableCell>{enrollment.email}</TableCell>
                       <TableCell>{enrollment.planName}</TableCell>
-                      <TableCell className="capitalize">{enrollment.memberType}</TableCell>
+                      <TableCell className="capitalize">
+                        {enrollment.memberType}
+                      </TableCell>
                       <TableCell>${enrollment.monthlyPrice}</TableCell>
                       <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
@@ -488,7 +560,9 @@ export default function AdminEnrollments() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setLocation(`/admin/enrollment/${enrollment.id}`)}
+                          onClick={() =>
+                            setLocation(`/admin/enrollment/${enrollment.id}`)
+                          }
                         >
                           <FileEdit className="h-4 w-4" />
                         </Button>
@@ -498,7 +572,7 @@ export default function AdminEnrollments() {
                 </TableBody>
               </Table>
 
-              {(filteredEnrollments || []).length === 0 && (
+              {safeFilteredEnrollments.length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   No enrollments found matching your filters.
                 </div>
@@ -514,29 +588,36 @@ export default function AdminEnrollments() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {(agents || []).filter(agent => agent.agentNumber).map((agent) => (
-                <div key={agent.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium">{agent.firstName} {agent.lastName}</p>
-                    <p className="text-sm text-gray-600">{agent.email}</p>
+              {safeAgents
+                .filter((agent) => agent.agentNumber)
+                .map((agent) => (
+                  <div
+                    key={agent.id}
+                    className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {agent.firstName} {agent.lastName}
+                      </p>
+                      <p className="text-sm text-gray-600">{agent.email}</p>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <Badge variant="outline">
+                        {agent.agentNumber || "No Number"}
+                      </Badge>
+                      {!agent.agentNumber && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleGenerateAgentNumber(agent.id)}
+                          disabled={generateAgentNumberMutation.isPending}
+                        >
+                          Generate Number
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-4">
-                    <Badge variant="outline">
-                      {agent.agentNumber || "No Number"}
-                    </Badge>
-                    {!agent.agentNumber && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleGenerateAgentNumber(agent.id)}
-                        disabled={generateAgentNumberMutation.isPending}
-                      >
-                        Generate Number
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
             </div>
           </CardContent>
         </Card>
