@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import { ChevronLeft, Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
+import { Input } from '@/components/ui/input';
 
 interface Lead {
   id: number;
@@ -40,7 +41,7 @@ export default function AdminLeads() {
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [assignmentFilter, setAssignmentFilter] = useState<string>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<string>('all'); // Changed from agentFilter to assignmentFilter to match the Select component's state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
@@ -229,13 +230,17 @@ export default function AdminLeads() {
   // Filter leads based on search and status
   const filteredLeads = (leads || []).filter(lead => {
     const matchesSearch = searchTerm === "" || 
-      lead.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.email?.toLowerCase().includes(searchTerm.toLowerCase());
+      (lead.firstName && lead.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (lead.lastName && lead.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (lead.phone && lead.phone.includes(searchTerm));
 
     const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
+    const matchesAgent = assignmentFilter === "all" || // Corrected to use assignmentFilter
+      (assignmentFilter === "unassigned" && !lead.assignedAgentId) ||
+      lead.assignedAgentId === assignmentFilter;
 
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesAgent;
   });
 
   return (
@@ -329,7 +334,7 @@ export default function AdminLeads() {
               ))}
             </SelectContent>
           </Select>
-          
+
           {/* Search Input */}
           <Input 
             placeholder="Search leads by name or email..."

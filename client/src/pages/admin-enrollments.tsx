@@ -7,9 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { 
-  Download, 
-  Users, 
+import {
+  Download,
+  Users,
   Calendar,
   Search,
   Filter,
@@ -58,7 +58,9 @@ export default function AdminEnrollments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
-  
+
+  console.log('[Admin Enrollments] Component mounted - user:', user, 'authLoading:', authLoading);
+
   // Check if user is admin
   useEffect(() => {
     if (!authLoading) {
@@ -71,7 +73,7 @@ export default function AdminEnrollments() {
       }
     }
   }, [user, authLoading, setLocation]);
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"), // First day of current month
@@ -96,11 +98,11 @@ export default function AdminEnrollments() {
           endDate: dateFilter.endDate,
           ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
         });
-        
+
         console.log('[AdminEnrollments] Fetching enrollments with params:', params.toString());
         const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
         console.log('[AdminEnrollments] Response:', response);
-        
+
         // Ensure we return an array
         return Array.isArray(response) ? response : [];
       } catch (error) {
@@ -126,7 +128,7 @@ export default function AdminEnrollments() {
         endDate: dateFilter.endDate,
         ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
       });
-      
+
       const response = await fetch(`/api/admin/export-enrollments?${params}`, {
         method: "POST",
         credentials: "include",
@@ -137,7 +139,7 @@ export default function AdminEnrollments() {
       if (!response.ok) {
         throw new Error("Failed to export enrollments");
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -209,13 +211,13 @@ export default function AdminEnrollments() {
 
   // Filter enrollments based on search and status
   const filteredEnrollments = (enrollments || []).filter(enrollment => {
-    const matchesSearch = searchTerm === "" || 
+    const matchesSearch = searchTerm === "" ||
       enrollment.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -291,7 +293,7 @@ export default function AdminEnrollments() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
@@ -305,7 +307,7 @@ export default function AdminEnrollments() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
@@ -321,7 +323,7 @@ export default function AdminEnrollments() {
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
@@ -361,7 +363,7 @@ export default function AdminEnrollments() {
                   />
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Agent
@@ -374,14 +376,14 @@ export default function AdminEnrollments() {
                     <SelectItem value="all">All Agents</SelectItem>
                     {agents?.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
-                        {agent.firstName} {agent.lastName} 
+                        {agent.firstName} {agent.lastName}
                         {agent.agentNumber && ` (${agent.agentNumber})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Status
@@ -398,7 +400,7 @@ export default function AdminEnrollments() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Start Date
@@ -409,7 +411,7 @@ export default function AdminEnrollments() {
                   onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   End Date
@@ -483,7 +485,7 @@ export default function AdminEnrollments() {
                   ))}
                 </TableBody>
               </Table>
-              
+
               {(filteredEnrollments || []).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   No enrollments found matching your filters.
