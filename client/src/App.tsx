@@ -98,10 +98,8 @@ function Router() {
             </>
           )}
 
-          {/* Member route (enrolled healthcare subscriber) */}
-          {user?.role === "member" && (
-            <Route path="/no-access" component={NoAccess} />
-          )}
+          {/* No access route - available to all authenticated users */}
+          <Route path="/no-access" component={NoAccess} />
         </>
       )}
 
