@@ -1,4 +1,3 @@
-
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,6 +26,21 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Filter out browser extension errors
+    const errorMessage = error.message || '';
+    const isExtensionError = errorMessage.includes('extension://') || 
+                           errorMessage.includes('tabutils') ||
+                           errorMessage.includes('contextmenu') ||
+                           errorMessage.includes('download.js') ||
+                           error.stack?.includes('extension://');
+
+    if (isExtensionError) {
+      console.warn('Browser extension error detected, ignoring:', error);
+      // Reset error state for extension errors
+      this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+      return;
+    }
+
     console.error('[ErrorBoundary] Component error details:', {
       error: error.message,
       stack: error.stack,
