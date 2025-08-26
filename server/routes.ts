@@ -48,9 +48,14 @@ router.post("/api/auth/login", async (req, res) => {
     }
 
     // Get or create user in our database
+    console.log('[Login] Checking for existing user:', email);
     let user = await storage.getUserByEmail(email);
-
+    
     if (!user) {
+      console.log('[Login] User not found, creating new user');
+      const userRole = determineUserRole(data.user.email!);
+      console.log('[Login] Determined role for', email, ':', userRole);
+      
       // Create user in our database if they don't exist
       user = await storage.createUser({
         id: data.user.id,
@@ -58,11 +63,25 @@ router.post("/api/auth/login", async (req, res) => {
         firstName: data.user.user_metadata?.firstName || data.user.user_metadata?.first_name || 'User',
         lastName: data.user.user_metadata?.lastName || data.user.user_metadata?.last_name || '',
         emailVerified: data.user.email_confirmed_at ? true : false,
-        role: determineUserRole(data.user.email!),
+        role: userRole,
         isActive: true,
         approvalStatus: 'approved',
         createdAt: new Date(),
         updatedAt: new Date()
+      });
+      
+      console.log('[Login] Created new user:', {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        approvalStatus: user.approvalStatus
+      });
+    } else {
+      console.log('[Login] Found existing user:', {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        approvalStatus: user.approvalStatus
       });
     }
 
@@ -331,29 +350,38 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 // Admin routes
 router.get("/api/admin/stats", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
+    console.log('[Admin Stats API] Access denied - user role:', req.user!.role);
     return res.status(403).json({ message: "Admin access required" });
   }
 
   try {
+    console.log('[Admin Stats API] Fetching stats for admin:', req.user!.email);
     const stats = await storage.getAdminDashboardStats();
+    console.log('[Admin Stats API] Retrieved stats:', stats);
     res.json(stats);
   } catch (error) {
-    console.error("Error fetching admin stats:", error);
+    console.error("[Admin Stats API] Error fetching admin stats:", error);
     res.status(500).json({ message: "Failed to fetch admin stats" });
   }
 });
 
 router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
+    console.log('[Admin Users API] Access denied - user role:', req.user!.role);
     return res.status(403).json({ message: "Admin access required" });
   }
 
   try {
+    console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
     const users = await storage.getAllUsers();
     const totalCount = users.users?.length || 0;
+    
+    console.log('[Admin Users API] Retrieved users count:', totalCount);
+    console.log('[Admin Users API] Sample data:', users.users?.slice(0, 2));
+    
     res.json({ users: users.users || [], totalCount });
   } catch (error) {
-    console.error("Error fetching users:", error);
+    console.error("[Admin Users API] Error fetching users:", error);
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
