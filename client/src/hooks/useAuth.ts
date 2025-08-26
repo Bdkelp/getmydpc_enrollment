@@ -29,8 +29,16 @@ export function useAuth() {
         });
 
         if (session?.user && session?.access_token) {
-          console.log("[useAuth] Valid session found");
-          setSession(session);
+          // Check if session is still valid by verifying token expiry
+          const now = Math.floor(Date.now() / 1000);
+          if (session.expires_at && session.expires_at > now) {
+            console.log("[useAuth] Valid session found");
+            setSession(session);
+          } else {
+            console.log("[useAuth] Session expired, clearing");
+            await signOut();
+            setSession(null);
+          }
         } else {
           console.log("[useAuth] No valid session found");
           setSession(null);

@@ -79,6 +79,8 @@ export default function AdminEnrollments() {
       } else if (user.role !== "admin") {
         console.log("[AdminEnrollments] User role is not admin:", user.role);
         setLocation("/no-access");
+      } else {
+        console.log("[AdminEnrollments] Admin access confirmed for:", user.email);
       }
     }
   }, [user, authLoading, setLocation]);
@@ -276,12 +278,33 @@ export default function AdminEnrollments() {
     }, 0);
   }, [filteredEnrollments]);
 
-  if (authLoading || enrollmentsLoading) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading enrollments...</p>
+          <p className="mt-4 text-gray-600">Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect via useEffect
+  }
+
+  if (user.role !== "admin") {
+    return null; // Will redirect via useEffect
+  }
+
+  if (enrollmentsLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading enrollments...</p>
+          </div>
         </div>
       </div>
     );

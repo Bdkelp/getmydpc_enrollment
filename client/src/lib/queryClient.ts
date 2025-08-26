@@ -14,32 +14,24 @@ const getAuthToken = async (): Promise<string | null> => {
   return localStorage.getItem('auth_token');
 };
 
-export const apiRequest = async (url: string, options: RequestInit = {}): Promise<any> => {
+export const apiRequest = async (url: string, options: RequestInit = {}) => {
   const requestId = Math.random().toString(36).substr(2, 9);
   const startTime = Date.now();
-  
-  console.log(`[apiRequest:${requestId}] Starting request to ${url}`, {
+
+  console.log(`[apiRequest:${requestId}] Starting request`, {
+    url,
     method: options.method || 'GET',
-    hasBody: !!options.body,
     timestamp: new Date().toISOString()
   });
 
   try {
-    const token = await getAuthToken();
-
-    if (!token) {
-      console.error(`[apiRequest:${requestId}] No authentication token available`);
-      throw new Error('No authentication token available');
-    }
-
     const response = await fetch(url, {
-      ...options,
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
         ...options.headers,
       },
-      credentials: 'include',
+      ...options,
     });
 
     const duration = Date.now() - startTime;
@@ -51,55 +43,45 @@ export const apiRequest = async (url: string, options: RequestInit = {}): Promis
     });
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Failed to read error response');
-      console.error(`[apiRequest:${requestId}] HTTP Error`, {
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (textError) {
+        console.warn(`[apiRequest:${requestId}] Could not read error response body`);
+        errorText = 'Unknown error';
+      }
+
+      console.error(`[apiRequest:${requestId}] Request failed`, {
         status: response.status,
         statusText: response.statusText,
-        errorText,
+        error: errorText,
+        duration: `${duration}ms`,
         url
       });
 
+      // Handle specific error cases
       if (response.status === 401) {
-        console.warn(`[apiRequest:${requestId}] Token expired, clearing auth`);
-        localStorage.removeItem('auth_token');
-        throw new Error('Authentication expired');
+        throw new Error('Authentication required');
+      }
+      if (response.status === 403) {
+        throw new Error('Access forbidden');
       }
 
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
+      throw new Error(`HTTP ${response.status}: ${response.statusText || errorText}`);
     }
 
-    const contentType = response.headers.get('content-type');
     let data;
-
     try {
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
-        console.log(`[apiRequest:${requestId}] JSON response parsed`, {
-          dataType: typeof data,
-          isArray: Array.isArray(data),
-          length: Array.isArray(data) ? data.length : 'N/A'
-        });
-      } else {
-        data = await response.text();
-        console.log(`[apiRequest:${requestId}] Text response received`, {
-          length: data.length
-        });
-      }
-    } catch (parseError) {
-      console.error(`[apiRequest:${requestId}] Failed to parse response`, parseError);
-      throw new Error('Failed to parse server response');
-    }
-
-    // Ensure we always return an array for list endpoints
-    if (url.includes('/leads') || url.includes('/enrollments') || url.includes('/agents')) {
-      if (!Array.isArray(data)) {
-        console.warn(`[apiRequest:${requestId}] Expected array but got ${typeof data} for ${url}`, data);
-        return [];
-      }
+      data = await response.json();
+    } catch (jsonError) {
+      console.warn(`[apiRequest:${requestId}] Response is not valid JSON`);
+      data = {};
     }
 
     console.log(`[apiRequest:${requestId}] Request completed successfully`, {
-      duration: `${Date.now() - startTime}ms`
+      duration: `${duration}ms`,
+      dataLength: JSON.stringify(data).length,
+      url
     });
 
     return data;

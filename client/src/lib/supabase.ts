@@ -19,25 +19,49 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Storage bucket for profile images
-export const createProfileImagesBucket = async () => {
+// Create profile images bucket if it doesn't exist
+export async function ensureProfileImagesBucket() {
   try {
-    const { data, error } = await supabase.storage.createBucket('profile-images', {
-      public: true,
-      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-      fileSizeLimit: 2097152 // 2MB
-    });
+    // Check if user is authenticated before attempting bucket operations
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.log('No active session, skipping bucket setup');
+      return;
+    }
 
-    if (error && error.message !== 'Bucket already exists') {
-      console.error('Error creating profile-images bucket:', error);
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+
+    if (listError) {
+      console.warn('Could not list buckets:', listError);
+      return;
+    }
+
+    const bucketExists = buckets?.some(bucket => bucket.name === 'profile-images');
+
+    if (!bucketExists) {
+      // Only attempt to create bucket if user has admin privileges
+      const { data: user } = await supabase.auth.getUser();
+      if (user?.user?.user_metadata?.role === 'admin') {
+        const { error: createError } = await supabase.storage.createBucket('profile-images', {
+          public: true,
+          allowedMimeTypes: ['image/*'],
+          fileSizeLimit: 5242880 // 5MB
+        });
+
+        if (createError) {
+          console.warn('Error creating profile-images bucket:', createError);
+        } else {
+          console.log('Profile images bucket created successfully');
+        }
+      }
     }
   } catch (error) {
-    console.error('Error setting up storage:', error);
+    console.warn('Storage bucket setup failed:', error);
   }
-};
+}
 
 // Initialize storage on app start
-createProfileImagesBucket();
+ensureProfileImagesBucket();
 
 // Auth helper functions
 export const signIn = async (email: string, password: string) => {
