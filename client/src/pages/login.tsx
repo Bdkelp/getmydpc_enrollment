@@ -191,9 +191,9 @@ export default function Login() {
               
               <div className="flex items-center justify-between">
                 <Link href="/forgot-password">
-                  <a className="text-sm text-medical-blue-600 hover:text-medical-blue-700">
+                  <span className="text-sm text-medical-blue-600 hover:text-medical-blue-700 cursor-pointer">
                     Forgot password?
-                  </a>
+                  </span>
                 </Link>
               </div>
               
@@ -287,9 +287,9 @@ export default function Login() {
           <p className="text-center text-sm text-gray-600 w-full">
             Don't have an account?{" "}
             <Link href="/register">
-              <a className="font-medium text-medical-blue-600 hover:text-medical-blue-700">
+              <span className="font-medium text-medical-blue-600 hover:text-medical-blue-700 cursor-pointer">
                 Sign up
-              </a>
+              </span>
             </Link>
           </p>
         </CardFooter>
