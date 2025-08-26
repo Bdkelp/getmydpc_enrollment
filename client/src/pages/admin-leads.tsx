@@ -245,9 +245,10 @@ export default function AdminLeads() {
   };
 
   // Safely calculate counts, ensuring 'leads' is an array
-  const safeLeadsForCount = Array.isArray(leads) ? leads : [];
-  const unassignedCount = safeLeadsForCount.filter(lead => !lead.assignedAgentId).length;
-  const newLeadsCount = safeLeadsForCount.filter(lead => lead.status === 'new').length;
+  const unassignedCount = Array.isArray(leads) ? leads.filter(lead => !lead.assignedAgentId).length : 0;
+  const newLeadsCount = Array.isArray(leads) ? leads.filter(lead => lead.status === 'new').length : 0;
+  const contactedCount = Array.isArray(leads) ? leads.filter(lead => lead.status === 'contacted').length : 0;
+  const qualifiedCount = Array.isArray(leads) ? leads.filter(lead => lead.status === 'qualified').length : 0;
 
   if (authLoading) {
     return (
@@ -304,7 +305,7 @@ export default function AdminLeads() {
 
       return matchesSearch && matchesStatus && matchesAgent;
     });
-  }, [leads, searchTerm, statusFilter, assignmentFilter, agents]); // Added agents to dependency array
+  }, [leads, searchTerm, statusFilter, assignmentFilter, agents]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -328,7 +329,7 @@ export default function AdminLeads() {
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{safeLeadsForCount.length}</div>
+              <div className="text-2xl font-bold">{Array.isArray(leads) ? leads.length : 0}</div>
             </CardContent>
           </Card>
 
@@ -359,8 +360,8 @@ export default function AdminLeads() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                {safeLeadsForCount.length > 0 
-                  ? Math.round((safeLeadsForCount.filter(l => l.status === 'enrolled').length / safeLeadsForCount.length) * 100) 
+                {Array.isArray(leads) && leads.length > 0 
+                  ? Math.round((leads.filter(l => l.status === 'enrolled').length / leads.length) * 100) 
                   : 0}%
               </div>
             </CardContent>
@@ -390,7 +391,7 @@ export default function AdminLeads() {
             <SelectContent>
               <SelectItem value="all">All Leads</SelectItem>
               <SelectItem value="unassigned">Unassigned Only</SelectItem>
-              {safeAgents.map(agent => (
+              {(Array.isArray(agents) ? agents : []).map(agent => (
                 <SelectItem key={agent.id} value={agent.id}>
                   {agent.name}
                 </SelectItem>
@@ -436,7 +437,7 @@ export default function AdminLeads() {
                 </TableHeader>
                 <TableBody>
                   {filteredLeads.map((lead) => {
-                    const assignedAgent = safeAgents.find(a => a.id === lead.assignedAgentId);
+                    const assignedAgent = (Array.isArray(agents) ? agents : []).find(a => a.id === lead.assignedAgentId);
                     return (
                       <TableRow key={lead.id}>
                         <TableCell className="font-medium">
@@ -542,7 +543,7 @@ export default function AdminLeads() {
                     <SelectValue placeholder="Choose an agent" />
                   </SelectTrigger>
                   <SelectContent>
-                    {safeAgents.map(agent => (
+                    {(Array.isArray(agents) ? agents : []).map(agent => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.name} {agent.agentNumber && `(#${agent.agentNumber})`}
                       </SelectItem>
