@@ -128,10 +128,11 @@ export default function AdminUsers() {
     },
   });
 
-  // Safe array handling for users data
+  // Safe array handling for users data with comprehensive checks
   const safeUsers = Array.isArray(usersData?.users) ? usersData.users : [];
+  const safeUsersData = usersData || { users: [], totalCount: 0 };
 
-  // Filter users based on search and role
+  // Filter users based on search and role with safe array operations
   const filteredUsers = safeUsers.filter((user: UserType) => {
     if (!user) return false;
 
@@ -190,7 +191,7 @@ export default function AdminUsers() {
             <div className="flex items-center space-x-4">
               <Badge variant="outline" className="text-blue-600 border-blue-600">
                 <Users className="h-3 w-3 mr-1" />
-                {usersData?.totalCount || 0} Total Users
+                {safeUsersData.totalCount || 0} Total Users
               </Badge>
             </div>
           </div>
@@ -206,7 +207,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Admins</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u.role === 'admin').length}
+                    {safeUsers.filter((u: UserType) => u && u.role === 'admin').length}
                   </p>
                 </div>
                 <Shield className="h-8 w-8 text-blue-600" />
@@ -219,7 +220,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Agents</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u.role === 'agent').length}
+                    {safeUsers.filter((u: UserType) => u && u.role === 'agent').length}
                   </p>
                 </div>
                 <UserCheck className="h-8 w-8 text-green-600" />
@@ -232,7 +233,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Regular Users</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u.role === 'user').length}
+                    {safeUsers.filter((u: UserType) => u && u.role === 'user').length}
                   </p>
                 </div>
                 <User className="h-8 w-8 text-gray-600" />
@@ -245,7 +246,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Pending Approval</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u.approvalStatus === 'pending').length}
+                    {safeUsers.filter((u: UserType) => u && u.approvalStatus === 'pending').length}
                   </p>
                 </div>
                 <AlertCircle className="h-8 w-8 text-yellow-600" />
@@ -315,7 +316,7 @@ export default function AdminUsers() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredUsers.length === 0 ? (
+                    {!Array.isArray(filteredUsers) || filteredUsers.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                           No users found matching your criteria

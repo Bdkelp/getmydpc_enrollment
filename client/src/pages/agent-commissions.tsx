@@ -141,17 +141,17 @@ export default function AgentCommissions() {
     }
   };
 
-  // Safe array handling for commissions data
+  // Safe array handling for commissions data with comprehensive checks
   const safeCommissions = React.useMemo(() => {
     return Array.isArray(commissions) ? commissions : [];
   }, [commissions]);
 
-  // Safe stats object with defaults
+  // Safe stats object with defaults and null checks
   const safeStats = React.useMemo(() => {
     return {
-      totalEarned: stats?.totalEarned || 0,
-      totalPending: stats?.totalPending || 0,
-      totalPaid: stats?.totalPaid || 0
+      totalEarned: (stats && typeof stats.totalEarned === 'number') ? stats.totalEarned : 0,
+      totalPending: (stats && typeof stats.totalPending === 'number') ? stats.totalPending : 0,
+      totalPaid: (stats && typeof stats.totalPaid === 'number') ? stats.totalPaid : 0
     };
   }, [stats]);
 
@@ -252,7 +252,7 @@ export default function AgentCommissions() {
             <CardTitle>Commission Details</CardTitle>
           </CardHeader>
           <CardContent>
-            {safeCommissions.length > 0 ? (
+            {Array.isArray(safeCommissions) && safeCommissions.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -267,25 +267,34 @@ export default function AgentCommissions() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {safeCommissions.map((commission) => (
-                    <TableRow key={commission.id}>
-                      <TableCell>{format(new Date(commission.createdAt), "MM/dd/yyyy")}</TableCell>
-                      <TableCell>{commission.userName}</TableCell>
-                      <TableCell>{commission.planTier}</TableCell>
-                      <TableCell>{commission.planType}</TableCell>
-                      <TableCell>${commission.totalPlanCost.toFixed(2)}</TableCell>
-                      <TableCell className="font-semibold">${commission.commissionAmount.toFixed(2)}</TableCell>
-                      <TableCell>{getStatusBadge(commission.status)}</TableCell>
-                      <TableCell>
-                        {getPaymentBadge(commission.paymentStatus)}
-                        {commission.paidDate && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {format(new Date(commission.paidDate), "MM/dd/yyyy")}
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {safeCommissions.map((commission) => {
+                    if (!commission) return null;
+                    return (
+                      <TableRow key={commission.id}>
+                        <TableCell>
+                          {commission.createdAt ? format(new Date(commission.createdAt), "MM/dd/yyyy") : 'N/A'}
+                        </TableCell>
+                        <TableCell>{commission.userName || 'N/A'}</TableCell>
+                        <TableCell>{commission.planTier || 'N/A'}</TableCell>
+                        <TableCell>{commission.planType || 'N/A'}</TableCell>
+                        <TableCell>
+                          ${(commission.totalPlanCost && typeof commission.totalPlanCost === 'number') ? commission.totalPlanCost.toFixed(2) : '0.00'}
+                        </TableCell>
+                        <TableCell className="font-semibold">
+                          ${(commission.commissionAmount && typeof commission.commissionAmount === 'number') ? commission.commissionAmount.toFixed(2) : '0.00'}
+                        </TableCell>
+                        <TableCell>{getStatusBadge(commission.status || 'unknown')}</TableCell>
+                        <TableCell>
+                          {getPaymentBadge(commission.paymentStatus || 'unknown')}
+                          {commission.paidDate && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              {format(new Date(commission.paidDate), "MM/dd/yyyy")}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }).filter(Boolean)}
                 </TableBody>
               </Table>
             ) : (
