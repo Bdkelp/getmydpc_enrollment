@@ -49,14 +49,18 @@ export async function ensureProfileImagesBucket() {
         });
 
         if (createError) {
-          console.warn('Error creating profile-images bucket:', createError);
-        } else {
-          console.log('Profile images bucket created successfully');
-        }
+        console.warn('Could not create profile-images bucket:', createError.message);
+        // Don't throw error - the bucket might already exist or we might not have permissions
+        // Profile uploads will handle individual upload errors gracefully
+      } else {
+        console.log('Profile-images bucket created successfully');
       }
+    } else {
+      console.log('Profile-images bucket already exists');
     }
-  } catch (error) {
-    console.warn('Storage bucket setup failed:', error);
+  } } catch (error) {
+    console.warn('Error in ensureProfileImagesBucket:', error);
+    // Don't throw - this is not critical for app functionality
   }
 }
 
