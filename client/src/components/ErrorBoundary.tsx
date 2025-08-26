@@ -74,37 +74,37 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="h-5 w-5 text-red-500" />
-                <CardTitle className="text-red-700">Something went wrong</CardTitle>
+        <Card className="w-full max-w-2xl mx-auto my-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Something went wrong
+            </CardTitle>
+            <CardDescription>
+              An error occurred while rendering this component. You can try refreshing the page or report this issue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {process.env.NODE_ENV === 'development' && this.state.error && (
+              <div className="bg-gray-100 p-4 rounded-md">
+                <h4 className="font-semibold text-sm mb-2">Error Details:</h4>
+                <pre className="text-xs overflow-auto max-h-32">
+                  {this.state.error.message}
+                  {this.state.error.stack}
+                </pre>
               </div>
-              <CardDescription>
-                An unexpected error occurred. Please try refreshing the page.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {process.env.NODE_ENV === 'development' && this.state.error && (
-                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                  <pre className="text-xs text-red-700 whitespace-pre-wrap break-all">
-                    {this.state.error.message}
-                  </pre>
-                </div>
-              )}
-              <div className="flex space-x-2">
-                <Button onClick={this.handleReset} variant="outline" className="flex-1">
-                  Try Again
-                </Button>
-                <Button onClick={this.handleReload} className="flex-1">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Reload Page
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            )}
+            <div className="flex gap-2">
+              <Button onClick={this.handleReset} variant="outline">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Try Again
+              </Button>
+              <Button onClick={this.handleReload} variant="default">
+                Reload Page
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       );
     }
 
