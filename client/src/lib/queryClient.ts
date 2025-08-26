@@ -7,48 +7,58 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-export async function apiRequest(url: string, options: RequestInit = {}) {
+// Assume getAuthToken and other necessary functions are defined elsewhere or imported
+// For the purpose of this example, let's mock getAuthToken and localStorage
+const getAuthToken = async (): Promise<string | null> => {
+  // Replace with actual token retrieval logic
+  return localStorage.getItem('auth_token');
+};
+
+export const apiRequest = async (url: string, options: RequestInit = {}): Promise<any> => {
+  const token = await getAuthToken();
+
+  if (!token) {
+    throw new Error('No authentication token available');
+  }
+
   try {
-    // Get the Supabase session to include auth token
-    const { getSession } = await import("@/lib/supabase");
-    const session = await getSession();
-    const token = session?.access_token;
-
-    console.log(`[apiRequest] Making request to: ${url}`);
-
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
+        'Authorization': `Bearer ${token}`,
         ...options.headers,
       },
+      credentials: 'include',
     });
 
-    console.log(`[apiRequest] Response status: ${response.status}`);
-
     if (!response.ok) {
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.message || errorMessage;
-      } catch (e) {
-        // Response isn't JSON, use status text
-        errorMessage = response.statusText || errorMessage;
+      if (response.status === 401) {
+        // Token might be expired, clear it and throw auth error
+        localStorage.removeItem('auth_token');
+        throw new Error('Authentication expired');
       }
 
-      console.error(`[apiRequest] Error for ${url}:`, errorMessage);
-      throw new Error(errorMessage);
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
 
-    const data = await response.json();
-    console.log(`[apiRequest] Success for ${url}:`, data);
-    return data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await response.json();
+      // Ensure we always return an array for list endpoints
+      if (url.includes('/leads') || url.includes('/enrollments') || url.includes('/agents')) {
+        return Array.isArray(data) ? data : [];
+      }
+      return data;
+    }
+
+    return await response.text();
   } catch (error) {
-    console.error(`[apiRequest] Network error for ${url}:`, error);
+    console.error(`[apiRequest] Error for ${url}:`, error);
     throw error;
   }
-}
+};
 
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {

@@ -53,7 +53,7 @@ export function useAuth() {
       console.log('[useAuth] Auth state changed:', event, !!session);
       setSession(session);
       setIsInitialized(true);
-      
+
       // Invalidate queries when auth state changes
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
         queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });

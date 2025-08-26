@@ -210,16 +210,25 @@ export default function AdminEnrollments() {
   };
 
   // Filter enrollments based on search and status
-  const filteredEnrollments = (enrollments || []).filter(enrollment => {
-    const matchesSearch = searchTerm === "" ||
-      enrollment.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredEnrollments = React.useMemo(() => {
+    if (!Array.isArray(enrollments)) {
+      console.warn('[AdminEnrollments] Enrollments is not an array:', enrollments);
+      return [];
+    }
+    
+    return enrollments.filter(enrollment => {
+      if (!enrollment) return false;
+      
+      const matchesSearch = searchTerm === "" ||
+        enrollment.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
-  });
+      return matchesSearch && matchesStatus;
+    });
+  }, [enrollments, searchTerm, statusFilter]);
 
   // Calculate total revenue
   const totalRevenue = (filteredEnrollments || []).reduce((sum, enrollment) => {

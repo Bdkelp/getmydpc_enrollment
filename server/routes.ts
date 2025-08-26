@@ -462,11 +462,14 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
   }
 
   try {
-    const leads = await storage.getAllLeads();
-    res.json(leads);
+    const { status, assignedAgentId } = req.query;
+    const leads = await storage.getLeads(status as string, assignedAgentId as string);
+    // Ensure we always return an array
+    const safeLeads = Array.isArray(leads) ? leads : [];
+    res.json(safeLeads);
   } catch (error) {
-    console.error("Error fetching admin leads:", error);
-    res.status(500).json({ message: "Failed to fetch leads" });
+    console.error("Error fetching leads:", error);
+    res.status(500).json({ message: "Failed to fetch leads", error: error.message });
   }
 });
 
@@ -508,26 +511,20 @@ router.get("/api/admin/enrollments", authenticateToken, async (req: AuthRequest,
 
   try {
     const { startDate, endDate, agentId } = req.query;
-    // For now, return mock data since storage methods aren't implemented
-    const enrollments = [
-      {
-        id: "1",
-        createdAt: new Date().toISOString(),
-        firstName: "John",
-        lastName: "Doe",
-        email: "john@example.com",
-        planName: "Individual Plan",
-        memberType: "individual",
-        monthlyPrice: 79,
-        status: "active",
-        enrolledBy: "Admin",
-        enrolledByAgentId: req.user!.id
-      }
-    ];
-    res.json(enrollments);
+
+    let enrollments;
+    if (agentId && agentId !== 'all') {
+      enrollments = await storage.getEnrollmentsByAgent(agentId as string, startDate as string, endDate as string);
+    } else {
+      enrollments = await storage.getAllEnrollments(startDate as string, endDate as string);
+    }
+
+    // Ensure we always return an array
+    const safeEnrollments = Array.isArray(enrollments) ? enrollments : [];
+    res.json(safeEnrollments);
   } catch (error) {
     console.error("Error fetching enrollments:", error);
-    res.status(500).json({ message: "Failed to fetch enrollments" });
+    res.status(500).json({ message: "Failed to fetch enrollments", error: error.message });
   }
 });
 
