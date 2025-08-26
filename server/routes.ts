@@ -50,12 +50,12 @@ router.post("/api/auth/login", async (req, res) => {
     // Get or create user in our database
     console.log('[Login] Checking for existing user:', email);
     let user = await storage.getUserByEmail(email);
-    
+
     if (!user) {
       console.log('[Login] User not found, creating new user');
       const userRole = determineUserRole(data.user.email!);
       console.log('[Login] Determined role for', email, ':', userRole);
-      
+
       // Create user in our database if they don't exist
       user = await storage.createUser({
         id: data.user.id,
@@ -69,7 +69,7 @@ router.post("/api/auth/login", async (req, res) => {
         createdAt: new Date(),
         updatedAt: new Date()
       });
-      
+
       console.log('[Login] Created new user:', {
         id: user.id,
         email: user.email,
@@ -372,11 +372,15 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
   }
 
   try {
+    // Add CORS headers for external browser access
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+
     console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
     const result = await storage.getAllUsers();
     const users = result.users || [];
     const totalCount = result.totalCount || 0;
-    
+
     console.log('[Admin Users API] Retrieved users count:', totalCount);
     console.log('[Admin Users API] User roles breakdown:', {
       admins: users.filter(u => u.role === 'admin').length,
@@ -384,7 +388,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
       members: users.filter(u => u.role === 'member' || u.role === 'user').length,
       others: users.filter(u => !['admin', 'agent', 'member', 'user'].includes(u.role)).length
     });
-    
+
     if (users.length > 0) {
       console.log('[Admin Users API] Sample user data:', {
         id: users[0].id,
@@ -395,7 +399,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
         approvalStatus: users[0].approvalStatus
       });
     }
-    
+
     res.json({ users, totalCount });
   } catch (error) {
     console.error("[Admin Users API] Error fetching users:", error);
@@ -875,7 +879,6 @@ export async function registerRoutes(app: any) {
   // is for a different purpose or a replacement.
   // If the intention is to replace `authenticateToken`, then `app.use(authMiddleware)` would be used.
   // Given the prompt, it seems like `authMiddleware` is being added as a new middleware.
-  // If it's meant to be the primary auth middleware, we should replace `authenticateToken` calls.
   // For now, let's register it for the new endpoint and assume `authenticateToken` is still in use elsewhere.
 
 

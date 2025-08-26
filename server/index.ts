@@ -1,10 +1,38 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import cors from 'cors';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// CORS setup - improved for external browser access
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, etc.)
+    if (!origin) return callback(null, true);
+
+    // Allow Replit domains and your production domain
+    const allowedOrigins = [
+      /\.replit\.dev$/,
+      /\.replit\.app$/,
+      'https://enrollment.getmydpc.com',
+      process.env.VITE_PUBLIC_URL
+    ].filter(Boolean);
+
+    const isAllowed = allowedOrigins.some(pattern => {
+      if (typeof pattern === 'string') {
+        return origin === pattern;
+      }
+      return pattern.test(origin);
+    });
+
+    callback(null, isAllowed);
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
+}));
 
 app.use((req, res, next) => {
   const start = Date.now();

@@ -25,12 +25,23 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
   });
 
   try {
+    // Get fresh session for each request
+    const { getSession } = await import("@/lib/supabase");
+    const session = await getSession();
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+    
+    // Add auth token if available
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
     const response = await fetch(url, {
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+      headers,
       ...options,
     });
 
