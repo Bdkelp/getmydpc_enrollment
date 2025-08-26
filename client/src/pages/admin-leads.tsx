@@ -45,6 +45,7 @@ export default function AdminLeads() {
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [activityNotes, setActivityNotes] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState<string>(''); // State for search term
 
   // Check if user is admin
   useEffect(() => {
@@ -200,8 +201,8 @@ export default function AdminLeads() {
     );
   };
 
-  const unassignedCount = leads.filter(lead => !lead.assignedAgentId).length;
-  const newLeadsCount = leads.filter(lead => lead.status === 'new').length;
+  const unassignedCount = (leads || []).filter(lead => !lead.assignedAgentId).length;
+  const newLeadsCount = (leads || []).filter(lead => lead.status === 'new').length;
 
   if (authLoading || leadsLoading) {
     return (
@@ -224,6 +225,18 @@ export default function AdminLeads() {
       </div>
     );
   }
+
+  // Filter leads based on search and status
+  const filteredLeads = (leads || []).filter(lead => {
+    const matchesSearch = searchTerm === "" || 
+      lead.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.email?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -316,6 +329,14 @@ export default function AdminLeads() {
               ))}
             </SelectContent>
           </Select>
+          
+          {/* Search Input */}
+          <Input 
+            placeholder="Search leads by name or email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-[300px]"
+          />
         </div>
       </div>
 
@@ -328,7 +349,7 @@ export default function AdminLeads() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {leads.length === 0 ? (
+          {filteredLeads.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               No leads found matching your filters.
             </div>
@@ -346,7 +367,7 @@ export default function AdminLeads() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {leads.map((lead) => {
+                  {filteredLeads.map((lead) => {
                     const assignedAgent = agents.find(a => a.id === lead.assignedAgentId);
                     return (
                       <TableRow key={lead.id}>

@@ -208,11 +208,11 @@ export default function AdminEnrollments() {
   };
 
   // Filter enrollments based on search and status
-  const filteredEnrollments = enrollments?.filter(enrollment => {
+  const filteredEnrollments = (enrollments || []).filter(enrollment => {
     const matchesSearch = searchTerm === "" || 
-      enrollment.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      enrollment.email.toLowerCase().includes(searchTerm.toLowerCase());
+      enrollment.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
     
@@ -220,9 +220,9 @@ export default function AdminEnrollments() {
   });
 
   // Calculate total revenue
-  const totalRevenue = filteredEnrollments?.reduce((sum, enrollment) => {
-    return sum + (enrollment.status === "active" ? Number(enrollment.monthlyPrice) : 0);
-  }, 0) || 0;
+  const totalRevenue = (filteredEnrollments || []).reduce((sum, enrollment) => {
+    return sum + (enrollment.status === "active" ? Number(enrollment.monthlyPrice || 0) : 0);
+  }, 0);
 
   if (authLoading || enrollmentsLoading) {
     return (
@@ -458,7 +458,7 @@ export default function AdminEnrollments() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEnrollments?.map((enrollment) => (
+                  {(filteredEnrollments || []).map((enrollment) => (
                     <TableRow key={enrollment.id}>
                       <TableCell>{format(new Date(enrollment.createdAt), 'MMM d, yyyy')}</TableCell>
                       <TableCell className="font-medium">
@@ -484,7 +484,7 @@ export default function AdminEnrollments() {
                 </TableBody>
               </Table>
               
-              {filteredEnrollments?.length === 0 && (
+              {(filteredEnrollments || []).length === 0 && (
                 <div className="text-center py-8 text-gray-500">
                   No enrollments found matching your filters.
                 </div>
@@ -500,7 +500,7 @@ export default function AdminEnrollments() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {agents?.filter(agent => agent.agentNumber).map((agent) => (
+              {(agents || []).filter(agent => agent.agentNumber).map((agent) => (
                 <div key={agent.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                   <div>
                     <p className="font-medium">{agent.firstName} {agent.lastName}</p>

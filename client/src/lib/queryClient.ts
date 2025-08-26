@@ -9,7 +9,10 @@ async function throwIfResNotOk(res: Response) {
 
 export async function apiRequest(url: string, options: RequestInit = {}) {
   try {
-    const token = await getAuthToken(); // Assuming getAuthToken is defined elsewhere and accessible
+    // Get the Supabase session to include auth token
+    const { getSession } = await import("@/lib/supabase");
+    const session = await getSession();
+    const token = session?.access_token;
 
     console.log(`[apiRequest] Making request to: ${url}`);
 
