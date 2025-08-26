@@ -26,6 +26,35 @@ export function safeHandler<T extends (...args: any[]) => any>(
   return handler || (() => {}) as any;
 }
 
+// Safe callback property access
+export function safeCallback(obj: any, callbackName: string, ...args: any[]): any {
+  try {
+    const callback = obj?.[callbackName];
+    if (typeof callback === 'function') {
+      return callback(...args);
+    }
+    return undefined;
+  } catch (error) {
+    console.warn(`Safe callback failed for ${callbackName}:`, error);
+    return undefined;
+  }
+}
+
+// Safe property access for common UI callbacks
+export function safePropAccess(props: any): {
+  onChanged?: (...args: any[]) => void;
+  onUpdated?: (...args: any[]) => void;
+  onClicked?: (...args: any[]) => void;
+  onCreated?: (...args: any[]) => void;
+} {
+  return {
+    onChanged: props?.onChanged || undefined,
+    onUpdated: props?.onUpdated || undefined, 
+    onClicked: props?.onClicked || undefined,
+    onCreated: props?.onCreated || undefined
+  };
+}
+
 export function safeGet<T>(obj: any, path: string, defaultValue?: T): T | undefined {
   try {
     const keys = path.split('.');

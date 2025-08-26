@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -141,16 +141,19 @@ export default function AgentCommissions() {
     }
   };
 
-  const safeCommissions = Array.isArray(commissions) ? commissions : [];
+  // Safe array handling for commissions data
+  const safeCommissions = React.useMemo(() => {
+    return Array.isArray(commissions) ? commissions : [];
+  }, [commissions]);
 
-
-  if (statsLoading || commissionsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  // Safe stats object with defaults
+  const safeStats = React.useMemo(() => {
+    return {
+      totalEarned: stats?.totalEarned || 0,
+      totalPending: stats?.totalPending || 0,
+      totalPaid: stats?.totalPaid || 0
+    };
+  }, [stats]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -186,7 +189,7 @@ export default function AgentCommissions() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats?.totalEarned?.toFixed(2) || "0.00"}</div>
+              <div className="text-2xl font-bold">${safeStats.totalEarned.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">All time earnings</p>
             </CardContent>
           </Card>
@@ -197,7 +200,7 @@ export default function AgentCommissions() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats?.totalPending?.toFixed(2) || "0.00"}</div>
+              <div className="text-2xl font-bold">${safeStats.totalPending.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">Awaiting payment</p>
             </CardContent>
           </Card>
@@ -208,7 +211,7 @@ export default function AgentCommissions() {
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${stats?.totalPaid?.toFixed(2) || "0.00"}</div>
+              <div className="text-2xl font-bold">${safeStats.totalPaid.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">Already received</p>
             </CardContent>
           </Card>
