@@ -419,10 +419,13 @@ export default function AdminUsers() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {format(new Date(user.createdAt), 'MMM d, yyyy')}
+                            {user.createdAt && !isNaN(new Date(user.createdAt).getTime()) ? 
+                              format(new Date(user.createdAt), 'MMM d, yyyy') : 
+                              'Unknown'
+                            }
                           </TableCell>
                           <TableCell>
-                            {user.lastLoginAt ? 
+                            {user.lastLoginAt && !isNaN(new Date(user.lastLoginAt).getTime()) ? 
                               format(new Date(user.lastLoginAt), 'MMM d, h:mm a') : 
                               'Never'
                             }
