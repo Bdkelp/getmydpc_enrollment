@@ -54,7 +54,7 @@ export default function Register() {
       });
     }
   };
-  
+
   const form = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -72,22 +72,22 @@ export default function Register() {
     setIsLoading(true);
     try {
       const { confirmPassword, agreeToTerms, ...userData } = data;
-      
+
       const { data: result, error } = await signUp(userData.email, userData.password, {
         first_name: userData.firstName,
         last_name: userData.lastName,
         username: userData.username
       });
-      
+
       if (error) {
         throw new Error(error.message);
       }
-      
+
       toast({
         title: "Registration submitted!",
         description: "Your account is pending approval. You'll receive an email once approved.",
       });
-      
+
       // Redirect to pending approval page
       setTimeout(() => {
         setLocation("/pending-approval");
@@ -139,7 +139,7 @@ export default function Register() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="lastName"
@@ -161,7 +161,7 @@ export default function Register() {
                   )}
                 />
               </div>
-              
+
               <FormField
                 control={form.control}
                 name="email"
@@ -182,7 +182,7 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="username"
@@ -203,7 +203,7 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="password"
@@ -217,6 +217,7 @@ export default function Register() {
                           type="password" 
                           placeholder="••••••••" 
                           className="pl-10"
+                          autoComplete="new-password"
                           {...field} 
                         />
                       </div>
@@ -225,7 +226,7 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="confirmPassword"
@@ -239,6 +240,7 @@ export default function Register() {
                           type="password" 
                           placeholder="••••••••" 
                           className="pl-10"
+                          autoComplete="new-password"
                           {...field} 
                         />
                       </div>
@@ -247,7 +249,7 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="agreeToTerms"
@@ -271,7 +273,7 @@ export default function Register() {
                   </FormItem>
                 )}
               />
-              
+
               <Button 
                 type="submit" 
                 className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
@@ -288,7 +290,7 @@ export default function Register() {
               </Button>
             </form>
           </Form>
-          
+
           <div className="relative mt-6">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />
@@ -297,7 +299,7 @@ export default function Register() {
               <span className="bg-white px-2 text-gray-500">Or sign up with</span>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-3 mt-6">
             <Button
               variant="outline"

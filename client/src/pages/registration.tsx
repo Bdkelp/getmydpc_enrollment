@@ -514,6 +514,7 @@ export default function Registration() {
                                 type="password" 
                                 placeholder="123-45-6789 (Optional)" 
                                 maxLength={11}
+                                autoComplete="off"
                                 {...field}
                                 value={formatSSN(field.value || '')}
                                 onChange={(e) => {

@@ -1,4 +1,3 @@
-
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -86,11 +85,11 @@ export default function Profile() {
         },
         body: JSON.stringify(data),
       });
-      
+
       if (!response.ok) {
         throw new Error("Failed to update profile");
       }
-      
+
       return response.json();
     },
     onSuccess: () => {
@@ -114,7 +113,7 @@ export default function Profile() {
       const { error } = await supabase.auth.updateUser({
         password: data.newPassword
       });
-      
+
       if (error) {
         throw error;
       }
@@ -220,7 +219,7 @@ export default function Profile() {
                       {profile?.firstName?.[0]}{profile?.lastName?.[0]}
                     </AvatarFallback>
                   </Avatar>
-                  
+
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -228,7 +227,7 @@ export default function Profile() {
                     onChange={handlePhotoUpload}
                     className="hidden"
                   />
-                  
+
                   <Button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isUploadingPhoto}
@@ -352,7 +351,7 @@ export default function Profile() {
                           )}
                         />
                       </div>
-                      
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormField
                           control={form.control}
@@ -604,7 +603,7 @@ export default function Profile() {
                           <FormItem>
                             <FormLabel>Current Password</FormLabel>
                             <FormControl>
-                              <Input type="password" {...field} />
+                              <Input type="password" autoComplete="current-password" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -617,7 +616,7 @@ export default function Profile() {
                           <FormItem>
                             <FormLabel>New Password</FormLabel>
                             <FormControl>
-                              <Input type="password" {...field} />
+                              <Input type="password" autoComplete="new-password" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -630,7 +629,7 @@ export default function Profile() {
                           <FormItem>
                             <FormLabel>Confirm New Password</FormLabel>
                             <FormControl>
-                              <Input type="password" {...field} />
+                              <Input type="password" autoComplete="new-password" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

@@ -261,6 +261,7 @@ export default function FamilyEnrollment() {
                               type="password" 
                               placeholder="123456789" 
                               maxLength={9}
+                              autoComplete="off"
                               {...field} 
                             />
                           </FormControl>

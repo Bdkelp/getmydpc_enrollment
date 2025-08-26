@@ -159,6 +159,7 @@ export default function Login() {
                           type="password" 
                           placeholder="••••••••" 
                           className="pl-10"
+                          autoComplete="current-password"
                           {...field} 
                         />
                       </div>

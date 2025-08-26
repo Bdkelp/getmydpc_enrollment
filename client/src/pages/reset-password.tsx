@@ -26,7 +26,7 @@ export default function ResetPassword() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isValidToken, setIsValidToken] = useState<boolean | null>(null);
-  
+
   const form = useForm<ResetPasswordFormData>({
     resolver: zodResolver(resetPasswordSchema),
     defaultValues: {
@@ -45,7 +45,7 @@ export default function ResetPassword() {
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const accessToken = hashParams.get('access_token');
         const type = hashParams.get('type');
-        
+
         if (accessToken && type === 'recovery') {
           setIsValidToken(true);
         } else {
@@ -61,16 +61,16 @@ export default function ResetPassword() {
       const { error } = await supabase.auth.updateUser({
         password: data.password
       });
-      
+
       if (error) {
         throw error;
       }
-      
+
       toast({
         title: "Password reset successful",
         description: "Your password has been updated. Redirecting to login...",
       });
-      
+
       // Sign out and redirect to login
       await supabase.auth.signOut();
       setTimeout(() => {
@@ -149,6 +149,7 @@ export default function ResetPassword() {
                           type="password"
                           placeholder="••••••••" 
                           className="pl-10"
+                          autoComplete="new-password"
                           {...field} 
                         />
                       </div>
@@ -157,7 +158,7 @@ export default function ResetPassword() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="confirmPassword"
@@ -171,6 +172,7 @@ export default function ResetPassword() {
                           type="password"
                           placeholder="••••••••" 
                           className="pl-10"
+                          autoComplete="new-password"
                           {...field} 
                         />
                       </div>
@@ -179,7 +181,7 @@ export default function ResetPassword() {
                   </FormItem>
                 )}
               />
-              
+
               <Button 
                 type="submit" 
                 className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
