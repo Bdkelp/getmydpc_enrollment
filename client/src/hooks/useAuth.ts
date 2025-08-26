@@ -102,14 +102,15 @@ export function useAuth() {
     isLoading: userLoading,
     error,
   } = useQuery({
-    queryKey: ["/api/auth/user"],
+    queryKey: ["/api/auth/user", session?.access_token],
     queryFn: async () => {
-      if (!session?.access_token) {
-        console.log(
-          "[useAuth] No access token available, skipping user fetch.",
-        );
+      if (!session?.access_token || !session?.user) {
+        console.log("[useAuth] No valid session, skipping user fetch.");
         return null;
       }
+
+      // Add a small delay to prevent race conditions
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const tokenPreview =
         session.access_token.length > 50
@@ -118,30 +119,36 @@ export function useAuth() {
       console.log("[useAuth] Fetching user with token:", tokenPreview);
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
         const response = await fetch("/api/auth/user", {
           method: "GET",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
+          signal: controller.signal,
         });
 
+        clearTimeout(timeoutId);
         console.log("[useAuth] User fetch response status:", response.status);
 
         if (!response.ok) {
           if (response.status === 401) {
             console.log("[useAuth] Unauthorized - clearing session");
-            // Clear the session safely
-            try {
-              // Clear any stored tokens
-              if (typeof localStorage !== "undefined") {
-                localStorage.removeItem("supabase.auth.token");
+            // Clear the session safely with a delay to prevent race conditions
+            setTimeout(async () => {
+              try {
+                if (typeof localStorage !== "undefined") {
+                  localStorage.removeItem("supabase.auth.token");
+                }
+                setSession(null);
+                await signOut();
+              } catch (clearError) {
+                console.warn("[useAuth] Session cleanup failed:", clearError);
               }
-              setSession(null);
-              await signOut();
-            } catch (clearError) {
-              console.warn("[useAuth] Session cleanup failed:", clearError);
-            }
+            }, 100);
             return null;
           }
 
@@ -176,19 +183,32 @@ export function useAuth() {
         }
         return userData;
       } catch (fetchError) {
+        if (fetchError.name === 'AbortError') {
+          console.warn("[useAuth] User fetch request timed out");
+          return null;
+        }
         console.error("[useAuth] User fetch error:", fetchError);
+        
+        // If it's a network error, don't throw - just return null
+        if (fetchError.message?.includes('Failed to fetch')) {
+          console.warn("[useAuth] Network error, returning null user");
+          return null;
+        }
+        
         throw fetchError;
       }
     },
-    enabled: !!session?.access_token && isInitialized,
+    enabled: !!session?.access_token && !!session?.user && isInitialized,
     retry: (failureCount, error: any) => {
-      // Don't retry on auth errors
+      // Don't retry on auth errors or network timeouts
       if (
         error?.message?.includes("401") ||
-        error?.message?.includes("Unauthorized")
+        error?.message?.includes("Unauthorized") ||
+        error?.name === 'AbortError'
       ) {
         console.warn(
-          "[useAuth] Not retrying failed fetch due to unauthorized error.",
+          "[useAuth] Not retrying due to auth error or timeout:",
+          error?.message,
         );
         return false;
       }
@@ -196,20 +216,23 @@ export function useAuth() {
         `[useAuth] Retrying fetch attempt ${failureCount} for error:`,
         error?.message,
       );
-      return failureCount < 2;
+      return failureCount < 1; // Reduce retries
     },
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchInterval: false,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
+  const isAuthenticated = !!(session?.user && session?.access_token && user);
+  const isLoadingAuth = !isInitialized;
+  const isLoadingUser = isInitialized && !!session?.access_token && userLoading;
+  
   return {
     user: user || null,
     session: session || null,
-    isAuthenticated: !!(session?.user && session?.access_token && user),
-    isLoading:
-      !isInitialized ||
-      (isInitialized && !!session?.access_token && userLoading),
+    isAuthenticated,
+    isLoading: isLoadingAuth || isLoadingUser,
     error: error || null,
   };
 }

@@ -72,3 +72,20 @@ export function debugError(component: string, error: Error | string, context?: a
     timestamp: new Date().toISOString()
   });
 }
+
+// Prevent React DOM nesting warnings
+export function preventNestedLinks(event: React.MouseEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+// Safe element click handler
+export function safeClick(handler?: () => void) {
+  return (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (handler) {
+      handler();
+    }
+  };
+}

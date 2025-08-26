@@ -13,7 +13,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { apiRequest } from '@/lib/queryClient';
+// Safe API request function
+const safeApiRequest = async (url: string, options: any = {}) => {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+      ...options,
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn('[SessionManager] API request failed:', error);
+    return false;
+  }
+};
 
 const IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 const WARNING_TIME = 30 * 1000; // 30 seconds before timeout
@@ -33,13 +49,7 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
   // Update last activity timestamp in backend every 5 minutes
   const updateActivityInBackend = useCallback(async () => {
     if (isAuthenticated) {
-      try {
-        await apiRequest('/api/user/activity', {
-          method: 'POST',
-        });
-      } catch (error) {
-        // Silent fail - don't disrupt user experience
-      }
+      await safeApiRequest('/api/user/activity');
     }
   }, [isAuthenticated]);
 

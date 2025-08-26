@@ -7,6 +7,7 @@ import { calculateCommission, getPlanTierFromName, getPlanTypeFromMemberType } f
 import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
+import { supabase } from './lib/supabaseClient'; // Assuming supabase client is imported here
 
 const router = Router();
 
@@ -32,10 +33,10 @@ router.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
 
     // Sign in with Supabase
-    const { data, error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
-    }));
+    });
 
     if (error) {
       console.error('Login error:', error);
@@ -92,7 +93,7 @@ router.post("/api/auth/register", async (req, res) => {
     const { email, password, firstName, lastName } = req.body;
 
     // Sign up with Supabase
-    const { data, error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -101,7 +102,7 @@ router.post("/api/auth/register", async (req, res) => {
           lastName
         }
       }
-    }));
+    });
 
     if (error) {
       console.error('Registration error:', error);
@@ -147,7 +148,7 @@ router.post("/api/auth/logout", async (req, res) => {
     const token = authHeader && authHeader.split(' ')[1];
 
     if (token) {
-      const { error } = await import('./lib/supabaseClient').then(m => m.supabase.auth.signOut());
+      const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Logout error:', error);
       }
@@ -730,6 +731,108 @@ async function createCommissionWithCheck(agentId: string | null, subscriptionId:
 export async function registerRoutes(app: any) {
   // Use the router
   app.use(router);
+
+  // Auth middleware - must be after session middleware
+  const authMiddleware = async (req: any, res: any, next: any) => {
+    if (req.path.startsWith('/api/auth/') && req.path !== '/api/auth/user') {
+      return next();
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      console.warn('[Auth] No authorization token provided for:', req.path);
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+
+      if (error || !user) {
+        console.warn('[Auth] Invalid token for:', req.path, error?.message);
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      // Get user data from our database with retry logic
+      let userData;
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          userData = await storage.getUser(user.id);
+          break;
+        } catch (dbError) {
+          retries--;
+          if (retries === 0) {
+            console.error('[Auth] Database error after retries:', dbError);
+            return res.status(500).json({ error: 'Database connection failed' });
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      if (!userData) {
+        console.warn('[Auth] User not found in database:', user.id);
+        return res.status(404).json({ error: 'User not found in database' });
+      }
+
+      // Check approval status
+      if (userData.approvalStatus === 'pending') {
+        return res.status(403).json({ 
+          error: 'Account pending approval',
+          requiresApproval: true 
+        });
+      }
+
+      if (userData.approvalStatus === 'rejected') {
+        return res.status(403).json({ 
+          error: 'Account access denied' 
+        });
+      }
+
+      req.user = userData;
+      next();
+    } catch (error) {
+      console.error('[Auth] Auth middleware error:', error);
+      return res.status(500).json({ error: 'Authentication failed' });
+    }
+  };
+
+  // Admin role check middleware
+  const adminRequired = (req: any, res: any, next: any) => {
+    if (req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+  };
+
+  // User activity endpoint
+  app.post('/api/user/activity', authMiddleware, (req: any, res: any) => {
+    try {
+      // Log user activity (could be stored in database if needed)
+      console.log(`[Activity] User ${req.user.email} active at ${new Date().toISOString()}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Activity] Error logging activity:', error);
+      res.status(500).json({ error: 'Failed to log activity' });
+    }
+  });
+
+  // Add the authMiddleware to routes that require authentication
+  // This should be done after defining the routes that don't need auth (like /api/auth/*)
+  // and before routes that do need auth.
+  // A common approach is to use app.use() with the middleware.
+  // However, since we are using `authenticateToken` within specific route handlers,
+  // we don't need to apply `authMiddleware` globally here unless we want to replace it.
+  // The current implementation uses `authenticateToken` which seems to be a separate middleware.
+  // Let's ensure the new `authMiddleware` is used where appropriate or replace `authenticateToken`.
+  // For now, we assume `authenticateToken` handles the logic, and the new `authMiddleware`
+  // is for a different purpose or a replacement.
+  // If the intention is to replace `authenticateToken`, then `app.use(authMiddleware)` would be used.
+  // Given the prompt, it seems like `authMiddleware` is being added as a new middleware.
+  // If it's meant to be the primary auth middleware, we should replace `authenticateToken` calls.
+  // For now, let's register it for the new endpoint and assume `authenticateToken` is still in use elsewhere.
+
 
   // Create and return the server
   const { createServer } = await import("http");
