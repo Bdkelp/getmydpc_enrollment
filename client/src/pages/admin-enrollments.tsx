@@ -61,8 +61,14 @@ export default function AdminEnrollments() {
   
   // Check if user is admin
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== 'admin')) {
-      setLocation('/login');
+    if (!authLoading) {
+      if (!user) {
+        console.log('[AdminEnrollments] No user found, redirecting to login');
+        setLocation('/login');
+      } else if (user.role !== 'admin') {
+        console.log('[AdminEnrollments] User role is not admin:', user.role);
+        setLocation('/no-access');
+      }
     }
   }, [user, authLoading, setLocation]);
   
@@ -81,19 +87,35 @@ export default function AdminEnrollments() {
   });
 
   // Fetch enrollments with filters
-  const { data: enrollments, isLoading: enrollmentsLoading } = useQuery<Enrollment[]>({
+  const { data: enrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useQuery<Enrollment[]>({
     queryKey: ["/api/admin/enrollments", dateFilter, selectedAgentId],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
-      });
-      
-      const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
-      return response;
+      try {
+        const params = new URLSearchParams({
+          startDate: dateFilter.startDate,
+          endDate: dateFilter.endDate,
+          ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
+        });
+        
+        console.log('[AdminEnrollments] Fetching enrollments with params:', params.toString());
+        const response = await apiRequest(`/api/admin/enrollments?${params}`, { method: "GET" });
+        console.log('[AdminEnrollments] Response:', response);
+        
+        // Ensure we return an array
+        return Array.isArray(response) ? response : [];
+      } catch (error) {
+        console.error('[AdminEnrollments] Error fetching enrollments:', error);
+        throw error;
+      }
     },
     enabled: !!user && user.role === 'admin',
+    retry: (failureCount, error: any) => {
+      // Don't retry on auth errors
+      if (error?.message?.includes('401') || error?.message?.includes('403')) {
+        return false;
+      }
+      return failureCount < 2;
+    }
   });
 
   // Export enrollments mutation
@@ -202,10 +224,13 @@ export default function AdminEnrollments() {
     return sum + (enrollment.status === "active" ? Number(enrollment.monthlyPrice) : 0);
   }, 0) || 0;
 
-  if (enrollmentsLoading) {
+  if (authLoading || enrollmentsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading enrollments...</p>
+        </div>
       </div>
     );
   }
@@ -398,6 +423,18 @@ export default function AdminEnrollments() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Error Display */}
+        {enrollmentsError && (
+          <Card className="mb-8">
+            <CardContent className="p-6">
+              <div className="text-center text-red-600">
+                <p className="mb-4">Error loading enrollments: {enrollmentsError.message}</p>
+                <Button onClick={() => window.location.reload()}>Retry</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Enrollments Table */}
         <Card>

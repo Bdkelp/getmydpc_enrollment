@@ -45,7 +45,7 @@ export default function AdminLeads() {
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [activityNotes, setActivityNotes] = useState<string>('');
-  
+
   // Check if user is admin
   useEffect(() => {
     if (!authLoading && (!user || user.role !== 'admin')) {
@@ -62,21 +62,21 @@ export default function AdminLeads() {
       if (statusFilter !== 'all') url += `status=${statusFilter}&`;
       if (assignmentFilter === 'unassigned') url += 'assignedAgentId=unassigned&';
       else if (assignmentFilter !== 'all') url += `assignedAgentId=${assignmentFilter}&`;
-      
+
       console.log('[AdminLeads] Fetching leads from URL:', url.slice(0, -1));
-      
+
       const response = await apiRequest(url.slice(0, -1), {
         method: "GET"
       });
-      
+
       console.log('[AdminLeads] API Response:', response);
       console.log('[AdminLeads] Response type:', typeof response);
       console.log('[AdminLeads] Is array:', Array.isArray(response));
-      
+
       return response; // apiRequest already returns parsed JSON
     }
   });
-  
+
   // Log error if any
   useEffect(() => {
     if (leadsError) {
@@ -168,12 +168,12 @@ export default function AdminLeads() {
           updates: { status: 'qualified' } 
         });
       }
-      
+
       assignLeadMutation.mutate({
         leadId: selectedLead.id,
         agentId: selectedAgentId,
       });
-      
+
       // Add activity note if provided
       if (activityNotes) {
         addActivityMutation.mutate({
@@ -203,6 +203,28 @@ export default function AdminLeads() {
   const unassignedCount = leads.filter(lead => !lead.assignedAgentId).length;
   const newLeadsCount = leads.filter(lead => lead.status === 'new').length;
 
+  if (authLoading || leadsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading leads...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (leadsError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">Error loading leads: {leadsError.message}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       <div className="mb-6">
@@ -214,7 +236,7 @@ export default function AdminLeads() {
           <ChevronLeft className="h-4 w-4 mr-2" />
           Back to Dashboard
         </Button>
-        
+
         <h1 className="text-3xl font-bold mb-6">Lead Management</h1>
 
         {/* Summary Cards */}
@@ -306,9 +328,7 @@ export default function AdminLeads() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {leadsLoading ? (
-            <div className="text-center py-4">Loading leads...</div>
-          ) : leads.length === 0 ? (
+          {leads.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               No leads found matching your filters.
             </div>
@@ -413,7 +433,7 @@ export default function AdminLeads() {
               Select an agent to assign this lead to. The lead will be marked as qualified.
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedLead && (
             <div className="space-y-4">
               <div className="bg-gray-50 p-4 rounded-lg">

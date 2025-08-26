@@ -1,95 +1,75 @@
-// Commission rates by plan and type
-export const commissionRates = {
-  base: {
-    member: 9.00,
-    memSpouse: 15.00,
-    memChildren: 17.00,
-    family: 17.00
-  },
-  plus: {
-    member: 20.00,
-    memSpouse: 40.00,
-    memChildren: 40.00,
-    family: 40.00
-  },
-  elite: {
-    member: 20.00,
-    memSpouse: 40.00,
-    memChildren: 40.00,
-    family: 40.00
-  },
-  rx: {
-    member: 2.50,
-    memSpouse: 2.50,
-    memChildren: 2.50,
-    family: 2.50
+
+export interface CommissionResult {
+  commission: number;
+  totalCost: number;
+}
+
+export function calculateCommission(planName: string, memberType: string): CommissionResult | null {
+  const planType = getPlanTypeFromMemberType(memberType);
+  const planTier = getPlanTierFromName(planName);
+  
+  // Commission rates based on plan type and tier
+  const commissionRates: Record<string, Record<string, number>> = {
+    individual: {
+      basic: 30,
+      premium: 35,
+      family: 40
+    },
+    family: {
+      basic: 40,
+      premium: 45,
+      family: 50
+    }
+  };
+  
+  // Plan costs (these should match your actual plan pricing)
+  const planCosts: Record<string, Record<string, number>> = {
+    individual: {
+      basic: 79,
+      premium: 99,
+      family: 119
+    },
+    family: {
+      basic: 149,
+      premium: 179,
+      family: 199
+    }
+  };
+  
+  const rate = commissionRates[planType]?.[planTier];
+  const cost = planCosts[planType]?.[planTier];
+  
+  if (rate === undefined || cost === undefined) {
+    return null;
   }
-};
-
-/**
- * Gets the plan tier from the plan name
- * @param planName - Full plan name from database
- * @returns Plan tier (base, plus, elite)
- */
-export function getPlanTier(planName: string): 'base' | 'plus' | 'elite' | null {
-  const lowerName = planName.toLowerCase();
-  if (lowerName.includes('base')) return 'base';
-  if (lowerName.includes('plus') || lowerName.includes('+')) return 'plus';
-  if (lowerName.includes('elite')) return 'elite';
-  return null;
+  
+  return {
+    commission: rate,
+    totalCost: cost
+  };
 }
 
-/**
- * Normalizes member type to match commission structure
- * @param memberType - Member type from database
- * @returns Normalized member type key
- */
-export function normalizeMemberType(memberType: string): 'member' | 'memSpouse' | 'memChildren' | 'family' {
-  const normalized = memberType.toLowerCase().replace(/[^a-z]/g, '');
-  
-  if (normalized.includes('spouse') || normalized === 'memspouse') return 'memSpouse';
-  if (normalized.includes('children') || normalized === 'memchildren') return 'memChildren';
-  if (normalized.includes('family')) return 'family';
-  return 'member'; // Default to member only
+export function getPlanTypeFromMemberType(memberType: string): string {
+  switch (memberType.toLowerCase()) {
+    case 'individual':
+    case 'single':
+      return 'individual';
+    case 'family':
+    case 'couple':
+      return 'family';
+    default:
+      return 'individual';
+  }
 }
 
-/**
- * Calculates commission for a single enrollment
- * @param planName - Full plan name
- * @param memberType - Member type (e.g., "Member only", "Mem/Spouse", etc.)
- * @param hasRx - Whether RxValet is included
- * @returns Commission amount
- */
-export function calculateEnrollmentCommission(
-  planName: string,
-  memberType: string,
-  hasRx: boolean = false
-): number {
-  const tier = getPlanTier(planName);
-  if (!tier) return 0;
+export function getPlanTierFromName(planName: string): string {
+  const name = planName.toLowerCase();
   
-  const normalizedType = normalizeMemberType(memberType);
-  const baseCommission = commissionRates[tier][normalizedType] || 0;
-  const rxCommission = hasRx ? commissionRates.rx[normalizedType] || 0 : 0;
-  
-  return baseCommission + rxCommission;
-}
-
-/**
- * Calculates total commission for multiple enrollments
- * @param enrollments - Array of enrollment objects with plan and member info
- * @returns Total commission amount
- */
-export function calculateTotalCommission(enrollments: Array<{
-  planName: string;
-  memberType: string;
-  hasRx?: boolean;
-}>): number {
-  return enrollments.reduce((total, enrollment) => {
-    return total + calculateEnrollmentCommission(
-      enrollment.planName,
-      enrollment.memberType,
-      enrollment.hasRx
-    );
-  }, 0);
+  if (name.includes('family')) {
+    return 'family';
+  } else if (name.includes('premium')) {
+    return 'premium';
+  } else {
+    return 'basic';
+  }
 }

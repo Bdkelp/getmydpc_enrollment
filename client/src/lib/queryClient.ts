@@ -7,76 +7,43 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-export async function apiRequest(
-  url: string,
-  options: {
-    method: string;
-    body?: string;
-    headers?: HeadersInit;
-  }
-): Promise<any> {
-  // Get the Supabase session to include auth token
-  const { getSession } = await import("@/lib/supabase");
-  const session = await getSession();
-  
-  console.log('[apiRequest] Session check:', { 
-    hasSession: !!session, 
-    hasToken: !!session?.access_token,
-    url,
-    method: options.method 
-  });
-  
-  const headers: Record<string, string> = {};
-  
-  if (options.headers) {
-    Object.assign(headers, options.headers);
-  }
-  
-  if (options.body) {
-    headers["Content-Type"] = "application/json";
-  }
-  
-  if (session?.access_token) {
-    headers["Authorization"] = `Bearer ${session.access_token}`;
-    console.log('[apiRequest] Adding auth token, length:', session.access_token.length);
-  } else {
-    console.warn('[apiRequest] No authentication token available!');
-  }
-  
-  console.log('[apiRequest] Request headers:', { 
-    hasAuth: !!headers["Authorization"],
-    contentType: headers["Content-Type"]
-  });
-  
-  const res = await fetch(url, {
-    method: options.method,
-    headers,
-    body: options.body,
-    credentials: "include",
-  });
-
-  const responseData = await res.text();
-  
-  if (!res.ok) {
-    let errorMessage;
-    try {
-      const errorJson = JSON.parse(responseData);
-      errorMessage = errorJson.message || res.statusText;
-    } catch {
-      errorMessage = responseData || res.statusText;
-    }
-    
-    console.error('[apiRequest] Error response:', { status: res.status, message: errorMessage });
-    const error = new Error(errorMessage);
-    (error as any).status = res.status;
-    (error as any).response = { data: { message: errorMessage } };
-    throw error;
-  }
-  
+export async function apiRequest(url: string, options: RequestInit = {}) {
   try {
-    return JSON.parse(responseData);
-  } catch {
-    return responseData;
+    const token = await getAuthToken(); // Assuming getAuthToken is defined elsewhere and accessible
+
+    console.log(`[apiRequest] Making request to: ${url}`);
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+        ...options.headers,
+      },
+    });
+
+    console.log(`[apiRequest] Response status: ${response.status}`);
+
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.message || errorMessage;
+      } catch (e) {
+        // Response isn't JSON, use status text
+        errorMessage = response.statusText || errorMessage;
+      }
+
+      console.error(`[apiRequest] Error for ${url}:`, errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    console.log(`[apiRequest] Success for ${url}:`, data);
+    return data;
+  } catch (error) {
+    console.error(`[apiRequest] Network error for ${url}:`, error);
+    throw error;
   }
 }
 
@@ -89,13 +56,13 @@ export const getQueryFn: <T>(options: {
     // Get the Supabase session to include auth token
     const { getSession } = await import("@/lib/supabase");
     const session = await getSession();
-    
+
     const headers: Record<string, string> = {};
-    
+
     if (session?.access_token) {
       headers["Authorization"] = `Bearer ${session.access_token}`;
     }
-    
+
     const res = await fetch(queryKey[0] as string, {
       credentials: "include",
       headers,
