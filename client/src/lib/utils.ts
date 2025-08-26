@@ -6,6 +6,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Safe property access helpers
+export function safeAccess<T>(obj: any, path: string[]): T | undefined {
+  try {
+    return path.reduce((current, key) => current?.[key], obj);
+  } catch {
+    return undefined;
+  }
+}
+
+export function withDefault<T>(value: T | undefined | null, defaultValue: T): T {
+  return value ?? defaultValue;
+}
+
+// Safe event handler wrapper
+export function safeHandler<T extends (...args: any[]) => any>(
+  handler: T | undefined | null
+): T | (() => void) {
+  return handler || (() => {}) as any;
+}
+
 export function safeGet<T>(obj: any, path: string, defaultValue?: T): T | undefined {
   try {
     const keys = path.split('.');

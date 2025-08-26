@@ -79,20 +79,20 @@ export function configurePassportStrategies() {
       if (!user) {
         return done(null, false, { message: "Invalid email or password" });
       }
-      
+
       if (!user.passwordHash) {
         return done(null, false, { message: "Please use social login" });
       }
-      
+
       const isValid = await verifyPassword(password, user.passwordHash);
       if (!isValid) {
         return done(null, false, { message: "Invalid email or password" });
       }
-      
+
       if (!user.emailVerified) {
         return done(null, false, { message: "Please verify your email" });
       }
-      
+
       return done(null, user);
     } catch (error) {
       return done(error);
@@ -108,11 +108,11 @@ export function configurePassportStrategies() {
     }, async (accessToken, refreshToken, profile, done) => {
       try {
         let user = await storage.getUserByGoogleId(profile.id);
-        
+
         if (!user) {
           // Check if user exists with same email
           const existingUser = await storage.getUserByEmail(profile.emails?.[0]?.value || "");
-          
+
           if (existingUser) {
             // Link Google account to existing user
             user = await storage.updateUser(existingUser.id, {
@@ -133,7 +133,7 @@ export function configurePassportStrategies() {
             });
           }
         }
-        
+
         return done(null, user);
       } catch (error) {
         return done(error as Error);
@@ -151,10 +151,10 @@ export function configurePassportStrategies() {
     }, async (accessToken, refreshToken, profile, done) => {
       try {
         let user = await storage.getUserByFacebookId(profile.id);
-        
+
         if (!user) {
           const existingUser = await storage.getUserByEmail(profile.emails?.[0]?.value || "");
-          
+
           if (existingUser) {
             user = await storage.updateUser(existingUser.id, {
               facebookId: profile.id,
@@ -173,7 +173,7 @@ export function configurePassportStrategies() {
             });
           }
         }
-        
+
         return done(null, user);
       } catch (error) {
         return done(error as Error);
@@ -191,10 +191,10 @@ export function configurePassportStrategies() {
     }, async (token, tokenSecret, profile, done) => {
       try {
         let user = await storage.getUserByTwitterId(profile.id);
-        
+
         if (!user) {
           const existingUser = await storage.getUserByEmail(profile.emails?.[0]?.value || "");
-          
+
           if (existingUser) {
             user = await storage.updateUser(existingUser.id, {
               twitterId: profile.id,
@@ -212,7 +212,7 @@ export function configurePassportStrategies() {
             });
           }
         }
-        
+
         return done(null, user);
       } catch (error) {
         return done(error as Error);
@@ -237,7 +237,7 @@ export function configurePassportStrategies() {
 // Email sending functions
 export async function sendVerificationEmail(email: string, token: string) {
   const verificationUrl = `${process.env.APP_URL}/verify-email?token=${token}`;
-  
+
   await emailTransporter.sendMail({
     from: process.env.EMAIL_USER,
     to: email,
@@ -253,7 +253,7 @@ export async function sendVerificationEmail(email: string, token: string) {
 
 export async function sendPasswordResetEmail(email: string, token: string) {
   const resetUrl = `${process.env.APP_URL}/reset-password?token=${token}`;
-  
+
   await emailTransporter.sendMail({
     from: process.env.EMAIL_USER,
     to: email,
@@ -275,13 +275,13 @@ export function determineUserRole(email: string): "admin" | "agent" | "member" {
     'richard@mypremierplans.com',
     'joaquin@mypremierplans.com'
   ];
-  
+
   const agentEmails = [
     'mdkeener@gmail.com',
     'tmatheny77@gmail.com',
     'svillarreal@cyariskmanagement.com'
   ];
-  
+
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
   return "member"; // Default role for enrolled healthcare members

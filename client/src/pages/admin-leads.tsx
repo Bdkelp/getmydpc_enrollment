@@ -29,6 +29,7 @@ interface Lead {
   assignedAgentId: string | null;
   createdAt: string;
   updatedAt: string;
+  isQualified?: boolean; // Added isQualified as it's used in the change
 }
 
 interface Agent {
@@ -273,10 +274,10 @@ export default function AdminLeads() {
       console.warn('[AdminLeads] Leads is not an array:', leads);
       return [];
     }
-    
+
     return leads.filter(lead => {
       if (!lead) return false;
-      
+
       const matchesSearch = searchTerm === "" || 
         (lead.firstName && lead.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (lead.lastName && lead.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
