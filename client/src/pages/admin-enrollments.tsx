@@ -444,12 +444,13 @@ export default function AdminEnrollments() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
                   Search
                 </label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
+                    id="search"
                     type="text"
                     placeholder="Name or email..."
                     value={searchTerm}
@@ -460,10 +461,11 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
                   Agent
                 </label>
                 <Select
+                  id="agent-filter"
                   value={selectedAgentId}
                   onValueChange={setSelectedAgentId}
                 >
@@ -483,10 +485,10 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-1">
                   Status
                 </label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <Select id="status-filter" value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Status" />
                   </SelectTrigger>
@@ -500,10 +502,11 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-1">
                   Start Date
                 </label>
                 <Input
+                  id="start-date"
                   type="date"
                   value={dateFilter.startDate}
                   onChange={(e) =>
@@ -513,10 +516,11 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 mb-1">
                   End Date
                 </label>
                 <Input
+                  id="end-date"
                   type="date"
                   value={dateFilter.endDate}
                   onChange={(e) =>
