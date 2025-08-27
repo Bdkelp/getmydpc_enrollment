@@ -18,12 +18,29 @@ router.get("/api/health", (req, res) => {
 
 router.get("/api/plans", async (req, res) => {
   try {
+    console.log('[API /plans] Fetching plans...');
     const allPlans = await storage.getPlans();
+    console.log('[API /plans] Retrieved plans:', {
+      total: allPlans.length,
+      active: allPlans.filter(plan => plan.isActive).length,
+      inactive: allPlans.filter(plan => !plan.isActive).length
+    });
+    
+    if (allPlans.length > 0) {
+      console.log('[API /plans] Sample plan:', {
+        id: allPlans[0].id,
+        name: allPlans[0].name,
+        isActive: allPlans[0].isActive,
+        price: allPlans[0].price
+      });
+    }
+    
     const activePlans = allPlans.filter(plan => plan.isActive);
+    console.log('[API /plans] Returning active plans:', activePlans.length);
     res.json(activePlans);
   } catch (error) {
-    console.error("Error fetching plans:", error);
-    res.status(500).json({ message: "Failed to fetch plans" });
+    console.error("[API /plans] Error fetching plans:", error);
+    res.status(500).json({ message: "Failed to fetch plans", error: error.message });
   }
 });
 
