@@ -1180,34 +1180,53 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
   return { totalEarned, totalPending, totalPaid };
 }
 
+// Helper function to map database snake_case to camelCase for plans
+function mapPlanFromDB(data: any): Plan | null {
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    name: data.name,
+    description: data.description,
+    price: data.price,
+    billingPeriod: data.billing_period || data.billingPeriod || 'monthly',
+    features: data.features,
+    maxMembers: data.max_members || data.maxMembers || 1,
+    isActive: data.is_active !== undefined ? data.is_active : true,
+    stripePriceId: data.stripe_price_id || data.stripePriceId,
+    createdAt: data.created_at || data.createdAt,
+    updatedAt: data.updated_at || data.updatedAt
+  } as Plan;
+}
+
 // Plan operations (add missing ones from original Drizzle implementation)
 export async function getPlans(): Promise<Plan[]> {
   const { data, error } = await supabase
     .from('plans')
     .select('*')
-    .order('monthlyPrice', { ascending: true });
+    .order('price', { ascending: true });
 
   if (error) {
     console.error('Error fetching plans:', error);
     throw new Error(`Failed to get plans: ${error.message}`);
   }
 
-  return data || [];
+  return (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
 }
 
 export async function getActivePlans(): Promise<Plan[]> {
   const { data, error } = await supabase
     .from('plans')
     .select('*')
-    .eq('isActive', true)
-    .order('monthlyPrice', { ascending: true });
+    .eq('is_active', true)
+    .order('price', { ascending: true });
 
   if (error) {
     console.error('Error fetching active plans:', error);
     throw new Error(`Failed to get active plans: ${error.message}`);
   }
 
-  return data || [];
+  return (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
 }
 
 export async function getPlanById(id: number): Promise<Plan | undefined> {
@@ -1223,7 +1242,7 @@ export async function getPlanById(id: number): Promise<Plan | undefined> {
     console.error('Error fetching plan by ID:', error);
     return undefined;
   }
-  return data;
+  return mapPlanFromDB(data) || undefined;
 }
 
 export async function createPlan(plan: InsertPlan): Promise<Plan> {
@@ -1237,7 +1256,7 @@ export async function createPlan(plan: InsertPlan): Promise<Plan> {
     console.error('Error creating plan:', error);
     throw new Error(`Failed to create plan: ${error.message}`);
   }
-  return data;
+  return mapPlanFromDB(data)!;
 }
 
 export async function updatePlan(id: number, data: Partial<Plan>): Promise<Plan> {
