@@ -1181,6 +1181,20 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
 }
 
 // Plan operations (add missing ones from original Drizzle implementation)
+export async function getPlans(): Promise<Plan[]> {
+  const { data, error } = await supabase
+    .from('plans')
+    .select('*')
+    .order('monthlyPrice', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching plans:', error);
+    throw new Error(`Failed to get plans: ${error.message}`);
+  }
+
+  return data || [];
+}
+
 export async function getActivePlans(): Promise<Plan[]> {
   const { data, error } = await supabase
     .from('plans')
@@ -1476,9 +1490,9 @@ export const storage = {
   getAdminCounts: async () => ({}),
   getDashboardData: async () => ({}),
 
-  getPlans: async () => [],
-  getActivePlans: async () => [],
-  getPlan: async () => undefined,
+  getPlans,
+  getActivePlans,
+  getPlan: getPlanById,
   createPlan: async (plan: any) => plan,
   updatePlan: async (id: number, data: any) => ({ id, ...data })
 } as any;
