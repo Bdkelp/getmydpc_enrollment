@@ -19,6 +19,9 @@ import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
+import PaymentSuccess from "@/pages/payment-success";
+import PaymentFailed from "@/pages/payment-failed";
+import PaymentCancel from "@/pages/payment-cancel";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
 import Quiz from "@/pages/quiz";
@@ -50,6 +53,10 @@ function Router() {
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
+      <Route path="/payment/success" component={PaymentSuccess} />
+      <Route path="/payment/failed" component={PaymentFailed} />
+      <Route path="/payment/cancel" component={PaymentCancel} />
+      <Route path="/payment/error" component={PaymentFailed} />
       <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
       <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />

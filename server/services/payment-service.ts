@@ -1,6 +1,6 @@
 /**
  * Payment Service Abstraction Layer
- * Supports multiple payment providers: Mock, PayAnywhere (North.com)
+ * Supports multiple payment providers: Mock, PayAnywhere, EPx Hosted Checkout (North.com)
  */
 
 export interface PaymentProvider {
@@ -9,6 +9,15 @@ export interface PaymentProvider {
   refundPayment(transactionId: string, amount?: number): Promise<RefundResponse>;
   getTransaction(transactionId: string): Promise<TransactionDetails>;
   validateWebhook(payload: any, signature: string): boolean;
+  // EPx specific - creates a hosted checkout session
+  createCheckoutSession?(paymentData: PaymentRequest): Promise<CheckoutSessionResponse>;
+}
+
+export interface CheckoutSessionResponse {
+  success: boolean;
+  checkoutId?: string;
+  checkoutUrl?: string;
+  error?: string;
 }
 
 export interface PaymentRequest {
@@ -104,6 +113,102 @@ export class MockPaymentProvider implements PaymentProvider {
 
   validateWebhook(payload: any, signature: string): boolean {
     return true; // Always valid for mock
+  }
+}
+
+// EPx Hosted Checkout Provider (North.com)
+export class EPxProvider implements PaymentProvider {
+  name = 'epx';
+  private checkoutId: string;
+  private environment: 'sandbox' | 'production';
+  private apiUrl: string;
+  private webhookSecret: string;
+
+  constructor(config: {
+    checkoutId: string;
+    environment: 'sandbox' | 'production';
+    webhookSecret?: string;
+  }) {
+    this.checkoutId = config.checkoutId;
+    this.environment = config.environment;
+    this.webhookSecret = config.webhookSecret || '';
+    // EPx hosted checkout URLs
+    this.apiUrl = config.environment === 'production' 
+      ? 'https://hosted.epxuap.com' 
+      : 'https://hosted.epxuap.com'; // Same URL for both environments, differentiated by checkout ID
+  }
+
+  async createCheckoutSession(paymentData: PaymentRequest): Promise<CheckoutSessionResponse> {
+    console.log('[EPx] Creating checkout session');
+    
+    try {
+      // For EPx hosted checkout, we don't directly process payment
+      // Instead, we return the checkout configuration for the frontend
+      return {
+        success: true,
+        checkoutId: this.checkoutId,
+        checkoutUrl: `${this.apiUrl}/checkout`,
+        // Additional data can be passed to customize the checkout
+      };
+    } catch (error: any) {
+      console.error('[EPx] Checkout session error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to create checkout session'
+      };
+    }
+  }
+
+  async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
+    console.log('[EPx] Direct payment processing not supported - use hosted checkout');
+    
+    // EPx uses hosted checkout, so direct payment processing is not applicable
+    return {
+      success: false,
+      transactionId: '',
+      status: 'error',
+      message: 'EPx requires hosted checkout - use createCheckoutSession instead'
+    };
+  }
+
+  async refundPayment(transactionId: string, amount?: number): Promise<RefundResponse> {
+    console.log('[EPx] Processing refund for transaction:', transactionId);
+    
+    try {
+      // TODO: Implement EPx refund API call
+      // This would use the EPx secondary API for refunds
+      throw new Error('EPx refund implementation pending');
+    } catch (error: any) {
+      return {
+        success: false,
+        refundId: '',
+        status: 'failed',
+        amount: amount || 0,
+        message: error.message
+      };
+    }
+  }
+
+  async getTransaction(transactionId: string): Promise<TransactionDetails> {
+    console.log('[EPx] Fetching transaction:', transactionId);
+    
+    // TODO: Implement EPx transaction query using secondary API
+    throw new Error('EPx transaction query not yet implemented');
+  }
+
+  validateWebhook(payload: any, signature: string): boolean {
+    // EPx webhook validation
+    // The specific validation method depends on EPx documentation
+    console.log('[EPx] Validating webhook signature');
+    
+    if (!this.webhookSecret) {
+      console.warn('[EPx] Webhook secret not configured');
+      return false;
+    }
+    
+    // TODO: Implement actual signature validation based on EPx specs
+    // This is a placeholder - actual implementation would use HMAC or similar
+    return true; // Temporarily return true for development
   }
 }
 
@@ -218,6 +323,18 @@ export class PaymentService {
     const paymentProvider = process.env.PAYMENT_PROVIDER || 'mock';
     
     switch (paymentProvider) {
+      case 'epx':
+        if (!process.env.EPX_CHECKOUT_ID) {
+          console.warn('[PaymentService] EPx checkout ID not found, falling back to mock provider');
+          this.provider = new MockPaymentProvider();
+        } else {
+          this.provider = new EPxProvider({
+            checkoutId: process.env.EPX_CHECKOUT_ID,
+            environment: process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+            webhookSecret: process.env.EPX_WEBHOOK_SECRET
+          });
+        }
+        break;
       case 'payanywhere':
         if (!process.env.PAYANYWHERE_API_KEY || !process.env.PAYANYWHERE_MERCHANT_ID) {
           console.warn('[PaymentService] PayAnywhere credentials not found, falling back to mock provider');
@@ -255,6 +372,16 @@ export class PaymentService {
 
   validateWebhook(payload: any, signature: string): boolean {
     return this.provider.validateWebhook(payload, signature);
+  }
+
+  async createCheckoutSession(paymentData: PaymentRequest): Promise<CheckoutSessionResponse> {
+    if (this.provider.createCheckoutSession) {
+      return this.provider.createCheckoutSession(paymentData);
+    }
+    return {
+      success: false,
+      error: 'Checkout sessions not supported by current payment provider'
+    };
   }
 }
 

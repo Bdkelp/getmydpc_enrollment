@@ -12,6 +12,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
+import { EPXPayment } from "@/components/EPXPayment";
 
 // Function to detect card type based on card number
 const detectCardType = (cardNumber: string) => {
@@ -50,6 +51,7 @@ export default function Payment() {
   const [cardType, setCardType] = useState('unknown');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [showEPXPayment, setShowEPXPayment] = useState(false);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -185,6 +187,41 @@ export default function Payment() {
   
   const handlePolicyClose = () => {
     setShowPolicyModal(false);
+  };
+  
+  const handleEPXPaymentSuccess = async (transactionId: string) => {
+    // Clear session storage
+    sessionStorage.removeItem("selectedPlanId");
+    sessionStorage.removeItem("coverageType");
+    sessionStorage.removeItem("totalMonthlyPrice");
+    sessionStorage.removeItem("basePlanPrice");
+    sessionStorage.removeItem("registrationData");
+
+    toast({
+      title: "Payment successful!",
+      description: "Your subscription has been activated.",
+    });
+
+    setTimeout(() => {
+      setLocation("/confirmation");
+    }, 1500);
+  };
+
+  const handleEPXPaymentError = (error: string) => {
+    console.error("EPX Payment error:", error);
+    toast({
+      title: "Payment failed",
+      description: error || "There was an error processing your payment.",
+      variant: "destructive",
+    });
+  };
+
+  const handleEPXPaymentCancel = () => {
+    setShowEPXPayment(false);
+    toast({
+      title: "Payment cancelled",
+      description: "You can complete your payment anytime.",
+    });
   };
 
   return (
@@ -335,14 +372,26 @@ export default function Payment() {
                           />
                         </div>
                         
-                        <Button
-                          type="button"
-                          className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
-                          onClick={handleMockPayment}
-                          disabled={isProcessingPayment || !selectedPlanId}
-                        >
-                          {isProcessingPayment ? <LoadingSpinner /> : `Complete Payment - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
-                        </Button>
+                        <div className="space-y-3">
+                          <Button
+                            type="button"
+                            className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
+                            onClick={() => setShowEPXPayment(true)}
+                            disabled={isProcessingPayment || !selectedPlanId}
+                          >
+                            {isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
+                          </Button>
+                          
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full py-3"
+                            onClick={handleMockPayment}
+                            disabled={isProcessingPayment || !selectedPlanId}
+                          >
+                            Use Test Payment (Demo)
+                          </Button>
+                        </div>
                         
                         <p className="text-xs text-gray-500 text-center mt-4">
                           <Shield className="inline-block mr-1 h-3 w-3" />
@@ -504,6 +553,24 @@ export default function Payment() {
         onClose={handlePolicyClose}
         onAccept={handlePolicyAccept}
       />
+      
+      {/* EPX Payment Modal */}
+      {showEPXPayment && selectedPlan && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <EPXPayment
+              amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
+              customerId={user?.id || ""}
+              customerEmail={user?.email || ""}
+              planId={selectedPlanId?.toString()}
+              description={`${selectedPlan.name} - DPC Subscription`}
+              onSuccess={handleEPXPaymentSuccess}
+              onError={handleEPXPaymentError}
+              onCancel={handleEPXPaymentCancel}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

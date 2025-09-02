@@ -8,6 +8,7 @@ import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
 import { supabase } from './lib/supabaseClient'; // Assuming supabase client is imported here
+import epxRoutes from './routes/epx-routes';
 
 const router = Router();
 
@@ -797,6 +798,9 @@ async function createCommissionWithCheck(agentId: string | null, subscriptionId:
 export async function registerRoutes(app: any) {
   // Use the router
   app.use(router);
+  
+  // Register EPX routes
+  app.use(epxRoutes);
 
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {

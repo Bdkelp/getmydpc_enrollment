@@ -1295,7 +1295,7 @@ export async function getPaymentByStripeId(stripePaymentIntentId: string): Promi
   const { data, error } = await supabase
     .from('payments')
     .select('*')
-    .eq('stripePaymentIntentId', stripePaymentIntentId)
+    .eq('stripe_payment_intent_id', stripePaymentIntentId)
     .single();
 
   if (error) {
@@ -1356,6 +1356,76 @@ export async function clearTestData(): Promise<void> {
   }
 }
 
+// Payment operations implementation
+export async function createPayment(payment: InsertPayment): Promise<Payment> {
+  const { data, error } = await supabase
+    .from('payments')
+    .insert([{ 
+      ...payment, 
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating payment:', error);
+    throw new Error(`Failed to create payment: ${error.message}`);
+  }
+
+  return data;
+}
+
+export async function getUserPayments(userId: string): Promise<Payment[]> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching user payments:', error);
+    throw new Error(`Failed to get user payments: ${error.message}`);
+  }
+
+  return data || [];
+}
+
+export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('transaction_id', transactionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    console.error('Error fetching payment by transaction ID:', error);
+    return undefined;
+  }
+
+  return data;
+}
+
+export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
+  const { data, error } = await supabase
+    .from('payments')
+    .update({ 
+      ...updates, 
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating payment:', error);
+    throw new Error(`Failed to update payment: ${error.message}`);
+  }
+
+  return data;
+}
+
 // Adding a placeholder for SupabaseStorage and its export
 // Storage object with existing functions and necessary stubs
 export const storage = {
@@ -1390,9 +1460,11 @@ export const storage = {
   updateSubscription: async (id: number, data: any) => ({ id, ...data }),
   getActiveSubscriptions: async () => [],
 
-  createPayment: async (payment: any) => payment,
-  getUserPayments: async () => [],
-  getPaymentByStripeId: async () => undefined,
+  createPayment,
+  getUserPayments,
+  getPaymentByStripeId,
+  getPaymentByTransactionId,
+  updatePayment,
 
   getFamilyMembers: async () => [],
   addFamilyMember: async (member: any) => member,
