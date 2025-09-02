@@ -24,6 +24,11 @@ export interface TACRequest {
   customerEmail?: string;
   invoiceNumber?: string;
   orderDescription?: string;
+  paymentMethod?: 'card' | 'ach';
+  achRoutingNumber?: string;
+  achAccountNumber?: string;
+  achAccountType?: 'checking' | 'savings';
+  achAccountName?: string;
 }
 
 export interface TACResponse {
@@ -45,6 +50,11 @@ export interface EPXPaymentForm {
   responseEcho: string;
   receipt: string;
   cancelUrl?: string;
+  paymentType?: string;
+  achRoutingNumber?: string;
+  achAccountNumber?: string;
+  achAccountType?: string;
+  achAccountName?: string;
 }
 
 export interface EPXWebhookPayload {
@@ -97,7 +107,7 @@ export class EPXPaymentService {
         throw new Error('MAC value not configured for Browser Post API');
       }
 
-      const payload = {
+      const payload: any = {
         MAC: this.config.mac,
         AMOUNT: request.amount.toFixed(2),
         TRAN_NBR: request.tranNbr,
@@ -113,6 +123,18 @@ export class EPXPaymentService {
         ...(request.invoiceNumber && { INVOICE_NBR: request.invoiceNumber }),
         ...(request.orderDescription && { DESCRIPTION: request.orderDescription })
       };
+      
+      // Add ACH-specific fields if payment method is ACH
+      if (request.paymentMethod === 'ach') {
+        payload.PAYMENT_TYPE = 'ACH';
+        payload.ACH_ROUTING_NBR = request.achRoutingNumber;
+        payload.ACH_ACCOUNT_NBR = request.achAccountNumber;
+        payload.ACH_ACCOUNT_TYPE = request.achAccountType?.toUpperCase() || 'CHECKING';
+        payload.ACH_ACCOUNT_NAME = request.achAccountName;
+        payload.TRAN_CODE = 'ACE1';  // ACH Ecommerce Sale
+      } else {
+        payload.TRAN_CODE = 'CCE1';  // Card Ecommerce Sale
+      }
 
       const response = await fetch(this.keyExchangeUrl, {
         method: 'POST',
@@ -149,11 +171,11 @@ export class EPXPaymentService {
   /**
    * Get payment form data for Browser Post API
    */
-  getPaymentFormData(tac: string, amount: number, tranNbr: string): EPXPaymentForm {
+  getPaymentFormData(tac: string, amount: number, tranNbr: string, paymentMethod: 'card' | 'ach' = 'card'): EPXPaymentForm {
     return {
       actionUrl: this.apiUrl,
       tac: tac,
-      tranCode: 'CCE1',  // Ecommerce Sale (Auth + Capture)
+      tranCode: paymentMethod === 'ach' ? 'ACE1' : 'CCE1',  // ACH or Card Ecommerce Sale
       tranGroup: 'SALE',
       amount: amount,
       tranNbr: tranNbr,

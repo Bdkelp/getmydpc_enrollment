@@ -55,7 +55,19 @@ router.get('/api/epx/checkout-config', async (req: Request, res: Response) => {
 router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
   try {
     const epxService = getEPXService();
-    const { amount, customerId, customerEmail, planId, subscriptionId, description } = req.body;
+    const { 
+      amount, 
+      customerId, 
+      customerEmail, 
+      planId, 
+      subscriptionId, 
+      description,
+      paymentMethod,
+      achRoutingNumber,
+      achAccountNumber,
+      achAccountType,
+      achAccountName
+    } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({
@@ -72,7 +84,12 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       amount,
       tranNbr,
       customerEmail,
-      orderDescription: description || 'DPC Subscription Payment'
+      orderDescription: description || 'DPC Subscription Payment',
+      paymentMethod: paymentMethod || 'card',
+      achRoutingNumber,
+      achAccountNumber,
+      achAccountType,
+      achAccountName
     });
 
     if (!tacResponse.success || !tacResponse.tac) {
@@ -89,16 +106,21 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       amount: amount.toString(),
       currency: 'USD',
       status: 'pending',
-      paymentMethod: 'card',
+      paymentMethod: paymentMethod || 'card',
       transactionId: tranNbr,
       metadata: {
         planId,
-        tac: tacResponse.tac
+        tac: tacResponse.tac,
+        paymentType: paymentMethod || 'card',
+        ...(paymentMethod === 'ach' && {
+          achLastFour: achAccountNumber?.slice(-4),
+          achAccountType
+        })
       }
     });
 
     // Get payment form data
-    const formData = epxService.getPaymentFormData(tacResponse.tac, amount, tranNbr);
+    const formData = epxService.getPaymentFormData(tacResponse.tac, amount, tranNbr, paymentMethod || 'card');
 
     res.json({
       success: true,

@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CreditCard, AlertCircle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, CreditCard, AlertCircle, Building2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface EPXPaymentProps {
@@ -30,9 +33,32 @@ export function EPXPayment({
 }: EPXPaymentProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'ach'>('card');
+  const [achData, setAchData] = useState({
+    routingNumber: '',
+    accountNumber: '',
+    accountType: 'checking' as 'checking' | 'savings',
+    accountName: ''
+  });
   const { toast } = useToast();
 
   const handleBrowserPostPayment = async () => {
+    // Validate ACH data if using ACH
+    if (paymentMethod === 'ach') {
+      if (!achData.routingNumber || achData.routingNumber.length !== 9) {
+        setError('Please enter a valid 9-digit routing number');
+        return;
+      }
+      if (!achData.accountNumber || achData.accountNumber.length < 4) {
+        setError('Please enter a valid account number');
+        return;
+      }
+      if (!achData.accountName) {
+        setError('Please enter the account holder name');
+        return;
+      }
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -50,7 +76,14 @@ export function EPXPayment({
           customerEmail,
           planId,
           subscriptionId,
-          description: description || 'DPC Subscription Payment'
+          description: description || 'DPC Subscription Payment',
+          paymentMethod,
+          ...(paymentMethod === 'ach' && {
+            achRoutingNumber: achData.routingNumber,
+            achAccountNumber: achData.accountNumber,
+            achAccountType: achData.accountType,
+            achAccountName: achData.accountName
+          })
         })
       });
 
@@ -67,7 +100,7 @@ export function EPXPayment({
       form.target = '_self'; // Navigate in same window
 
       // Add all form fields
-      const fields = {
+      const fields: any = {
         'TAC': data.formData.tac,
         'TRAN_CODE': data.formData.tranCode,
         'TRAN_GROUP': data.formData.tranGroup,
@@ -79,6 +112,15 @@ export function EPXPayment({
         'RESPONSE_ECHO': data.formData.responseEcho,
         'RECEIPT': data.formData.receipt
       };
+      
+      // Add ACH fields if using ACH
+      if (paymentMethod === 'ach') {
+        fields['PAYMENT_TYPE'] = 'ACH';
+        fields['ACH_ROUTING_NBR'] = achData.routingNumber;
+        fields['ACH_ACCOUNT_NBR'] = achData.accountNumber;
+        fields['ACH_ACCOUNT_TYPE'] = achData.accountType.toUpperCase();
+        fields['ACH_ACCOUNT_NAME'] = achData.accountName;
+      }
 
       if (data.formData.cancelUrl) {
         fields['CANCEL_URL'] = data.formData.cancelUrl;
@@ -214,6 +256,112 @@ export function EPXPayment({
           </Alert>
         )}
 
+        {/* Payment Method Tabs */}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setPaymentMethod('card')}
+            className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+              paymentMethod === 'card' 
+                ? 'bg-blue-50 border-blue-500 text-blue-700' 
+                : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <CreditCard className="h-4 w-4 inline mr-2" />
+            Card
+          </button>
+          <button
+            onClick={() => setPaymentMethod('ach')}
+            className={`flex-1 py-2 px-4 rounded-lg border transition-colors ${
+              paymentMethod === 'ach' 
+                ? 'bg-blue-50 border-blue-500 text-blue-700' 
+                : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <Building2 className="h-4 w-4 inline mr-2" />
+            Bank Account
+          </button>
+        </div>
+
+        {/* ACH Form Fields */}
+        {paymentMethod === 'ach' && (
+          <div className="space-y-3 mb-4 p-4 bg-gray-50 rounded-lg">
+            <div>
+              <Label htmlFor="account-name">
+                Account Holder Name
+              </Label>
+              <Input
+                id="account-name"
+                type="text"
+                value={achData.accountName}
+                onChange={(e) => setAchData({ ...achData, accountName: e.target.value })}
+                placeholder="John Doe"
+                className="mt-1"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="routing-number">
+                Routing Number
+              </Label>
+              <Input
+                id="routing-number"
+                type="text"
+                value={achData.routingNumber}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 9);
+                  setAchData({ ...achData, routingNumber: value });
+                }}
+                placeholder="123456789"
+                maxLength={9}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-500 mt-1">9-digit routing number</p>
+            </div>
+            
+            <div>
+              <Label htmlFor="account-number">
+                Account Number
+              </Label>
+              <Input
+                id="account-number"
+                type="text"
+                value={achData.accountNumber}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 17);
+                  setAchData({ ...achData, accountNumber: value });
+                }}
+                placeholder="Account number"
+                className="mt-1"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="account-type">
+                Account Type
+              </Label>
+              <Select 
+                value={achData.accountType} 
+                onValueChange={(value: 'checking' | 'savings') => setAchData({ ...achData, accountType: value })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select account type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="checking">Checking</SelectItem>
+                  <SelectItem value="savings">Savings</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <Alert className="mt-3">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                By providing your bank account information, you authorize us to debit your account for the subscription amount.
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
         <div className="space-y-3">
           <Button 
             onClick={handleBrowserPostPayment}
@@ -228,8 +376,11 @@ export function EPXPayment({
               </>
             ) : (
               <>
-                <CreditCard className="mr-2 h-4 w-4" />
-                Pay with Card
+                {paymentMethod === 'card' ? (
+                  <><CreditCard className="mr-2 h-4 w-4" />Pay with Card</>
+                ) : (
+                  <><Building2 className="mr-2 h-4 w-4" />Process ACH Payment</>
+                )}
               </>
             )}
           </Button>
@@ -265,6 +416,11 @@ export function EPXPayment({
 
         <div className="text-xs text-center text-muted-foreground">
           <p>Your payment information is secure and encrypted.</p>
+          {paymentMethod === 'ach' && (
+            <p className="mt-1 text-amber-600">
+              ACH payments may take 3-5 business days to process.
+            </p>
+          )}
           <p className="mt-1">Powered by North.com EPx</p>
         </div>
       </CardContent>
