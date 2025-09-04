@@ -22,6 +22,15 @@ export default function Confirmation() {
 
   // Get stored enrollment data
   useEffect(() => {
+    // Check for EPX redirect parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const epxTransaction = urlParams.get('transaction');
+    const epxAmount = urlParams.get('amount');
+    
+    if (epxTransaction) {
+      console.log('EPX payment redirect detected:', { transaction: epxTransaction, amount: epxAmount });
+    }
+
     const planId = sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
     const rxValet = sessionStorage.getItem("rxValet") === "yes"; // Changed from addRxValet and check for "yes"

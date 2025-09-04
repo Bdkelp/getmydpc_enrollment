@@ -18,7 +18,7 @@ try {
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,
     environment: process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${process.env.APP_URL || 'http://localhost:5000'}/payment/success`,
+    redirectUrl: process.env.EPX_REDIRECT_URL || `${process.env.APP_URL || 'http://localhost:5000'}/confirmation`,
     responseUrl: process.env.EPX_RESPONSE_URL || `${process.env.APP_URL || 'http://localhost:5000'}/api/epx/webhook`,
     cancelUrl: process.env.EPX_CANCEL_URL || `${process.env.APP_URL || 'http://localhost:5000'}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
@@ -209,7 +209,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     
     // Redirect to appropriate frontend page
     if (isApproved) {
-      res.redirect(`/payment/success?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}`);
+      res.redirect(`/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}`);
     } else {
       res.redirect(`/payment/failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`);
     }
