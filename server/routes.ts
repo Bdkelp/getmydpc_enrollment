@@ -533,10 +533,25 @@ router.put("/api/admin/users/:userId/suspend", authenticateToken, async (req: Au
 
   try {
     const { userId } = req.params;
+    const { reason } = req.body;
+    
+    // Also deactivate any active subscriptions
+    const userSubscriptions = await storage.getUserSubscriptions(userId);
+    for (const subscription of userSubscriptions) {
+      if (subscription.status === 'active') {
+        await storage.updateSubscription(subscription.id, {
+          status: 'suspended',
+          pendingReason: 'admin_suspended',
+          pendingDetails: reason || 'Account suspended by administrator',
+          updatedAt: new Date()
+        });
+      }
+    }
     
     const updatedUser = await storage.updateUser(userId, {
       isActive: false,
-      approvalStatus: 'rejected', // Using 'rejected' as a proxy for suspended
+      approvalStatus: 'suspended',
+      rejectionReason: reason || 'Account suspended by administrator',
       updatedAt: new Date()
     });
 
@@ -544,6 +559,48 @@ router.put("/api/admin/users/:userId/suspend", authenticateToken, async (req: Au
   } catch (error) {
     console.error("Error suspending user:", error);
     res.status(500).json({ message: "Failed to suspend user" });
+  }
+});
+
+// Reactivate user endpoint
+router.put("/api/admin/users/:userId/reactivate", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  try {
+    const { userId } = req.params;
+    const { reactivateSubscriptions } = req.body;
+    
+    // Reactivate the user account
+    const updatedUser = await storage.updateUser(userId, {
+      isActive: true,
+      approvalStatus: 'approved',
+      approvedAt: new Date(),
+      approvedBy: req.user!.id,
+      rejectionReason: null,
+      updatedAt: new Date()
+    });
+
+    // Optionally reactivate suspended subscriptions
+    if (reactivateSubscriptions) {
+      const userSubscriptions = await storage.getUserSubscriptions(userId);
+      for (const subscription of userSubscriptions) {
+        if (subscription.status === 'suspended' || subscription.status === 'cancelled') {
+          await storage.updateSubscription(subscription.id, {
+            status: 'active',
+            pendingReason: null,
+            pendingDetails: null,
+            updatedAt: new Date()
+          });
+        }
+      }
+    }
+
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error reactivating user:", error);
+    res.status(500).json({ message: "Failed to reactivate user" });
   }
 });
 

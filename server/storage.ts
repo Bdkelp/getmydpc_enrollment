@@ -1501,10 +1501,51 @@ export const storage = {
 
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
-  getUserSubscription: async () => undefined,
-  getUserSubscriptions: async () => [],
+  getUserSubscription: async (userId: string) => {
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('userId', userId)
+      .eq('status', 'active')
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching user subscription:', error);
+      return undefined;
+    }
+    
+    return data;
+  },
+  getUserSubscriptions: async (userId: string) => {
+    const { data, error } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('userId', userId)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching user subscriptions:', error);
+      return [];
+    }
+    
+    return data || [];
+  },
   createSubscription: async (sub: any) => sub,
-  updateSubscription: async (id: number, data: any) => ({ id, ...data }),
+  updateSubscription: async (id: number, data: any) => {
+    const { data: updatedSub, error } = await supabase
+      .from('subscriptions')
+      .update({ ...data, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating subscription:', error);
+      throw new Error(`Failed to update subscription: ${error.message}`);
+    }
+    
+    return updatedSub;
+  },
   getActiveSubscriptions: async () => [],
 
   createPayment,

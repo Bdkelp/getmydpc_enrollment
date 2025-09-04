@@ -48,7 +48,7 @@ export const users = pgTable("users", {
   role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
   agentNumber: varchar("agent_number").unique(), // Unique agent identifier for production tracking
   isActive: boolean("is_active").default(true),
-  approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected
+  approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
   approvedBy: varchar("approved_by"), // Admin who approved the user
   rejectionReason: text("rejection_reason"), // If rejected, the reason

@@ -144,13 +144,14 @@ export default function AdminUsers() {
 
   // Suspend user mutation
   const suspendUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
+    mutationFn: async ({ userId, reason }: { userId: string; reason?: string }) => {
       const response = await fetch(`/api/admin/users/${userId}/suspend`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
+        body: JSON.stringify({ reason }),
       });
 
       if (!response.ok) {
@@ -170,6 +171,40 @@ export default function AdminUsers() {
       toast({
         title: "Error",
         description: "Failed to suspend user.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Reactivate user mutation
+  const reactivateUserMutation = useMutation({
+    mutationFn: async ({ userId, reactivateSubscriptions }: { userId: string; reactivateSubscriptions: boolean }) => {
+      const response = await fetch(`/api/admin/users/${userId}/reactivate`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ reactivateSubscriptions }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reactivate user');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "User reactivated successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to reactivate user.",
         variant: "destructive",
       });
     },
@@ -517,10 +552,13 @@ export default function AdminUsers() {
                           <TableCell>
                             <div className="space-y-1">
                               <Badge
-                                variant={user.approvalStatus === 'approved' ? 'default' : 
-                                        user.approvalStatus === 'pending' ? 'secondary' : 'destructive'}
+                                variant={user.approvalStatus === 'approved' && user.isActive ? 'default' : 
+                                        user.approvalStatus === 'pending' ? 'secondary' : 
+                                        user.approvalStatus === 'suspended' || !user.isActive ? 'destructive' : 'outline'}
                               >
-                                {user.approvalStatus}
+                                {user.approvalStatus === 'suspended' || (!user.isActive && user.approvalStatus !== 'pending') ? 'Suspended' : 
+                                 user.approvalStatus === 'approved' && user.isActive ? 'Active' : 
+                                 user.approvalStatus}
                               </Badge>
                               {user.emailVerified && (
                                 <Badge variant="outline" className="text-xs">
@@ -563,17 +601,42 @@ export default function AdminUsers() {
                                   View Details
                                 </Button>
                               )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  suspendUserMutation.mutate(user.id);
-                                }}
-                                disabled={suspendUserMutation.isPending}
-                              >
-                                <Ban className="h-3 w-3 mr-1" />
-                                {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
-                              </Button>
+                              {(user.approvalStatus === 'suspended' || !user.isActive) && user.approvalStatus !== 'pending' ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-green-600 hover:text-green-700"
+                                  onClick={() => {
+                                    const reactivateSubscriptions = confirm(
+                                      "Do you want to reactivate their subscriptions as well?"
+                                    );
+                                    reactivateUserMutation.mutate({ 
+                                      userId: user.id, 
+                                      reactivateSubscriptions 
+                                    });
+                                  }}
+                                  disabled={reactivateUserMutation.isPending}
+                                >
+                                  <UserCheck className="h-3 w-3 mr-1" />
+                                  {reactivateUserMutation.isPending ? 'Reactivating...' : 'Reactivate'}
+                                </Button>
+                              ) : user.isActive && user.approvalStatus === 'approved' ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-red-600 hover:text-red-700"
+                                  onClick={() => {
+                                    const reason = prompt("Reason for suspension (optional):");
+                                    if (reason !== null) { // User didn't cancel
+                                      suspendUserMutation.mutate({ userId: user.id, reason });
+                                    }
+                                  }}
+                                  disabled={suspendUserMutation.isPending}
+                                >
+                                  <Ban className="h-3 w-3 mr-1" />
+                                  {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
+                                </Button>
+                              ) : null}
                             </div>
                           </TableCell>
                         </TableRow>
