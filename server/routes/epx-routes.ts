@@ -8,6 +8,7 @@ import { getEPXService, initializeEPXService } from '../services/epx-payment-ser
 import { storage } from '../storage';
 import { nanoid } from 'nanoid';
 import { sendEnrollmentNotification } from '../utils/notifications';
+import { transactionLogger } from '../services/transaction-logger';
 
 const router = Router();
 
@@ -117,8 +118,8 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    // Store transaction details for webhook processing
-    await storage.createPayment({
+    // Store transaction details for webhook processing with comprehensive logging
+    const paymentRecord = await storage.createPayment({
       userId: customerId,
       subscriptionId: subscriptionId || null,
       amount: amount.toString(),
@@ -130,10 +131,31 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
         planId,
         tac: tacResponse.tac,
         paymentType: paymentMethod || 'card',
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        timestamp: new Date().toISOString(),
         ...(paymentMethod === 'ach' && {
           achLastFour: achAccountNumber?.slice(-4),
           achAccountType
         })
+      }
+    });
+
+    // Log transaction creation for audit trail
+    transactionLogger.logPaymentCreated({
+      transactionId: tranNbr,
+      paymentId: paymentRecord?.id || 'unknown',
+      amount,
+      customerId,
+      paymentMethod: paymentMethod || 'card',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      metadata: {
+        planId,
+        subscriptionId,
+        description
       }
     });
 
@@ -180,6 +202,7 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
       const payment = await storage.getPaymentByTransactionId(result.transactionId);
 
       if (payment) {
+        // Update payment with comprehensive logging
         await storage.updatePayment(payment.id, {
           status: result.isApproved ? 'completed' : 'failed',
           authorizationCode: result.authCode,
@@ -187,8 +210,27 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
             ...payment.metadata,
             bricToken: result.bricToken,  // Store for refunds
             authAmount: result.amount,
-            error: result.error
+            error: result.error,
+            webhookProcessedAt: new Date().toISOString(),
+            epxResponse: req.body // Store full EPX response for audit
           }
+        });
+
+        // Comprehensive transaction logging
+        console.log(`[EPX Transaction Log] Payment ${result.isApproved ? 'APPROVED' : 'DECLINED'}:`, {
+          transactionId: result.transactionId,
+          paymentId: payment.id,
+          status: result.isApproved ? 'completed' : 'failed',
+          amount: result.amount,
+          authCode: result.authCode,
+          bricToken: result.bricToken,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          subscriptionId: payment.subscriptionId,
+          customerId: payment.userId,
+          paymentMethod: payment.paymentMethod,
+          processingTime: new Date().getTime() - new Date(payment.metadata?.timestamp || new Date()).getTime(),
+          error: result.error,
+          timestamp: new Date().toISOString()
         });
 
         // If approved, update subscription status
@@ -197,9 +239,13 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
             status: 'active',
             lastPaymentDate: new Date()
           });
+          
+          console.log(`[EPX Transaction Log] Subscription activated:`, {
+            subscriptionId: payment.subscriptionId,
+            transactionId: result.transactionId,
+            environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+          });
         }
-
-        console.log(`[EPX Webhook] Payment ${result.transactionId} ${result.isApproved ? 'approved' : 'declined'}`);
         
         // Send comprehensive enrollment notification (member, agent, admins)
         await sendEnrollmentNotification({
@@ -214,7 +260,12 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
           }
         });
       } else {
-        console.warn('[EPX Webhook] Payment not found for transaction:', result.transactionId);
+        console.error('[EPX Transaction Log] PAYMENT NOT FOUND:', {
+          transactionId: result.transactionId,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          webhookData: req.body,
+          timestamp: new Date().toISOString()
+        });
       }
     }
 
@@ -287,8 +338,29 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
           ...payment.metadata,
           refundId: result.refundId,
           refundAmount,
-          refundDate: new Date()
+          refundDate: new Date().toISOString()
         }
+      });
+
+      // Log refund transaction
+      console.log(`[EPX Transaction Log] REFUND PROCESSED:`, {
+        originalTransactionId: transactionId,
+        refundId: result.refundId,
+        refundAmount,
+        originalAmount: payment.amount,
+        bricToken: payment.metadata?.bricToken,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        customerId: payment.userId,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.error(`[EPX Transaction Log] REFUND FAILED:`, {
+        originalTransactionId: transactionId,
+        refundAmount,
+        error: result.error,
+        bricToken: payment.metadata?.bricToken,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        timestamp: new Date().toISOString()
       });
     }
 
@@ -336,8 +408,26 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
         status: 'voided',
         metadata: {
           ...payment.metadata,
-          voidDate: new Date()
+          voidDate: new Date().toISOString()
         }
+      });
+
+      // Log void transaction
+      console.log(`[EPX Transaction Log] VOID PROCESSED:`, {
+        transactionId: transactionId,
+        originalAmount: payment.amount,
+        bricToken: payment.metadata?.bricToken,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        customerId: payment.userId,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.error(`[EPX Transaction Log] VOID FAILED:`, {
+        transactionId: transactionId,
+        error: result.error,
+        bricToken: payment.metadata?.bricToken,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        timestamp: new Date().toISOString()
       });
     }
 
