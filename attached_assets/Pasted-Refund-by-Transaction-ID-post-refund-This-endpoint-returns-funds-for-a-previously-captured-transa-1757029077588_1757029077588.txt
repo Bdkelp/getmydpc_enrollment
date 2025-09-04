@@ -1,0 +1,211 @@
+Refund by Transaction ID
+post /refund
+This endpoint returns funds for a previously captured transaction. A single refund for the full amount of the original transaction, or numerous partial refunds can be performed with dollar amounts less than or equal to the total amount of the original capture being acted upon.
+
+Parameters
+EPI-Id 
+required
+string
+Example: 
+111-222-333-444
+Merchant's unique 4-part key, which is generated after boarding with processor
+
+EPI-Signature 
+required
+string
+Example: 
+0123456789ABCDEF
+HMAC of URL and payload
+
+content-type 
+required
+string
+application/json
+
+EPI-Trace 
+string
+Unique value defined by the merchant to identify transactions. The value is not persisted with the transaction and is only good during the current request/response chain
+
+Request Schema
+amount 
+number
+Example: 
+11.12
+Positive U.S. dollar amount of funds to be moved during the transaction. Decimal point required.
+Should include any reference field amount such as tip_amt or tax_amt.
+Should not include any cashback, convenience fee, or surcharge amounts. These will be added to the amount authorized and included in the auth_amount_requested tag
+
+account 
+required
+string
+Maximum: 
+30
+Example: 
+0111111111111111
+The account number to be acted on during the transaction
+
+transaction 
+integer
+Example: 
+123
+Unique user-defined code used to identify a transaction
+
+Example Request
+{
+  "account": "0111111111111111",
+  "amount": 127.99,
+  "transaction": 123
+}
+Example Response
+200 Successful request
+400 Invalid request
+401 Unauthorized: EPI-Id is required
+403 Forbidden: EPI-Id provided doesn’t have the right to perform the request
+404 Requested resource was not found
+405 HTTP method is not allowed
+500 Internal Server Error
+Refund by BRIC
+post /refund/{bric}
+This endpoint uses a BRIC token (EPX Transaction Identifier) associated with a previous sale to return funds to an account. A single refund for the full amount of the original transaction, or numerous partial refunds can be performed with dollar amounts less than or equal to the total amount of the original sale.
+
+Parameters
+EPI-Id 
+required
+string
+Example: 
+111-222-333-444
+Merchant's unique 4-part key, which is generated after boarding with processor
+
+EPI-Signature 
+required
+string
+Example: 
+0123456789ABCDEF
+HMAC of URL and payload
+
+content-type 
+required
+string
+application/json
+
+EPI-Trace 
+string
+Unique value defined by the merchant to identify transactions. The value is not persisted with the transaction and is only good during the current request/response chain
+
+Request Schema
+amount 
+number
+Example: 
+11.12
+Positive U.S. dollar amount of funds to be moved during the transaction. Decimal point required.
+Should include any reference field amount such as tip_amt or tax_amt.
+Should not include any cashback, convenience fee, or surcharge amounts. These will be added to the amount authorized and included in the auth_amount_requested tag
+
+transaction 
+integer
+Example: 
+123
+Unique user-defined code used to identify a transaction
+
+Example Request
+{
+  "amount": 127.99,
+  "transaction": 123
+}
+Example Response
+200 Successful request
+Auth Reversal by BRIC
+post /reverse/{bric}
+This endpoint reverses the authorization of funds on a credit card. This will release the funds that are being held at the issuing bank.
+
+Parameters
+EPI-Id 
+required
+string
+Example: 
+111-222-333-444
+Merchant's unique 4-part key, which is generated after boarding with processor
+
+EPI-Signature 
+required
+string
+Example: 
+0123456789ABCDEF
+HMAC of URL and payload
+
+content-type 
+required
+string
+application/json
+
+EPI-Trace 
+string
+Unique value defined by the merchant to identify transactions. The value is not persisted with the transaction and is only good during the current request/response chain
+
+Request Schema
+batchId 
+number
+Unique number created by the user to identify a batch of transactions
+
+transaction 
+integer
+Example: 
+123
+Unique user-defined code used to identify a transaction
+
+Example Request
+{
+  "batchId": 123,
+  "transaction": 123
+}
+Example Response
+200 Successful request
+400 Invalid request
+401 Unauthorized: EPI-Id is required
+403 Forbidden: EPI-Id provided doesn’t have the right to perform the request
+404 Requested resource was not found
+405 HTTP method is not allowed
+500 Internal Server Error
+Void
+put /void/{bric}
+This endpoint will stop an authorization, sale, capture, or refund transaction prior to settlement. If the transaction has already been settled, this function will no longer be available.
+
+Parameters
+EPI-Id 
+required
+string
+Example: 
+111-222-333-444
+Merchant's unique 4-part key, which is generated after boarding with processor
+
+EPI-Signature 
+required
+string
+Example: 
+0123456789ABCDEF
+HMAC of URL and payload
+
+content-type 
+required
+string
+application/json
+
+EPI-Trace 
+string
+Unique value defined by the merchant to identify transactions. The value is not persisted with the transaction and is only good during the current request/response chain
+
+bric 
+required
+string
+Example: 
+01234567890123456789
+Token auto-generated for each financial transaction
+
+Example Response
+200 Successful request
+400 Invalid request
+401 Unauthorized: EPI-Id is required
+403 Forbidden: EPI-Id provided doesn’t have the right to perform the request
+404 Requested resource was not found
+405 HTTP method is not allowed
+500 Internal Server Error
