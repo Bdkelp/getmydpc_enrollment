@@ -5,6 +5,11 @@ ALTER TABLE family_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE commissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lead_activities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE enrollment_modifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 
 -- Create encryption extension
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -173,7 +178,44 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- RLS Policies for Plans (read-only for all authenticated users)
+CREATE POLICY plans_read_all ON plans
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- RLS Policies for Leads (agents can see assigned leads, admins see all)
+CREATE POLICY leads_agent_assigned ON leads
+  FOR ALL USING (
+    (auth.jwt() ->> 'role' = 'admin') OR 
+    (auth.jwt() ->> 'role' = 'agent' AND assigned_agent_id = auth.uid())
+  );
+
+-- RLS Policies for Lead Activities
+CREATE POLICY lead_activities_agent_access ON lead_activities
+  FOR ALL USING (
+    (auth.jwt() ->> 'role' = 'admin') OR 
+    (auth.jwt() ->> 'role' = 'agent' AND agent_id = auth.uid())
+  );
+
+-- RLS Policies for Enrollment Modifications (admins and involved agents only)
+CREATE POLICY enrollment_modifications_admin_agent ON enrollment_modifications
+  FOR ALL USING (
+    (auth.jwt() ->> 'role' = 'admin') OR 
+    (auth.jwt() ->> 'role' = 'agent' AND modified_by = auth.uid())
+  );
+
+-- RLS Policies for Audit Log (admins only)
+CREATE POLICY audit_log_admin_only ON audit_log
+  FOR ALL USING (auth.jwt() ->> 'role' = 'admin');
+
 -- Create audit triggers for sensitive tables
 CREATE TRIGGER audit_users 
   AFTER SELECT OR INSERT OR UPDATE OR DELETE ON users 
+  FOR EACH ROW EXECUTE FUNCTION log_sensitive_access();
+
+CREATE TRIGGER audit_family_members 
+  AFTER SELECT OR INSERT OR UPDATE OR DELETE ON family_members 
+  FOR EACH ROW EXECUTE FUNCTION log_sensitive_access();
+
+CREATE TRIGGER audit_payments 
+  AFTER SELECT OR INSERT OR UPDATE OR DELETE ON payments 
   FOR EACH ROW EXECUTE FUNCTION log_sensitive_access();

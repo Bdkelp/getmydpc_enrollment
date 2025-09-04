@@ -2,7 +2,7 @@ import { supabase } from './lib/supabaseClient';
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-32-character-secret-key-here!!';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
 
 export function encryptSensitiveData(data: string): string {
   const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
@@ -37,6 +37,14 @@ export function validateDOB(dateOfBirth: string): boolean {
 export function validatePhoneNumber(phone: string): boolean {
   const cleaned = phone.replace(/\D/g, '');
   return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === '1');
+}
+
+export function encryptPaymentToken(token: string): string {
+  return encryptSensitiveData(token);
+}
+
+export function decryptPaymentToken(encryptedToken: string): string {
+  return decryptSensitiveData(encryptedToken);
 }
 import type {
   User,
