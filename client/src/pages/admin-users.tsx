@@ -10,6 +10,29 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+
+// API request helper function
+async function apiRequest(url: string, options: RequestInit = {}) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+}
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { CardDescription } from "@/components/ui/card";
 import { 
   ChevronLeft, 
   Search, 
@@ -117,7 +140,7 @@ export default function AdminUsers() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
         },
-        body: JSON.JSON.stringify({ agentNumber }),
+        body: JSON.stringify({ agentNumber }),
       });
 
       if (!response.ok) {
