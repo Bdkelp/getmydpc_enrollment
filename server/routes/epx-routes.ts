@@ -13,19 +13,26 @@ const router = Router();
 
 // Initialize EPX Service on startup
 try {
+  // Get the base URL from environment
+  const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : process.env.REPLIT_DOMAINS 
+      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+      : 'http://localhost:5000';
+  
   initializeEPXService({
     checkoutId: process.env.EPX_CHECKOUT_ID,
-    mac: process.env.EPX_MAC,
+    mac: process.env.EPX_MAC || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,
-    custNbr: process.env.EPX_CUST_NBR,
-    merchNbr: process.env.EPX_MERCH_NBR,
-    dbaNbr: process.env.EPX_DBA_NBR,
-    terminalNbr: process.env.EPX_TERMINAL_NBR,
+    custNbr: process.env.EPX_CUST_NBR || '9001',
+    merchNbr: process.env.EPX_MERCH_NBR || '900300',
+    dbaNbr: process.env.EPX_DBA_NBR || '2',
+    terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${process.env.APP_URL || 'http://localhost:5000'}/confirmation`,
-    responseUrl: process.env.EPX_RESPONSE_URL || `${process.env.APP_URL || 'http://localhost:5000'}/api/epx/webhook`,
-    cancelUrl: process.env.EPX_CANCEL_URL || `${process.env.APP_URL || 'http://localhost:5000'}/payment/cancel`,
+    redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/payment/success`,
+    responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
+    cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   });
   console.log('[EPX Routes] EPX Service initialized with credentials:', {

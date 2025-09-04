@@ -91,13 +91,23 @@ export class EPXPaymentService {
     // Set URLs based on environment
     if (config.environment === 'production') {
       this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epx.com/api/key-exchange';
+      this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
-      this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epx-uat.com/api/key-exchange';
+      this.apiUrl = 'https://epxuap.com/post';  
+      this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';  // Using main EPX UAP endpoint
       this.customPayApiUrl = 'https://epi.epxuap.com';  // Same URL for sandbox
     }
+    
+    console.log('[EPX Service] Initialized with config:', {
+      custNbr: this.config.custNbr,
+      merchNbr: this.config.merchNbr,
+      dbaNbr: this.config.dbaNbr,
+      terminalNbr: this.config.terminalNbr,
+      environment: this.config.environment,
+      redirectUrl: this.config.redirectUrl,
+      hasMAC: !!this.config.mac
+    });
   }
 
   /**

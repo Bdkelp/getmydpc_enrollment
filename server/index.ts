@@ -98,7 +98,7 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
     console.log(`Server running on port ${port}`);
     console.log(`Environment: ${process.env.NODE_ENV}`);
-    console.log(`EPX Service initialized: ${!!process.env.EPX_MAC || !!process.env.EPX_CHECKOUT_ID}`);
+    console.log(`EPX Service configured: Browser Post ready`);
 
     // Initialize weekly recap service
     WeeklyRecapService.scheduleWeeklyRecap();
