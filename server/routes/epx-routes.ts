@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { getEPXService, initializeEPXService } from '../services/epx-payment-service';
 import { storage } from '../storage';
 import { nanoid } from 'nanoid';
+import { sendEnrollmentNotification } from '../utils/notifications';
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.get('/api/epx/checkout-config', async (req: Request, res: Response) => {
   try {
     const epxService = getEPXService();
     const config = epxService.getHostedCheckoutConfig();
-    
+
     res.json({
       success: true,
       config
@@ -144,11 +145,11 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Webhook] Received payment result');
     const epxService = getEPXService();
-    
+
     // Validate webhook signature if configured
     const signature = req.headers['x-epx-signature'] as string;
     const isValid = epxService.validateWebhookSignature(req.body, signature);
-    
+
     if (!isValid) {
       console.error('[EPX Webhook] Invalid signature');
       return res.status(401).json({ error: 'Invalid signature' });
@@ -156,11 +157,11 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
 
     // Process the webhook payload
     const result = epxService.processWebhook(req.body);
-    
+
     if (result.transactionId) {
       // Update payment status in database
       const payment = await storage.getPaymentByTransactionId(result.transactionId);
-      
+
       if (payment) {
         await storage.updatePayment(payment.id, {
           status: result.isApproved ? 'completed' : 'failed',
@@ -182,6 +183,19 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
         }
 
         console.log(`[EPX Webhook] Payment ${result.transactionId} ${result.isApproved ? 'approved' : 'declined'}`);
+        
+        // Send comprehensive enrollment notification (member, agent, admins)
+        await sendEnrollmentNotification({
+          memberEmail: payment.userId, // Assuming userId is the member's email for notification
+          agentEmail: 'agent@example.com', // Replace with actual agent email
+          adminEmail: 'info@mypremierplans.com', // Admin email
+          transactionDetails: {
+            transactionId: result.transactionId,
+            status: result.isApproved ? 'completed' : 'failed',
+            amount: result.amount,
+            date: new Date()
+          }
+        });
       } else {
         console.warn('[EPX Webhook] Payment not found for transaction:', result.transactionId);
       }
@@ -201,12 +215,12 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
 router.get('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] User returned from payment');
-    
+
     // Parse response parameters
     const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.query;
-    
+
     const isApproved = AUTH_RESP === 'APPROVAL';
-    
+
     // Redirect to appropriate frontend page
     if (isApproved) {
       res.redirect(`/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}`);
@@ -236,7 +250,7 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
 
     // Get original payment to retrieve BRIC token
     const payment = await storage.getPaymentByTransactionId(transactionId);
-    
+
     if (!payment || !payment.metadata?.bricToken) {
       return res.status(404).json({
         success: false,
@@ -288,7 +302,7 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
 
     // Get original payment to retrieve BRIC token
     const payment = await storage.getPaymentByTransactionId(transactionId);
-    
+
     if (!payment || !payment.metadata?.bricToken) {
       return res.status(404).json({
         success: false,

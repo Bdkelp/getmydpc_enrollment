@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import cors from 'cors';
+import { initializeEPXService } from './services/epx-payment-service';
+import { WeeklyRecapService } from './services/weekly-recap-service';
 
 const app = express();
 app.use(express.json());
@@ -94,5 +96,13 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    console.log(`Server running on port ${port}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`EPX Service initialized: ${!!process.env.EPX_MAC || !!process.env.EPX_CHECKOUT_ID}`);
+
+    // Initialize weekly recap service
+    WeeklyRecapService.scheduleWeeklyRecap();
+
+    return server;
   });
 })();
