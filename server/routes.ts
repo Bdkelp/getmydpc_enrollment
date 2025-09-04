@@ -534,7 +534,7 @@ router.put("/api/admin/users/:userId/suspend", authenticateToken, async (req: Au
   try {
     const { userId } = req.params;
     const { reason } = req.body;
-    
+
     // Also deactivate any active subscriptions
     const userSubscriptions = await storage.getUserSubscriptions(userId);
     for (const subscription of userSubscriptions) {
@@ -547,7 +547,7 @@ router.put("/api/admin/users/:userId/suspend", authenticateToken, async (req: Au
         });
       }
     }
-    
+
     const updatedUser = await storage.updateUser(userId, {
       isActive: false,
       approvalStatus: 'suspended',
@@ -571,7 +571,7 @@ router.put("/api/admin/users/:userId/reactivate", authenticateToken, async (req:
   try {
     const { userId } = req.params;
     const { reactivateSubscriptions } = req.body;
-    
+
     // Reactivate the user account
     const updatedUser = await storage.updateUser(userId, {
       isActive: true,
@@ -715,16 +715,16 @@ router.post("/api/admin/reports/export", authenticateToken, async (req: AuthRequ
     if (email) {
       // Send report via email
       const emailContent = await generateReportEmail(reportType, data, format);
-      
+
       // Here you would integrate with your email service
       // For now, we'll just simulate success
       console.log(`Sending ${reportType} report to ${email}`);
-      
+
       res.json({ message: "Report sent successfully" });
     } else {
       // Generate file for download
       const fileBuffer = await generateReportFile(reportType, data, format);
-      
+
       const contentTypes = {
         csv: 'text/csv',
         xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -759,7 +759,7 @@ async function generateReportFile(reportType: string, data: any, format: string)
 
 function generateCSV(reportType: string, data: any): Buffer {
   let csvContent = '';
-  
+
   if (reportType === 'members' && Array.isArray(data)) {
     csvContent = 'Name,Email,Phone,Plan,Status,Enrolled Date,Total Paid,Agent\n';
     data.forEach((member: any) => {
@@ -776,7 +776,7 @@ function generateCSV(reportType: string, data: any): Buffer {
       csvContent += `${commission.agentName},${commission.agentNumber},${commission.memberName},${commission.planName},${commission.commissionAmount},${commission.totalPlanCost},${commission.status},${commission.paymentStatus},${commission.createdDate}\n`;
     });
   }
-  
+
   return Buffer.from(csvContent);
 }
 

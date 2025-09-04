@@ -15,7 +15,7 @@ import { supabase } from "@/lib/supabase";
 async function apiRequest(url: string, options: RequestInit = {}) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -552,25 +552,21 @@ export default function AdminUsers() {
                             </Select>
                           </TableCell>
                           <TableCell>
-                            {user.role === 'agent' ? (
-                              <Input
-                                type="text"
-                                placeholder="Enter agent #"
-                                defaultValue={user.agentNumber || ''}
-                                className="w-[120px]"
-                                onBlur={(e) => {
-                                  const value = e.target.value.trim();
-                                  if (value !== (user.agentNumber || '')) {
-                                    updateAgentNumberMutation.mutate({
-                                      userId: user.id,
-                                      agentNumber: value
-                                    });
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
+                            <Input
+                              type="text"
+                              placeholder="Enter writing #"
+                              defaultValue={user.agentNumber || ''}
+                              className="w-[120px]"
+                              onBlur={(e) => {
+                                const value = e.target.value.trim();
+                                if (value !== (user.agentNumber || '')) {
+                                  updateAgentNumberMutation.mutate({
+                                    userId: user.id,
+                                    agentNumber: value
+                                  });
+                                }
+                              }}
+                            />
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">
