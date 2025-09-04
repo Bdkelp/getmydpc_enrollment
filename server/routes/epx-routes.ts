@@ -18,13 +18,23 @@ try {
     mac: process.env.EPX_MAC,
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,
+    custNbr: process.env.EPX_CUST_NBR,
+    merchNbr: process.env.EPX_MERCH_NBR,
+    dbaNbr: process.env.EPX_DBA_NBR,
+    terminalNbr: process.env.EPX_TERMINAL_NBR,
     environment: process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
     redirectUrl: process.env.EPX_REDIRECT_URL || `${process.env.APP_URL || 'http://localhost:5000'}/confirmation`,
     responseUrl: process.env.EPX_RESPONSE_URL || `${process.env.APP_URL || 'http://localhost:5000'}/api/epx/webhook`,
     cancelUrl: process.env.EPX_CANCEL_URL || `${process.env.APP_URL || 'http://localhost:5000'}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   });
-  console.log('[EPX Routes] EPX Service initialized');
+  console.log('[EPX Routes] EPX Service initialized with credentials:', {
+    custNbr: process.env.EPX_CUST_NBR,
+    merchNbr: process.env.EPX_MERCH_NBR,
+    dbaNbr: process.env.EPX_DBA_NBR,
+    terminalNbr: process.env.EPX_TERMINAL_NBR,
+    environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+  });
 } catch (error) {
   console.error('[EPX Routes] Failed to initialize EPX Service:', error);
 }

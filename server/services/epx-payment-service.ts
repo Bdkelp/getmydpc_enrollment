@@ -10,6 +10,10 @@ export interface EPXConfig {
   mac?: string;         // For Browser Post API (MAC from Key Exchange)
   epiId?: string;       // For Custom Pay API
   epiKey?: string;      // For Custom Pay API signature
+  custNbr?: string;     // Customer Number
+  merchNbr?: string;    // Merchant Number
+  dbaNbr?: string;      // DBA Number
+  terminalNbr?: string; // Terminal Number
   environment: 'sandbox' | 'production';
   redirectUrl: string;
   responseUrl: string;
@@ -88,11 +92,11 @@ export class EPXPaymentService {
     if (config.environment === 'production') {
       this.apiUrl = 'https://epxuap.com/post';
       this.keyExchangeUrl = 'https://epx.com/api/key-exchange';
-      this.customPayApiUrl = 'https://api.epx.com';
+      this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
       this.apiUrl = 'https://epxuap.com/post';
       this.keyExchangeUrl = 'https://epx-uat.com/api/key-exchange';
-      this.customPayApiUrl = 'https://api-uat.epx.com';
+      this.customPayApiUrl = 'https://epi.epxuap.com';  // Same URL for sandbox
     }
   }
 
@@ -109,6 +113,10 @@ export class EPXPaymentService {
 
       const payload: any = {
         MAC: this.config.mac,
+        CUST_NBR: this.config.custNbr,
+        MERCH_NBR: this.config.merchNbr,
+        DBA_NBR: this.config.dbaNbr,
+        TERMINAL_NBR: this.config.terminalNbr,
         AMOUNT: request.amount.toFixed(2),
         TRAN_NBR: request.tranNbr,
         TRAN_GROUP: request.tranGroup || 'SALE',
@@ -254,7 +262,7 @@ export class EPXPaymentService {
   /**
    * Refund transaction using BRIC token and Custom Pay API
    */
-  async refundTransaction(bricToken: string, amount: number): Promise<{
+  async refundTransaction(bricToken: string, amount: number, transactionId?: number): Promise<{
     success: boolean;
     refundId?: string;
     error?: string;
@@ -266,11 +274,10 @@ export class EPXPaymentService {
         throw new Error('EPI credentials not configured for Custom Pay API');
       }
 
-      const endpoint = '/refund/BRIC';
+      const endpoint = `/refund/${bricToken}`;
       const payload = {
-        BRIC: bricToken,
-        AMOUNT: amount.toFixed(2),
-        TRAN_TYPE: 'CCE4'  // Ecommerce Refund
+        amount: amount,
+        transaction: transactionId || Date.now()  // Use provided transaction ID or timestamp
       };
 
       // Generate EPI-Signature
@@ -288,15 +295,15 @@ export class EPXPaymentService {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.data && data.data.response === '00') {
         return {
           success: true,
-          refundId: data.refundId
+          refundId: data.data.authorization
         };
       } else {
         return {
           success: false,
-          error: data.error || 'Refund failed'
+          error: data.errors || data.data?.text || 'Refund failed'
         };
       }
     } catch (error: any) {
@@ -322,30 +329,31 @@ export class EPXPaymentService {
         throw new Error('EPI credentials not configured for Custom Pay API');
       }
 
-      const endpoint = '/void/BRIC';
-      const payload = {
-        BRIC: bricToken,
-        TRAN_TYPE: 'CCE5'  // Ecommerce Void
-      };
-
-      const signature = this.generateEPISignature(endpoint, payload);
+      const endpoint = `/void/${bricToken}`;
+      const signature = this.generateEPISignature(endpoint, {});
 
       const response = await fetch(`${this.customPayApiUrl}${endpoint}`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'EPI-Id': this.config.epiId,
-          'EPI-Signature': signature
-        },
-        body: JSON.stringify(payload)
+          'EPI-Signature': signature,
+          'bric': bricToken
+        }
       });
 
       const data = await response.json();
 
-      return {
-        success: data.success,
-        error: data.error
-      };
+      if (data.data && data.data.response === '00') {
+        return {
+          success: true
+        };
+      } else {
+        return {
+          success: false,
+          error: data.errors || data.data?.text || 'Void failed'
+        };
+      }
     } catch (error: any) {
       console.error('[EPX] Void error:', error);
       return {
