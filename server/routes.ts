@@ -26,7 +26,7 @@ router.get("/api/plans", async (req, res) => {
       active: allPlans.filter(plan => plan.isActive).length,
       inactive: allPlans.filter(plan => !plan.isActive).length
     });
-    
+
     if (allPlans.length > 0) {
       console.log('[API /plans] Sample plan:', {
         id: allPlans[0].id,
@@ -35,7 +35,7 @@ router.get("/api/plans", async (req, res) => {
         price: allPlans[0].price
       });
     }
-    
+
     const activePlans = allPlans.filter(plan => plan.isActive);
     console.log('[API /plans] Returning active plans:', activePlans.length);
     res.json(activePlans);
@@ -478,7 +478,8 @@ router.post("/api/admin/reject-user/:userId", authenticateToken, async (req: Aut
   }
 });
 
-router.patch("/api/admin/user/:userId/role", authenticateToken, async (req: AuthRequest, res) => {
+// Admin user management endpoints
+router.put("/api/admin/users/:userId/role", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
@@ -503,7 +504,7 @@ router.patch("/api/admin/user/:userId/role", authenticateToken, async (req: Auth
   }
 });
 
-router.patch("/api/admin/user/:userId/agent-number", authenticateToken, async (req: AuthRequest, res) => {
+router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }
@@ -521,6 +522,28 @@ router.patch("/api/admin/user/:userId/agent-number", authenticateToken, async (r
   } catch (error) {
     console.error("Error updating agent number:", error);
     res.status(500).json({ message: "Failed to update agent number" });
+  }
+});
+
+// Suspend user endpoint
+router.put("/api/admin/users/:userId/suspend", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  try {
+    const { userId } = req.params;
+    
+    const updatedUser = await storage.updateUser(userId, {
+      isActive: false,
+      approvalStatus: 'rejected', // Using 'rejected' as a proxy for suspended
+      updatedAt: new Date()
+    });
+
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error suspending user:", error);
+    res.status(500).json({ message: "Failed to suspend user" });
   }
 });
 
@@ -798,7 +821,7 @@ async function createCommissionWithCheck(agentId: string | null, subscriptionId:
 export async function registerRoutes(app: any) {
   // Use the router
   app.use(router);
-  
+
   // Register EPX routes
   app.use(epxRoutes);
 

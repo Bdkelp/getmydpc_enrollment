@@ -1,17 +1,29 @@
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { queryClient, apiRequest } from '@/lib/queryClient';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { useToast } from '@/hooks/use-toast';
-import { useLocation } from 'wouter';
-import { ChevronLeft, Search, Users, Shield, UserCheck, AlertCircle, User } from 'lucide-react';
-import { format } from 'date-fns';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLocation } from "wouter";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
+import { 
+  ChevronLeft, 
+  Search, 
+  Users, 
+  Shield, 
+  UserCheck, 
+  User, 
+  AlertCircle, 
+  Edit, 
+  Ban, 
+  Calendar, 
+  Mail, 
+  Phone 
+} from "lucide-react";
 
 interface UserType {
   id: string;
@@ -29,6 +41,7 @@ interface UserType {
 
 export default function AdminUsers() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -64,27 +77,32 @@ export default function AdminUsers() {
   // Update user role mutation
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      return apiRequest(`/api/admin/user/${userId}/role`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/admin/users/${userId}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
         body: JSON.stringify({ role }),
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to update user role');
+      }
+
+      return response.json();
     },
     onSuccess: () => {
       toast({
-        title: "Role Updated",
-        description: "User role has been updated successfully.",
+        title: "Success",
+        description: "User role updated successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
     },
-    onError: (error: any) => {
-      console.error('[Role Update] Full error:', error);
-      console.error('[Role Update] Error status:', error?.status);
-      console.error('[Role Update] Error response:', error?.response);
-      const errorMessage = error?.response?.data?.message || error?.message || "Failed to update user role. Please try again.";
+    onError: () => {
       toast({
         title: "Error",
-        description: errorMessage,
+        description: "Failed to update user role.",
         variant: "destructive",
       });
     },
@@ -93,26 +111,70 @@ export default function AdminUsers() {
   // Update agent number mutation
   const updateAgentNumberMutation = useMutation({
     mutationFn: async ({ userId, agentNumber }: { userId: string; agentNumber: string }) => {
-      return apiRequest(`/api/admin/user/${userId}/agent-number`, {
-        method: 'PATCH',
-        body: JSON.stringify({ agentNumber }),
+      const response = await fetch(`/api/admin/users/${userId}/agent-number`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.JSON.stringify({ agentNumber }),
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to update agent number');
+      }
+
+      return response.json();
     },
     onSuccess: () => {
       toast({
-        title: "Agent Number Updated",
-        description: "Agent number has been updated successfully.",
+        title: "Success",
+        description: "Agent number updated successfully.",
       });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
         title: "Error",
-        description: error.message || "Failed to update agent number. Please try again.",
+        description: "Failed to update agent number.",
         variant: "destructive",
       });
     },
   });
+
+  // Suspend user mutation
+  const suspendUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const response = await fetch(`/api/admin/users/${userId}/suspend`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to suspend user');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "User suspended successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to suspend user.",
+        variant: "destructive",
+      });
+    },
+  });
+
 
   // Approve user mutation
   const approveUserMutation = useMutation({
@@ -269,10 +331,9 @@ export default function AdminUsers() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Regular Users</p>
+                  <p className="text-sm font-medium text-gray-600">Members</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u && u.role === 'user').length}
-                  </p>
+                    {safeUsers.filter((u: UserType) => u && u.role === 'member').length}</p>
                 </div>
                 <User className="h-8 w-8 text-gray-600" />
               </div>
@@ -319,7 +380,7 @@ export default function AdminUsers() {
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="admin">Admins Only</SelectItem>
                   <SelectItem value="agent">Agents Only</SelectItem>
-                  <SelectItem value="user">Regular Users</SelectItem>
+                  <SelectItem value="member">Members Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -398,11 +459,7 @@ export default function AdminUsers() {
                             <Select
                               value={user.role}
                               onValueChange={(value) => {
-                                console.log('[AdminUsers] Updating role:', { userId: user.id, oldRole: user.role, newRole: value });
-                                updateRoleMutation.mutate({ 
-                                  userId: user.id, 
-                                  role: value 
-                                });
+                                updateRoleMutation.mutate({ userId: user.id, role: value });
                               }}
                               disabled={updateRoleMutation.isPending}
                             >
@@ -415,10 +472,10 @@ export default function AdminUsers() {
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="user">
+                                <SelectItem value="admin">
                                   <div className="flex items-center gap-2">
-                                    <User className="h-3 w-3" />
-                                    User
+                                    <Shield className="h-3 w-3" />
+                                    Admin
                                   </div>
                                 </SelectItem>
                                 <SelectItem value="agent">
@@ -427,10 +484,10 @@ export default function AdminUsers() {
                                     Agent
                                   </div>
                                 </SelectItem>
-                                <SelectItem value="admin">
+                                <SelectItem value="member">
                                   <div className="flex items-center gap-2">
-                                    <Shield className="h-3 w-3" />
-                                    Admin
+                                    <User className="h-3 w-3" />
+                                    Member
                                   </div>
                                 </SelectItem>
                               </SelectContent>
@@ -497,7 +554,7 @@ export default function AdminUsers() {
                                   Approve
                                 </Button>
                               )}
-                              {user.role === 'user' && (
+                              {user.role === 'member' && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -506,6 +563,17 @@ export default function AdminUsers() {
                                   View Details
                                 </Button>
                               )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  suspendUserMutation.mutate(user.id);
+                                }}
+                                disabled={suspendUserMutation.isPending}
+                              >
+                                <Ban className="h-3 w-3 mr-1" />
+                                {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
+                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
