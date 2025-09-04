@@ -16,6 +16,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -58,11 +64,68 @@ interface AnalyticsData {
     netGrowth: number;
     revenue: number;
   }>;
+  agentPerformance: Array<{
+    agentId: string;
+    agentName: string;
+    agentNumber: string;
+    totalEnrollments: number;
+    totalCommissions: number;
+    paidCommissions: number;
+    pendingCommissions: number;
+    monthlyEnrollments: number;
+    conversionRate: number;
+    averageCommission: number;
+  }>;
+  memberReports: Array<{
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    planName: string;
+    status: string;
+    enrolledDate: string;
+    lastPayment: string;
+    totalPaid: number;
+    agentName: string;
+  }>;
+  commissionReports: Array<{
+    id: string;
+    agentName: string;
+    agentNumber: string;
+    memberName: string;
+    planName: string;
+    commissionAmount: number;
+    totalPlanCost: number;
+    status: string;
+    paymentStatus: string;
+    createdDate: string;
+    paidDate: string | null;
+  }>;
+  revenueBreakdown: {
+    totalRevenue: number;
+    subscriptionRevenue: number;
+    oneTimeRevenue: number;
+    refunds: number;
+    netRevenue: number;
+    projectedAnnualRevenue: number;
+    averageRevenuePerUser: number;
+    revenueByMonth: Array<{
+      month: string;
+      revenue: number;
+      subscriptions: number;
+      oneTime: number;
+      refunds: number;
+    }>;
+  };
 }
 
 export default function AdminAnalytics() {
   const { toast } = useToast();
   const [timeRange, setTimeRange] = useState("30");
+  const [selectedReport, setSelectedReport] = useState("overview");
+  const [exportFormat, setExportFormat] = useState("csv");
+  const [emailAddress, setEmailAddress] = useState("");
 
   // Fetch analytics data
   const { data: analytics, isLoading, refetch } = useQuery<AnalyticsData>({
@@ -80,7 +143,7 @@ export default function AdminAnalytics() {
   const safeRecentEnrollments = Array.isArray(analytics?.recentEnrollments) ? analytics.recentEnrollments : [];
   const safeMonthlyTrends = Array.isArray(analytics?.monthlyTrends) ? analytics.monthlyTrends : [];
 
-  const exportAnalytics = () => {
+  const exportReport = async (reportType: string, format: string, email?: string) => {
     if (!analytics) {
       toast({
         title: "No Data",
@@ -90,61 +153,68 @@ export default function AdminAnalytics() {
       return;
     }
 
-    // Create comprehensive CSV with all data
-    const csvSections = [];
-    
-    // Overview section
-    csvSections.push('OVERVIEW METRICS');
-    csvSections.push('Metric,Value');
-    csvSections.push(`Total Members,${analytics.overview.totalMembers}`);
-    csvSections.push(`Active Subscriptions,${analytics.overview.activeSubscriptions}`);
-    csvSections.push(`Monthly Revenue,$${analytics.overview.monthlyRevenue.toFixed(2)}`);
-    csvSections.push(`Average Revenue per Member,$${analytics.overview.averageRevenue.toFixed(2)}`);
-    csvSections.push(`Churn Rate,${analytics.overview.churnRate.toFixed(1)}%`);
-    csvSections.push(`Growth Rate,${analytics.overview.growthRate.toFixed(1)}%`);
-    csvSections.push(`New Enrollments This Month,${analytics.overview.newEnrollmentsThisMonth}`);
-    csvSections.push(`Cancellations This Month,${analytics.overview.cancellationsThisMonth}`);
-    csvSections.push('');
-    
-    // Plan breakdown section
-    csvSections.push('PLAN BREAKDOWN');
-    csvSections.push('Plan Name,Members,Monthly Revenue,Percentage');
-    safePlanBreakdown.forEach(plan => {
-      csvSections.push(`${plan.planName},${plan.memberCount},$${plan.monthlyRevenue.toFixed(2)},${plan.percentage.toFixed(1)}%`);
-    });
-    csvSections.push('');
-    
-    // Monthly trends section
-    csvSections.push('MONTHLY TRENDS');
-    csvSections.push('Month,Enrollments,Cancellations,Net Growth,Revenue');
-    safeMonthlyTrends.forEach(trend => {
-      csvSections.push(`${trend.month},${trend.enrollments},${trend.cancellations},${trend.netGrowth},$${trend.revenue.toFixed(2)}`);
-    });
-    csvSections.push('');
-    
-    // Recent enrollments section
-    csvSections.push('RECENT ENROLLMENTS');
-    csvSections.push('Name,Email,Plan,Amount,Enrolled Date,Status');
-    safeRecentEnrollments.forEach(enrollment => {
-      csvSections.push(`"${enrollment.firstName} ${enrollment.lastName}",${enrollment.email},${enrollment.planName},$${enrollment.amount},${enrollment.enrolledDate},${enrollment.status}`);
-    });
+    try {
+      const response = await apiRequest('/api/admin/reports/export', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reportType,
+          format,
+          timeRange,
+          email,
+          data: getReportData(reportType)
+        })
+      });
 
-    const csvContent = csvSections.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `analytics_report_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+      if (email) {
+        toast({
+          title: "Report Sent",
+          description: `Report has been sent to ${email}`,
+        });
+      } else {
+        // Handle direct download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${reportType}_report_${new Date().toISOString().split('T')[0]}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
 
-    toast({
-      title: "Export Successful",
-      description: "Analytics report exported to CSV",
-    });
+        toast({
+          title: "Export Successful",
+          description: `${reportType} report downloaded`,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: "Failed to export report",
+        variant: "destructive"
+      });
+    }
   };
+
+  const getReportData = (reportType: string) => {
+    switch (reportType) {
+      case 'members':
+        return analytics?.memberReports || [];
+      case 'agents':
+        return analytics?.agentPerformance || [];
+      case 'commissions':
+        return analytics?.commissionReports || [];
+      case 'revenue':
+        return analytics?.revenueBreakdown || {};
+      default:
+        return analytics;
+    }
+  };
+
+  const exportAnalytics = () => exportReport(selectedReport, exportFormat);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -182,15 +252,39 @@ export default function AdminAnalytics() {
                   <SelectItem value="365">Last year</SelectItem>
                 </SelectContent>
               </Select>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={exportAnalytics}
-                disabled={!analytics}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export Report
-              </Button>
+              <div className="flex items-center space-x-2">
+                <Select value={selectedReport} onValueChange={setSelectedReport}>
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue placeholder="Select report" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="overview">Overview</SelectItem>
+                    <SelectItem value="members">Members</SelectItem>
+                    <SelectItem value="agents">Agent Performance</SelectItem>
+                    <SelectItem value="commissions">Commissions</SelectItem>
+                    <SelectItem value="revenue">Revenue Details</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={exportFormat} onValueChange={setExportFormat}>
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue placeholder="Format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="csv">CSV</SelectItem>
+                    <SelectItem value="xlsx">Excel</SelectItem>
+                    <SelectItem value="pdf">PDF</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={exportAnalytics}
+                  disabled={!analytics}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -354,44 +448,240 @@ export default function AdminAnalytics() {
               </CardContent>
             </Card>
 
-            {/* Recent Enrollments */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Enrollments</CardTitle>
+            {/* Report Tabs */}
+            <Card className="mb-8">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Detailed Reports</CardTitle>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="email"
+                    placeholder="Email report to..."
+                    value={emailAddress}
+                    onChange={(e) => setEmailAddress(e.target.value)}
+                    className="px-3 py-1 border rounded text-sm w-48"
+                  />
+                  <Button 
+                    size="sm"
+                    onClick={() => exportReport(selectedReport, exportFormat, emailAddress)}
+                    disabled={!analytics || !emailAddress}
+                  >
+                    Email Report
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Member Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Plan</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Enrolled Date</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {safeRecentEnrollments.map((enrollment) => (
-                      <TableRow key={enrollment.id}>
-                        <TableCell className="font-medium">
-                          {enrollment.firstName} {enrollment.lastName}
-                        </TableCell>
-                        <TableCell>{enrollment.email}</TableCell>
-                        <TableCell>{enrollment.planName}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(enrollment.amount)}</TableCell>
-                        <TableCell>{format(new Date(enrollment.enrolledDate), 'MMM dd, yyyy')}</TableCell>
-                        <TableCell>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            enrollment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {enrollment.status}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <Tabs value={selectedReport} onValueChange={setSelectedReport}>
+                  <TabsList className="grid w-full grid-cols-5">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="members">Members</TabsTrigger>
+                    <TabsTrigger value="agents">Agents</TabsTrigger>
+                    <TabsTrigger value="commissions">Commissions</TabsTrigger>
+                    <TabsTrigger value="revenue">Revenue</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="overview">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Member Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Plan</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
+                          <TableHead>Enrolled Date</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {safeRecentEnrollments.map((enrollment) => (
+                          <TableRow key={enrollment.id}>
+                            <TableCell className="font-medium">
+                              {enrollment.firstName} {enrollment.lastName}
+                            </TableCell>
+                            <TableCell>{enrollment.email}</TableCell>
+                            <TableCell>{enrollment.planName}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(enrollment.amount)}</TableCell>
+                            <TableCell>{format(new Date(enrollment.enrolledDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell>
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                enrollment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {enrollment.status}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TabsContent>
+
+                  <TabsContent value="members">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Plan</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Enrolled</TableHead>
+                          <TableHead className="text-right">Total Paid</TableHead>
+                          <TableHead>Agent</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(analytics?.memberReports || []).map((member) => (
+                          <TableRow key={member.id}>
+                            <TableCell className="font-medium">
+                              {member.firstName} {member.lastName}
+                            </TableCell>
+                            <TableCell>{member.email}</TableCell>
+                            <TableCell>{member.phone}</TableCell>
+                            <TableCell>{member.planName}</TableCell>
+                            <TableCell>
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {member.status}
+                              </span>
+                            </TableCell>
+                            <TableCell>{format(new Date(member.enrolledDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(member.totalPaid)}</TableCell>
+                            <TableCell>{member.agentName}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TabsContent>
+
+                  <TabsContent value="agents">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Agent Name</TableHead>
+                          <TableHead>Agent #</TableHead>
+                          <TableHead className="text-right">Total Enrollments</TableHead>
+                          <TableHead className="text-right">Monthly Enrollments</TableHead>
+                          <TableHead className="text-right">Total Commissions</TableHead>
+                          <TableHead className="text-right">Paid</TableHead>
+                          <TableHead className="text-right">Pending</TableHead>
+                          <TableHead className="text-right">Conversion %</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(analytics?.agentPerformance || []).map((agent) => (
+                          <TableRow key={agent.agentId}>
+                            <TableCell className="font-medium">{agent.agentName}</TableCell>
+                            <TableCell>{agent.agentNumber}</TableCell>
+                            <TableCell className="text-right">{agent.totalEnrollments}</TableCell>
+                            <TableCell className="text-right">{agent.monthlyEnrollments}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(agent.totalCommissions)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(agent.paidCommissions)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(agent.pendingCommissions)}</TableCell>
+                            <TableCell className="text-right">{agent.conversionRate.toFixed(1)}%</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TabsContent>
+
+                  <TabsContent value="commissions">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Agent</TableHead>
+                          <TableHead>Agent #</TableHead>
+                          <TableHead>Member</TableHead>
+                          <TableHead>Plan</TableHead>
+                          <TableHead className="text-right">Commission</TableHead>
+                          <TableHead className="text-right">Plan Cost</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Payment</TableHead>
+                          <TableHead>Created</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(analytics?.commissionReports || []).map((commission) => (
+                          <TableRow key={commission.id}>
+                            <TableCell className="font-medium">{commission.agentName}</TableCell>
+                            <TableCell>{commission.agentNumber}</TableCell>
+                            <TableCell>{commission.memberName}</TableCell>
+                            <TableCell>{commission.planName}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(commission.totalPlanCost)}</TableCell>
+                            <TableCell>
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                commission.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                              }`}>
+                                {commission.status}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <span className={`px-2 py-1 text-xs rounded-full ${
+                                commission.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {commission.paymentStatus}
+                              </span>
+                            </TableCell>
+                            <TableCell>{format(new Date(commission.createdDate), 'MMM dd, yyyy')}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TabsContent>
+
+                  <TabsContent value="revenue">
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Total Revenue</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(analytics?.revenueBreakdown?.totalRevenue || 0)}</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Net Revenue</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(analytics?.revenueBreakdown?.netRevenue || 0)}</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Projected Annual</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-2xl font-bold">{formatCurrency(analytics?.revenueBreakdown?.projectedAnnualRevenue || 0)}</div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Month</TableHead>
+                            <TableHead className="text-right">Revenue</TableHead>
+                            <TableHead className="text-right">Subscriptions</TableHead>
+                            <TableHead className="text-right">One-Time</TableHead>
+                            <TableHead className="text-right">Refunds</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(analytics?.revenueBreakdown?.revenueByMonth || []).map((month, index) => (
+                            <TableRow key={index}>
+                              <TableCell className="font-medium">{month.month}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(month.revenue)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(month.subscriptions)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(month.oneTime)}</TableCell>
+                              <TableCell className="text-right text-red-600">-{formatCurrency(month.refunds)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </>

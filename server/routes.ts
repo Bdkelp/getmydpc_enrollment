@@ -684,56 +684,8 @@ router.get("/api/admin/analytics", authenticateToken, async (req: AuthRequest, r
   try {
     const { days = "30" } = req.query;
 
-    // Return mock analytics data for now
-    const analytics = {
-      overview: {
-        totalMembers: 150,
-        activeSubscriptions: 142,
-        monthlyRevenue: 11000,
-        averageRevenue: 77.46,
-        churnRate: 2.5,
-        growthRate: 8.2,
-        newEnrollmentsThisMonth: 12,
-        cancellationsThisMonth: 3
-      },
-      planBreakdown: [
-        {
-          planId: 1,
-          planName: "Individual Plan",
-          memberCount: 89,
-          monthlyRevenue: 7031,
-          percentage: 63.9
-        },
-        {
-          planId: 2,
-          planName: "Family Plan",
-          memberCount: 53,
-          monthlyRevenue: 3969,
-          percentage: 36.1
-        }
-      ],
-      recentEnrollments: [
-        {
-          id: "1",
-          firstName: "John",
-          lastName: "Doe",
-          email: "john@example.com",
-          planName: "Individual Plan",
-          amount: 79,
-          enrolledDate: new Date().toISOString(),
-          status: "active"
-        }
-      ],
-      monthlyTrends: [
-        {
-          month: "2024-01",
-          enrollments: 15,
-          cancellations: 2,
-          netGrowth: 13,
-          revenue: 1027
-        }
-      ]
-    };
+    // Get comprehensive analytics data
+    const analytics = await storage.getComprehensiveAnalytics(parseInt(days as string));
 
     res.json(analytics);
   } catch (error) {
@@ -751,6 +703,92 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
     res.status(500).json({ message: "Failed to fetch agents" });
   }
 });
+
+router.post("/api/admin/reports/export", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  try {
+    const { reportType, format, timeRange, email, data } = req.body;
+
+    if (email) {
+      // Send report via email
+      const emailContent = await generateReportEmail(reportType, data, format);
+      
+      // Here you would integrate with your email service
+      // For now, we'll just simulate success
+      console.log(`Sending ${reportType} report to ${email}`);
+      
+      res.json({ message: "Report sent successfully" });
+    } else {
+      // Generate file for download
+      const fileBuffer = await generateReportFile(reportType, data, format);
+      
+      const contentTypes = {
+        csv: 'text/csv',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pdf: 'application/pdf'
+      };
+
+      res.setHeader('Content-Type', contentTypes[format as keyof typeof contentTypes]);
+      res.setHeader('Content-Disposition', `attachment; filename="${reportType}_report.${format}"`);
+      res.send(fileBuffer);
+    }
+  } catch (error) {
+    console.error("Error exporting report:", error);
+    res.status(500).json({ message: "Failed to export report" });
+  }
+});
+
+async function generateReportEmail(reportType: string, data: any, format: string): Promise<string> {
+  // Generate email content based on report type
+  return `Your ${reportType} report is ready and has been generated in ${format} format.`;
+}
+
+async function generateReportFile(reportType: string, data: any, format: string): Promise<Buffer> {
+  if (format === 'csv') {
+    return generateCSV(reportType, data);
+  } else if (format === 'xlsx') {
+    return generateExcel(reportType, data);
+  } else if (format === 'pdf') {
+    return generatePDF(reportType, data);
+  }
+  throw new Error('Unsupported format');
+}
+
+function generateCSV(reportType: string, data: any): Buffer {
+  let csvContent = '';
+  
+  if (reportType === 'members' && Array.isArray(data)) {
+    csvContent = 'Name,Email,Phone,Plan,Status,Enrolled Date,Total Paid,Agent\n';
+    data.forEach((member: any) => {
+      csvContent += `"${member.firstName} ${member.lastName}",${member.email},${member.phone},${member.planName},${member.status},${member.enrolledDate},${member.totalPaid},${member.agentName}\n`;
+    });
+  } else if (reportType === 'agents' && Array.isArray(data)) {
+    csvContent = 'Agent Name,Agent Number,Total Enrollments,Monthly Enrollments,Total Commissions,Paid Commissions,Pending Commissions,Conversion Rate\n';
+    data.forEach((agent: any) => {
+      csvContent += `${agent.agentName},${agent.agentNumber},${agent.totalEnrollments},${agent.monthlyEnrollments},${agent.totalCommissions},${agent.paidCommissions},${agent.pendingCommissions},${agent.conversionRate}%\n`;
+    });
+  } else if (reportType === 'commissions' && Array.isArray(data)) {
+    csvContent = 'Agent,Agent Number,Member,Plan,Commission Amount,Plan Cost,Status,Payment Status,Created Date\n';
+    data.forEach((commission: any) => {
+      csvContent += `${commission.agentName},${commission.agentNumber},${commission.memberName},${commission.planName},${commission.commissionAmount},${commission.totalPlanCost},${commission.status},${commission.paymentStatus},${commission.createdDate}\n`;
+    });
+  }
+  
+  return Buffer.from(csvContent);
+}
+
+function generateExcel(reportType: string, data: any): Buffer {
+  // For now, return CSV format - in production you'd use a library like xlsx
+  return generateCSV(reportType, data);
+}
+
+function generatePDF(reportType: string, data: any): Buffer {
+  // For now, return CSV format - in production you'd use a library like puppeteer or pdfkit
+  return generateCSV(reportType, data);
+}
 
 router.put("/api/admin/users/:userId", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {

@@ -27,7 +27,7 @@ export function validateDOB(dateOfBirth: string): boolean {
   const today = new Date();
   const age = today.getFullYear() - dob.getFullYear();
   const monthDiff = today.getMonth() - dob.getMonth();
-  
+
   if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
     return age - 1 >= 18;
   }
@@ -65,7 +65,8 @@ import type {
   InsertCommission,
 } from "@shared/schema";
 import { eq, desc, and, or, like, count, gte, lte, sql, isNull, sum } from "drizzle-orm"; // Keep these imports even if not directly used in the snippet
-import crypto from "crypto"; // Keep these imports even if not directly used in the snippet
+// Note: The crypto import below is redundant as it's already imported at the top.
+// import crypto from "crypto"; // Keep these imports even if not directly used in the snippet
 
 export interface IStorage {
   // User operations (required for Replit Auth)
@@ -153,6 +154,12 @@ export interface IStorage {
   getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
   getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
+
+  // Analytics
+  getAnalytics(): Promise<any>;
+  getAnalyticsOverview(days: number): Promise<any>;
+  getAdminDashboardStats(): Promise<any>;
+  getComprehensiveAnalytics(days?: number): Promise<any>;
 }
 
 // --- Supabase Implementation ---
@@ -1508,12 +1515,12 @@ export const storage = {
       .eq('userId', userId)
       .eq('status', 'active')
       .single();
-    
+
     if (error && error.code !== 'PGRST116') {
       console.error('Error fetching user subscription:', error);
       return undefined;
     }
-    
+
     return data;
   },
   getUserSubscriptions: async (userId: string) => {
@@ -1522,12 +1529,12 @@ export const storage = {
       .select('*')
       .eq('userId', userId)
       .order('created_at', { ascending: false });
-    
+
     if (error) {
       console.error('Error fetching user subscriptions:', error);
       return [];
     }
-    
+
     return data || [];
   },
   createSubscription: async (sub: any) => sub,
@@ -1538,12 +1545,12 @@ export const storage = {
       .eq('id', id)
       .select()
       .single();
-    
+
     if (error) {
       console.error('Error updating subscription:', error);
       throw new Error(`Failed to update subscription: ${error.message}`);
     }
-    
+
     return updatedSub;
   },
   getActiveSubscriptions: async () => [],
@@ -1616,53 +1623,76 @@ export const storage = {
   getAdminDashboardStats: async () => {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
+      const allUsers = await supabase.from('users').select('*');
+      const allSubscriptions = await supabase.from('subscriptions').select('*');
+      const allCommissions = await supabase.from('commissions').select('*');
 
-      // Get counts for different user types (admins, agents, and potential members)
-      const [allUserCounts, adminCounts, agentCounts, subscriptionCounts] = await Promise.all([
-        supabase.from('users').select('id', { count: 'exact', head: true }),
-        supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'admin'),
-        supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'agent'),
-        supabase.from('subscriptions').select('id', { count: 'exact', head: true }).eq('status', 'active')
-      ]);
+      const totalUsers = allUsers.data?.length || 0;
+      const totalMembers = allUsers.data?.filter(user => user.role === 'member' || user.role === 'user').length || 0;
+      const totalAgents = allUsers.data?.filter(user => user.role === 'agent').length || 0;
+      const totalAdmins = allUsers.data?.filter(user => user.role === 'admin').length || 0;
 
-      console.log('[Storage] User counts - Total:', allUserCounts.count, 'Admins:', adminCounts.count, 'Agents:', agentCounts.count);
-      console.log('[Storage] Subscription counts result:', subscriptionCounts.count);
+      const activeSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'active').length || 0;
+      const pendingSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'pending').length || 0;
+      const cancelledSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'cancelled').length || 0;
 
-      const totalUsers = allUserCounts.count || 0;
-      const totalAdmins = adminCounts.count || 0;
-      const totalAgents = agentCounts.count || 0;
-      const activeSubscriptions = subscriptionCounts.count || 0;
+      const monthlyRevenue = allSubscriptions.data
+        ?.filter(sub => sub.status === 'active')
+        .reduce((total, sub) => total + (sub.amount || 0), 0) || 0;
 
-      // Calculate other stats
-      const monthlyRevenue = activeSubscriptions * 75; // Average plan cost
-      const recentEnrollments = Math.floor(totalUsers * 0.1); // 10% of total users as recent
-      const churnRate = 2.5; // Static for now
+      const totalCommissions = allCommissions.data?.reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
+      const paidCommissions = allCommissions.data
+        ?.filter(comm => comm.paymentStatus === 'paid')
+        .reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
+      const pendingCommissions = allCommissions.data
+        ?.filter(comm => comm.paymentStatus === 'unpaid' || comm.paymentStatus === 'pending')
+        .reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
+
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const newEnrollments = allSubscriptions.data?.filter(sub => 
+        sub.createdAt && new Date(sub.createdAt) >= thirtyDaysAgo
+      ).length || 0;
 
       const stats = {
         totalUsers,
-        totalAdmins,
+        totalMembers,
         totalAgents,
+        totalAdmins,
         activeSubscriptions,
+        pendingSubscriptions,
+        cancelledSubscriptions,
         monthlyRevenue,
-        recentEnrollments,
-        churnRate,
-        lastUpdated: new Date().toISOString()
+        totalCommissions,
+        paidCommissions,
+        pendingCommissions,
+        newEnrollments,
+        churnRate: totalUsers > 0 ? ((cancelledSubscriptions / totalUsers) * 100) : 0,
+        averageRevenue: activeSubscriptions > 0 ? (monthlyRevenue / activeSubscriptions) : 0
       };
 
-      console.log('[Storage] Calculated stats:', stats);
+      console.log('[Storage] Admin stats:', stats);
       return stats;
     } catch (error: any) {
-      console.error("[Storage] Error fetching admin dashboard stats:", error);
-      console.error("[Storage] Error details:", error.message);
+      console.error('[Storage] Error fetching admin dashboard stats:', error);
+      console.error('[Storage] Error details:', error.message);
+      // Return a default object in case of error
       return {
         totalUsers: 0,
-        totalAdmins: 0,
+        totalMembers: 0,
         totalAgents: 0,
+        totalAdmins: 0,
         activeSubscriptions: 0,
+        pendingSubscriptions: 0,
+        cancelledSubscriptions: 0,
         monthlyRevenue: 0,
-        recentEnrollments: 0,
+        totalCommissions: 0,
+        paidCommissions: 0,
+        pendingCommissions: 0,
+        newEnrollments: 0,
         churnRate: 0,
-        lastUpdated: new Date().toISOString()
+        averageRevenue: 0
       };
     }
   },
@@ -1673,5 +1703,226 @@ export const storage = {
   getActivePlans,
   getPlan: getPlanById,
   createPlan: async (plan: any) => plan,
-  updatePlan: async (id: number, data: any) => ({ id, ...data })
+  updatePlan: async (id: number, data: any) => ({ id, ...data }),
+
+  getComprehensiveAnalytics: async (days: number = 30) => {
+    try {
+      console.log('[Storage] Fetching comprehensive analytics...');
+
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
+
+      // Get all data
+      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
+      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
+      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*');
+      const { data: allPlansData, error: plansError } = await supabase.from('plans').select('*');
+
+      if (usersError || subscriptionsError || commissionsError || plansError) {
+        console.error('Error fetching data for comprehensive analytics:', usersError, subscriptionsError, commissionsError, plansError);
+        throw new Error('Failed to fetch data for analytics');
+      }
+
+      const allUsers = allUsersData || [];
+      const allSubscriptions = allSubscriptionsData || [];
+      const allCommissions = allCommissionsData || [];
+      const allPlans = allPlansData || [];
+
+      // Overview metrics
+      const totalMembers = allUsers.filter(user => user.role === 'member' || user.role === 'user').length;
+      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
+      const monthlyRevenue = allSubscriptions
+        .filter(sub => sub.status === 'active')
+        .reduce((total, sub) => total + (sub.amount || 0), 0);
+
+      const newEnrollmentsThisMonth = allSubscriptions.filter(sub => 
+        sub.createdAt && new Date(sub.createdAt) >= cutoffDate
+      ).length;
+
+      const cancellationsThisMonth = allSubscriptions.filter(sub => 
+        sub.status === 'cancelled' && sub.updatedAt && new Date(sub.updatedAt) >= cutoffDate
+      ).length;
+
+      // Plan breakdown
+      const planBreakdown = allPlans.map(plan => {
+        const planSubscriptions = allSubscriptions.filter(sub => sub.planId === plan.id && sub.status === 'active');
+        const planRevenue = planSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
+
+        return {
+          planId: plan.id,
+          planName: plan.name,
+          memberCount: planSubscriptions.length,
+          monthlyRevenue: planRevenue,
+          percentage: monthlyRevenue > 0 ? (planRevenue / monthlyRevenue) * 100 : 0
+        };
+      });
+
+      // Recent enrollments
+      const recentEnrollments = allSubscriptions
+        .filter(sub => sub.createdAt && new Date(sub.createdAt) >= cutoffDate)
+        .map(sub => {
+          const user = allUsers.find(u => u.id === sub.userId);
+          const plan = allPlans.find(p => p.id === sub.planId);
+          return {
+            id: sub.id.toString(),
+            firstName: user?.firstName || '',
+            lastName: user?.lastName || '',
+            email: user?.email || '',
+            planName: plan?.name || '',
+            amount: sub.amount || 0,
+            enrolledDate: sub.createdAt?.toISOString() || '',
+            status: sub.status
+          };
+        })
+        .sort((a, b) => new Date(b.enrolledDate).getTime() - new Date(a.enrolledDate).getTime())
+        .slice(0, 20);
+
+      // Agent performance
+      const agentPerformance = allUsers
+        .filter(user => user.role === 'agent')
+        .map(agent => {
+          const agentCommissions = allCommissions.filter(comm => comm.agentId === agent.id);
+          const agentSubscriptions = allSubscriptions.filter(sub => {
+            // Assuming we have an enrolledByAgentId field or similar
+            return agentCommissions.some(comm => comm.subscriptionId === sub.id);
+          });
+
+          const monthlyEnrollments = agentSubscriptions.filter(sub => 
+            sub.createdAt && new Date(sub.createdAt) >= cutoffDate
+          ).length;
+
+          const totalCommissions = agentCommissions.reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
+          const paidCommissions = agentCommissions
+            .filter(comm => comm.paymentStatus === 'paid')
+            .reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
+          const pendingCommissions = agentCommissions
+            .filter(comm => comm.paymentStatus !== 'paid')
+            .reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
+
+          return {
+            agentId: agent.id,
+            agentName: `${agent.firstName} ${agent.lastName}`,
+            agentNumber: agent.agentNumber || '',
+            totalEnrollments: agentSubscriptions.length,
+            monthlyEnrollments,
+            totalCommissions,
+            paidCommissions,
+            pendingCommissions,
+            conversionRate: agentSubscriptions.length > 0 ? (agentSubscriptions.filter(sub => sub.status === 'active').length / agentSubscriptions.length) * 100 : 0,
+            averageCommission: agentCommissions.length > 0 ? totalCommissions / agentCommissions.length : 0
+          };
+        });
+
+      // Member reports
+      const memberReports = allUsers
+        .filter(user => user.role === 'member' || user.role === 'user')
+        .map(member => {
+          const memberSubscriptions = allSubscriptions.filter(sub => sub.userId === member.id);
+          const activeSub = memberSubscriptions.find(sub => sub.status === 'active');
+          const totalPaid = memberSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
+
+          const memberCommission = activeSub ? allCommissions.find(comm => comm.subscriptionId === activeSub.id) : null;
+          const agent = memberCommission ? allUsers.find(u => u.id === memberCommission.agentId) : null;
+          const plan = activeSub ? allPlans.find(p => p.id === activeSub.planId) : null;
+
+          return {
+            id: member.id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            email: member.email,
+            phone: member.phone || '',
+            planName: plan?.name || '',
+            status: activeSub?.status || 'inactive',
+            enrolledDate: member.createdAt?.toISOString() || '',
+            lastPayment: activeSub?.updatedAt?.toISOString() || '',
+            totalPaid,
+            agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Direct'
+          };
+        });
+
+      // Commission reports
+      const commissionReports = allCommissions.map(commission => {
+        const agent = allUsers.find(u => u.id === commission.agentId);
+        const subscription = allSubscriptions.find(s => s.id === commission.subscriptionId);
+        const member = subscription ? allUsers.find(u => u.id === subscription.userId) : null;
+
+        return {
+          id: commission.id.toString(),
+          agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Unknown',
+          agentNumber: agent?.agentNumber || '',
+          memberName: member ? `${member.firstName} ${member.lastName}` : 'Unknown',
+          planName: commission.planName || '',
+          commissionAmount: commission.commissionAmount || 0,
+          totalPlanCost: commission.totalPlanCost || 0,
+          status: commission.status,
+          paymentStatus: commission.paymentStatus,
+          createdDate: commission.createdAt?.toISOString() || '',
+          paidDate: commission.paidAt?.toISOString() || null
+        };
+      });
+
+      // Revenue breakdown
+      const totalRevenue = allSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
+      const subscriptionRevenue = allSubscriptions
+        .filter(sub => sub.status === 'active')
+        .reduce((total, sub) => total + (sub.amount || 0), 0);
+
+      const revenueBreakdown = {
+        totalRevenue,
+        subscriptionRevenue,
+        oneTimeRevenue: 0, // Add when you have one-time payments
+        refunds: 0, // Add when you track refunds
+        netRevenue: totalRevenue,
+        projectedAnnualRevenue: subscriptionRevenue * 12,
+        averageRevenuePerUser: activeSubscriptions > 0 ? subscriptionRevenue / activeSubscriptions : 0,
+        revenueByMonth: [
+          {
+            month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+            revenue: subscriptionRevenue,
+            subscriptions: subscriptionRevenue,
+            oneTime: 0,
+            refunds: 0
+          }
+        ]
+      };
+
+      // Monthly trends (simplified for now)
+      const monthlyTrends = [
+        {
+          month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+          enrollments: newEnrollmentsThisMonth,
+          cancellations: cancellationsThisMonth,
+          netGrowth: newEnrollmentsThisMonth - cancellationsThisMonth,
+          revenue: subscriptionRevenue
+        }
+      ];
+
+      const analytics = {
+        overview: {
+          totalMembers,
+          activeSubscriptions,
+          monthlyRevenue,
+          averageRevenue: activeSubscriptions > 0 ? monthlyRevenue / activeSubscriptions : 0,
+          churnRate: totalMembers > 0 ? (cancellationsThisMonth / totalMembers) * 100 : 0,
+          growthRate: totalMembers > 0 ? (newEnrollmentsThisMonth / totalMembers) * 100 : 0,
+          newEnrollmentsThisMonth,
+          cancellationsThisMonth
+        },
+        planBreakdown,
+        recentEnrollments,
+        monthlyTrends,
+        agentPerformance,
+        memberReports,
+        commissionReports,
+        revenueBreakdown
+      };
+
+      console.log('[Storage] Comprehensive analytics generated');
+      return analytics;
+    } catch (error: any) {
+      console.error('[Storage] Error fetching comprehensive analytics:', error);
+      console.error('[Storage] Error details:', error.message);
+      throw error;
+    }
+  }
 } as any;
