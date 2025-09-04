@@ -1,4 +1,43 @@
 import { supabase } from './lib/supabaseClient';
+import crypto from 'crypto';
+
+// Encryption utilities for sensitive data
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-32-character-secret-key-here!!';
+
+export function encryptSensitiveData(data: string): string {
+  const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
+  let encrypted = cipher.update(data, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return encrypted;
+}
+
+export function decryptSensitiveData(encryptedData: string): string {
+  const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
+  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+export function getLastFourSSN(ssn: string): string {
+  return ssn.replace(/\D/g, '').slice(-4);
+}
+
+export function validateDOB(dateOfBirth: string): boolean {
+  const dob = new Date(dateOfBirth);
+  const today = new Date();
+  const age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+    return age - 1 >= 18;
+  }
+  return age >= 18;
+}
+
+export function validatePhoneNumber(phone: string): boolean {
+  const cleaned = phone.replace(/\D/g, '');
+  return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === '1');
+}
 import type {
   User,
   Plan,

@@ -65,7 +65,10 @@ export const users = pgTable("users", {
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
   memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // encrypted
+  ssn: varchar("ssn"), // Will be cleared after encryption
+  ssnEncrypted: text("ssn_encrypted"), // Encrypted SSN storage
+  ssnLastFour: varchar("ssn_last_four", { length: 4 }), // Last 4 digits only
+  paymentTokenEncrypted: text("payment_token_encrypted"), // Encrypted payment tokens
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -183,7 +186,9 @@ export const familyMembers = pgTable("family_members", {
   middleName: varchar("middle_name"),
   dateOfBirth: varchar("date_of_birth"),
   gender: varchar("gender"),
-  ssn: varchar("ssn"), // encrypted
+  ssn: varchar("ssn"), // Will be cleared after encryption
+  ssnEncrypted: text("ssn_encrypted"), // Encrypted SSN storage
+  ssnLastFour: varchar("ssn_last_four", { length: 4 }), // Last 4 digits only
   email: varchar("email"),
   phone: varchar("phone"),
   relationship: varchar("relationship"), // spouse, child, parent, etc
