@@ -363,6 +363,32 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
+// Public lead submission endpoint (for contact forms)
+router.post("/api/public/leads", async (req: AuthRequest, res) => {
+  try {
+    const { firstName, lastName, email, phone, message } = req.body;
+
+    if (!firstName || !lastName || !email || !phone) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const lead = await storage.createLead({
+      firstName,
+      lastName,
+      email,
+      phone,
+      message: message || "",
+      source: "contact_form",
+      status: "new"
+    });
+
+    res.json({ success: true, leadId: lead.id });
+  } catch (error: any) {
+    console.error("Public lead creation error:", error);
+    res.status(500).json({ error: "Failed to submit lead" });
+  }
+});
+
 // Admin routes
 router.get("/api/admin/stats", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {

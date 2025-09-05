@@ -47,8 +47,11 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
     setIsSubmitting(true);
     
     try {
-      // Submit lead to backend
-      const response = await fetch("/api/leads", {
+      // Get auth token from localStorage
+      const token = localStorage.getItem('auth_token');
+      
+      // Submit lead to backend (public endpoint for contact form)
+      const response = await fetch("/api/public/leads", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
