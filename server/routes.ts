@@ -824,6 +824,287 @@ router.get("/api/agent/commissions", authenticateToken, async (req: AuthRequest,
   }
 });
 
+// Agent member management routes
+router.get("/api/agent/members", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    // Get all users enrolled by this agent plus users they have commissions for
+    const enrolledUsers = await storage.getAgentEnrollments(req.user!.id);
+    
+    // Get users from commissions
+    const agentCommissions = await storage.getAgentCommissions(req.user!.id);
+    const commissionUserIds = agentCommissions.map(c => c.userId);
+    
+    // Fetch additional users from commissions that weren't directly enrolled
+    const additionalUsers = [];
+    for (const userId of commissionUserIds) {
+      if (!enrolledUsers.find(u => u.id === userId)) {
+        const user = await storage.getUser(userId);
+        if (user) additionalUsers.push(user);
+      }
+    }
+
+    const allMembers = [...enrolledUsers, ...additionalUsers];
+
+    // Get subscription info for each member
+    const membersWithDetails = await Promise.all(allMembers.map(async (member) => {
+      const subscription = await storage.getUserSubscription(member.id);
+      const familyMembers = await storage.getFamilyMembers(member.id);
+      
+      return {
+        ...member,
+        subscription,
+        familyMembers,
+        totalFamilyMembers: familyMembers.length
+      };
+    }));
+
+    res.json(membersWithDetails);
+  } catch (error) {
+    console.error("Error fetching agent members:", error);
+    res.status(500).json({ message: "Failed to fetch agent members" });
+  }
+});
+
+router.get("/api/agent/members/:memberId", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    const { memberId } = req.params;
+    
+    // Verify agent has access to this member
+    const member = await storage.getUser(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    // Check if agent enrolled this user or has commissions for them
+    const hasAccess = member.enrolledByAgentId === req.user!.id || 
+      await storage.getCommissionByUserId(memberId, req.user!.id);
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+
+    // Get complete member details
+    const subscription = await storage.getUserSubscription(memberId);
+    const familyMembers = await storage.getFamilyMembers(memberId);
+    const payments = await storage.getUserPayments(memberId);
+
+    res.json({
+      ...member,
+      subscription,
+      familyMembers,
+      payments: payments.slice(0, 10) // Last 10 payments
+    });
+  } catch (error) {
+    console.error("Error fetching member details:", error);
+    res.status(500).json({ message: "Failed to fetch member details" });
+  }
+});
+
+router.put("/api/agent/members/:memberId", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    const { memberId } = req.params;
+    const updateData = req.body;
+
+    // Verify agent has access to this member
+    const member = await storage.getUser(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    const hasAccess = member.enrolledByAgentId === req.user!.id || 
+      await storage.getCommissionByUserId(memberId, req.user!.id);
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+
+    // Remove protected fields that agents cannot modify
+    delete updateData.id;
+    delete updateData.email;
+    delete updateData.role;
+    delete updateData.approvalStatus;
+    delete updateData.isActive;
+    delete updateData.createdAt;
+    delete updateData.enrolledByAgentId;
+    delete updateData.stripeCustomerId;
+    delete updateData.stripeSubscriptionId;
+
+    // Validate phone number format if provided
+    if (updateData.phone) {
+      const phoneRegex = /^\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}$/;
+      if (!phoneRegex.test(updateData.phone)) {
+        return res.status(400).json({ message: "Invalid phone number format" });
+      }
+    }
+
+    const updatedMember = await storage.updateUser(memberId, {
+      ...updateData,
+      updatedAt: new Date()
+    });
+
+    // Log the agent action
+    console.log(`Agent ${req.user!.email} updated member ${memberId}:`, updateData);
+
+    res.json(updatedMember);
+  } catch (error) {
+    console.error("Error updating member:", error);
+    res.status(500).json({ message: "Failed to update member" });
+  }
+});
+
+router.put("/api/agent/members/:memberId/subscription", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    const { memberId } = req.params;
+    const { planId, memberType } = req.body;
+
+    // Verify agent has access to this member
+    const member = await storage.getUser(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    const hasAccess = member.enrolledByAgentId === req.user!.id || 
+      await storage.getCommissionByUserId(memberId, req.user!.id);
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+
+    // Get current subscription
+    const currentSubscription = await storage.getUserSubscription(memberId);
+    if (!currentSubscription) {
+      return res.status(404).json({ message: "No active subscription found" });
+    }
+
+    // Get new plan details
+    const newPlan = await storage.getPlan(planId);
+    if (!newPlan) {
+      return res.status(404).json({ message: "Plan not found" });
+    }
+
+    // Update subscription plan but preserve billing dates
+    const updatedSubscription = await storage.updateSubscription(currentSubscription.id, {
+      planId: newPlan.id,
+      amount: newPlan.price,
+      updatedAt: new Date()
+      // Note: NOT updating nextBillingDate, currentPeriodStart, currentPeriodEnd
+    });
+
+    // Update member type in user record if provided
+    if (memberType) {
+      await storage.updateUser(memberId, {
+        memberType,
+        updatedAt: new Date()
+      });
+    }
+
+    // Log the agent action
+    console.log(`Agent ${req.user!.email} updated subscription for member ${memberId}:`, {
+      oldPlan: currentSubscription.planId,
+      newPlan: newPlan.id,
+      memberType
+    });
+
+    res.json({
+      subscription: updatedSubscription,
+      plan: newPlan,
+      message: "Subscription updated successfully. Billing date unchanged."
+    });
+  } catch (error) {
+    console.error("Error updating member subscription:", error);
+    res.status(500).json({ message: "Failed to update subscription" });
+  }
+});
+
+router.post("/api/agent/members/:memberId/family", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    const { memberId } = req.params;
+    const familyMemberData = req.body;
+
+    // Verify agent has access to this member
+    const member = await storage.getUser(memberId);
+    if (!member) {
+      return res.status(404).json({ message: "Member not found" });
+    }
+
+    const hasAccess = member.enrolledByAgentId === req.user!.id || 
+      await storage.getCommissionByUserId(memberId, req.user!.id);
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+
+    const newFamilyMember = await storage.addFamilyMember({
+      ...familyMemberData,
+      primaryUserId: memberId
+    });
+
+    // Log the agent action
+    console.log(`Agent ${req.user!.email} added family member for ${memberId}:`, familyMemberData.firstName, familyMemberData.lastName);
+
+    res.status(201).json(newFamilyMember);
+  } catch (error) {
+    console.error("Error adding family member:", error);
+    res.status(500).json({ message: "Failed to add family member" });
+  }
+});
+
+router.get("/api/agent/stats", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Agent access required" });
+  }
+
+  try {
+    const agentId = req.user!.id;
+    
+    // Get commission stats
+    const commissionStats = await storage.getCommissionStats(agentId);
+    
+    // Get enrollment counts
+    const enrollments = await storage.getAgentEnrollments(agentId);
+    const thisMonth = new Date();
+    thisMonth.setDate(1);
+    thisMonth.setHours(0, 0, 0, 0);
+    
+    const monthlyEnrollments = enrollments.filter(e => 
+      new Date(e.createdAt) >= thisMonth
+    ).length;
+
+    // Get active members count
+    const activeMembers = enrollments.filter(e => e.isActive).length;
+
+    res.json({
+      totalEnrollments: enrollments.length,
+      monthlyEnrollments,
+      activeMembers,
+      ...commissionStats
+    });
+  } catch (error) {
+    console.error("Error fetching agent stats:", error);
+    res.status(500).json({ message: "Failed to fetch agent stats" });
+  }
+});
+
 
 // Commission Generation Logic
 // This function will be called when a new subscription is created or updated.

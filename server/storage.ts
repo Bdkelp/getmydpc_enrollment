@@ -1189,6 +1189,21 @@ export async function getCommissionBySubscriptionId(subscriptionId: number): Pro
   return data;
 }
 
+export async function getCommissionByUserId(userId: string, agentId: string): Promise<Commission | undefined> {
+  const { data, error } = await supabase
+    .from('commissions')
+    .select('*')
+    .eq('userId', userId)
+    .eq('agentId', agentId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') {
+    console.error('Error fetching commission by user and agent ID:', error);
+    return undefined;
+  }
+  return data;
+}
+
 export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
   const { data: updatedCommission, error } = await supabase
     .from('commissions')
