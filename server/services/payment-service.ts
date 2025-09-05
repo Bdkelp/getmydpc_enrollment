@@ -71,10 +71,10 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
     console.log('[MockPayment] Processing payment:', paymentData);
-    
+
     // Simulate processing delay
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
+
     // Simulate successful payment
     return {
       success: true,
@@ -89,7 +89,7 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async refundPayment(transactionId: string, amount?: number): Promise<RefundResponse> {
     console.log('[MockPayment] Processing refund:', { transactionId, amount });
-    
+
     return {
       success: true,
       refundId: `REFUND_${Date.now()}`,
@@ -140,7 +140,7 @@ export class EPxProvider implements PaymentProvider {
 
   async createCheckoutSession(paymentData: PaymentRequest): Promise<CheckoutSessionResponse> {
     console.log('[EPx] Creating checkout session');
-    
+
     try {
       // For EPx hosted checkout, we don't directly process payment
       // Instead, we return the checkout configuration for the frontend
@@ -161,7 +161,7 @@ export class EPxProvider implements PaymentProvider {
 
   async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
     console.log('[EPx] Direct payment processing not supported - use hosted checkout');
-    
+
     // EPx uses hosted checkout, so direct payment processing is not applicable
     return {
       success: false,
@@ -173,7 +173,7 @@ export class EPxProvider implements PaymentProvider {
 
   async refundPayment(transactionId: string, amount?: number): Promise<RefundResponse> {
     console.log('[EPx] Processing refund for transaction:', transactionId);
-    
+
     try {
       // TODO: Implement EPx refund API call
       // This would use the EPx secondary API for refunds
@@ -191,7 +191,7 @@ export class EPxProvider implements PaymentProvider {
 
   async getTransaction(transactionId: string): Promise<TransactionDetails> {
     console.log('[EPx] Fetching transaction:', transactionId);
-    
+
     // TODO: Implement EPx transaction query using secondary API
     throw new Error('EPx transaction query not yet implemented');
   }
@@ -200,12 +200,12 @@ export class EPxProvider implements PaymentProvider {
     // EPx webhook validation
     // The specific validation method depends on EPx documentation
     console.log('[EPx] Validating webhook signature');
-    
+
     if (!this.webhookSecret) {
       console.warn('[EPx] Webhook secret not configured');
       return false;
     }
-    
+
     // TODO: Implement actual signature validation based on EPx specs
     // This is a placeholder - actual implementation would use HMAC or similar
     return true; // Temporarily return true for development
@@ -234,11 +234,11 @@ export class PayAnywhereProvider implements PaymentProvider {
 
   async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
     console.log('[PayAnywhere] Processing payment');
-    
+
     try {
       // PayAnywhere API implementation will go here
       // This is a placeholder structure based on typical payment gateway patterns
-      
+
       const requestBody = {
         merchant_id: this.merchantId,
         amount: paymentData.amount,
@@ -270,7 +270,7 @@ export class PayAnywhereProvider implements PaymentProvider {
 
       // Placeholder response - replace with actual API integration
       throw new Error('PayAnywhere API credentials not configured. Please add PAYANYWHERE_API_KEY and PAYANYWHERE_MERCHANT_ID to environment variables.');
-      
+
     } catch (error: any) {
       console.error('[PayAnywhere] Payment error:', error);
       return {
@@ -284,7 +284,7 @@ export class PayAnywhereProvider implements PaymentProvider {
 
   async refundPayment(transactionId: string, amount?: number): Promise<RefundResponse> {
     console.log('[PayAnywhere] Processing refund');
-    
+
     try {
       // TODO: Implement PayAnywhere refund API call
       throw new Error('PayAnywhere refund not yet implemented');
@@ -301,7 +301,7 @@ export class PayAnywhereProvider implements PaymentProvider {
 
   async getTransaction(transactionId: string): Promise<TransactionDetails> {
     console.log('[PayAnywhere] Fetching transaction:', transactionId);
-    
+
     // TODO: Implement PayAnywhere transaction query
     throw new Error('PayAnywhere transaction query not yet implemented');
   }
@@ -321,7 +321,7 @@ export class PaymentService {
   constructor() {
     // Initialize based on environment configuration
     const paymentProvider = process.env.PAYMENT_PROVIDER || 'mock';
-    
+
     switch (paymentProvider) {
       case 'epx':
         if (!process.env.EPX_CHECKOUT_ID) {
@@ -350,7 +350,7 @@ export class PaymentService {
       default:
         this.provider = new MockPaymentProvider();
     }
-    
+
     console.log(`[PaymentService] Initialized with ${this.provider.name} provider`);
   }
 

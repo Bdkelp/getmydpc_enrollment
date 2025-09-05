@@ -1360,21 +1360,7 @@ export async function getActiveSubscriptions(): Promise<Subscription[]> {
   return data || [];
 }
 
-// Payment operations (add missing ones)
-export async function getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined> {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('stripe_payment_intent_id', stripePaymentIntentId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return undefined;
-    console.error('Error fetching payment by Stripe ID:', error);
-    return undefined;
-  }
-  return data;
-}
+// Payment operations
 
 // Family member operations (add missing ones)
 export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
