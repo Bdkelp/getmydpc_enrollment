@@ -254,8 +254,6 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
   }
 });
 
-// Apply authentication only to specific protected routes below, not globally
-
 // User profile routes
 router.get("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
   try {
@@ -1005,21 +1003,6 @@ export async function registerRoutes(app: any) {
       res.status(500).json({ error: 'Failed to log activity' });
     }
   });
-
-  // Add the authMiddleware to routes that require authentication
-  // This should be done after defining the routes that don't need auth (like /api/auth/*)
-  // and before routes that do need auth.
-  // A common approach is to use app.use() with the middleware.
-  // However, since we are using `authenticateToken` within specific route handlers,
-  // we don't need to apply `authMiddleware` globally here unless we want to replace it.
-  // The current implementation uses `authenticateToken` which seems to be a separate middleware.
-  // Let's ensure the new `authMiddleware` is used where appropriate or replace `authenticateToken`.
-  // For now, we assume `authenticateToken` handles the logic, and the new `authMiddleware`
-  // is for a different purpose or a replacement.
-  // If the intention is to replace `authenticateToken`, then `app.use(authMiddleware)` would be used.
-  // Given the prompt, it seems like `authMiddleware` is being added as a new middleware.
-  // For now, let's register it for the new endpoint and assume `authenticateToken` is still in use elsewhere.
-
 
   // Create and return the server
   const { createServer } = await import("http");

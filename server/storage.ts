@@ -200,6 +200,9 @@ export async function getUser(id: string): Promise<User | null> {
 function mapUserFromDB(data: any): User | null {
   if (!data) return null;
 
+  // Normalize role - handle legacy 'user' role as 'member'
+  const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
+
   return {
     id: data.id,
     email: data.email,
@@ -219,7 +222,7 @@ function mapUserFromDB(data: any): User | null {
     emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
     stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
     stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
-    role: data.role || 'member',
+    role: normalizedRole,
     agentNumber: data.agent_number || data.agentNumber,
     isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
     approvalStatus: data.approval_status || data.approvalStatus || 'approved',
@@ -1109,7 +1112,7 @@ export async function createCommission(commission: InsertCommission): Promise<Co
   }
 
   // Check if the enrolling user is an admin. If so, skip commission creation.
-  // Assuming enrollingUser is available in commission object or can be fetched
+  // Assuming enrolling user is available in commission object or can be fetched
   // For now, let's assume enrolling user ID is passed or fetched via subscription
   // If subscriptionId is available, we can fetch the user who owns the subscription
   if (commission.subscriptionId) {
@@ -1414,8 +1417,8 @@ export async function clearTestData(): Promise<void> {
 export async function createPayment(payment: InsertPayment): Promise<Payment> {
   const { data, error } = await supabase
     .from('payments')
-    .insert([{ 
-      ...payment, 
+    .insert([{
+      ...payment,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }])
@@ -1464,9 +1467,9 @@ export async function getPaymentByTransactionId(transactionId: string): Promise<
 export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
   const { data, error } = await supabase
     .from('payments')
-    .update({ 
-      ...updates, 
-      updated_at: new Date().toISOString() 
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString()
     })
     .eq('id', id)
     .select()
@@ -1651,7 +1654,7 @@ export const storage = {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const newEnrollments = allSubscriptions.data?.filter(sub => 
+      const newEnrollments = allSubscriptions.data?.filter(sub =>
         sub.createdAt && new Date(sub.createdAt) >= thirtyDaysAgo
       ).length || 0;
 
@@ -1735,11 +1738,11 @@ export const storage = {
         .filter(sub => sub.status === 'active')
         .reduce((total, sub) => total + (sub.amount || 0), 0);
 
-      const newEnrollmentsThisMonth = allSubscriptions.filter(sub => 
+      const newEnrollmentsThisMonth = allSubscriptions.filter(sub =>
         sub.createdAt && new Date(sub.createdAt) >= cutoffDate
       ).length;
 
-      const cancellationsThisMonth = allSubscriptions.filter(sub => 
+      const cancellationsThisMonth = allSubscriptions.filter(sub =>
         sub.status === 'cancelled' && sub.updatedAt && new Date(sub.updatedAt) >= cutoffDate
       ).length;
 
@@ -1787,7 +1790,7 @@ export const storage = {
             return agentCommissions.some(comm => comm.subscriptionId === sub.id);
           });
 
-          const monthlyEnrollments = agentSubscriptions.filter(sub => 
+          const monthlyEnrollments = agentSubscriptions.filter(sub =>
             sub.createdAt && new Date(sub.createdAt) >= cutoffDate
           ).length;
 

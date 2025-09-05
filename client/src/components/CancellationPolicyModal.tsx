@@ -24,7 +24,7 @@ export function CancellationPolicyModal({
   onAccept,
 }: CancellationPolicyModalProps) {
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
-  
+
   const policyContent = `MyPremierPlans Membership Cancellation and Refund Policy
 
 CANCELLATION PROCESS
@@ -146,7 +146,7 @@ Last Updated: January 31, 2025`;
             {/* Cancellation Process */}
             <div>
               <h3 className="font-bold text-base mb-3 text-blue-900">CANCELLATION PROCESS</h3>
-              
+
               <div className="space-y-4">
                 <div>
                   <h4 className="font-semibold mb-2">Agent-Assisted Process Required</h4>
@@ -182,7 +182,7 @@ Last Updated: January 31, 2025`;
             {/* Refund Policy */}
             <div>
               <h3 className="font-bold text-base mb-3 text-blue-900">REFUND POLICY</h3>
-              
+
               <div className="space-y-4">
                 <div className="bg-green-50 p-3 rounded-lg border border-green-200">
                   <h4 className="font-semibold mb-2">Initial 14-Day Period</h4>
@@ -219,7 +219,7 @@ Last Updated: January 31, 2025`;
             {/* Cancellation Terms */}
             <div>
               <h3 className="font-bold text-base mb-3 text-blue-900">CANCELLATION TERMS</h3>
-              
+
               <div className="space-y-4">
                 <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200">
                   <h4 className="font-semibold mb-2">Notice Period</h4>
@@ -244,7 +244,7 @@ Last Updated: January 31, 2025`;
             {/* Important Information */}
             <div>
               <h3 className="font-bold text-base mb-3 text-blue-900">IMPORTANT INFORMATION</h3>
-              
+
               <div className="space-y-4">
                 <div>
                   <h4 className="font-semibold mb-2">Automatic Renewal</h4>
@@ -311,7 +311,7 @@ Last Updated: January 31, 2025`;
               <Download className="h-4 w-4" />
               Download Policy
             </Button>
-            
+
             <div className="flex gap-2">
               <Button
                 variant="outline"

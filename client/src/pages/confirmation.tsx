@@ -81,14 +81,14 @@ export default function Confirmation() {
     const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
     const transactionId = `TXN${Date.now()}`;
     const today = new Date();
-    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
     setMembershipData({
       memberId: `MPP${user.id}`,
       customerNumber,
       transactionId,
       billingDate: today,
-      nextBillingDate: nextMonth,
+      nextBillingDate: nextBillingDate,
       totalPrice,
       addRxValet: rxValet,
       coverageType,
