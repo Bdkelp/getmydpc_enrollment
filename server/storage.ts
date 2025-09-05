@@ -1560,7 +1560,7 @@ export const storage = {
 
   createPayment,
   getUserPayments,
-  getPaymentByStripeId,
+  getPaymentByTransactionId,
   getPaymentByTransactionId,
   updatePayment,
 
