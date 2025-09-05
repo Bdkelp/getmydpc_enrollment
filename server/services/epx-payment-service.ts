@@ -154,6 +154,12 @@ export class EPXPaymentService {
         payload.TRAN_CODE = 'CCE1';  // Card Ecommerce Sale
       }
 
+      console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
+      console.log('[EPX] TAC request payload:', {
+        ...payload,
+        MAC: payload.MAC ? '[REDACTED]' : 'MISSING'
+      });
+
       const response = await fetch(this.keyExchangeUrl, {
         method: 'POST',
         headers: {
@@ -162,7 +168,17 @@ export class EPXPaymentService {
         body: JSON.stringify(payload)
       });
 
+      console.log('[EPX] TAC response status:', response.status);
+      console.log('[EPX] TAC response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[EPX] TAC HTTP error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
       const data = await response.json();
+      console.log('[EPX] TAC response data:', data);
 
       if (data.TAC) {
         console.log('[EPX] TAC generated successfully');

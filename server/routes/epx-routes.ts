@@ -36,13 +36,15 @@ try {
     cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   });
-  console.log('[EPX Routes] EPX Service initialized with credentials:', {
-    custNbr: process.env.EPX_CUST_NBR,
-    merchNbr: process.env.EPX_MERCH_NBR,
-    dbaNbr: process.env.EPX_DBA_NBR,
-    terminalNbr: process.env.EPX_TERMINAL_NBR,
+  const epxCredentials = {
+    custNbr: process.env.EPX_CUST_NBR || '9001',
+    merchNbr: process.env.EPX_MERCH_NBR || '900300',
+    dbaNbr: process.env.EPX_DBA_NBR || '2',
+    terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: process.env.EPX_ENVIRONMENT || 'sandbox'
-  });
+  };
+  
+  console.log('[EPX Routes] EPX Service initialized with credentials:', epxCredentials);
 } catch (error) {
   console.error('[EPX Routes] Failed to initialize EPX Service:', error);
 }
@@ -98,6 +100,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     // Generate unique transaction number
     const tranNbr = `TXN_${Date.now()}_${nanoid(6)}`;
 
+    console.log('[EPX] Generating TAC with payload:', {
+      amount,
+      tranNbr,
+      customerEmail,
+      paymentMethod: paymentMethod || 'card',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+    });
+
     // Generate TAC for Browser Post
     const tacResponse = await epxService.generateTAC({
       amount,
@@ -111,7 +121,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       achAccountName
     });
 
+    console.log('[EPX] TAC Response:', {
+      success: tacResponse.success,
+      hasTAC: !!tacResponse.tac,
+      error: tacResponse.error
+    });
+
     if (!tacResponse.success || !tacResponse.tac) {
+      console.error('[EPX] TAC generation failed:', tacResponse);
       return res.status(500).json({
         success: false,
         error: tacResponse.error || 'Failed to generate payment session'
