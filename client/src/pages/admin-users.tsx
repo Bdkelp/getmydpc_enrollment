@@ -578,12 +578,15 @@ export default function AdminUsers() {
                             <div className="flex items-center space-x-3">
                               <div className="w-10 h-10 bg-medical-blue-100 rounded-full flex items-center justify-center">
                                 <span className="text-medical-blue-600 font-semibold text-sm">
-                                  {user.firstName?.[0] || '?'}{user.lastName?.[0] || '?'}
+                                  {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}{user.lastName?.[0]?.toUpperCase() || user.email?.[1]?.toUpperCase() || 'U'}
                                 </span>
                               </div>
                               <div>
                                 <p className="font-medium text-gray-900">
-                                  {user.firstName || 'Unknown'} {user.lastName || 'User'}
+                                  {user.firstName && user.lastName 
+                                    ? `${user.firstName} ${user.lastName}` 
+                                    : user.firstName || user.lastName || user.email?.split('@')[0] || 'User'
+                                  }
                                 </p>
                                 <p className="text-sm text-gray-500">{user.email}</p>
                               </div>
@@ -640,6 +643,17 @@ export default function AdminUsers() {
                                 placeholder="Enter agent #"
                                 defaultValue={user.agentNumber || ''}
                                 className="w-[120px]"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const value = e.currentTarget.value.trim();
+                                    if (value !== (user.agentNumber || '')) {
+                                      updateAgentNumberMutation.mutate({
+                                        userId: user.id,
+                                        agentNumber: value
+                                      });
+                                    }
+                                  }
+                                }}
                                 onBlur={(e) => {
                                   const value = e.target.value.trim();
                                   if (value !== (user.agentNumber || '')) {
@@ -649,6 +663,7 @@ export default function AdminUsers() {
                                     });
                                   }
                                 }}
+                                disabled={updateAgentNumberMutation.isPending}
                               />
                             ) : (
                               <span className="text-gray-400 text-sm">N/A</span>

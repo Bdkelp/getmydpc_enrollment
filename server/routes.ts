@@ -408,7 +408,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
     for (const user of users) {
       try {
         let enhancedUser = { ...user };
-        
+
         // Only try to get subscription data for members/users, and handle errors gracefully
         if (user.role === 'member' || user.role === 'user') {
           try {
@@ -425,7 +425,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
             // Continue without subscription data
           }
         }
-        
+
         enhancedUsers.push(enhancedUser);
       } catch (userError) {
         console.error(`[Admin Users API] Error processing user ${user.id}:`, userError);
@@ -539,15 +539,29 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
     const { userId } = req.params;
     const { agentNumber } = req.body;
 
-    const updatedUser = await storage.updateUser(userId, {
-      agentNumber,
+    // Validate agent number format if provided
+    if (agentNumber && agentNumber.trim() !== '') {
+      const trimmedAgentNumber = agentNumber.trim();
+      if (trimmedAgentNumber.length < 3) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Agent number must be at least 3 characters long' 
+        });
+      }
+    }
+
+    const result = await storage.updateUser(userId, {
+      agentNumber: agentNumber?.trim() || null,
       updatedAt: new Date()
     });
 
-    res.json(updatedUser);
+    res.json(result);
   } catch (error) {
     console.error("Error updating agent number:", error);
-    res.status(500).json({ message: "Failed to update agent number" });
+    res.status(500).json({ 
+      message: "Failed to update agent number",
+      details: error.message
+    });
   }
 });
 
