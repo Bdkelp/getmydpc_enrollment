@@ -417,7 +417,7 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching all users...');
-    
+
     // Remove limit and offset to get all users for admin panel
     const { data, error } = await supabase
       .from('users')

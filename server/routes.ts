@@ -515,7 +515,7 @@ router.put("/api/admin/users/:userId/role", authenticateToken, async (req: AuthR
     const { role } = req.body;
 
     if (!['member', 'agent', 'admin'].includes(role)) {
-      return res.status(400).json({ message: "Invalid role. Must be 'member' (healthcare subscriber), 'agent' (insurance agent), or 'admin' (system administrator)" });
+      return res.status(400).json({ message: "Invalid role. Must be 'member' (DPC plan subscriber), 'agent' (enrollment agent), or 'admin' (system administrator)" });
     }
 
     const updatedUser = await storage.updateUser(userId, {
@@ -539,6 +539,20 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
     const { userId } = req.params;
     const { agentNumber } = req.body;
 
+    // Get user to validate they can have an agent number
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Only agents and admins should have agent numbers (they enroll DPC members)
+    if (user.role !== 'agent' && user.role !== 'admin') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Only agents and admins can be assigned agent numbers' 
+      });
+    }
+
     // Validate agent number format if provided
     if (agentNumber && agentNumber.trim() !== '') {
       const trimmedAgentNumber = agentNumber.trim();
@@ -546,6 +560,15 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
         return res.status(400).json({ 
           success: false, 
           error: 'Agent number must be at least 3 characters long' 
+        });
+      }
+
+      // Check for duplicate agent numbers
+      const existingUser = await storage.getUserByAgentNumber(trimmedAgentNumber);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Agent number already in use'
         });
       }
     }
@@ -1193,13 +1216,13 @@ async function createCommissionWithCheck(agentId: string | null, subscriptionId:
   try {
     // Get agent profile to check role
     const agent = agentId ? await storage.getUser(agentId) : null;
-    const enrollingUser = await storage.getUser(userId);
+    const dpcMember = await storage.getUser(userId);
 
-    // Check if agent or enrolling user is admin
-    if (agent?.role === 'admin' || enrollingUser?.role === 'admin') {
+    // Check if agent or DPC member is admin (admins don't earn commissions)
+    if (agent?.role === 'admin' || dpcMember?.role === 'admin') {
       console.log('Commission creation skipped - admin involved:', {
         agentRole: agent?.role,
-        enrollingUserRole: enrollingUser?.role,
+        dpcMemberRole: dpcMember?.role,
         agentId,
         userId
       });
