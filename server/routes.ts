@@ -2,7 +2,7 @@ import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { paymentService } from "./services/payment-service";
-import { notificationService } from "./utils/notifications";
+import { sendEnrollmentNotification } from "./utils/notifications";
 import { calculateCommission, getPlanTierFromName, getPlanTypeFromMemberType } from "./utils/commission";
 import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
