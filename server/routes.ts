@@ -745,15 +745,24 @@ router.get("/api/admin/analytics", authenticateToken, async (req: AuthRequest, r
   }
 
   try {
-    const { days = "30" } = req.query;
+    const { days = "30", refresh = "false" } = req.query;
+
+    console.log(`[Analytics API] Fetching analytics for ${days} days (refresh: ${refresh})`);
 
     // Get comprehensive analytics data
     const analytics = await storage.getComprehensiveAnalytics(parseInt(days as string));
 
+    console.log('[Analytics API] Analytics overview:', {
+      totalMembers: analytics.overview?.totalMembers || 0,
+      activeSubscriptions: analytics.overview?.activeSubscriptions || 0,
+      monthlyRevenue: analytics.overview?.monthlyRevenue || 0,
+      recentEnrollments: analytics.recentEnrollments?.length || 0
+    });
+
     res.json(analytics);
   } catch (error) {
     console.error("Error fetching analytics:", error);
-    res.status(500).json({ message: "Failed to fetch analytics" });
+    res.status(500).json({ message: "Failed to fetch analytics", error: error.message });
   }
 });
 

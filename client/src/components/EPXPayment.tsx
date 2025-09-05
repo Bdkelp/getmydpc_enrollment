@@ -123,7 +123,7 @@ export function EPXPayment({
         'RESPONSE_ECHO': data.formData.responseEcho,
         'RECEIPT': data.formData.receipt
       };
-      
+
       // Add ACH fields if using ACH
       if (paymentMethod === 'ach') {
         fields['PAYMENT_TYPE'] = 'ACH';
@@ -148,19 +148,19 @@ export function EPXPayment({
       // Append form to body and submit
       document.body.appendChild(form);
       form.submit();
-      
+
       // Form will redirect to EPX, so we don't need to clean up here
     } catch (err: any) {
       console.error('[EPX Payment] Error:', err);
       setError(err.message || 'Payment initialization failed');
       setIsLoading(false);
-      
+
       toast({
         title: "Payment Error",
         description: err.message || 'Failed to initialize payment',
         variant: "destructive"
       });
-      
+
       if (onError) {
         onError(err.message);
       }
@@ -225,19 +225,19 @@ export function EPXPayment({
         setError('Failed to load payment provider');
         setIsLoading(false);
       };
-      
+
       document.body.appendChild(script);
     } catch (err: any) {
       console.error('[EPX Hosted Checkout] Error:', err);
       setError(err.message || 'Checkout initialization failed');
       setIsLoading(false);
-      
+
       toast({
         title: "Checkout Error",
         description: err.message || 'Failed to initialize checkout',
         variant: "destructive"
       });
-      
+
       if (onError) {
         onError(err.message);
       }
@@ -309,7 +309,7 @@ export function EPXPayment({
                 className="mt-1"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="routing-number">
                 Routing Number
@@ -328,7 +328,7 @@ export function EPXPayment({
               />
               <p className="text-xs text-gray-500 mt-1">9-digit routing number</p>
             </div>
-            
+
             <div>
               <Label htmlFor="account-number">
                 Account Number
@@ -345,7 +345,7 @@ export function EPXPayment({
                 className="mt-1"
               />
             </div>
-            
+
             <div>
               <Label htmlFor="account-type">
                 Account Type
@@ -363,7 +363,7 @@ export function EPXPayment({
                 </SelectContent>
               </Select>
             </div>
-            
+
             <Alert className="mt-3">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>

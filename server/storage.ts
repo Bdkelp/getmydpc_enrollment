@@ -1631,30 +1631,54 @@ export const storage = {
   getAdminDashboardStats: async () => {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
-      const allUsers = await supabase.from('users').select('*');
-      const allSubscriptions = await supabase.from('subscriptions').select('*');
-      const allCommissions = await supabase.from('commissions').select('*');
+      
+      // Get fresh data with proper error handling
+      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
+      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
+      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*');
 
-      const totalUsers = allUsers.data?.length || 0;
-      const totalMembers = allUsers.data?.filter(user => user.role === 'member' || user.role === 'user').length || 0;
-      const totalAgents = allUsers.data?.filter(user => user.role === 'agent').length || 0;
-      const totalAdmins = allUsers.data?.filter(user => user.role === 'admin').length || 0;
+      if (usersError || subscriptionsError || commissionsError) {
+        console.error('[Storage] Error fetching dashboard data:', { usersError, subscriptionsError, commissionsError });
+      }
 
-      const activeSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'active').length || 0;
-      const pendingSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'pending').length || 0;
-      const cancelledSubscriptions = allSubscriptions.data?.filter(sub => sub.status === 'cancelled').length || 0;
+      const allUsers = allUsersData || [];
+      const allSubscriptions = allSubscriptionsData || [];
+      const allCommissions = allCommissionsData || [];
 
-      const monthlyRevenue = allSubscriptions.data
-        ?.filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (sub.amount || 0), 0) || 0;
+      console.log('[Storage] Raw dashboard data counts:', {
+        users: allUsers.length,
+        subscriptions: allSubscriptions.length,
+        commissions: allCommissions.length
+      });
 
-      const totalCommissions = allCommissions.data?.reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
-      const paidCommissions = allCommissions.data
-        ?.filter(comm => comm.paymentStatus === 'paid')
-        .reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
-      const pendingCommissions = allCommissions.data
-        ?.filter(comm => comm.paymentStatus === 'unpaid' || comm.paymentStatus === 'pending')
-        .reduce((total, comm) => total + (comm.commissionAmount || 0), 0) || 0;
+      // Filter for actual active members only (not admins/agents)
+      const actualMembers = allUsers.filter(user => 
+        (user.role === 'member' || user.role === 'user') &&
+        user.approval_status === 'approved' &&
+        user.is_active === true
+      );
+
+      const totalUsers = allUsers.length;
+      const totalMembers = actualMembers.length;
+      const totalAgents = allUsers.filter(user => user.role === 'agent').length;
+      const totalAdmins = allUsers.filter(user => user.role === 'admin').length;
+
+      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
+      const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
+      const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
+
+      // Calculate revenue from active subscriptions only
+      const monthlyRevenue = allSubscriptions
+        .filter(sub => sub.status === 'active')
+        .reduce((total, sub) => total + (parseFloat(sub.amount) || 0), 0);
+
+      const totalCommissions = allCommissions.reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
+      const paidCommissions = allCommissions
+        .filter(comm => comm.payment_status === 'paid')
+        .reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
+      const pendingCommissions = allCommissions
+        .filter(comm => comm.payment_status === 'unpaid' || comm.payment_status === 'pending')
+        .reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -1720,11 +1744,11 @@ export const storage = {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      // Get all data
-      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
-      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
-      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*');
-      const { data: allPlansData, error: plansError } = await supabase.from('plans').select('*');
+      // Get fresh data with proper date filtering
+      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*').order('created_at', { ascending: false });
+      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*').order('created_at', { ascending: false });
+      const { data: allPlansData, error: plansError } = await supabase.from('plans').select('*').eq('is_active', true);
 
       if (usersError || subscriptionsError || commissionsError || plansError) {
         console.error('Error fetching data for comprehensive analytics:', usersError, subscriptionsError, commissionsError, plansError);
@@ -1736,20 +1760,40 @@ export const storage = {
       const allCommissions = allCommissionsData || [];
       const allPlans = allPlansData || [];
 
-      // Overview metrics
-      const totalMembers = allUsers.filter(user => user.role === 'member' || user.role === 'user').length;
-      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
-      const monthlyRevenue = allSubscriptions
-        .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (sub.amount || 0), 0);
+      console.log('[Analytics] Raw data counts:', {
+        users: allUsers.length,
+        subscriptions: allSubscriptions.length,
+        commissions: allCommissions.length,
+        plans: allPlans.length
+      });
 
+      // Overview metrics - only count actual DPC members (not agents/admins)
+      const actualMembers = allUsers.filter(user => 
+        (user.role === 'member' || user.role === 'user') && 
+        user.approval_status === 'approved' &&
+        user.is_active === true
+      );
+      
+      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active');
+      const monthlyRevenue = activeSubscriptions.reduce((total, sub) => total + (parseFloat(sub.amount) || 0), 0);
+
+      // Use proper date comparison with ISO strings
+      const cutoffDateISO = cutoffDate.toISOString();
       const newEnrollmentsThisMonth = allSubscriptions.filter(sub =>
-        sub.createdAt && new Date(sub.createdAt) >= cutoffDate
+        sub.created_at && sub.created_at >= cutoffDateISO && sub.status === 'active'
       ).length;
 
       const cancellationsThisMonth = allSubscriptions.filter(sub =>
-        sub.status === 'cancelled' && sub.updatedAt && new Date(sub.updatedAt) >= cutoffDate
+        sub.status === 'cancelled' && sub.updated_at && sub.updated_at >= cutoffDateISO
       ).length;
+
+      console.log('[Analytics] Calculated metrics:', {
+        totalMembers: actualMembers.length,
+        activeSubscriptions: activeSubscriptions.length,
+        monthlyRevenue,
+        newEnrollments: newEnrollmentsThisMonth,
+        cancellations: cancellationsThisMonth
+      });
 
       // Plan breakdown
       const planBreakdown = allPlans.map(plan => {
