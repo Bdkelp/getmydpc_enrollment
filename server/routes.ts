@@ -393,30 +393,40 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
 
     console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
-    const result = await storage.getAllUsers();
-    const users = result.users || [];
-    const totalCount = result.totalCount || 0;
+    const users = await storage.getAllUsers();
 
-    console.log('[Admin Users API] Retrieved users count:', totalCount);
-    console.log('[Admin Users API] User roles breakdown:', {
-      admins: users.filter(u => u.role === 'admin').length,
-      agents: users.filter(u => u.role === 'agent').length,
-      members: users.filter(u => u.role === 'member' || u.role === 'user').length,
-      others: users.filter(u => !['admin', 'agent', 'member', 'user'].includes(u.role)).length
+    // Enhance users with subscription data
+    const enhancedUsers = await Promise.all(users.map(async (user) => {
+      try {
+        // Get subscription data for members/users
+        if (user.role === 'member' || user.role === 'user') {
+          const subscription = await storage.getUserSubscription(user.id);
+          if (subscription) {
+            // Get plan details
+            const plan = await storage.getPlanById(subscription.planId);
+            return {
+              ...user,
+              subscription: {
+                status: subscription.status,
+                planName: plan?.name || 'Unknown Plan',
+                amount: subscription.amount || plan?.price || 0
+              }
+            };
+          }
+        }
+        return user;
+      } catch (error) {
+        console.error(`Error fetching subscription for user ${user.id}:`, error);
+        return user;
+      }
+    }));
+
+    const totalCount = enhancedUsers.length;
+
+    res.json({
+      users: enhancedUsers,
+      totalCount,
     });
-
-    if (users.length > 0) {
-      console.log('[Admin Users API] Sample user data:', {
-        id: users[0].id,
-        email: users[0].email,
-        firstName: users[0].firstName,
-        lastName: users[0].lastName,
-        role: users[0].role,
-        approvalStatus: users[0].approvalStatus
-      });
-    }
-
-    res.json({ users, totalCount });
   } catch (error) {
     console.error("[Admin Users API] Error fetching users:", error);
     res.status(500).json({ message: "Failed to fetch users" });
@@ -833,11 +843,11 @@ router.get("/api/agent/members", authenticateToken, async (req: AuthRequest, res
   try {
     // Get all users enrolled by this agent plus users they have commissions for
     const enrolledUsers = await storage.getAgentEnrollments(req.user!.id);
-    
+
     // Get users from commissions
     const agentCommissions = await storage.getAgentCommissions(req.user!.id);
     const commissionUserIds = agentCommissions.map(c => c.userId);
-    
+
     // Fetch additional users from commissions that weren't directly enrolled
     const additionalUsers = [];
     for (const userId of commissionUserIds) {
@@ -853,7 +863,7 @@ router.get("/api/agent/members", authenticateToken, async (req: AuthRequest, res
     const membersWithDetails = await Promise.all(allMembers.map(async (member) => {
       const subscription = await storage.getUserSubscription(member.id);
       const familyMembers = await storage.getFamilyMembers(member.id);
-      
+
       return {
         ...member,
         subscription,
@@ -876,7 +886,7 @@ router.get("/api/agent/members/:memberId", authenticateToken, async (req: AuthRe
 
   try {
     const { memberId } = req.params;
-    
+
     // Verify agent has access to this member
     const member = await storage.getUser(memberId);
     if (!member) {
@@ -1076,16 +1086,16 @@ router.get("/api/agent/stats", authenticateToken, async (req: AuthRequest, res) 
 
   try {
     const agentId = req.user!.id;
-    
+
     // Get commission stats
     const commissionStats = await storage.getCommissionStats(agentId);
-    
+
     // Get enrollment counts
     const enrollments = await storage.getAgentEnrollments(agentId);
     const thisMonth = new Date();
     thisMonth.setDate(1);
     thisMonth.setHours(0, 0, 0, 0);
-    
+
     const monthlyEnrollments = enrollments.filter(e => 
       new Date(e.createdAt) >= thisMonth
     ).length;

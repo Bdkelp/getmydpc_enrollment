@@ -60,6 +60,11 @@ interface UserType {
   createdAt: string;
   lastLoginAt?: string;
   emailVerified: boolean;
+  subscription?: {
+    status: string;
+    planName: string;
+    amount: number;
+  };
 }
 
 export default function AdminUsers() {
@@ -85,6 +90,23 @@ export default function AdminUsers() {
   // Fetch all users
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],
+    queryFn: async () => {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+
+      const response = await fetch('/api/admin/users', {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.json();
+    },
     retry: 3,
     staleTime: 30000, // Consider data fresh for 30 seconds
   });
@@ -391,7 +413,7 @@ export default function AdminUsers() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Members</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u && u.role === 'member').length}</p>
+                    {safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user')).length}</p>
                 </div>
                 <User className="h-8 w-8 text-gray-600" />
               </div>
@@ -466,6 +488,7 @@ export default function AdminUsers() {
                       <TableHead>User</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead>Agent Number</TableHead>
+                      <TableHead>Plan</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead>Last Login</TableHead>
@@ -502,12 +525,12 @@ export default function AdminUsers() {
                             <div className="flex items-center space-x-3">
                               <div className="w-10 h-10 bg-medical-blue-100 rounded-full flex items-center justify-center">
                                 <span className="text-medical-blue-600 font-semibold text-sm">
-                                  {user.firstName?.[0]}{user.lastName?.[0]}
+                                  {user.firstName?.[0] || '?'}{user.lastName?.[0] || '?'}
                                 </span>
                               </div>
                               <div>
                                 <p className="font-medium text-gray-900">
-                                  {user.firstName} {user.lastName}
+                                  {user.firstName || 'Unknown'} {user.lastName || 'User'}
                                 </p>
                                 <p className="text-sm text-gray-500">{user.email}</p>
                               </div>
@@ -548,25 +571,48 @@ export default function AdminUsers() {
                                     Member
                                   </div>
                                 </SelectItem>
+                                <SelectItem value="user">
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-3 w-3" />
+                                    User
+                                  </div>
+                                </SelectItem>
                               </SelectContent>
                             </Select>
                           </TableCell>
                           <TableCell>
-                            <Input
-                              type="text"
-                              placeholder="Enter writing #"
-                              defaultValue={user.agentNumber || ''}
-                              className="w-[120px]"
-                              onBlur={(e) => {
-                                const value = e.target.value.trim();
-                                if (value !== (user.agentNumber || '')) {
-                                  updateAgentNumberMutation.mutate({
-                                    userId: user.id,
-                                    agentNumber: value
-                                  });
-                                }
-                              }}
-                            />
+                            {user.role === 'agent' ? (
+                              <Input
+                                type="text"
+                                placeholder="Enter agent #"
+                                defaultValue={user.agentNumber || ''}
+                                className="w-[120px]"
+                                onBlur={(e) => {
+                                  const value = e.target.value.trim();
+                                  if (value !== (user.agentNumber || '')) {
+                                    updateAgentNumberMutation.mutate({
+                                      userId: user.id,
+                                      agentNumber: value
+                                    });
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <span className="text-gray-400 text-sm">N/A</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {user.subscription ? (
+                              <Badge variant="outline" className="text-blue-600">
+                                {user.subscription.planName} - ${user.subscription.amount}/mo
+                              </Badge>
+                            ) : user.role === 'member' || user.role === 'user' ? (
+                              <Badge variant="outline" className="text-gray-600">
+                                No Active Plan
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-400 text-sm">N/A</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="space-y-1">
@@ -577,7 +623,7 @@ export default function AdminUsers() {
                               >
                                 {user.approvalStatus === 'suspended' || (!user.isActive && user.approvalStatus !== 'pending') ? 'Suspended' : 
                                  user.approvalStatus === 'approved' && user.isActive ? 'Active' : 
-                                 user.approvalStatus}
+                                 user.approvalStatus || 'Unknown'}
                               </Badge>
                               {user.emailVerified && (
                                 <Badge variant="outline" className="text-xs">
@@ -587,16 +633,24 @@ export default function AdminUsers() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {user.createdAt && !isNaN(new Date(user.createdAt).getTime()) ? 
-                              format(new Date(user.createdAt), 'MMM d, yyyy') : 
-                              'Unknown'
-                            }
+                            {user.createdAt ? (() => {
+                              try {
+                                const date = new Date(user.createdAt);
+                                return !isNaN(date.getTime()) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
+                              } catch (e) {
+                                return 'Invalid Date';
+                              }
+                            })() : 'Unknown'}
                           </TableCell>
                           <TableCell>
-                            {user.lastLoginAt && !isNaN(new Date(user.lastLoginAt).getTime()) ? 
-                              format(new Date(user.lastLoginAt), 'MMM d, h:mm a') : 
-                              'Never'
-                            }
+                            {user.lastLoginAt ? (() => {
+                              try {
+                                const date = new Date(user.lastLoginAt);
+                                return !isNaN(date.getTime()) ? format(date, 'MMM d, h:mm a') : 'Invalid Date';
+                              } catch (e) {
+                                return 'Invalid Date';
+                              }
+                            })() : 'Never'}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end space-x-2">
@@ -611,7 +665,7 @@ export default function AdminUsers() {
                                   Approve
                                 </Button>
                               )}
-                              {user.role === 'member' && (
+                              {(user.role === 'member' || user.role === 'user') && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

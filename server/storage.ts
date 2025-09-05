@@ -1301,18 +1301,16 @@ export async function getActivePlans(): Promise<Plan[]> {
   return (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
 }
 
-export async function getPlanById(id: number): Promise<Plan | undefined> {
-  // Supabase IDs are typically strings or UUIDs, so adapt if your schema uses numbers for IDs.
+export async function getPlanById(id: string): Promise<Plan | undefined> {
   const { data, error } = await supabase
     .from('plans')
     .select('*')
-    .eq('id', id.toString()) // Assuming ID is string/UUID in Supabase
+    .eq('id', id)
     .single();
 
   if (error) {
-    if (error.code === 'PGRST116') return undefined;
-    console.error('Error fetching plan by ID:', error);
-    return undefined;
+    console.error('Error fetching plan:', error);
+    return null;
   }
   return mapPlanFromDB(data) || undefined;
 }
@@ -1531,12 +1529,13 @@ export const storage = {
       .from('subscriptions')
       .select('*')
       .eq('userId', userId)
-      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single();
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       console.error('Error fetching user subscription:', error);
-      return undefined;
+      return null;
     }
 
     return data;
