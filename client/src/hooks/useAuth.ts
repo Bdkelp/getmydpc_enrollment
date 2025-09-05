@@ -145,26 +145,20 @@ export function useAuth() {
         if (!response.ok) {
           if (response.status === 401) {
             console.log("[useAuth] Unauthorized response - token may be expired");
-            // Don't immediately clear session - let it retry once more
-            if (failureCount === 0) {
-              console.log("[useAuth] First 401 error, will retry once");
-              throw new Error("Unauthorized - will retry");
-            } else {
-              console.log("[useAuth] Second 401 error - clearing session");
-              // Clear the session safely with a delay to prevent race conditions
-              setTimeout(async () => {
-                try {
-                  if (typeof localStorage !== "undefined") {
-                    localStorage.removeItem("supabase.auth.token");
-                  }
-                  setSession(null);
-                  await signOut();
-                } catch (clearError) {
-                  console.warn("[useAuth] Session cleanup failed:", clearError);
+            // Clear the session safely with a delay to prevent race conditions
+            console.log("[useAuth] Clearing expired session");
+            setTimeout(async () => {
+              try {
+                if (typeof localStorage !== "undefined") {
+                  localStorage.removeItem("supabase.auth.token");
                 }
-              }, 100);
-              return null;
-            }
+                setSession(null);
+                await signOut();
+              } catch (clearError) {
+                console.warn("[useAuth] Session cleanup failed:", clearError);
+              }
+            }, 100);
+            return null;
           }
 
           if (response.status === 403) {
