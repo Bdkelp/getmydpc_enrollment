@@ -73,8 +73,6 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, data: Partial<User>): Promise<User>;
-  updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User>;
-
   // Authentication operations
   createUser(user: Partial<User>): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
@@ -103,7 +101,7 @@ export interface IStorage {
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
   getUserPayments(userId: string): Promise<Payment[]>;
-  getPaymentByStripeId(stripePaymentIntentId: string): Promise<Payment | undefined>;
+  getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
 
   // Family member operations
   getFamilyMembers(primaryUserId: string): Promise<FamilyMember[]>;
@@ -220,8 +218,6 @@ function mapUserFromDB(data: any): User | null {
     zipCode: data.zip_code || data.zipCode,
     emergencyContactName: data.emergency_contact_name || data.emergencyContactName,
     emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
-    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
-    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
     role: normalizedRole,
     agentNumber: data.agent_number || data.agentNumber,
     isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
@@ -416,13 +412,7 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 }
 
 
-export async function updateUserStripeInfo(id: string, stripeCustomerId?: string, stripeSubscriptionId?: string): Promise<User> {
-  const updates: Partial<User> = { updated_at: new Date() };
-  if (stripeCustomerId) updates.stripeCustomerId = stripeCustomerId;
-  if (stripeSubscriptionId) updates.stripeSubscriptionId = stripeSubscriptionId;
 
-  return updateUser(id, updates);
-}
 
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
@@ -1265,7 +1255,6 @@ function mapPlanFromDB(data: any): Plan | null {
     features: data.features,
     maxMembers: data.max_members || data.maxMembers || 1,
     isActive: data.is_active !== undefined ? data.is_active : true,
-    stripePriceId: data.stripe_price_id || data.stripePriceId,
     createdAt: data.created_at || data.createdAt,
     updatedAt: data.updated_at || data.updatedAt
   } as Plan;
@@ -1499,7 +1488,6 @@ export const storage = {
   getUserByAgentNumber,
   upsertUser,
   updateUserProfile,
-  updateUserStripeInfo,
   getAllUsers,
   getUsersCount,
   getRevenueStats,
@@ -1560,7 +1548,6 @@ export const storage = {
 
   createPayment,
   getUserPayments,
-  getPaymentByTransactionId,
   getPaymentByTransactionId,
   updatePayment,
 
