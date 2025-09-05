@@ -21,7 +21,7 @@ try {
       ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
       : 'http://localhost:5000';
 
-  initializeEPXService({
+  const epxConfig = {
     checkoutId: process.env.EPX_CHECKOUT_ID,
     mac: process.env.EPX_MAC || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
     epiId: process.env.EPX_EPI_ID,
@@ -35,7 +35,18 @@ try {
     responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
     cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
+  };
+
+  console.log('[EPX Routes] Configuration check:', {
+    hasMac: !!epxConfig.mac,
+    macLength: epxConfig.mac?.length,
+    custNbr: epxConfig.custNbr,
+    merchNbr: epxConfig.merchNbr,
+    environment: epxConfig.environment,
+    baseUrl
   });
+
+  initializeEPXService(epxConfig);
   const epxService = getEPXService();
   console.log('[EPX Routes] EPX Service initialized successfully');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');

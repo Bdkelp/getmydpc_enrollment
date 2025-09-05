@@ -91,12 +91,13 @@ export class EPXPaymentService {
     // Set URLs based on environment
     if (config.environment === 'production') {
       this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';
+      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
+      // Sandbox URLs - EPX uses same endpoints for sandbox with different credentials
       this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';  // Using main EPX UAP endpoint
-      this.customPayApiUrl = 'https://epi.epxuap.com';  // Same URL for sandbox
+      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';  // Removed /api/ prefix
+      this.customPayApiUrl = 'https://epi.epxuap.com';
     }
 
     console.log('[EPX Service] Initialized with config:', {
@@ -157,13 +158,21 @@ export class EPXPaymentService {
       console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
       console.log('[EPX] TAC payload:', { ...payload, MAC: '***MASKED***' });
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(this.keyExchangeUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'DPC-EPX-Integration/1.0'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
 
       console.log('[EPX] TAC response status:', response.status);
 
@@ -191,6 +200,21 @@ export class EPXPaymentService {
       }
     } catch (error: any) {
       console.error('[EPX] TAC generation error:', error);
+      
+      if (error.name === 'AbortError') {
+        return {
+          success: false,
+          error: 'Request timeout - EPX service took too long to respond'
+        };
+      }
+      
+      if (error.message.includes('fetch')) {
+        return {
+          success: false,
+          error: 'Unable to connect to EPX payment service. Please check your network connection.'
+        };
+      }
+      
       return {
         success: false,
         error: error.message || 'TAC generation failed'
