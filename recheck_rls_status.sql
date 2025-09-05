@@ -5,14 +5,15 @@
 -- 1. Check RLS enabled status on all tables
 SELECT 
   'RLS Status Check' as check_type,
-  schemaname||'.'||tablename as table_name,
-  rowsecurity as rls_enabled,
+  t.schemaname||'.'||t.tablename as table_name,
+  c.relrowsecurity as rls_enabled,
   CASE 
-    WHEN rowsecurity THEN '✅ RLS Enabled'
+    WHEN c.relrowsecurity THEN '✅ RLS Enabled'
     ELSE '❌ RLS DISABLED'
   END as status
 FROM pg_tables t
 JOIN pg_class c ON c.relname = t.tablename
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
 WHERE t.schemaname = 'public'
 AND t.tablename IN ('users', 'family_members', 'subscriptions', 'payments', 'commissions', 'leads', 'lead_activities', 'enrollment_modifications', 'plans', 'sessions')
 ORDER BY t.tablename;
@@ -20,13 +21,14 @@ ORDER BY t.tablename;
 -- 2. Check for tables with RLS enabled but NO policies (the main issue)
 SELECT 
   'Tables Without Policies' as issue_type,
-  schemaname||'.'||tablename as table_name,
+  t.schemaname||'.'||t.tablename as table_name,
   'RLS enabled but NO policies exist' as problem,
   '❌ NEEDS ATTENTION' as status
 FROM pg_tables t
 JOIN pg_class c ON c.relname = t.tablename
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
 WHERE t.schemaname = 'public'
-AND c.rowsecurity = true  -- RLS is enabled
+AND c.relrowsecurity = true  -- RLS is enabled
 AND NOT EXISTS (
   SELECT 1 FROM pg_policies p 
   WHERE p.schemaname = t.schemaname 
@@ -110,9 +112,10 @@ ORDER BY kcu.table_name, kcu.column_name;
 WITH rls_status AS (
   SELECT 
     COUNT(*) as total_tables,
-    COUNT(CASE WHEN c.rowsecurity THEN 1 END) as rls_enabled_tables
+    COUNT(CASE WHEN c.relrowsecurity THEN 1 END) as rls_enabled_tables
   FROM pg_tables t
   JOIN pg_class c ON c.relname = t.tablename
+  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
   WHERE t.schemaname = 'public'
   AND t.tablename IN ('users', 'family_members', 'subscriptions', 'payments', 'commissions', 'leads', 'lead_activities', 'enrollment_modifications', 'plans', 'sessions')
 ),
@@ -127,8 +130,9 @@ tables_without_policies AS (
   SELECT COUNT(*) as problem_tables
   FROM pg_tables t
   JOIN pg_class c ON c.relname = t.tablename
+  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
   WHERE t.schemaname = 'public'
-  AND c.rowsecurity = true  
+  AND c.relrowsecurity = true  
   AND NOT EXISTS (
     SELECT 1 FROM pg_policies p 
     WHERE p.schemaname = t.schemaname 
@@ -151,13 +155,14 @@ FROM rls_status r, policy_status p, tables_without_policies w;
 -- 8. If any issues remain, show specific actions needed
 SELECT 
   'ACTION REQUIRED' as alert_type,
-  'Table: ' || schemaname||'.'||tablename as table_name,
+  'Table: ' || t.schemaname||'.'||t.tablename as table_name,
   'Create RLS policies for this table' as required_action,
   'Run fix_missing_rls_policies.sql script' as solution
 FROM pg_tables t
 JOIN pg_class c ON c.relname = t.tablename
+JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
 WHERE t.schemaname = 'public'
-AND c.rowsecurity = true  
+AND c.relrowsecurity = true  
 AND NOT EXISTS (
   SELECT 1 FROM pg_policies p 
   WHERE p.schemaname = t.schemaname 
