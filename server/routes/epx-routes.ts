@@ -15,12 +15,12 @@ const router = Router();
 // Initialize EPX Service on startup
 try {
   // Get the base URL from environment
-  const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+  const baseUrl = process.env.REPLIT_DEV_DOMAIN
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.REPLIT_DOMAINS 
+    : process.env.REPLIT_DOMAINS
       ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
       : 'http://localhost:5000';
-  
+
   initializeEPXService({
     checkoutId: process.env.EPX_CHECKOUT_ID,
     mac: process.env.EPX_MAC || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
@@ -36,15 +36,10 @@ try {
     cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   });
-  const epxCredentials = {
-    custNbr: process.env.EPX_CUST_NBR || '9001',
-    merchNbr: process.env.EPX_MERCH_NBR || '900300',
-    dbaNbr: process.env.EPX_DBA_NBR || '2',
-    terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
-    environment: process.env.EPX_ENVIRONMENT || 'sandbox'
-  };
-  
-  console.log('[EPX Routes] EPX Service initialized with credentials:', epxCredentials);
+  const epxService = getEPXService();
+  console.log('[EPX Routes] EPX Service initialized successfully');
+  console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
+  console.log('[EPX Routes] Base URL:', baseUrl);
 } catch (error) {
   console.error('[EPX Routes] Failed to initialize EPX Service:', error);
 }
@@ -76,12 +71,12 @@ router.get('/api/epx/checkout-config', async (req: Request, res: Response) => {
 router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
   try {
     const epxService = getEPXService();
-    const { 
-      amount, 
-      customerId, 
-      customerEmail, 
-      planId, 
-      subscriptionId, 
+    const {
+      amount,
+      customerId,
+      customerEmail,
+      planId,
+      subscriptionId,
       description,
       paymentMethod,
       achRoutingNumber,
@@ -256,14 +251,14 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
             status: 'active',
             lastPaymentDate: new Date()
           });
-          
+
           console.log(`[EPX Transaction Log] Subscription activated:`, {
             subscriptionId: payment.subscriptionId,
             transactionId: result.transactionId,
             environment: process.env.EPX_ENVIRONMENT || 'sandbox'
           });
         }
-        
+
         // Send comprehensive enrollment notification (member, agent, admins)
         await sendEnrollmentNotification({
           memberEmail: payment.userId, // Assuming userId is the member's email for notification

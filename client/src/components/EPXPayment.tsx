@@ -64,6 +64,8 @@ export function EPXPayment({
 
     try {
       // Create payment session with EPX
+      console.log('[EPX Payment] Creating payment session for amount:', amount);
+
       const response = await fetch('/api/epx/create-payment', {
         method: 'POST',
         headers: {
@@ -87,7 +89,16 @@ export function EPXPayment({
         })
       });
 
+      console.log('[EPX Payment] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[EPX Payment] Request failed:', response.status, errorText);
+        throw new Error(`Payment request failed: ${response.status}`);
+      }
+
       const data = await response.json();
+      console.log('[EPX Payment] Response data:', data);
 
       if (!data.success || !data.formData) {
         throw new Error(data.error || 'Failed to create payment session');

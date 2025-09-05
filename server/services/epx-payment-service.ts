@@ -87,18 +87,18 @@ export class EPXPaymentService {
 
   constructor(config: EPXConfig) {
     this.config = config;
-    
+
     // Set URLs based on environment
     if (config.environment === 'production') {
       this.apiUrl = 'https://epxuap.com/post';
       this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
-      this.apiUrl = 'https://epxuap.com/post';  
+      this.apiUrl = 'https://epxuap.com/post';
       this.keyExchangeUrl = 'https://epxuap.com/api/key-exchange';  // Using main EPX UAP endpoint
       this.customPayApiUrl = 'https://epi.epxuap.com';  // Same URL for sandbox
     }
-    
+
     console.log('[EPX Service] Initialized with config:', {
       custNbr: this.config.custNbr,
       merchNbr: this.config.merchNbr,
@@ -116,7 +116,7 @@ export class EPXPaymentService {
   async generateTAC(request: TACRequest): Promise<TACResponse> {
     try {
       console.log('[EPX] Generating TAC for transaction');
-      
+
       if (!this.config.mac) {
         throw new Error('MAC value not configured for Browser Post API');
       }
@@ -141,7 +141,7 @@ export class EPXPaymentService {
         ...(request.invoiceNumber && { INVOICE_NBR: request.invoiceNumber }),
         ...(request.orderDescription && { DESCRIPTION: request.orderDescription })
       };
-      
+
       // Add ACH-specific fields if payment method is ACH
       if (request.paymentMethod === 'ach') {
         payload.PAYMENT_TYPE = 'ACH';
@@ -155,10 +155,7 @@ export class EPXPaymentService {
       }
 
       console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
-      console.log('[EPX] TAC request payload:', {
-        ...payload,
-        MAC: payload.MAC ? '[REDACTED]' : 'MISSING'
-      });
+      console.log('[EPX] TAC payload:', { ...payload, MAC: '***MASKED***' });
 
       const response = await fetch(this.keyExchangeUrl, {
         method: 'POST',
@@ -169,12 +166,11 @@ export class EPXPaymentService {
       });
 
       console.log('[EPX] TAC response status:', response.status);
-      console.log('[EPX] TAC response headers:', Object.fromEntries(response.headers.entries()));
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('[EPX] TAC HTTP error:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+        console.error('[EPX] TAC request failed:', response.status, errorText);
+        throw new Error(`TAC request failed: ${response.status} ${errorText}`);
       }
 
       const data = await response.json();
