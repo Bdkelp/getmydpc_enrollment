@@ -364,12 +364,21 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // Public lead submission endpoint (for contact forms)
-router.post("/api/public/leads", async (req: AuthRequest, res) => {
+router.post("/api/public/leads", async (req: any, res) => {
   try {
+    console.log('[Public Leads] Received submission:', req.body);
+    
     const { firstName, lastName, email, phone, message } = req.body;
 
     if (!firstName || !lastName || !email || !phone) {
+      console.log('[Public Leads] Missing required fields:', { firstName, lastName, email, phone });
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
     }
 
     const lead = await storage.createLead({
@@ -382,10 +391,11 @@ router.post("/api/public/leads", async (req: AuthRequest, res) => {
       status: "new"
     });
 
+    console.log('[Public Leads] Lead created successfully:', lead.id);
     res.json({ success: true, leadId: lead.id });
   } catch (error: any) {
     console.error("Public lead creation error:", error);
-    res.status(500).json({ error: "Failed to submit lead" });
+    res.status(500).json({ error: "Failed to submit lead", details: error.message });
   }
 });
 

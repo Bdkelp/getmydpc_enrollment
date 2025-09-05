@@ -47,8 +47,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
     setIsSubmitting(true);
     
     try {
-      // Get auth token from localStorage
-      const token = localStorage.getItem('auth_token');
+      console.log('Submitting contact form:', data);
       
       // Submit lead to backend (public endpoint for contact form)
       const response = await fetch("/api/public/leads", {
@@ -60,10 +59,13 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Lead submission error:", response.status, errorText);
-        throw new Error(`Failed to submit lead: ${response.status}`);
+        const errorData = await response.text();
+        console.error("Lead submission error:", response.status, errorData);
+        throw new Error(`Failed to submit lead: ${response.status} - ${errorData}`);
       }
+      
+      const result = await response.json();
+      console.log('Lead submission successful:', result);
       
       toast({
         title: "Thank you for your interest!",
@@ -73,6 +75,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       form.reset();
       onClose();
     } catch (error) {
+      console.error('Contact form submission error:', error);
       toast({
         title: "Submission Failed",
         description: "Please try again or call us at 210-512-4318",
