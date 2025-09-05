@@ -417,30 +417,42 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching all users...');
+    
+    // Remove limit and offset to get all users for admin panel
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('[Storage] Error fetching all users:', error);
       console.error('[Storage] Error details:', error.message);
+      console.error('[Storage] Error code:', error.code);
+      throw new Error(`Database error: ${error.message}`);
+    }
+
+    if (!data) {
+      console.warn('[Storage] No data returned from users query');
       return { users: [], totalCount: 0 };
     }
 
-    const { count, error: countError } = await supabase
-      .from('users')
-      .select('*', { count: 'exact', head: true });
+    console.log('[Storage] Found users count:', data.length);
 
-    if (countError) {
-      console.error('[Storage] Error fetching user count:', countError);
+    // Map all users using the helper function with better error handling
+    const mappedUsers = [];
+    for (const userData of data) {
+      try {
+        const mappedUser = mapUserFromDB(userData);
+        if (mappedUser) {
+          mappedUsers.push(mappedUser);
+        }
+      } catch (mapError) {
+        console.error('[Storage] Error mapping user:', userData.id, mapError);
+        // Continue processing other users
+      }
     }
 
-    console.log('[Storage] Found users:', count || data?.length || 0);
-
-    // Map all users using the helper function
-    const mappedUsers = (data || []).map(mapUserFromDB).filter(Boolean);
+    console.log('[Storage] Successfully mapped users:', mappedUsers.length);
 
     // Log first user for debugging (without sensitive data)
     if (mappedUsers.length > 0) {
@@ -456,12 +468,13 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
 
     return {
       users: mappedUsers,
-      totalCount: count || mappedUsers.length
+      totalCount: mappedUsers.length
     };
   } catch (error: any) {
     console.error("[Storage] Unexpected error fetching all users:", error);
     console.error("[Storage] Error details:", error.message);
-    return { users: [], totalCount: 0 };
+    console.error("[Storage] Error stack:", error.stack);
+    throw error; // Re-throw to be handled by the calling function
   }
 }
 
@@ -1499,20 +1512,25 @@ export const storage = {
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
   getUserSubscription: async (userId: string) => {
-    const { data, error } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .eq('userId', userId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('userId', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no records
 
-    if (error) {
-      console.error('Error fetching user subscription:', error);
+      if (error) {
+        console.error('Error fetching user subscription:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Unexpected error fetching user subscription for', userId, ':', error);
       return null;
     }
-
-    return data;
   },
   getUserSubscriptions: async (userId: string) => {
     const { data, error } = await supabase
