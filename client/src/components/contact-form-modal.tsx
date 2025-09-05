@@ -47,7 +47,31 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
     setIsSubmitting(true);
     
     try {
-      console.log('Submitting contact form:', data);
+      console.log('=== CONTACT FORM SUBMISSION START ===');
+      console.log('Form data:', data);
+      console.log('Form validation state:', {
+        isValid: form.formState.isValid,
+        errors: form.formState.errors
+      });
+      
+      // Validate required fields client-side
+      if (!data.firstName || !data.lastName || !data.email || !data.phone) {
+        throw new Error('Please fill in all required fields');
+      }
+      
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(data.email)) {
+        throw new Error('Please enter a valid email address');
+      }
+      
+      // Validate phone number (basic validation)
+      if (data.phone.length < 10) {
+        throw new Error('Please enter a valid phone number');
+      }
+      
+      console.log('Client-side validation passed');
+      console.log('Making request to:', "/api/public/leads");
       
       // Submit lead to backend (public endpoint for contact form)
       const response = await fetch("/api/public/leads", {
@@ -58,14 +82,24 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
         body: JSON.stringify(data),
       });
       
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
       if (!response.ok) {
-        const errorData = await response.text();
-        console.error("Lead submission error:", response.status, errorData);
-        throw new Error(`Failed to submit lead: ${response.status} - ${errorData}`);
+        let errorData;
+        try {
+          errorData = await response.text();
+          console.error("Server response error:", errorData);
+        } catch (parseError) {
+          console.error("Could not parse error response:", parseError);
+          errorData = `HTTP ${response.status}`;
+        }
+        throw new Error(`Server error: ${response.status} - ${errorData}`);
       }
       
       const result = await response.json();
       console.log('Lead submission successful:', result);
+      console.log('=== CONTACT FORM SUBMISSION SUCCESS ===');
       
       toast({
         title: "Thank you for your interest!",
@@ -74,11 +108,27 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       
       form.reset();
       onClose();
-    } catch (error) {
-      console.error('Contact form submission error:', error);
+    } catch (error: any) {
+      console.error('=== CONTACT FORM SUBMISSION ERROR ===');
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      let errorMessage = "Please try again or call us at 210-512-4318";
+      
+      if (error.message.includes('Failed to fetch')) {
+        errorMessage = "Network error. Please check your connection and try again.";
+      } else if (error.message.includes('validation') || error.message.includes('required')) {
+        errorMessage = error.message;
+      } else if (error.message.includes('Server error')) {
+        errorMessage = "Server error. Please try again in a moment.";
+      }
+      
       toast({
         title: "Submission Failed",
-        description: "Please try again or call us at 210-512-4318",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

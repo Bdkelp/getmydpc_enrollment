@@ -365,37 +365,100 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 
 // Public lead submission endpoint (for contact forms)
 router.post("/api/public/leads", async (req: any, res) => {
+  console.log('[Public Leads] === ENDPOINT HIT ===');
+  console.log('[Public Leads] Method:', req.method);
+  console.log('[Public Leads] Headers:', req.headers);
+  console.log('[Public Leads] Body type:', typeof req.body);
+  console.log('[Public Leads] Raw body:', req.body);
+  
   try {
-    console.log('[Public Leads] Received submission:', req.body);
-    
-    const { firstName, lastName, email, phone, message } = req.body;
+    // Check if body exists and is parsed
+    if (!req.body) {
+      console.error('[Public Leads] No request body found');
+      return res.status(400).json({ 
+        error: "No data received",
+        debug: "Request body is empty"
+      });
+    }
 
-    if (!firstName || !lastName || !email || !phone) {
-      console.log('[Public Leads] Missing required fields:', { firstName, lastName, email, phone });
-      return res.status(400).json({ error: "Missing required fields" });
+    const { firstName, lastName, email, phone, message } = req.body;
+    
+    console.log('[Public Leads] Extracted fields:', { 
+      firstName: !!firstName, 
+      lastName: !!lastName, 
+      email: !!email, 
+      phone: !!phone, 
+      message: !!message 
+    });
+
+    // Check required fields
+    const missingFields = [];
+    if (!firstName) missingFields.push('firstName');
+    if (!lastName) missingFields.push('lastName');
+    if (!email) missingFields.push('email');
+    if (!phone) missingFields.push('phone');
+
+    if (missingFields.length > 0) {
+      console.log('[Public Leads] Missing required fields:', missingFields);
+      return res.status(400).json({ 
+        error: "Missing required fields",
+        missingFields,
+        receivedData: { firstName, lastName, email, phone }
+      });
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.log('[Public Leads] Invalid email format:', email);
       return res.status(400).json({ error: "Invalid email format" });
     }
 
-    const lead = await storage.createLead({
-      firstName,
-      lastName,
-      email,
-      phone,
-      message: message || "",
+    // Validate phone (basic check)
+    if (phone.length < 10) {
+      console.log('[Public Leads] Invalid phone format:', phone);
+      return res.status(400).json({ error: "Invalid phone number format" });
+    }
+
+    console.log('[Public Leads] Validation passed, creating lead...');
+
+    const leadData = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      message: message ? message.trim() : "",
       source: "contact_form",
       status: "new"
+    };
+
+    console.log('[Public Leads] Lead data to create:', leadData);
+
+    const lead = await storage.createLead(leadData);
+
+    console.log('[Public Leads] Lead created successfully:', { 
+      id: lead.id, 
+      email: lead.email 
+    });
+    
+    res.json({ 
+      success: true, 
+      leadId: lead.id,
+      message: "Lead submitted successfully"
     });
 
-    console.log('[Public Leads] Lead created successfully:', lead.id);
-    res.json({ success: true, leadId: lead.id });
   } catch (error: any) {
-    console.error("Public lead creation error:", error);
-    res.status(500).json({ error: "Failed to submit lead", details: error.message });
+    console.error("[Public Leads] Error creating lead:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    res.status(500).json({ 
+      error: "Failed to submit lead", 
+      details: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
