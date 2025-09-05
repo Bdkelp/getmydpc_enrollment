@@ -26,12 +26,13 @@ import {
   Database,
   BarChart
 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   
   // Test authentication
   useEffect(() => {
@@ -305,24 +306,24 @@ export default function Admin() {
                   Enroll Member
                 </Button>
               </Link>
-              <Link href="/admin/leads">
-                <Button variant="outline" className="border-orange-500 text-orange-600 hover:bg-orange-50">
-                  <Users className="h-4 w-4 mr-2" />
-                  Lead Management
-                </Button>
-              </Link>
-              <Link href="/admin/enrollments">
-                <Button variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50">
-                  <Users className="h-4 w-4 mr-2" />
-                  View Enrollments
-                </Button>
-              </Link>
-              <Link href="/admin/users">
-                <Button variant="outline" className="border-red-500 text-red-600 hover:bg-red-50">
-                  <Shield className="h-4 w-4 mr-2" />
-                  User Roles
-                </Button>
-              </Link>
+              <Button variant="outline" 
+                      className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                      onClick={() => setLocation('/admin/leads')}>
+                <Users className="h-4 w-4 mr-2" />
+                Lead Management
+              </Button>
+              <Button variant="outline" 
+                      className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      onClick={() => setLocation('/admin/enrollments')}>
+                <Users className="h-4 w-4 mr-2" />
+                View Enrollments
+              </Button>
+              <Button variant="outline" 
+                      className="border-red-500 text-red-600 hover:bg-red-50"
+                      onClick={() => setLocation('/admin/users')}>
+                <Shield className="h-4 w-4 mr-2" />
+                User Roles
+              </Button>
               <Link href="/admin/analytics">
                 <Button variant="outline" className="border-green-500 text-green-600 hover:bg-green-50">
                   <BarChart className="h-4 w-4 mr-2" />
@@ -514,19 +515,30 @@ export default function Admin() {
                 </Button>
               </Link>
               <Link href="/admin/enrollments">
-                <Button className="w-full justify-start" variant="outline">
+                <Button className="w-full justify-start" variant="outline" onClick={() => {
+                  console.log('[Admin] Navigating to enrollments');
+                  setLocation('/admin/enrollments');
+                }}>
                   <Users className="h-4 w-4 mr-2" />
                   View All Enrollments
                 </Button>
               </Link>
               <Link href="/admin/leads">
-                <Button className="w-full justify-start" variant="outline">
+                <Button className="w-full justify-start" variant="outline" onClick={() => {
+                  console.log('[Admin] Navigating to leads');
+                  setLocation('/admin/leads');
+                }}>
                   <TrendingUp className="h-4 w-4 mr-2" />
                   Manage Leads
                 </Button>
               </Link>
               <Link href="/admin/users">
-                <Button className="w-full justify-start" variant="outline" style={{ backgroundColor: "#fee2e2", borderColor: "#fca5a5" }}>
+                <Button className="w-full justify-start" variant="outline" 
+                       className="bg-red-50 border-red-200 hover:bg-red-100"
+                       onClick={() => {
+                         console.log('[Admin] Navigating to user management');
+                         setLocation('/admin/users');
+                       }}>
                   <Shield className="h-4 w-4 mr-2 text-red-600" />
                   <span className="text-red-700">Manage User Roles</span>
                 </Button>
