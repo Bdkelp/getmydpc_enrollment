@@ -514,8 +514,8 @@ router.put("/api/admin/users/:userId/role", authenticateToken, async (req: AuthR
     const { userId } = req.params;
     const { role } = req.body;
 
-    if (!['user', 'agent', 'admin'].includes(role)) {
-      return res.status(400).json({ message: "Invalid role" });
+    if (!['member', 'agent', 'admin'].includes(role)) {
+      return res.status(400).json({ message: "Invalid role. Must be 'member' (healthcare subscriber), 'agent' (insurance agent), or 'admin' (system administrator)" });
     }
 
     const updatedUser = await storage.updateUser(userId, {

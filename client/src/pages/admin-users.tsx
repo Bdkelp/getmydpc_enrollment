@@ -464,7 +464,7 @@ export default function AdminUsers() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Members</p>
+                  <p className="text-sm font-medium text-gray-600">Healthcare Members</p>
                   <p className="text-2xl font-bold text-gray-900">
                     {safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user')).length}</p>
                 </div>
@@ -513,7 +513,8 @@ export default function AdminUsers() {
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="admin">Admins Only</SelectItem>
                   <SelectItem value="agent">Agents Only</SelectItem>
-                  <SelectItem value="member">Members Only</SelectItem>
+                  <SelectItem value="member">Healthcare Members Only</SelectItem>
+                  <SelectItem value="user">System Users Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -624,13 +625,13 @@ export default function AdminUsers() {
                                 <SelectItem value="member">
                                   <div className="flex items-center gap-2">
                                     <User className="h-3 w-3" />
-                                    Member
+                                    Healthcare Member
                                   </div>
                                 </SelectItem>
                                 <SelectItem value="user">
                                   <div className="flex items-center gap-2">
                                     <User className="h-3 w-3" />
-                                    User
+                                    System User
                                   </div>
                                 </SelectItem>
                               </SelectContent>
