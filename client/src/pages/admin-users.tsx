@@ -87,6 +87,59 @@ export default function AdminUsers() {
     });
   }, []);
 
+  // Set up real-time subscriptions
+  useEffect(() => {
+    console.log('[AdminUsers] Setting up real-time subscriptions...');
+
+    // Subscribe to users table changes
+    const usersSubscription = supabase
+      .channel('users-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'users' },
+        (payload) => {
+          console.log('[AdminUsers] Users table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+          toast({
+            title: "Data Updated",
+            description: "User data has been updated in real-time",
+          });
+        }
+      )
+      .subscribe();
+
+    // Subscribe to subscriptions table changes
+    const subscriptionsSubscription = supabase
+      .channel('subscriptions-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'subscriptions' },
+        (payload) => {
+          console.log('[AdminUsers] Subscriptions table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+        }
+      )
+      .subscribe();
+
+    // Subscribe to payments table changes
+    const paymentsSubscription = supabase
+      .channel('payments-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'payments' },
+        (payload) => {
+          console.log('[AdminUsers] Payments table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[AdminUsers] Cleaning up real-time subscriptions...');
+      usersSubscription.unsubscribe();
+      subscriptionsSubscription.unsubscribe();
+      paymentsSubscription.unsubscribe();
+    };
+  }, [queryClient, toast]);
+
+
   // Fetch all users
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],

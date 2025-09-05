@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -28,12 +28,15 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
+import { supabase } from "@/lib/supabase";
+
 
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
-  
+  const queryClient = useQueryClient();
+
   // Test authentication
   useEffect(() => {
     const testAuth = async () => {
@@ -58,7 +61,7 @@ export default function Admin() {
     if (hour < 17) return "Good afternoon";
     return "Good evening";
   };
-  
+
   // Get user's first name for personalized greeting
   const getUserName = () => {
     if (user?.firstName) return user.firstName;
@@ -90,6 +93,50 @@ export default function Admin() {
       return;
     }
   }, [isAuthenticated, authLoading, user, toast]);
+
+  // Set up real-time subscriptions for dashboard data
+  useEffect(() => {
+    console.log('[AdminDashboard] Setting up real-time subscriptions...');
+
+    // Subscribe to key table changes that affect dashboard stats
+    const dashboardSubscription = supabase
+      .channel('dashboard-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'users' },
+        (payload) => {
+          console.log('[AdminDashboard] Users change detected:', payload);
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-users"] });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'subscriptions' },
+        (payload) => {
+          console.log('[AdminDashboard] Subscriptions change detected:', payload);
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'payments' },
+        (payload) => {
+          console.log('[AdminDashboard] Payments change detected:', payload);
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
+          toast({
+            title: "Payment Activity",
+            description: "New payment activity detected",
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[AdminDashboard] Cleaning up real-time subscriptions...');
+      dashboardSubscription.unsubscribe();
+    };
+  }, [queryClient, toast]);
+
 
   const { data: adminStats, isLoading: statsLoading } = useQuery({
     queryKey: ["/api/admin/stats"],
@@ -348,7 +395,7 @@ export default function Admin() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
+
         {/* Personalized Welcome Message */}
         <Card className="mb-8 bg-gradient-to-r from-medical-blue-500 to-medical-blue-600 text-white">
           <CardContent className="p-6">
@@ -382,7 +429,7 @@ export default function Admin() {
             </div>
           </CardContent>
         </Card>
-        
+
         {/* Stats Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => (
@@ -429,7 +476,7 @@ export default function Admin() {
                 View All
               </Button>
             </div>
-            
+
             <div className="space-y-4">
               {pendingLoading ? (
                 <div className="text-center py-4 text-gray-500">Loading pending users...</div>
@@ -438,7 +485,7 @@ export default function Admin() {
                   const riskLevel = user.suspiciousFlags?.length > 2 ? 'critical' : 
                                    user.suspiciousFlags?.length > 0 ? 'high' : 'low';
                   const registeredAt = new Date(user.createdAt).toLocaleString();
-                  
+
                   return (
                 <div key={user.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <div className="flex-1">
@@ -575,7 +622,7 @@ export default function Admin() {
                 </div>
               </div>
             </div>
-            
+
             <div className="overflow-x-auto">
               {usersLoading ? (
                 <div className="flex justify-center py-8">
@@ -647,7 +694,7 @@ export default function Admin() {
                 </table>
               )}
             </div>
-            
+
             {/* Pagination */}
             <div className="px-6 py-4 border-t border-gray-200">
               <div className="flex items-center justify-between">
