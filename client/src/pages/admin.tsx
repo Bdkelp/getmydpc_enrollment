@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +30,25 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 
+// Type definitions for API responses
+interface AdminStats {
+  totalUsers: number;
+  monthlyRevenue: number;
+  newEnrollments: number;
+  churnRate: number;
+}
+
+interface UserData {
+  users: any[];
+  totalCount: number;
+}
+
+interface PendingUser {
+  id: string;
+  email: string;
+  created_at: string;
+  [key: string]: any;
+}
 
 export default function Admin() {
   const { toast } = useToast();
@@ -138,44 +157,46 @@ export default function Admin() {
   }, [queryClient, toast]);
 
 
-  const { data: adminStats, isLoading: statsLoading } = useQuery({
+  const { data: adminStats, isLoading: statsLoading, error: statsError } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
     enabled: isAuthenticated && user?.role === "admin",
-    onError: (error: Error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 500);
-        return;
-      }
-    },
   });
 
-  const { data: usersData, isLoading: usersLoading } = useQuery({
+  // Handle stats error
+  useEffect(() => {
+    if (statsError && isUnauthorizedError(statsError as Error)) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 500);
+    }
+  }, [statsError, toast]);
+
+  const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery<UserData>({
     queryKey: ["/api/admin/users"],
     enabled: isAuthenticated && user?.role === "admin",
-    onError: (error: Error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 500);
-        return;
-      }
-    },
   });
 
+  // Handle users error
+  useEffect(() => {
+    if (usersError && isUnauthorizedError(usersError as Error)) {
+      toast({
+        title: "Unauthorized",
+        description: "You are logged out. Logging in again...",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 500);
+    }
+  }, [usersError, toast]);
+
   // Fetch pending users
-  const { data: pendingUsers, isLoading: pendingLoading } = useQuery({
+  const { data: pendingUsers, isLoading: pendingLoading } = useQuery<PendingUser[]>({
     queryKey: ["/api/admin/pending-users"],
     enabled: isAuthenticated && user?.role === "admin",
   });
@@ -580,8 +601,7 @@ export default function Admin() {
                 </Button>
               </Link>
               <Link href="/admin/users">
-                <Button className="w-full justify-start" variant="outline" 
-                       className="bg-red-50 border-red-200 hover:bg-red-100"
+                <Button className="w-full justify-start bg-red-50 border-red-200 hover:bg-red-100" variant="outline" 
                        onClick={() => {
                          console.log('[Admin] Navigating to user management');
                          setLocation('/admin/users');
