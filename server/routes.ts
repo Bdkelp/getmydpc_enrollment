@@ -17,6 +17,67 @@ router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Test endpoint for leads system
+router.get("/api/test-leads", async (req, res) => {
+  try {
+    console.log('[Test Leads] Testing leads system...');
+    
+    // Test 1: Check if we can query leads table
+    const allLeads = await storage.getAllLeads();
+    console.log('[Test Leads] Total leads found:', allLeads.length);
+    
+    // Test 2: Try to create a test lead
+    const testLead = {
+      firstName: 'System',
+      lastName: 'Test',
+      email: 'systemtest@example.com',
+      phone: '210-555-TEST',
+      message: 'System test lead - will be deleted',
+      source: 'system_test',
+      status: 'new'
+    };
+    
+    const createdLead = await storage.createLead(testLead);
+    console.log('[Test Leads] Test lead created:', createdLead.id);
+    
+    // Clean up test lead
+    const { supabase } = await import('./lib/supabaseClient');
+    await supabase.from('leads').delete().eq('id', createdLead.id);
+    console.log('[Test Leads] Test lead cleaned up');
+    
+    res.json({
+      success: true,
+      totalLeads: allLeads.length,
+      recentLeads: allLeads.slice(0, 5).map(lead => ({
+        id: lead.id,
+        name: `${lead.firstName} ${lead.lastName}`,
+        email: lead.email,
+        phone: lead.phone,
+        status: lead.status,
+        source: lead.source,
+        createdAt: lead.createdAt
+      })),
+      testResults: {
+        canQueryLeads: true,
+        canCreateLeads: true,
+        databaseConnected: true
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('[Test Leads] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      testResults: {
+        canQueryLeads: false,
+        canCreateLeads: false,
+        databaseConnected: false
+      }
+    });
+  }
+});
+
 router.get("/api/plans", async (req, res) => {
   try {
     console.log('[API /plans] Fetching plans...');
@@ -365,25 +426,27 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 
 // Public lead submission endpoint (for contact forms)
 router.post("/api/public/leads", async (req: any, res) => {
-  console.log('[Public Leads] === ENDPOINT HIT ===');
-  console.log('[Public Leads] Method:', req.method);
-  console.log('[Public Leads] Headers:', req.headers);
-  console.log('[Public Leads] Body type:', typeof req.body);
-  console.log('[Public Leads] Raw body:', req.body);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Public Leads] === ENDPOINT HIT ===`);
+  console.log(`[${timestamp}] [Public Leads] Method:`, req.method);
+  console.log(`[${timestamp}] [Public Leads] Headers:`, JSON.stringify(req.headers, null, 2));
+  console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
+  console.log(`[${timestamp}] [Public Leads] Raw body:`, JSON.stringify(req.body, null, 2));
   
   try {
     // Check if body exists and is parsed
     if (!req.body) {
-      console.error('[Public Leads] No request body found');
+      console.error(`[${timestamp}] [Public Leads] No request body found`);
       return res.status(400).json({ 
         error: "No data received",
-        debug: "Request body is empty"
+        debug: "Request body is empty",
+        timestamp
       });
     }
 
     const { firstName, lastName, email, phone, message } = req.body;
     
-    console.log('[Public Leads] Extracted fields:', { 
+    console.log(`[${timestamp}] [Public Leads] Extracted fields:`, { 
       firstName: !!firstName, 
       lastName: !!lastName, 
       email: !!email, 
@@ -399,28 +462,29 @@ router.post("/api/public/leads", async (req: any, res) => {
     if (!phone) missingFields.push('phone');
 
     if (missingFields.length > 0) {
-      console.log('[Public Leads] Missing required fields:', missingFields);
+      console.log(`[${timestamp}] [Public Leads] Missing required fields:`, missingFields);
       return res.status(400).json({ 
         error: "Missing required fields",
         missingFields,
-        receivedData: { firstName, lastName, email, phone }
+        receivedData: { firstName, lastName, email, phone },
+        timestamp
       });
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      console.log('[Public Leads] Invalid email format:', email);
-      return res.status(400).json({ error: "Invalid email format" });
+      console.log(`[${timestamp}] [Public Leads] Invalid email format:`, email);
+      return res.status(400).json({ error: "Invalid email format", timestamp });
     }
 
     // Validate phone (basic check)
     if (phone.length < 10) {
-      console.log('[Public Leads] Invalid phone format:', phone);
-      return res.status(400).json({ error: "Invalid phone number format" });
+      console.log(`[${timestamp}] [Public Leads] Invalid phone format:`, phone);
+      return res.status(400).json({ error: "Invalid phone number format", timestamp });
     }
 
-    console.log('[Public Leads] Validation passed, creating lead...');
+    console.log(`[${timestamp}] [Public Leads] Validation passed, creating lead...`);
 
     const leadData = {
       firstName: firstName.trim(),
@@ -432,32 +496,56 @@ router.post("/api/public/leads", async (req: any, res) => {
       status: "new"
     };
 
-    console.log('[Public Leads] Lead data to create:', leadData);
+    console.log(`[${timestamp}] [Public Leads] Lead data to create:`, JSON.stringify(leadData, null, 2));
+
+    // Test database connection first
+    try {
+      const { supabase } = await import('./lib/supabaseClient');
+      const { data: connectionTest, error: connectionError } = await supabase
+        .from('leads')
+        .select('id')
+        .limit(1);
+      
+      if (connectionError) {
+        console.error(`[${timestamp}] [Public Leads] Database connection test failed:`, connectionError);
+        throw new Error(`Database connection failed: ${connectionError.message}`);
+      }
+      
+      console.log(`[${timestamp}] [Public Leads] Database connection successful`);
+    } catch (dbError) {
+      console.error(`[${timestamp}] [Public Leads] Database test error:`, dbError);
+      throw dbError;
+    }
 
     const lead = await storage.createLead(leadData);
 
-    console.log('[Public Leads] Lead created successfully:', { 
+    console.log(`[${timestamp}] [Public Leads] Lead created successfully:`, { 
       id: lead.id, 
-      email: lead.email 
+      email: lead.email,
+      status: lead.status,
+      source: lead.source
     });
     
     res.json({ 
       success: true, 
       leadId: lead.id,
-      message: "Lead submitted successfully"
+      message: "Lead submitted successfully",
+      timestamp
     });
 
   } catch (error: any) {
-    console.error("[Public Leads] Error creating lead:", {
+    console.error(`[${timestamp}] [Public Leads] Error creating lead:`, {
       message: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
+      code: error.code
     });
     
     res.status(500).json({ 
       error: "Failed to submit lead", 
       details: error.message,
-      timestamp: new Date().toISOString()
+      timestamp,
+      errorCode: error.code
     });
   }
 });

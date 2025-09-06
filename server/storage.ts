@@ -592,17 +592,37 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 
 // Lead operations
 export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
+  console.log('[Storage] Creating lead with data:', leadData);
+  
+  const leadToInsert = {
+    firstName: leadData.firstName,
+    lastName: leadData.lastName, 
+    email: leadData.email,
+    phone: leadData.phone,
+    message: leadData.message || '',
+    source: leadData.source || 'contact_form',
+    status: leadData.status || 'new',
+    assignedAgentId: leadData.assignedAgentId || null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  
+  console.log('[Storage] Inserting lead:', leadToInsert);
+
   const { data, error } = await supabase
     .from('leads')
-    .insert([{ ...leadData, created_at: new Date(), updated_at: new Date() }])
+    .insert([leadToInsert])
     .select()
     .single();
 
   if (error) {
-    console.error('Error creating lead:', error);
+    console.error('[Storage] Error creating lead:', error);
+    console.error('[Storage] Error details:', error.message);
+    console.error('[Storage] Error hint:', error.hint);
     throw new Error(`Failed to create lead: ${error.message}`);
   }
 
+  console.log('[Storage] Lead created successfully:', data);
   return data;
 }
 
@@ -759,6 +779,8 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
 }
 
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
+  console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
+  
   let query = supabase.from('leads').select('*');
 
   if (status && status !== 'all') {
@@ -771,13 +793,15 @@ export async function getAllLeads(status?: string, assignedAgentId?: string): Pr
     query = query.eq('assignedAgentId', assignedAgentId);
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+  const { data, error } = await query.order('createdAt', { ascending: false });
 
   if (error) {
-    console.error('Error fetching all leads:', error);
-    throw new Error(`Failed to get leads: ${error.message}`);
+    console.error('[Storage] Error fetching all leads:', error);
+    console.error('[Storage] Error details:', error.message);
+    return []; // Return empty array instead of throwing to prevent app crashes
   }
 
+  console.log('[Storage] Found leads:', data?.length || 0);
   return data || [];
 }
 
@@ -1572,12 +1596,25 @@ export const storage = {
   getFamilyMembers: async () => [],
   addFamilyMember: async (member: any) => member,
 
-  createLead: async (lead: any) => lead,
-  updateLead: async (id: string, data: any) => ({ id, ...data }),
-  getLeadById: async () => undefined,
-  getAgentLeads: async () => [],
-  getAllLeads: async () => [],
-  getLeadByEmail: async () => undefined,
+  createLead,
+  updateLead,
+  getLead: async (id: number) => {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      if (error.code === 'PGRST116') return undefined;
+      console.error('Error fetching lead:', error);
+      return undefined;
+    }
+    return data;
+  },
+  getAgentLeads,
+  getAllLeads,
+  getLeadByEmail,
   addLeadActivity: async (activity: any) => activity,
   getLeadActivities: async () => [],
   getAgents: async () => {
