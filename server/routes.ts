@@ -350,57 +350,6 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
   }
 });
 
-// User profile routes
-// Get user profile
-  app.get('/api/user/profile', authMiddleware, async (req: any, res: any) => {
-    try {
-      const user = await storage.getUser(req.user.id);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      res.json({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        profileImageUrl: user.profileImageUrl,
-        lastLoginAt: user.lastLoginAt,
-        createdAt: user.createdAt
-      });
-    } catch (error: any) {
-      console.error('[Profile] Error fetching profile:', error);
-      res.status(500).json({ error: 'Failed to fetch profile' });
-    }
-  });
-
-  // Get user's login sessions
-  app.get('/api/user/login-sessions', authMiddleware, async (req: any, res: any) => {
-    try {
-      const sessions = await storage.getUserLoginSessions(req.user.id);
-      res.json(sessions);
-    } catch (error: any) {
-      console.error('[Sessions] Error fetching user sessions:', error);
-      res.status(500).json({ error: 'Failed to fetch login sessions' });
-    }
-  });
-
-  // Admin endpoint: Get all login sessions
-  app.get('/api/admin/login-sessions', authMiddleware, async (req: any, res: any) => {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    try {
-      const limit = parseInt(req.query.limit as string) || 50;
-      const sessions = await storage.getAllLoginSessions(limit);
-      res.json(sessions);
-    } catch (error: any) {
-      console.error('[Admin Sessions] Error fetching all sessions:', error);
-      res.status(500).json({ error: 'Failed to fetch login sessions' });
-    }
-  });
 
 router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
   try {
@@ -1571,69 +1520,6 @@ async function createCommissionWithCheck(agentId: string | null, subscriptionId:
 }
 
 export async function registerRoutes(app: any) {
-  // Use the router
-  app.use(router);
-
-  // Register EPX routes
-  app.use(epxRoutes);
-
-  // Mock payment endpoint for testing
-  app.post('/api/mock-payment', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userId = req.user.id;
-      const { planId, amount } = req.body;
-
-      // Simulate payment processing delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Create a mock payment record
-      const paymentId = `mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const payment = await storage.createPayment({
-        id: paymentId,
-        userId: userId,
-        amount: amount || 79,
-        status: 'completed',
-        transactionId: paymentId,
-        paymentMethod: 'test-card',
-        authorizationCode: 'TEST_AUTH_' + Math.random().toString(36).substr(2, 6),
-        metadata: {
-          environment: 'test',
-          testPayment: true,
-          bricToken: 'mock-token'
-        }
-      });
-
-      // Create subscription if it doesn't exist
-      let subscription = await storage.getSubscriptionByUserId(userId);
-      if (!subscription) {
-        subscription = await storage.createSubscription({
-          userId: userId,
-          planId: planId || 1,
-          status: 'active',
-          startDate: new Date(),
-          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-        });
-      }
-
-      console.log('[Mock Payment] Created test payment:', payment.id);
-
-      res.json({
-        success: true,
-        paymentId: payment.id,
-        transactionId: paymentId,
-        message: 'Test payment processed successfully'
-      });
-
-    } catch (error: any) {
-      console.error('[Mock Payment] Error:', error);
-      res.status(500).json({
-        success: false,
-        error: error.message || 'Mock payment failed'
-      });
-    }
-  });
-
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if (req.path.startsWith('/api/auth/') && req.path !== '/api/auth/user') {
@@ -1707,6 +1593,117 @@ export async function registerRoutes(app: any) {
     }
     next();
   };
+
+  // Use the router
+  app.use(router);
+
+  // Register EPX routes
+  app.use(epxRoutes);
+
+  // Mock payment endpoint for testing
+  app.post('/api/mock-payment', authMiddleware, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { planId, amount } = req.body;
+
+      // Simulate payment processing delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Create a mock payment record
+      const paymentId = `mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const payment = await storage.createPayment({
+        id: paymentId,
+        userId: userId,
+        amount: amount || 79,
+        status: 'completed',
+        transactionId: paymentId,
+        paymentMethod: 'test-card',
+        authorizationCode: 'TEST_AUTH_' + Math.random().toString(36).substr(2, 6),
+        metadata: {
+          environment: 'test',
+          testPayment: true,
+          bricToken: 'mock-token'
+        }
+      });
+
+      // Create subscription if it doesn't exist
+      let subscription = await storage.getSubscriptionByUserId(userId);
+      if (!subscription) {
+        subscription = await storage.createSubscription({
+          userId: userId,
+          planId: planId || 1,
+          status: 'active',
+          startDate: new Date(),
+          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+        });
+      }
+
+      console.log('[Mock Payment] Created test payment:', payment.id);
+
+      res.json({
+        success: true,
+        paymentId: payment.id,
+        transactionId: paymentId,
+        message: 'Test payment processed successfully'
+      });
+
+    } catch (error: any) {
+      console.error('[Mock Payment] Error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Mock payment failed'
+      });
+    }
+  });
+
+  // User profile routes
+  // Get user profile
+  app.get('/api/user/profile', authMiddleware, async (req: any, res: any) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        profileImageUrl: user.profileImageUrl,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt
+      });
+    } catch (error: any) {
+      console.error('[Profile] Error fetching profile:', error);
+      res.status(500).json({ error: 'Failed to fetch profile' });
+    }
+  });
+
+  // Get user's login sessions
+  app.get('/api/user/login-sessions', authMiddleware, async (req: any, res: any) => {
+    try {
+      const sessions = await storage.getUserLoginSessions(req.user.id);
+      res.json(sessions);
+    } catch (error: any) {
+      console.error('[Sessions] Error fetching user sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch login sessions' });
+    }
+  });
+
+  // Admin endpoint: Get all login sessions
+  app.get('/api/admin/login-sessions', authMiddleware, adminRequired, async (req: any, res: any) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const sessions = await storage.getAllLoginSessions(limit);
+      res.json(sessions);
+    } catch (error: any) {
+      console.error('[Admin Sessions] Error fetching all sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch login sessions' });
+    }
+  });
 
   // User activity endpoint
   app.post('/api/user/activity', authMiddleware, (req: any, res: any) => {
