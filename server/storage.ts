@@ -593,10 +593,10 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 // Lead operations
 export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
   console.log('[Storage] Creating lead with data:', leadData);
-  
+
   const leadToInsert = {
     firstName: leadData.firstName,
-    lastName: leadData.lastName, 
+    lastName: leadData.lastName,
     email: leadData.email,
     phone: leadData.phone,
     message: leadData.message || '',
@@ -606,7 +606,7 @@ export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
-  
+
   console.log('[Storage] Inserting lead:', leadToInsert);
 
   const { data, error } = await supabase
@@ -780,7 +780,7 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
 
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
   console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
-  
+
   let query = supabase.from('leads').select('*');
 
   if (status && status !== 'all') {
@@ -1439,24 +1439,86 @@ export async function clearTestData(): Promise<void> {
 }
 
 // Payment operations implementation
-export async function createPayment(payment: InsertPayment): Promise<Payment> {
-  const { data, error } = await supabase
-    .from('payments')
-    .insert([{
-      ...payment,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }])
-    .select()
-    .single();
+export async function createPayment(paymentData: {
+    userId: string;
+    subscriptionId: string | null;
+    amount: string;
+    currency: string;
+    status: string;
+    paymentMethod: string;
+    transactionId: string;
+    metadata?: any;
+  }) {
+    const timestamp = new Date().toISOString();
+    console.log(`[Storage] Creating payment record at ${timestamp}:`, {
+      userId: paymentData.userId,
+      transactionId: paymentData.transactionId,
+      amount: paymentData.amount,
+      status: paymentData.status,
+      paymentMethod: paymentData.paymentMethod
+    });
 
-  if (error) {
-    console.error('Error creating payment:', error);
-    throw new Error(`Failed to create payment: ${error.message}`);
+    try {
+      // Validate required fields
+      if (!paymentData.userId || !paymentData.transactionId || !paymentData.amount) {
+        throw new Error('Missing required payment data fields');
+      }
+
+      const insertData = {
+        user_id: paymentData.userId,
+        subscription_id: paymentData.subscriptionId,
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'USD',
+        status: paymentData.status || 'pending',
+        payment_method: paymentData.paymentMethod || 'card',
+        transaction_id: paymentData.transactionId,
+        metadata: paymentData.metadata || {},
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+
+      console.log('[Storage] Inserting payment data:', {
+        ...insertData,
+        metadata: 'object'
+      });
+
+      const { data, error } = await supabase
+        .from('payments')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Storage] Supabase error creating payment:', {
+          error: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      if (!data) {
+        console.error('[Storage] No data returned from payment creation');
+        throw new Error('Payment creation failed - no data returned');
+      }
+
+      console.log('[Storage] Payment created successfully:', {
+        id: data.id,
+        transactionId: data.transaction_id,
+        status: data.status
+      });
+
+      return data;
+    } catch (error: any) {
+      console.error('[Storage] Error in createPayment:', {
+        message: error.message,
+        stack: error.stack,
+        paymentData
+      });
+      throw error;
+    }
   }
-
-  return data;
-}
 
 export async function getUserPayments(userId: string): Promise<Payment[]> {
   const { data, error } = await supabase
@@ -1588,7 +1650,87 @@ export const storage = {
   },
   getActiveSubscriptions: async () => [],
 
-  createPayment,
+  createPayment: async (paymentData: {
+    userId: string;
+    subscriptionId: string | null;
+    amount: string;
+    currency: string;
+    status: string;
+    paymentMethod: string;
+    transactionId: string;
+    metadata?: any;
+  }) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Storage] Creating payment record at ${timestamp}:`, {
+      userId: paymentData.userId,
+      transactionId: paymentData.transactionId,
+      amount: paymentData.amount,
+      status: paymentData.status,
+      paymentMethod: paymentData.paymentMethod
+    });
+
+    try {
+      // Validate required fields
+      if (!paymentData.userId || !paymentData.transactionId || !paymentData.amount) {
+        throw new Error('Missing required payment data fields');
+      }
+
+      const insertData = {
+        user_id: paymentData.userId,
+        subscription_id: paymentData.subscriptionId,
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'USD',
+        status: paymentData.status || 'pending',
+        payment_method: paymentData.paymentMethod || 'card',
+        transaction_id: paymentData.transactionId,
+        metadata: paymentData.metadata || {},
+        created_at: timestamp,
+        updated_at: timestamp
+      };
+
+      console.log('[Storage] Inserting payment data:', {
+        ...insertData,
+        metadata: 'object'
+      });
+
+      const { data, error } = await supabase
+        .from('payments')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Storage] Supabase error creating payment:', {
+          error: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        throw new Error(`Database error: ${error.message}`);
+      }
+
+      if (!data) {
+        console.error('[Storage] No data returned from payment creation');
+        throw new Error('Payment creation failed - no data returned');
+      }
+
+      console.log('[Storage] Payment created successfully:', {
+        id: data.id,
+        transactionId: data.transaction_id,
+        status: data.status
+      });
+
+      return data;
+    } catch (error: any) {
+      console.error('[Storage] Error in createPayment:', {
+        message: error.message,
+        stack: error.stack,
+        paymentData
+      });
+      throw error;
+    }
+  },
+
   getUserPayments,
   getPaymentByTransactionId,
   updatePayment,
@@ -1604,7 +1746,7 @@ export const storage = {
       .select('*')
       .eq('id', id)
       .single();
-    
+
     if (error) {
       if (error.code === 'PGRST116') return undefined;
       console.error('Error fetching lead:', error);
@@ -1668,7 +1810,7 @@ export const storage = {
   getAdminDashboardStats: async () => {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
-      
+
       // Get fresh data with proper error handling
       const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
       const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
@@ -1810,7 +1952,7 @@ export const storage = {
         user.approval_status === 'approved' &&
         user.is_active === true
       );
-      
+
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active');
       const monthlyRevenue = activeSubscriptions.reduce((total, sub) => total + (parseFloat(sub.amount) || 0), 0);
 

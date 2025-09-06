@@ -80,8 +80,31 @@ router.get('/api/epx/checkout-config', async (req: Request, res: Response) => {
  * Create payment session for Browser Post API
  */
 router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  
   try {
-    const epxService = getEPXService();
+    console.log('[EPX Create Payment] === REQUEST START ===');
+    console.log('[EPX Create Payment] Headers:', JSON.stringify({
+      'content-type': req.headers['content-type'],
+      'authorization': req.headers.authorization ? 'Bearer ***' : 'none',
+      'user-agent': req.headers['user-agent']
+    }, null, 2));
+    
+    console.log('[EPX Create Payment] Body:', JSON.stringify(req.body, null, 2));
+
+    // Validate EPX service initialization
+    let epxService;
+    try {
+      epxService = getEPXService();
+    } catch (serviceError) {
+      console.error('[EPX Create Payment] EPX Service not initialized:', serviceError);
+      return res.status(500).json({
+        success: false,
+        error: 'Payment service not available. Please try again later.',
+        details: 'EPX service initialization failed'
+      });
+    }
+
     const {
       amount,
       customerId,
@@ -96,30 +119,50 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       achAccountName
     } = req.body;
 
-    if (!amount || amount <= 0) {
+    // Comprehensive input validation
+    const errors = [];
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      errors.push('Valid amount is required');
+    }
+    if (!customerId || customerId.toString().trim() === '') {
+      errors.push('Customer ID is required');
+    }
+    if (!customerEmail || !customerEmail.includes('@')) {
+      errors.push('Valid customer email is required');
+    }
+
+    if (errors.length > 0) {
+      console.error('[EPX Create Payment] Validation errors:', errors);
       return res.status(400).json({
         success: false,
-        error: 'Invalid amount'
+        error: 'Invalid request data',
+        details: errors.join(', ')
       });
     }
 
-    // Generate unique transaction number
-    const tranNbr = `TXN_${Date.now()}_${nanoid(6)}`;
+    const sanitizedAmount = parseFloat(amount);
+    const sanitizedCustomerId = customerId.toString().trim();
+    const sanitizedEmail = customerEmail.toString().trim();
 
-    console.log('[EPX] Generating TAC with payload:', {
-      amount,
+    // Generate unique transaction number
+    const tranNbr = `TXN_${Date.now()}_${nanoid(8)}`;
+
+    console.log('[EPX Create Payment] Generating TAC with payload:', {
+      amount: sanitizedAmount,
       tranNbr,
-      customerEmail,
+      customerEmail: sanitizedEmail,
+      customerId: sanitizedCustomerId,
+      planId,
       paymentMethod: paymentMethod || 'card',
       environment: process.env.EPX_ENVIRONMENT || 'sandbox'
     });
 
     // Generate TAC for Browser Post
     const tacResponse = await epxService.generateTAC({
-      amount,
+      amount: sanitizedAmount,
       tranNbr,
-      customerEmail,
-      orderDescription: description || 'DPC Subscription Payment',
+      customerEmail: sanitizedEmail,
+      orderDescription: description || `DPC Subscription Payment - Plan ${planId}`,
       paymentMethod: paymentMethod || 'card',
       achRoutingNumber,
       achAccountNumber,
@@ -127,74 +170,111 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       achAccountName
     });
 
-    console.log('[EPX] TAC Response:', {
+    console.log('[EPX Create Payment] TAC Response:', {
       success: tacResponse.success,
       hasTAC: !!tacResponse.tac,
+      tacLength: tacResponse.tac?.length,
       error: tacResponse.error
     });
 
     if (!tacResponse.success || !tacResponse.tac) {
-      console.error('[EPX] TAC generation failed:', tacResponse);
+      console.error('[EPX Create Payment] TAC generation failed:', tacResponse);
       return res.status(500).json({
         success: false,
-        error: tacResponse.error || 'Failed to generate payment session'
+        error: tacResponse.error || 'Failed to generate payment session',
+        details: 'TAC generation failed'
       });
     }
 
     // Store transaction details for webhook processing with comprehensive logging
-    const paymentRecord = await storage.createPayment({
-      userId: customerId,
-      subscriptionId: subscriptionId || null,
-      amount: amount.toString(),
-      currency: 'USD',
-      status: 'pending',
-      paymentMethod: paymentMethod || 'card',
-      transactionId: tranNbr,
-      metadata: {
-        planId,
-        tac: tacResponse.tac,
-        paymentType: paymentMethod || 'card',
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        ipAddress: req.ip || req.connection.remoteAddress,
-        userAgent: req.headers['user-agent'],
-        timestamp: new Date().toISOString(),
-        ...(paymentMethod === 'ach' && {
-          achLastFour: achAccountNumber?.slice(-4),
-          achAccountType
-        })
-      }
-    });
+    let paymentRecord;
+    try {
+      paymentRecord = await storage.createPayment({
+        userId: sanitizedCustomerId,
+        subscriptionId: subscriptionId || null,
+        amount: sanitizedAmount.toString(),
+        currency: 'USD',
+        status: 'pending',
+        paymentMethod: paymentMethod || 'card',
+        transactionId: tranNbr,
+        metadata: {
+          planId: planId ? parseInt(planId.toString()) : null,
+          tac: tacResponse.tac,
+          paymentType: paymentMethod || 'card',
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
+          userAgent: req.headers['user-agent'] || 'unknown',
+          timestamp: new Date().toISOString(),
+          ...(paymentMethod === 'ach' && {
+            achLastFour: achAccountNumber?.slice(-4),
+            achAccountType
+          })
+        }
+      });
+      
+      console.log('[EPX Create Payment] Payment record created:', {
+        paymentId: paymentRecord?.id,
+        transactionId: tranNbr
+      });
+    } catch (storageError) {
+      console.error('[EPX Create Payment] Storage error:', storageError);
+      // Continue with payment creation even if storage fails
+      console.warn('[EPX Create Payment] Continuing payment creation despite storage error');
+    }
 
     // Log transaction creation for audit trail
-    transactionLogger.logPaymentCreated({
-      transactionId: tranNbr,
-      paymentId: paymentRecord?.id || 'unknown',
-      amount,
-      customerId,
-      paymentMethod: paymentMethod || 'card',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-      ipAddress: req.ip || req.connection.remoteAddress,
-      userAgent: req.headers['user-agent'],
-      metadata: {
-        planId,
-        subscriptionId,
-        description
-      }
-    });
+    try {
+      transactionLogger.logPaymentCreated({
+        transactionId: tranNbr,
+        paymentId: paymentRecord?.id || 'storage_failed',
+        amount: sanitizedAmount,
+        customerId: sanitizedCustomerId,
+        paymentMethod: paymentMethod || 'card',
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+        metadata: {
+          planId,
+          subscriptionId,
+          description
+        }
+      });
+    } catch (logError) {
+      console.warn('[EPX Create Payment] Transaction logging failed:', logError);
+      // Don't fail the payment creation for logging errors
+    }
 
     // Get payment form data
-    const formData = epxService.getPaymentFormData(tacResponse.tac, amount, tranNbr, paymentMethod || 'card');
+    const formData = epxService.getPaymentFormData(
+      tacResponse.tac, 
+      sanitizedAmount, 
+      tranNbr, 
+      paymentMethod || 'card'
+    );
+
+    const processingTime = Date.now() - startTime;
+    console.log(`[EPX Create Payment] SUCCESS - Processing time: ${processingTime}ms`);
 
     res.json({
       success: true,
       transactionId: tranNbr,
-      formData
+      formData,
+      processingTime
     });
+
   } catch (error: any) {
-    console.error('[EPX] Create payment error:', error);
+    const processingTime = Date.now() - startTime;
+    console.error(`[EPX Create Payment] ERROR after ${processingTime}ms:`, {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to create payment session'
+      error: error.message || 'Failed to create payment session',
+      details: 'Internal server error during payment creation',
+      processingTime
     });
   }
 });

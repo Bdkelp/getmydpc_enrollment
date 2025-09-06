@@ -424,6 +424,50 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
+// Payment processing endpoint with error handling
+router.post("/api/process-payment", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    console.log('[Payment Processing] Request received:', {
+      userId: req.user!.id,
+      bodyKeys: Object.keys(req.body),
+      amount: req.body.amount
+    });
+
+    const { planId, amount, paymentMethod } = req.body;
+
+    if (!planId || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: planId and amount'
+      });
+    }
+
+    // Validate plan exists
+    const plan = await storage.getPlan(planId);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+
+    // For now, redirect to EPX payment creation
+    res.json({
+      success: true,
+      message: 'Use EPX payment endpoint',
+      redirectTo: '/api/epx/create-payment'
+    });
+
+  } catch (error: any) {
+    console.error('[Payment Processing] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Payment processing failed',
+      details: error.message
+    });
+  }
+});
+
 // Public lead submission endpoint (for contact forms)
 router.post("/api/public/leads", async (req: any, res) => {
   const timestamp = new Date().toISOString();
