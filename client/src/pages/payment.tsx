@@ -460,7 +460,7 @@ export default function Payment() {
                     <ul className="space-y-1">
                       <li className="flex items-center">
                         <Check className="h-4 w-4 text-green-500 mr-2" />
-                        Cancel anytime with 45 days written notice
+                        Cancel anytime with 14 days written notice
                       </li>
                       <li className="flex items-center">
                         <Check className="h-4 w-4 text-green-500 mr-2" />
@@ -485,13 +485,13 @@ export default function Payment() {
                         <strong>Recurring Billing:</strong> This is a recurring monthly membership, not insurance, and benefits are active only when payments are current.
                       </p>
                       <p>
-                        <strong>Payment Authorization:</strong> By enrolling, you authorize My Premier Plans to charge your payment method on file for your recurring monthly membership fee, beginning today and recurring monthly thereafter until you cancel in writing with 45 days' notice.
+                        <strong>Payment Authorization:</strong> By enrolling, you authorize My Premier Plans to charge your payment method on file for your recurring monthly membership fee, beginning today and recurring monthly thereafter until you cancel in writing with 14 days' notice.
                       </p>
                       <p>
                         <strong>NSF Fee:</strong> If a payment is returned or declined, your membership will be suspended, and a $35 NSF fee may apply under Texas law.
                       </p>
                       <p>
-                        <strong>Cancellation:</strong> You may cancel in writing with 45 days' notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.
+                        <strong>Cancellation:</strong> You may cancel in writing with 14 days' notice and rejoin at any time without penalty. Coverage will not be active if you do not fund your plan for an upcoming month.
                       </p>
                       <div className="mt-3 pt-3 border-t border-amber-300">
                         <button
@@ -513,7 +513,7 @@ export default function Payment() {
                         <MapPin className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
                         <div>
                           <p className="font-medium">Company Address</p>
-                          <p>4427 Saddle Spur</p>
+                          <p>22211 W. I-10, Bldg 1 Suite 1206</p>
                           <p>San Antonio, TX 78253</p>
                         </div>
                       </div>
