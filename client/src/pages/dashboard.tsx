@@ -65,6 +65,12 @@ export default function Dashboard() {
     retry: false,
   });
 
+  const { data: loginSessions, isLoading: sessionsLoading } = useQuery({
+    queryKey: ["/api/user/login-sessions"],
+    enabled: isAuthenticated,
+    retry: false,
+  });
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -345,8 +351,48 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* Health Metrics */}
+            {/* Login Sessions */}
             <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_1.1s_ease-out]">
+              <CardContent className="p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <User className="h-5 w-5 mr-2 text-medical-blue-600" />
+                  Recent Logins
+                </h3>
+                <div className="space-y-3">
+                  {sessionsLoading ? (
+                    <div className="text-center py-4 text-gray-500">Loading sessions...</div>
+                  ) : loginSessions && loginSessions.length > 0 ? (
+                    loginSessions.slice(0, 5).map((session: any, index: number) => (
+                      <div key={session.id} className="flex justify-between items-center text-sm">
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            {session.device_type} • {session.browser}
+                          </div>
+                          <div className="text-gray-500">
+                            {new Date(session.login_time).toLocaleDateString()} at{' '}
+                            {new Date(session.login_time).toLocaleTimeString()}
+                          </div>
+                        </div>
+                        <div className={`w-2 h-2 rounded-full ${
+                          session.is_active ? 'bg-green-500' : 'bg-gray-300'
+                        }`} />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-gray-500">No recent logins</div>
+                  )}
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <Button variant="ghost" className="w-full text-medical-blue-600 hover:text-medical-blue-700">
+                      View All Sessions
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Health Metrics */}
+            <Card className="hover:shadow-xl transition-all duration-300 animate-[fade-in-up_1.2s_ease-out]">
               <CardContent className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Health Snapshot</h3>
                 <div className="space-y-4">

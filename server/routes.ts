@@ -21,11 +21,11 @@ router.get("/api/health", (req, res) => {
 router.get("/api/test-leads", async (req, res) => {
   try {
     console.log('[Test Leads] Testing leads system...');
-    
+
     // Test 1: Check if we can query leads table
     const allLeads = await storage.getAllLeads();
     console.log('[Test Leads] Total leads found:', allLeads.length);
-    
+
     // Test 2: Try to create a test lead
     const testLead = {
       firstName: 'System',
@@ -36,15 +36,15 @@ router.get("/api/test-leads", async (req, res) => {
       source: 'system_test',
       status: 'new'
     };
-    
+
     const createdLead = await storage.createLead(testLead);
     console.log('[Test Leads] Test lead created:', createdLead.id);
-    
+
     // Clean up test lead
     const { supabase } = await import('./lib/supabaseClient');
     await supabase.from('leads').delete().eq('id', createdLead.id);
     console.log('[Test Leads] Test lead cleaned up');
-    
+
     res.json({
       success: true,
       totalLeads: allLeads.length,
@@ -63,7 +63,7 @@ router.get("/api/test-leads", async (req, res) => {
         databaseConnected: true
       }
     });
-    
+
   } catch (error: any) {
     console.error('[Test Leads] Error:', error);
     res.status(500).json({
@@ -164,20 +164,55 @@ router.post("/api/auth/login", async (req, res) => {
       });
     }
 
+    // Update last login
+    await storage.updateUser(user.id, {
+      lastLoginAt: new Date()
+    });
+
+    // Create login session record
+    try {
+      const userAgent = req.headers['user-agent'] || '';
+      const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
+
+      // Parse user agent for device/browser info
+      let deviceType = 'desktop';
+      let browser = 'unknown';
+
+      if (userAgent.includes('Mobile')) deviceType = 'mobile';
+      else if (userAgent.includes('Tablet')) deviceType = 'tablet';
+
+      if (userAgent.includes('Chrome')) browser = 'Chrome';
+      else if (userAgent.includes('Firefox')) browser = 'Firefox';
+      else if (userAgent.includes('Safari')) browser = 'Safari';
+      else if (userAgent.includes('Edge')) browser = 'Edge';
+
+      await storage.createLoginSession({
+        userId: user.id,
+        ipAddress: ipAddress,
+        userAgent: userAgent,
+        deviceType: deviceType,
+        browser: browser
+      });
+
+      console.log('[Login] Session tracked for user:', user.email);
+    } catch (error) {
+      console.error('[Login] Error tracking session:', error);
+      // Don't fail login if session tracking fails
+    }
+
+    console.log('[Login] Login successful for user:', user.email);
+
     res.json({
+      success: true,
       user: {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        profileImageUrl: user.profileImageUrl,
         isActive: user.isActive,
         approvalStatus: user.approvalStatus
-      },
-      session: {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at
       }
     });
   } catch (error) {
@@ -316,18 +351,56 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
 });
 
 // User profile routes
-router.get("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const user = await storage.getUser(req.user!.id);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
+// Get user profile
+  app.get('/api/user/profile', authMiddleware, async (req: any, res: any) => {
+    try {
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      res.json({
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        profileImageUrl: user.profileImageUrl,
+        lastLoginAt: user.lastLoginAt,
+        createdAt: user.createdAt
+      });
+    } catch (error: any) {
+      console.error('[Profile] Error fetching profile:', error);
+      res.status(500).json({ error: 'Failed to fetch profile' });
     }
-    res.json(user);
-  } catch (error) {
-    console.error("Error fetching profile:", error);
-    res.status(500).json({ message: "Failed to fetch profile" });
-  }
-});
+  });
+
+  // Get user's login sessions
+  app.get('/api/user/login-sessions', authMiddleware, async (req: any, res: any) => {
+    try {
+      const sessions = await storage.getUserLoginSessions(req.user.id);
+      res.json(sessions);
+    } catch (error: any) {
+      console.error('[Sessions] Error fetching user sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch login sessions' });
+    }
+  });
+
+  // Admin endpoint: Get all login sessions
+  app.get('/api/admin/login-sessions', authMiddleware, async (req: any, res: any) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const sessions = await storage.getAllLoginSessions(limit);
+      res.json(sessions);
+    } catch (error: any) {
+      console.error('[Admin Sessions] Error fetching all sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch login sessions' });
+    }
+  });
 
 router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res) => {
   try {
@@ -476,7 +549,7 @@ router.post("/api/public/leads", async (req: any, res) => {
   console.log(`[${timestamp}] [Public Leads] Headers:`, JSON.stringify(req.headers, null, 2));
   console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
   console.log(`[${timestamp}] [Public Leads] Raw body:`, JSON.stringify(req.body, null, 2));
-  
+
   try {
     // Check if body exists and is parsed
     if (!req.body) {
@@ -489,7 +562,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     }
 
     const { firstName, lastName, email, phone, message } = req.body;
-    
+
     console.log(`[${timestamp}] [Public Leads] Extracted fields:`, { 
       firstName: !!firstName, 
       lastName: !!lastName, 
@@ -549,12 +622,12 @@ router.post("/api/public/leads", async (req: any, res) => {
         .from('leads')
         .select('id')
         .limit(1);
-      
+
       if (connectionError) {
         console.error(`[${timestamp}] [Public Leads] Database connection test failed:`, connectionError);
         throw new Error(`Database connection failed: ${connectionError.message}`);
       }
-      
+
       console.log(`[${timestamp}] [Public Leads] Database connection successful`);
     } catch (dbError) {
       console.error(`[${timestamp}] [Public Leads] Database test error:`, dbError);
@@ -569,7 +642,7 @@ router.post("/api/public/leads", async (req: any, res) => {
       status: lead.status,
       source: lead.source
     });
-    
+
     res.json({ 
       success: true, 
       leadId: lead.id,
@@ -584,7 +657,7 @@ router.post("/api/public/leads", async (req: any, res) => {
       name: error.name,
       code: error.code
     });
-    
+
     res.status(500).json({ 
       error: "Failed to submit lead", 
       details: error.message,
@@ -1503,6 +1576,63 @@ export async function registerRoutes(app: any) {
 
   // Register EPX routes
   app.use(epxRoutes);
+
+  // Mock payment endpoint for testing
+  app.post('/api/mock-payment', authMiddleware, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { planId, amount } = req.body;
+
+      // Simulate payment processing delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Create a mock payment record
+      const paymentId = `mock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      const payment = await storage.createPayment({
+        id: paymentId,
+        userId: userId,
+        amount: amount || 79,
+        status: 'completed',
+        transactionId: paymentId,
+        paymentMethod: 'test-card',
+        authorizationCode: 'TEST_AUTH_' + Math.random().toString(36).substr(2, 6),
+        metadata: {
+          environment: 'test',
+          testPayment: true,
+          bricToken: 'mock-token'
+        }
+      });
+
+      // Create subscription if it doesn't exist
+      let subscription = await storage.getSubscriptionByUserId(userId);
+      if (!subscription) {
+        subscription = await storage.createSubscription({
+          userId: userId,
+          planId: planId || 1,
+          status: 'active',
+          startDate: new Date(),
+          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+        });
+      }
+
+      console.log('[Mock Payment] Created test payment:', payment.id);
+
+      res.json({
+        success: true,
+        paymentId: payment.id,
+        transactionId: paymentId,
+        message: 'Test payment processed successfully'
+      });
+
+    } catch (error: any) {
+      console.error('[Mock Payment] Error:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message || 'Mock payment failed'
+      });
+    }
+  });
 
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {

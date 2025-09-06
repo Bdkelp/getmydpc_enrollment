@@ -158,6 +158,23 @@ export interface IStorage {
   getAnalyticsOverview(days: number): Promise<any>;
   getAdminDashboardStats(): Promise<any>;
   getComprehensiveAnalytics(days?: number): Promise<any>;
+
+  // Login session tracking
+  createLoginSession(sessionData: {
+    userId: string;
+    ipAddress?: string;
+    userAgent?: string;
+    deviceType?: string;
+    browser?: string;
+    location?: string;
+  }): Promise<any>;
+  updateLoginSession(sessionId: string, updates: {
+    logoutTime?: Date;
+    sessionDurationMinutes?: number;
+    isActive?: boolean;
+  }): Promise<any>;
+  getUserLoginSessions(userId: string, limit?: number): Promise<any[]>;
+  getAllLoginSessions(limit?: number): Promise<any[]>;
 }
 
 // --- Supabase Implementation ---
