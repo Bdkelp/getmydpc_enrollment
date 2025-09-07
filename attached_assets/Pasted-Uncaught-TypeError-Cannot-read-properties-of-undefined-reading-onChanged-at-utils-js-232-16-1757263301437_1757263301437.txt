@@ -1,0 +1,151 @@
+Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')
+    at utils.js:232:16Understand this error
+tabutils.js:2 Uncaught TypeError: Cannot read properties of undefined (reading 'onUpdated')
+    at tabutils.js:2:13Understand this error
+contextmenu.js:124 Uncaught TypeError: Cannot read properties of undefined (reading 'onClicked')
+    at contextmenu.js:124:21Understand this error
+download.js:9 Uncaught TypeError: Cannot read properties of undefined (reading 'onCreated')
+    at download.js:9:18Understand this error
+sgtnzhgxlkcvtrzejobx.supabase.co/storage/v1/bucket:1  Failed to load resource: the server responded with a status of 400 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+api/user/activity:1  Failed to load resource: the server responded with a status of 401 ()Understand this error
+api/user/activity:1  Failed to load resource: the server responded with a status of 401 ()Understand this error
+api/user/activity:1  Failed to load resource: the server responded with a status of 401 ()Understand this error
+login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/login-sessions 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/pending-users 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/users 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/login-sessions 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/pending-users 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/users 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+ly @ index-Y43W3Kon.js:40
+vn @ index-Y43W3Kon.js:38
+C_ @ index-Y43W3Kon.js:40
+vi @ index-Y43W3Kon.js:40
+oy @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:417  POST https://enrollment.getmydpc.com/api/user/activity 401 (Unauthorized)
+ZR @ index-Y43W3Kon.js:417
+(anonymous) @ index-Y43W3Kon.js:417Understand this error
