@@ -936,30 +936,66 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
         .from('leads')
         .select('*')
         .eq('status', status)
-        .order('createdAt', { ascending: false });
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      leads = data || [];
+      leads = (data || []).map((lead: any) => ({
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        message: lead.message,
+        source: lead.source,
+        status: lead.status,
+        assignedAgentId: lead.assigned_agent_id,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at
+      }));
     } else if (assignedAgentId === 'unassigned') {
       // Get unassigned leads
       const { data, error } = await supabase
         .from('leads')
         .select('*')
-        .is('assignedAgentId', null)
-        .order('createdAt', { ascending: false });
+        .is('assigned_agent_id', null)
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      leads = data || [];
+      leads = (data || []).map((lead: any) => ({
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        message: lead.message,
+        source: lead.source,
+        status: lead.status,
+        assignedAgentId: lead.assigned_agent_id,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at
+      }));
     } else if (assignedAgentId && assignedAgentId !== 'all') {
       // Filter by agent
       const { data, error } = await supabase
         .from('leads')
         .select('*')
-        .eq('assignedAgentId', assignedAgentId)
-        .order('createdAt', { ascending: false });
+        .eq('assigned_agent_id', assignedAgentId)
+        .order('created_at', { ascending: false });
       
       if (error) throw error;
-      leads = data || [];
+      leads = (data || []).map((lead: any) => ({
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        message: lead.message,
+        source: lead.source,
+        status: lead.status,
+        assignedAgentId: lead.assigned_agent_id,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at
+      }));
     } else {
       // Get all leads
       leads = await storage.getAllLeads();

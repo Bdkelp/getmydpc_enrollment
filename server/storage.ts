@@ -589,14 +589,14 @@ export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
   const { data, error } = await supabase
     .from('leads')
     .insert([{
-      firstName: leadData.firstName,
-      lastName: leadData.lastName,
+      first_name: leadData.firstName,
+      last_name: leadData.lastName,
       email: leadData.email,
       phone: leadData.phone,
       message: leadData.message || '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
-      assignedAgentId: leadData.assignedAgentId || null
+      assigned_agent_id: leadData.assignedAgentId || null
     }])
     .select()
     .single();
@@ -609,22 +609,22 @@ export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
   }
 
   console.log('[Storage] Lead created successfully:', data);
-  return data;
+  return mapLeadFromDB(data);
 }
 
 export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
   let query = supabase.from('leads').select('*')
-    .eq('assignedAgentId', agentId);
+    .eq('assigned_agent_id', agentId);
   if (status) {
     query = query.eq('status', status);
   }
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching agent leads:', error);
     return [];
   }
-  return data || [];
+  return (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
 }
 
 export async function getLead(id: number): Promise<Lead | undefined> {
@@ -660,9 +660,21 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
 }
 
 export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
+  // Map camelCase to snake_case for database update
+  const updateData: any = { updated_at: new Date() };
+  
+  if (data.firstName) updateData.first_name = data.firstName;
+  if (data.lastName) updateData.last_name = data.lastName;
+  if (data.email) updateData.email = data.email;
+  if (data.phone) updateData.phone = data.phone;
+  if (data.message) updateData.message = data.message;
+  if (data.source) updateData.source = data.source;
+  if (data.status) updateData.status = data.status;
+  if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+
   const { data: updatedLead, error } = await supabase
     .from('leads')
-    .update({ ...data, updated_at: new Date() })
+    .update(updateData)
     .eq('id', id)
     .select()
     .single();
@@ -671,13 +683,13 @@ export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead>
     console.error('Error updating lead:', error);
     throw new Error(`Failed to update lead: ${error.message}`);
   }
-  return updatedLead;
+  return mapLeadFromDB(updatedLead)!;
 }
 
 export async function assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
   const { data: updatedLead, error } = await supabase
     .from('leads')
-    .update({ assignedAgentId: agentId, status: 'qualified', updated_at: new Date() })
+    .update({ assigned_agent_id: agentId, status: 'qualified', updated_at: new Date() })
     .eq('id', leadId)
     .select()
     .single();
@@ -686,7 +698,7 @@ export async function assignLeadToAgent(leadId: number, agentId: string): Promis
     console.error('Error assigning lead to agent:', error);
     throw new Error(`Failed to assign lead to agent: ${error.message}`);
   }
-  return updatedLead;
+  return mapLeadFromDB(updatedLead)!;
 }
 
 // Lead activity operations
@@ -764,12 +776,31 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
   return agents[0]?.agentId || null;
 }
 
+// Helper function to map database snake_case to camelCase
+function mapLeadFromDB(data: any): Lead | null {
+  if (!data) return null;
+
+  return {
+    id: data.id,
+    firstName: data.first_name || data.firstName,
+    lastName: data.last_name || data.lastName,
+    email: data.email,
+    phone: data.phone,
+    message: data.message,
+    source: data.source,
+    status: data.status,
+    assignedAgentId: data.assigned_agent_id || data.assignedAgentId,
+    createdAt: data.created_at || data.createdAt,
+    updatedAt: data.updated_at || data.updatedAt
+  } as Lead;
+}
+
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
   console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
 
   let query = supabase.from('leads').select(`
         *,
-        assignedAgent:users!leads_assignedAgentId_fkey(firstName, lastName, email)
+        assignedAgent:users!leads_assigned_agent_id_fkey(first_name, last_name, email)
       `);
 
   if (status && status !== 'all') {
@@ -777,12 +808,12 @@ export async function getAllLeads(status?: string, assignedAgentId?: string): Pr
   }
 
   if (assignedAgentId === 'unassigned') {
-    query = query.is('assignedAgentId', null);
+    query = query.is('assigned_agent_id', null);
   } else if (assignedAgentId && assignedAgentId !== 'all') {
-    query = query.eq('assignedAgentId', assignedAgentId);
+    query = query.eq('assigned_agent_id', assignedAgentId);
   }
 
-  const { data, error } = await query.order('createdAt', { ascending: false });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (error) {
     console.error('[Storage] Error fetching all leads:', error);
@@ -791,7 +822,7 @@ export async function getAllLeads(status?: string, assignedAgentId?: string): Pr
   }
 
   console.log('[Storage] Found leads:', data?.length || 0);
-  return data || [];
+  return (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
 }
 
 // Agent operations

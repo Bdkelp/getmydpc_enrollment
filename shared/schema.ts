@@ -157,16 +157,16 @@ export const commissions = pgTable("commissions", {
 // Leads table
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
-  firstName: varchar("firstName").notNull(),
-  lastName: varchar("lastName").notNull(),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
   email: varchar("email").notNull(),
   phone: varchar("phone").notNull(),
   message: text("message"),
   source: varchar("source").default("contact_form"),
   status: varchar("status").default("new"),
-  assignedAgentId: varchar("assignedAgentId"),
-  createdAt: timestamp("createdAt").defaultNow(),
-  updatedAt: timestamp("updatedAt").defaultNow(),
+  assignedAgentId: varchar("assigned_agent_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const leadActivities = pgTable("lead_activities", {
