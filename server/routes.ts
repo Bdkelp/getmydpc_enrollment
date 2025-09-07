@@ -564,12 +564,14 @@ router.post("/api/public/leads", async (req: any, res) => {
 
     console.log(`[${timestamp}] [Public Leads] Lead data to create:`, JSON.stringify(leadData, null, 2));
 
-    // Test database connection first
+    // Test database connection and table structure first
     try {
       const { supabase } = await import('./lib/supabaseClient');
+      
+      // Test connection and check table structure
       const { data: connectionTest, error: connectionError } = await supabase
         .from('leads')
-        .select('id')
+        .select('id, first_name, last_name, email, phone')
         .limit(1);
 
       if (connectionError) {
@@ -577,20 +579,43 @@ router.post("/api/public/leads", async (req: any, res) => {
         throw new Error(`Database connection failed: ${connectionError.message}`);
       }
 
-      console.log(`[${timestamp}] [Public Leads] Database connection successful`);
+      console.log(`[${timestamp}] [Public Leads] Database connection successful, table structure verified`);
+      
+      // Test if we can actually insert (using anon key)
+      console.log(`[${timestamp}] [Public Leads] Testing anonymous insert capability...`);
+      
     } catch (dbError) {
       console.error(`[${timestamp}] [Public Leads] Database test error:`, dbError);
       throw dbError;
     }
 
-    const lead = await storage.createLead(leadData);
-
-    console.log(`[${timestamp}] [Public Leads] Lead created successfully:`, { 
-      id: lead.id, 
-      email: lead.email,
-      status: lead.status,
-      source: lead.source
-    });
+    let lead;
+    try {
+      lead = await storage.createLead(leadData);
+      console.log(`[${timestamp}] [Public Leads] Lead created successfully:`, { 
+        id: lead.id, 
+        email: lead.email,
+        status: lead.status,
+        source: lead.source
+      });
+    } catch (storageError: any) {
+      console.error(`[${timestamp}] [Public Leads] Storage error creating lead:`, {
+        error: storageError.message,
+        code: storageError.code,
+        details: storageError.details,
+        hint: storageError.hint,
+        leadData: leadData
+      });
+      
+      // Try to provide more specific error messages
+      if (storageError.message?.includes('column') && storageError.message?.includes('does not exist')) {
+        throw new Error(`Database schema mismatch: ${storageError.message}`);
+      } else if (storageError.message?.includes('permission denied') || storageError.message?.includes('RLS')) {
+        throw new Error('Permission denied: Lead submission not allowed');
+      } else {
+        throw storageError;
+      }
+    }
 
     res.json({ 
       success: true, 

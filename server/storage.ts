@@ -583,32 +583,39 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 }
 
 // Lead operations
-export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
+export async function createLead(leadData: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  message?: string;
+  source?: string;
+  status?: string;
+}): Promise<Lead> {
   console.log('[Storage] Creating lead with data:', leadData);
 
   const { data, error } = await supabase
     .from('leads')
     .insert([{
-      first_name: leadData.firstName,
-      last_name: leadData.lastName,
+      first_name: leadData.firstName,    // Use snake_case for database
+      last_name: leadData.lastName,      // Use snake_case for database
       email: leadData.email,
       phone: leadData.phone,
       message: leadData.message || '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
-      assigned_agent_id: leadData.assignedAgentId || null
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }])
     .select()
     .single();
 
   if (error) {
-    console.error('[Storage] Error creating lead:', error);
-    console.error('[Storage] Error details:', error.message);
-    console.error('[Storage] Error hint:', error.hint);
+    console.error('Error creating lead:', error);
     throw new Error(`Failed to create lead: ${error.message}`);
   }
 
-  console.log('[Storage] Lead created successfully:', data);
+  console.log('[Storage] Created lead:', data);
   return mapLeadFromDB(data);
 }
 
@@ -662,7 +669,7 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
 export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
   // Map camelCase to snake_case for database update
   const updateData: any = { updated_at: new Date() };
-  
+
   if (data.firstName) updateData.first_name = data.firstName;
   if (data.lastName) updateData.last_name = data.lastName;
   if (data.email) updateData.email = data.email;
@@ -777,22 +784,22 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
 }
 
 // Helper function to map database snake_case to camelCase
-function mapLeadFromDB(data: any): Lead | null {
-  if (!data) return null;
+function mapLeadFromDB(dbLead: any): Lead {
+  if (!dbLead) return null;
 
   return {
-    id: data.id,
-    firstName: data.first_name || data.firstName,
-    lastName: data.last_name || data.lastName,
-    email: data.email,
-    phone: data.phone,
-    message: data.message,
-    source: data.source,
-    status: data.status,
-    assignedAgentId: data.assigned_agent_id || data.assignedAgentId,
-    createdAt: data.created_at || data.createdAt,
-    updatedAt: data.updated_at || data.updatedAt
-  } as Lead;
+    id: dbLead.id,
+    firstName: dbLead.first_name || dbLead.firstName,        // Handle both formats
+    lastName: dbLead.last_name || dbLead.lastName,           // Handle both formats
+    email: dbLead.email,
+    phone: dbLead.phone,
+    message: dbLead.message,
+    source: dbLead.source,
+    status: dbLead.status,
+    assignedAgentId: dbLead.assigned_agent_id || dbLead.assignedAgentId,
+    createdAt: dbLead.created_at || dbLead.createdAt,
+    updatedAt: dbLead.updated_at || dbLead.updatedAt,
+  };
 }
 
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
@@ -1969,7 +1976,7 @@ export const storage = {
       );
 
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active');
-      const monthlyRevenue = activeSubscriptions.reduce((total, sub) => total + (parseFloat(sub.amount) || 0), 0);
+      const monthlyRevenue = activeSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
 
       // Use proper date comparison with ISO strings
       const cutoffDateISO = cutoffDate.toISOString();
