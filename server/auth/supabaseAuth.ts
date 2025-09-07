@@ -19,8 +19,14 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     // Verify the JWT token with Supabase
     // Create a new Supabase client with the token for this request
     const { createClient } = await import('@supabase/supabase-js');
-    const supabaseUrl = process.env.VITE_SUPABASE_URL;
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    // Clean up URL - remove any quotes that might be in the environment variable
+    const supabaseUrl = process.env.VITE_SUPABASE_URL?.replace(/['"]/g, '') || '';
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY?.replace(/['"]/g, '') || '';
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('Missing Supabase environment variables');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
     
     const supabaseWithToken = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
