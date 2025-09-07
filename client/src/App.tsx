@@ -33,6 +33,7 @@ import AuthCallback from "@/pages/auth-callback";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
+import PublicLeadsTest from "@/pages/public-leads-test";
 import TestAuth from "@/pages/test-auth";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
 import { lazy } from "react";
@@ -64,6 +65,7 @@ function Router() {
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />
+      <Route path="/public-leads-test" component={PublicLeadsTest} />
 
       {/* Protected routes - require authentication */}
       {isAuthenticated && (

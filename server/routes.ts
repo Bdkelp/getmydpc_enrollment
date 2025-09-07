@@ -17,6 +17,23 @@ router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Public test endpoint (NO AUTH - for debugging only)
+router.get("/api/public/test-leads-noauth", async (req, res) => {
+  try {
+    console.log('[Public Test] Fetching leads WITHOUT authentication...');
+    const leads = await storage.getAllLeads();
+    console.log(`[Public Test] Found ${leads.length} leads`);
+    res.json({
+      success: true,
+      totalLeads: leads.length,
+      leads: leads
+    });
+  } catch (error) {
+    console.error('[Public Test] Error:', error);
+    res.status(500).json({ message: "Failed to fetch leads", error: error.message });
+  }
+});
+
 // Test endpoint for leads system
 router.get("/api/test-leads", async (req, res) => {
   try {
