@@ -26,8 +26,14 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
 
   try {
     // Get fresh session for each request
-    const { getSession } = await import("@/lib/supabase");
-    const session = await getSession();
+    const { supabase } = await import("@/lib/supabase");
+    
+    // Force refresh the session to ensure we have the latest token
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error(`[apiRequest:${requestId}] Session error:`, sessionError);
+    }
     
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -37,6 +43,9 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     // Add auth token if available
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`;
+      console.log(`[apiRequest:${requestId}] Auth token added, user:`, session.user?.email);
+    } else {
+      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, url);
     }
 
     const response = await fetch(url, {
@@ -115,13 +124,22 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     // Get the Supabase session to include auth token
-    const { getSession } = await import("@/lib/supabase");
-    const session = await getSession();
+    const { supabase } = await import("@/lib/supabase");
+    
+    // Force refresh the session to ensure we have the latest token
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error("[getQueryFn] Session error:", sessionError);
+    }
 
     const headers: Record<string, string> = {};
 
     if (session?.access_token) {
       headers["Authorization"] = `Bearer ${session.access_token}`;
+      console.log("[getQueryFn] Auth token added for:", queryKey[0]);
+    } else {
+      console.warn("[getQueryFn] No auth token available for:", queryKey[0]);
     }
 
     const res = await fetch(queryKey[0] as string, {
