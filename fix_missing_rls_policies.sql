@@ -20,8 +20,17 @@ DROP POLICY IF EXISTS "Admins can manage plans" ON public.plans;
 DROP POLICY IF EXISTS "Service role bypass sessions" ON public.sessions;
 DROP POLICY IF EXISTS "Users can manage own sessions" ON public.sessions;
 DROP POLICY IF EXISTS "Admins can view all sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Service role bypass subscriptions" ON public.subscriptions;
+DROP POLICY IF EXISTS "Users can view own subscriptions" ON public.subscriptions;
+DROP POLICY IF EXISTS "Admins can manage subscriptions" ON public.subscriptions;
+DROP POLICY IF EXISTS "Service role bypass leads" ON public.leads;
+DROP POLICY IF EXISTS "Agents can view assigned leads" ON public.leads;
+DROP POLICY IF EXISTS "Agents can manage assigned leads" ON public.leads;
+DROP POLICY IF EXISTS "Service role bypass lead_activities" ON public.lead_activities;
+DROP POLICY IF EXISTS "Agents can view own lead activities" ON public.lead_activities;
+DROP POLICY IF EXISTS "Agents can manage own lead activities" ON public.lead_activities;
 
--- 1. Commissions table policies
+-- 1. Commissions table policies (using correct column names)
 CREATE POLICY "Service role bypass commissions" ON public.commissions
   FOR ALL USING (auth.role() = 'service_role');
 
@@ -56,7 +65,7 @@ CREATE POLICY "Service role bypass family_members" ON public.family_members
 
 CREATE POLICY "Users can view own family members" ON public.family_members
   FOR SELECT USING (
-    primary_user_id::uuid = (SELECT auth.uid())
+    primary_user_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
@@ -66,7 +75,7 @@ CREATE POLICY "Users can view own family members" ON public.family_members
 
 CREATE POLICY "Users can manage own family members" ON public.family_members
   FOR ALL USING (
-    primary_user_id::uuid = (SELECT auth.uid())
+    primary_user_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -74,13 +83,13 @@ CREATE POLICY "Users can manage own family members" ON public.family_members
     )
   );
 
--- 3. Payments table policies
+-- 3. Payments table policies (using correct column name: user_id)
 CREATE POLICY "Service role bypass payments" ON public.payments
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "Users can view own payments" ON public.payments
   FOR SELECT USING (
-    user_id::uuid = (SELECT auth.uid())
+    user_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
@@ -119,22 +128,21 @@ CREATE POLICY "Admins can manage plans" ON public.plans
     )
   );
 
--- 5. Sessions table policies (note: sessions table might not have user_id column, checking structure first)
+-- 5. Sessions table policies
 CREATE POLICY "Service role bypass sessions" ON public.sessions
   FOR ALL USING (auth.role() = 'service_role');
 
--- Sessions table typically doesn't have user_id, so allowing all authenticated users to manage their own sessions
+-- Sessions table typically doesn't have user_id, so allowing all authenticated users
 CREATE POLICY "Authenticated users can access sessions" ON public.sessions
   FOR ALL USING (auth.role() = 'authenticated');
 
--- 6. Add policies for other missing tables
--- Subscriptions table
+-- 6. Subscriptions table policies (using correct column name: user_id)
 CREATE POLICY "Service role bypass subscriptions" ON public.subscriptions
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
   FOR SELECT USING (
-    user_id::uuid = (SELECT auth.uid())
+    user_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
@@ -154,13 +162,13 @@ CREATE POLICY "Admins can manage subscriptions" ON public.subscriptions
     )
   );
 
--- Leads table
+-- 7. Leads table policies (using correct column name: assigned_agent_id)
 CREATE POLICY "Service role bypass leads" ON public.leads
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "Agents can view assigned leads" ON public.leads
   FOR SELECT USING (
-    assigned_agent_id::uuid = (SELECT auth.uid())
+    assigned_agent_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -170,7 +178,7 @@ CREATE POLICY "Agents can view assigned leads" ON public.leads
 
 CREATE POLICY "Agents can manage assigned leads" ON public.leads
   FOR ALL USING (
-    assigned_agent_id::uuid = (SELECT auth.uid())
+    assigned_agent_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -178,13 +186,13 @@ CREATE POLICY "Agents can manage assigned leads" ON public.leads
     )
   );
 
--- Lead activities table
+-- 8. Lead activities table policies (using correct column name: agent_id)
 CREATE POLICY "Service role bypass lead_activities" ON public.lead_activities
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "Agents can view own lead activities" ON public.lead_activities
   FOR SELECT USING (
-    agent_id::uuid = (SELECT auth.uid())
+    agent_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -194,7 +202,7 @@ CREATE POLICY "Agents can view own lead activities" ON public.lead_activities
 
 CREATE POLICY "Agents can manage own lead activities" ON public.lead_activities
   FOR ALL USING (
-    agent_id::uuid = (SELECT auth.uid())
+    agent_id = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
