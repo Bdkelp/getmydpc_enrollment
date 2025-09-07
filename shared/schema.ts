@@ -154,19 +154,19 @@ export const commissions = pgTable("commissions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Family members table (for family plans)
+// Leads table
 export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
-  firstName: varchar("first_name", { length: 255 }).notNull(),
-  lastName: varchar("last_name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull(),
-  phone: varchar("phone", { length: 50 }).notNull(),
+  firstName: varchar("firstName").notNull(),
+  lastName: varchar("lastName").notNull(),
+  email: varchar("email").notNull(),
+  phone: varchar("phone").notNull(),
   message: text("message"),
-  source: varchar("source", { length: 50 }).default("contact_form"),
-  status: varchar("status", { length: 50 }).default("new"),
-  assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  source: varchar("source").default("contact_form"),
+  status: varchar("status").default("new"),
+  assignedAgentId: varchar("assignedAgentId"),
+  createdAt: timestamp("createdAt").defaultNow(),
+  updatedAt: timestamp("updatedAt").defaultNow(),
 });
 
 export const leadActivities = pgTable("lead_activities", {

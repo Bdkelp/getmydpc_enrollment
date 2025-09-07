@@ -926,13 +926,49 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
   }
 
   try {
+    console.log('[Admin Leads API] Fetching leads with filters:', req.query);
     const { status, assignedAgentId } = req.query;
-    const leads = await storage.getLeads(status as string, assignedAgentId as string);
-    // Ensure we always return an array
-    const safeLeads = Array.isArray(leads) ? leads : [];
-    res.json(safeLeads);
+    
+    let leads;
+    if (status && status !== 'all') {
+      // Filter by status
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('status', status)
+        .order('createdAt', { ascending: false });
+      
+      if (error) throw error;
+      leads = data || [];
+    } else if (assignedAgentId === 'unassigned') {
+      // Get unassigned leads
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .is('assignedAgentId', null)
+        .order('createdAt', { ascending: false });
+      
+      if (error) throw error;
+      leads = data || [];
+    } else if (assignedAgentId && assignedAgentId !== 'all') {
+      // Filter by agent
+      const { data, error } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('assignedAgentId', assignedAgentId)
+        .order('createdAt', { ascending: false });
+      
+      if (error) throw error;
+      leads = data || [];
+    } else {
+      // Get all leads
+      leads = await storage.getAllLeads();
+    }
+    
+    console.log('[Admin Leads API] Found leads:', leads.length);
+    res.json(leads);
   } catch (error) {
-    console.error("Error fetching leads:", error);
+    console.error("[Admin Leads API] Error fetching leads:", error);
     res.status(500).json({ message: "Failed to fetch leads", error: error.message });
   }
 });

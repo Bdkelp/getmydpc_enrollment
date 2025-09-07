@@ -434,64 +434,39 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching all users...');
-
-    // Remove limit and offset to get all users for admin panel
     const { data, error } = await supabase
       .from('users')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .select(`
+        *,
+        subscriptions (
+          id,
+          status,
+          planId,
+          amount,
+          plans (
+            name
+          )
+        )
+      `)
+      .order('createdAt', { ascending: false });
 
     if (error) {
-      console.error('[Storage] Error fetching all users:', error);
-      console.error('[Storage] Error details:', error.message);
-      console.error('[Storage] Error code:', error.code);
-      throw new Error(`Database error: ${error.message}`);
+      console.error('[Storage] Error fetching users:', error);
+      throw error;
     }
 
-    if (!data) {
-      console.warn('[Storage] No data returned from users query');
-      return { users: [], totalCount: 0 };
-    }
-
-    console.log('[Storage] Found users count:', data.length);
-
-    // Map all users using the helper function with better error handling
-    const mappedUsers = [];
-    for (const userData of data) {
-      try {
-        const mappedUser = mapUserFromDB(userData);
-        if (mappedUser) {
-          mappedUsers.push(mappedUser);
-        }
-      } catch (mapError) {
-        console.error('[Storage] Error mapping user:', userData.id, mapError);
-        // Continue processing other users
-      }
-    }
-
-    console.log('[Storage] Successfully mapped users:', mappedUsers.length);
-
-    // Log first user for debugging (without sensitive data)
-    if (mappedUsers.length > 0) {
-      console.log('[Storage] Sample mapped user:', {
-        id: mappedUsers[0].id,
-        email: mappedUsers[0].email,
-        firstName: mappedUsers[0].firstName,
-        lastName: mappedUsers[0].lastName,
-        role: mappedUsers[0].role,
-        approvalStatus: mappedUsers[0].approvalStatus
-      });
-    }
+    console.log('[Storage] Raw user data:', {
+      totalUsers: data?.length || 0,
+      roles: data?.map(u => ({ email: u.email, role: u.role })) || []
+    });
 
     return {
-      users: mappedUsers,
-      totalCount: mappedUsers.length
+      users: data || [],
+      totalCount: data?.length || 0
     };
-  } catch (error: any) {
-    console.error("[Storage] Unexpected error fetching all users:", error);
-    console.error("[Storage] Error details:", error.message);
-    console.error("[Storage] Error stack:", error.stack);
-    throw error; // Re-throw to be handled by the calling function
+  } catch (error) {
+    console.error('[Storage] Error in getAllUsers:', error);
+    throw error;
   }
 }
 
@@ -611,24 +586,18 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
   console.log('[Storage] Creating lead with data:', leadData);
 
-  const leadToInsert = {
-    firstName: leadData.firstName,
-    lastName: leadData.lastName,
-    email: leadData.email,
-    phone: leadData.phone,
-    message: leadData.message || '',
-    source: leadData.source || 'contact_form',
-    status: leadData.status || 'new',
-    assignedAgentId: leadData.assignedAgentId || null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  console.log('[Storage] Inserting lead:', leadToInsert);
-
   const { data, error } = await supabase
     .from('leads')
-    .insert([leadToInsert])
+    .insert([{
+      firstName: leadData.firstName,
+      lastName: leadData.lastName,
+      email: leadData.email,
+      phone: leadData.phone,
+      message: leadData.message || '',
+      source: leadData.source || 'contact_form',
+      status: leadData.status || 'new',
+      assignedAgentId: leadData.assignedAgentId || null
+    }])
     .select()
     .single();
 
@@ -644,17 +613,17 @@ export async function createLead(leadData: Partial<Lead>): Promise<Lead> {
 }
 
 export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
-  let query = supabase.from('leads').select('*').eq('assignedAgentId', agentId);
+  let query = supabase.from('leads').select('*')
+    .eq('assignedAgentId', agentId);
   if (status) {
     query = query.eq('status', status);
   }
-  const { data, error } = await query.order('created_at', { ascending: false });
+  const { data, error } = await query.order('createdAt', { ascending: false });
 
   if (error) {
-    console.error('Error fetching leads by agent:', error);
-    throw new Error(`Failed to get leads: ${error.message}`);
+    console.error('Error fetching agent leads:', error);
+    return [];
   }
-
   return data || [];
 }
 
@@ -798,7 +767,10 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
   console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
 
-  let query = supabase.from('leads').select('*');
+  let query = supabase.from('leads').select(`
+        *,
+        assignedAgent:users!leads_assignedAgentId_fkey(firstName, lastName, email)
+      `);
 
   if (status && status !== 'all') {
     query = query.eq('status', status);
@@ -867,35 +839,30 @@ export async function getTableData(tableName: string): Promise<any[]> {
 
 export async function getAnalytics(): Promise<any> {
   try {
-    const [users, subscriptions, payments, leads] = await Promise.all([
-      getAllUsers(),
-      getAllSubscriptions(),
-      getAllPayments(),
-      getAllLeads()
-    ]);
+    const { users } = await getAllUsers(); // Use the corrected getAllUsers
+    const allSubscriptions = await getActiveSubscriptions(); // Assuming this fetches all subscriptions, not just active
+    const allPayments = await supabase.from('payments').select('*').eq('status', 'completed').then(res => res.data || []); // Fetch completed payments
+    const allLeads = await getAllLeads(); // Use the corrected getAllLeads
 
-    const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
-    const totalRevenue = payments
-      .filter(p => p.status === 'completed')
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
+    const activeSubscriptionsCount = allSubscriptions.length;
+    const totalRevenue = allPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
     const today = new Date();
-    const monthlyRevenue = payments
+    const monthlyRevenue = allPayments
       .filter(p =>
-        p.status === 'completed' &&
         new Date(p.created_at).getMonth() === today.getMonth() &&
         new Date(p.created_at).getFullYear() === today.getFullYear()
       )
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
+      .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
     return {
-      totalUsers: users.users.length,
-      totalMembers: users.users.filter(u => u.role === 'member').length,
-      activeSubscriptions: activeSubscriptions.length,
+      totalUsers: users.length,
+      totalMembers: users.filter(u => u.role === 'member').length,
+      activeSubscriptions: activeSubscriptionsCount,
       totalRevenue,
       monthlyRevenue,
-      totalLeads: leads.length,
-      convertedLeads: leads.filter(l => l.status === 'converted').length
+      totalLeads: allLeads.length,
+      convertedLeads: allLeads.filter(l => l.status === 'converted').length
     };
   } catch (error) {
     console.error('Error getting analytics:', error);
@@ -1777,8 +1744,8 @@ export const storage = {
   addLeadActivity: async (activity: any) => activity,
   getLeadActivities: async () => [],
   getAgents: async () => {
-    const users = await storage.getAllUsers();
-    const agents = users.users?.filter((user: any) => user.role === 'agent') || [];
+    const { users } = await getAllUsers(); // Use the corrected getAllUsers
+    const agents = users?.filter((user: any) => user.role === 'agent') || [];
     return agents.map((agent: any) => ({
       id: agent.id,
       firstName: agent.firstName,
@@ -1848,7 +1815,7 @@ export const storage = {
       });
 
       // Filter for actual active members only (not admins/agents)
-      const actualMembers = allUsers.filter(user => 
+      const actualMembers = allUsers.filter(user =>
         (user.role === 'member' || user.role === 'user') &&
         user.approval_status === 'approved' &&
         user.is_active === true
@@ -1879,7 +1846,7 @@ export const storage = {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const newEnrollments = allSubscriptions.data?.filter(sub =>
+      const newEnrollments = allSubscriptions.filter(sub =>
         sub.createdAt && new Date(sub.createdAt) >= thirtyDaysAgo
       ).length || 0;
 
@@ -1964,8 +1931,8 @@ export const storage = {
       });
 
       // Overview metrics - only count actual DPC members (not agents/admins)
-      const actualMembers = allUsers.filter(user => 
-        (user.role === 'member' || user.role === 'user') && 
+      const actualMembers = allUsers.filter(user =>
+        (user.role === 'member' || user.role === 'user') &&
         user.approval_status === 'approved' &&
         user.is_active === true
       );
@@ -2007,7 +1974,7 @@ export const storage = {
 
       // Recent enrollments
       const recentEnrollments = allSubscriptions
-        .filter(sub => sub.createdAt && new Date(sub.createdAt) >= cutoffDate)
+        .filter(sub => sub.created_at && new Date(sub.created_at) >= cutoffDate)
         .map(sub => {
           const user = allUsers.find(u => u.id === sub.userId);
           const plan = allPlans.find(p => p.id === sub.planId);
@@ -2018,7 +1985,7 @@ export const storage = {
             email: user?.email || '',
             planName: plan?.name || '',
             amount: sub.amount || 0,
-            enrolledDate: sub.createdAt?.toISOString() || '',
+            enrolledDate: sub.created_at?.toISOString() || '',
             status: sub.status
           };
         })
@@ -2036,7 +2003,7 @@ export const storage = {
           });
 
           const monthlyEnrollments = agentSubscriptions.filter(sub =>
-            sub.createdAt && new Date(sub.createdAt) >= cutoffDate
+            sub.created_at && new Date(sub.created_at) >= cutoffDate
           ).length;
 
           const totalCommissions = agentCommissions.reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
@@ -2081,8 +2048,8 @@ export const storage = {
             phone: member.phone || '',
             planName: plan?.name || '',
             status: activeSub?.status || 'inactive',
-            enrolledDate: member.createdAt?.toISOString() || '',
-            lastPayment: activeSub?.updatedAt?.toISOString() || '',
+            enrolledDate: member.created_at?.toISOString() || '',
+            lastPayment: activeSub?.updated_at?.toISOString() || '',
             totalPaid,
             agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Direct'
           };
@@ -2148,9 +2115,9 @@ export const storage = {
       const analytics = {
         overview: {
           totalMembers,
-          activeSubscriptions,
+          activeSubscriptions: activeSubscriptions.length,
           monthlyRevenue,
-          averageRevenue: activeSubscriptions > 0 ? monthlyRevenue / activeSubscriptions : 0,
+          averageRevenue: activeSubscriptions.length > 0 ? monthlyRevenue / activeSubscriptions.length : 0,
           churnRate: totalMembers > 0 ? (cancellationsThisMonth / totalMembers) * 100 : 0,
           growthRate: totalMembers > 0 ? (newEnrollmentsThisMonth / totalMembers) * 100 : 0,
           newEnrollmentsThisMonth,
