@@ -16,28 +16,8 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    // Verify the JWT token with Supabase
-    // Create a new Supabase client with the token for this request
-    const { createClient } = await import('@supabase/supabase-js');
-    // Clean up URL - remove any quotes that might be in the environment variable
-    const supabaseUrl = process.env.VITE_SUPABASE_URL?.replace(/['"]/g, '') || '';
-    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY?.replace(/['"]/g, '') || '';
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('Missing Supabase environment variables');
-      return res.status(500).json({ message: 'Server configuration error' });
-    }
-    
-    const supabaseWithToken = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    // Now get the user with this authenticated client
-    const { data: { user }, error } = await supabaseWithToken.auth.getUser();
+    // Use the server-side supabase client with service role key to verify the token
+    const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
       console.error('Token verification failed:', error?.message || 'No user found');
