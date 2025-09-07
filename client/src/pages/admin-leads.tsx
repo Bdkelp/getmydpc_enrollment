@@ -47,6 +47,19 @@ export default function AdminLeads() {
   const { user, loading: authLoading } = useAuth();
 
   log('Component initialized', { user: user?.email, authLoading });
+  
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    window.location.href = '/login';
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+  
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<string>('all'); // Changed from agentFilter to assignmentFilter to match the Select component's state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
