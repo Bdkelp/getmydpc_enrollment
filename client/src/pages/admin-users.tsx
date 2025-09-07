@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -72,7 +73,7 @@ export default function AdminUsers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('members');
 
   // Test authentication on mount
   useEffect(() => {
@@ -132,44 +133,47 @@ export default function AdminUsers() {
       .subscribe();
 
     return () => {
-      console.log('[AdminUsers] Cleaning up real-time subscriptions...');
-      usersSubscription.unsubscribe();
-      subscriptionsSubscription.unsubscribe();
-      paymentsSubscription.unsubscribe();
+      console.log('[AdminUsers] Cleaning up subscriptions...');
+      supabase.removeChannel(usersSubscription);
+      supabase.removeChannel(subscriptionsSubscription);
+      supabase.removeChannel(paymentsSubscription);
     };
   }, [queryClient, toast]);
 
-
-  // Fetch all users
+  // Fetch users
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],
     queryFn: async () => {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-
-      const response = await fetch('/api/admin/users', {
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` }),
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      return response.json();
+      console.log('[AdminUsers] Fetching users...');
+      const data = await apiRequest('/api/admin/users');
+      console.log('[AdminUsers] Fetched users:', data);
+      return data;
     },
-    retry: 3,
-    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchInterval: 30000, // Refetch every 30 seconds
   });
 
-  // Debug query state
-  console.log('[AdminUsers] Query state:', {
-    isLoading,
-    hasData: !!usersData,
-    hasError: !!error,
-    errorMessage: error?.message
+  // Fetch pending users
+  const { data: pendingUsers = [] } = useQuery({
+    queryKey: ['/api/admin/pending-users'],
+    queryFn: async () => {
+      console.log('[AdminUsers] Fetching pending users...');
+      const data = await apiRequest('/api/admin/pending-users');
+      console.log('[AdminUsers] Fetched pending users:', data);
+      return data;
+    },
+    refetchInterval: 10000, // Check for pending users every 10 seconds
+  });
+
+  // Fetch login sessions
+  const { data: loginSessions = [] } = useQuery({
+    queryKey: ['/api/admin/login-sessions'],
+    queryFn: async () => {
+      console.log('[AdminUsers] Fetching login sessions...');
+      const data = await apiRequest('/api/admin/login-sessions');
+      console.log('[AdminUsers] Fetched login sessions:', data);
+      return data;
+    },
+    refetchInterval: 60000, // Refresh every minute
   });
 
   // Update user role mutation
@@ -308,7 +312,6 @@ export default function AdminUsers() {
     },
   });
 
-
   // Approve user mutation
   const approveUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -333,51 +336,29 @@ export default function AdminUsers() {
     },
   });
 
-  // Safe array handling for users data with comprehensive checks and debugging
+  // Safe array handling for users data
   const rawUsers = usersData?.users;
   const safeUsers = Array.isArray(rawUsers) ? rawUsers : [];
   const safeUsersData = usersData || { users: [], totalCount: 0 };
 
-  // Debug logging
-  console.log('[AdminUsers] Raw data check:', {
-    hasUsersData: !!usersData,
-    usersDataType: typeof usersData,
-    rawUsersType: typeof rawUsers,
-    rawUsersIsArray: Array.isArray(rawUsers),
-    rawUsersLength: rawUsers?.length || 0,
-    safeUsersLength: safeUsers.length,
-    firstUser: safeUsers[0] ? {
-      id: safeUsers[0].id,
-      email: safeUsers[0].email,
-      role: safeUsers[0].role
-    } : null
-  });
+  // Filter users by role
+  const members = safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user'));
+  const agents = safeUsers.filter((u: UserType) => u && u.role === 'agent');
+  const admins = safeUsers.filter((u: UserType) => u && u.role === 'admin');
 
-  // Filter users based on search and role with safe array operations
-  const filteredUsers = safeUsers.filter((user: UserType) => {
-    if (!user || typeof user !== 'object') {
-      console.warn('[AdminUsers] Invalid user object:', user);
-      return false;
-    }
-
+  // Search filter
+  const filterBySearch = (users: UserType[]) => {
+    if (!searchTerm) return users;
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = !searchTerm || 
-      user.email?.toLowerCase().includes(searchLower) ||
-      user.firstName?.toLowerCase().includes(searchLower) ||
-      user.lastName?.toLowerCase().includes(searchLower);
-
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-
-    return matchesSearch && matchesRole;
-  });
-
-  // Debug filtered results
-  console.log('[AdminUsers] Filter results:', {
-    searchTerm,
-    roleFilter,
-    totalUsers: safeUsers.length,
-    filteredCount: filteredUsers.length
-  });
+    return users.filter((user: UserType) => {
+      if (!user || typeof user !== 'object') return false;
+      return (
+        user.email?.toLowerCase().includes(searchLower) ||
+        user.firstName?.toLowerCase().includes(searchLower) ||
+        user.lastName?.toLowerCase().includes(searchLower)
+      );
+    });
+  };
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -401,6 +382,245 @@ export default function AdminUsers() {
     }
   };
 
+  const UserTable = ({ users, showRole = false, showPlan = true }: { users: UserType[], showRole?: boolean, showPlan?: boolean }) => (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>User</TableHead>
+            {showRole && <TableHead>Role</TableHead>}
+            <TableHead>Agent Number</TableHead>
+            {showPlan && <TableHead>Plan</TableHead>}
+            <TableHead>Status</TableHead>
+            <TableHead>Joined</TableHead>
+            <TableHead>Last Login</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {users.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={showRole ? 8 : 7} className="text-center py-8 text-gray-500">
+                No users found in this category
+              </TableCell>
+            </TableRow>
+          ) : (
+            users.map((user: UserType) => (
+              <TableRow key={user.id}>
+                <TableCell>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-medical-blue-100 rounded-full flex items-center justify-center">
+                      <span className="text-medical-blue-600 font-semibold text-sm">
+                        {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}
+                        {user.lastName?.[0]?.toUpperCase() || user.email?.[1]?.toUpperCase() || 'U'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {user.firstName && user.lastName 
+                          ? `${user.firstName} ${user.lastName}` 
+                          : user.firstName || user.lastName || user.email?.split('@')[0] || 'User'
+                        }
+                      </p>
+                      <p className="text-sm text-gray-500">{user.email}</p>
+                    </div>
+                  </div>
+                </TableCell>
+                {showRole && (
+                  <TableCell>
+                    <Select
+                      value={user.role}
+                      onValueChange={(value) => {
+                        updateRoleMutation.mutate({ userId: user.id, role: value });
+                      }}
+                      disabled={updateRoleMutation.isPending}
+                    >
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue>
+                          <div className="flex items-center gap-1">
+                            {getRoleIcon(user.role)}
+                            <span className="capitalize">{user.role}</span>
+                          </div>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-3 w-3" />
+                            Admin
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="agent">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="h-3 w-3" />
+                            Agent
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="member">
+                          <div className="flex items-center gap-2">
+                            <User className="h-3 w-3" />
+                            DPC Member
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                )}
+                <TableCell>
+                  {user.role === 'agent' || user.role === 'admin' ? (
+                    <Input
+                      type="text"
+                      placeholder="Enter agent #"
+                      defaultValue={user.agentNumber || ''}
+                      className="w-[120px]"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const value = e.currentTarget.value.trim();
+                          if (value !== (user.agentNumber || '')) {
+                            updateAgentNumberMutation.mutate({
+                              userId: user.id,
+                              agentNumber: value
+                            });
+                          }
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const value = e.target.value.trim();
+                        if (value !== (user.agentNumber || '')) {
+                          updateAgentNumberMutation.mutate({
+                            userId: user.id,
+                            agentNumber: value
+                          });
+                        }
+                      }}
+                      disabled={updateAgentNumberMutation.isPending}
+                    />
+                  ) : (
+                    <span className="text-gray-400 text-sm">N/A</span>
+                  )}
+                </TableCell>
+                {showPlan && (
+                  <TableCell>
+                    {user.subscription ? (
+                      <Badge variant="outline" className="text-blue-600">
+                        {user.subscription.planName} - ${user.subscription.amount}/mo
+                      </Badge>
+                    ) : user.role === 'member' || user.role === 'user' ? (
+                      <Badge variant="outline" className="text-gray-600">
+                        No Active Plan
+                      </Badge>
+                    ) : (
+                      <span className="text-gray-400 text-sm">N/A</span>
+                    )}
+                  </TableCell>
+                )}
+                <TableCell>
+                  <div className="space-y-1">
+                    <Badge
+                      variant={user.approvalStatus === 'approved' && user.isActive ? 'default' : 
+                              user.approvalStatus === 'pending' ? 'secondary' : 
+                              user.approvalStatus === 'suspended' || !user.isActive ? 'destructive' : 'outline'}
+                    >
+                      {user.approvalStatus === 'suspended' || (!user.isActive && user.approvalStatus !== 'pending') ? 'Suspended' : 
+                       user.approvalStatus === 'approved' && user.isActive ? 'Active' : 
+                       user.approvalStatus === 'pending' ? 'Pending' : 'Unknown'}
+                    </Badge>
+                    {user.emailVerified && (
+                      <Badge variant="outline" className="text-green-600">
+                        <Mail className="h-3 w-3 mr-1" />
+                        Verified
+                      </Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {user.createdAt ? (() => {
+                    try {
+                      const date = new Date(user.createdAt);
+                      return !isNaN(date.getTime()) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
+                    } catch (e) {
+                      return 'Invalid Date';
+                    }
+                  })() : 'Unknown'}
+                </TableCell>
+                <TableCell>
+                  {user.lastLoginAt ? (() => {
+                    try {
+                      const date = new Date(user.lastLoginAt);
+                      return !isNaN(date.getTime()) ? format(date, 'MMM d, h:mm a') : 'Invalid Date';
+                    } catch (e) {
+                      return 'Invalid Date';
+                    }
+                  })() : 'Never'}
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end space-x-2">
+                    {user.approvalStatus === 'pending' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-green-600 hover:text-green-700"
+                        onClick={() => approveUserMutation.mutate(user.id)}
+                        disabled={approveUserMutation.isPending}
+                      >
+                        Approve
+                      </Button>
+                    )}
+                    {(user.role === 'member' || user.role === 'user') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
+                      >
+                        View DPC Details
+                      </Button>
+                    )}
+                    {(user.approvalStatus === 'suspended' || !user.isActive) && user.approvalStatus !== 'pending' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-green-600 hover:text-green-700"
+                        onClick={() => {
+                          const reactivateSubscriptions = confirm(
+                            "Do you want to reactivate their subscriptions as well?"
+                          );
+                          reactivateUserMutation.mutate({ 
+                            userId: user.id, 
+                            reactivateSubscriptions 
+                          });
+                        }}
+                        disabled={reactivateUserMutation.isPending}
+                      >
+                        <UserCheck className="h-3 w-3 mr-1" />
+                        {reactivateUserMutation.isPending ? 'Reactivating...' : 'Reactivate'}
+                      </Button>
+                    ) : user.isActive && user.approvalStatus === 'approved' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          const reason = prompt("Reason for suspension (optional):");
+                          if (reason !== null) { // User didn't cancel
+                            suspendUserMutation.mutate({ userId: user.id, reason });
+                          }
+                        }}
+                        disabled={suspendUserMutation.isPending}
+                      >
+                        <Ban className="h-3 w-3 mr-1" />
+                        {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
+                      </Button>
+                    ) : null}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -418,7 +638,7 @@ export default function AdminUsers() {
               </Button>
               <div>
                 <h1 className="text-xl font-semibold text-gray-900">User Management</h1>
-                <p className="text-sm text-gray-600">Manage user roles and permissions</p>
+                <p className="text-sm text-gray-600">Manage users by role</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -438,12 +658,10 @@ export default function AdminUsers() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Admins</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u && u.role === 'admin').length}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">DPC Members</p>
+                  <p className="text-2xl font-bold text-gray-900">{members.length}</p>
                 </div>
-                <Shield className="h-8 w-8 text-blue-600" />
+                <User className="h-8 w-8 text-gray-600" />
               </div>
             </CardContent>
           </Card>
@@ -452,9 +670,7 @@ export default function AdminUsers() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Agents</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u && u.role === 'agent').length}
-                  </p>
+                  <p className="text-2xl font-bold text-gray-900">{agents.length}</p>
                 </div>
                 <UserCheck className="h-8 w-8 text-green-600" />
               </div>
@@ -464,11 +680,10 @@ export default function AdminUsers() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">DPC Members</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user')).length}</p>
+                  <p className="text-sm font-medium text-gray-600">Administrators</p>
+                  <p className="text-2xl font-bold text-gray-900">{admins.length}</p>
                 </div>
-                <User className="h-8 w-8 text-gray-600" />
+                <Shield className="h-8 w-8 text-blue-600" />
               </div>
             </CardContent>
           </Card>
@@ -487,309 +702,113 @@ export default function AdminUsers() {
           </Card>
         </div>
 
-        {/* Filters */}
+        {/* Search */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Filter Users</CardTitle>
+            <CardTitle>Search Users</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  <Input
-                    placeholder="Search by name or email..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-              <Select value={roleFilter} onValueChange={setRoleFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Filter by role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="admin">Admins Only</SelectItem>
-                  <SelectItem value="agent">Agents Only</SelectItem>
-                  <SelectItem value="member">DPC Members Only</SelectItem>
-                  <SelectItem value="user">System Users Only</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search by name or email..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* Users Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>All System Users</CardTitle>
-            <CardDescription>
-              Click on a user's role to change their access level
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoading ? (
-              <div className="flex justify-center py-8">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Agent Number</TableHead>
-                      <TableHead>Plan</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Joined</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                          Loading users...
-                        </TableCell>
-                      </TableRow>
-                    ) : error ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-red-500">
-                          Error loading users: {error.message}
-                        </TableCell>
-                      </TableRow>
-                    ) : !Array.isArray(filteredUsers) || filteredUsers.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                          No users found matching your criteria
-                          <br />
-                          <small className="text-xs">
-                            Debug: {safeUsers.length} total users, {filteredUsers.length} after filtering
-                          </small>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredUsers.map((user: UserType) => (
-                        <TableRow key={user.id}>
-                          <TableCell>
-                            <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 bg-medical-blue-100 rounded-full flex items-center justify-center">
-                                <span className="text-medical-blue-600 font-semibold text-sm">
-                                  {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}{user.lastName?.[0]?.toUpperCase() || user.email?.[1]?.toUpperCase() || 'U'}
-                                </span>
-                              </div>
-                              <div>
-                                <p className="font-medium text-gray-900">
-                                  {user.firstName && user.lastName 
-                                    ? `${user.firstName} ${user.lastName}` 
-                                    : user.firstName || user.lastName || user.email?.split('@')[0] || 'User'
-                                  }
-                                </p>
-                                <p className="text-sm text-gray-500">{user.email}</p>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Select
-                              value={user.role}
-                              onValueChange={(value) => {
-                                updateRoleMutation.mutate({ userId: user.id, role: value });
-                              }}
-                              disabled={updateRoleMutation.isPending}
-                            >
-                              <SelectTrigger className="w-[120px]">
-                                <SelectValue>
-                                  <div className="flex items-center gap-1">
-                                    {getRoleIcon(user.role)}
-                                    <span className="capitalize">{user.role}</span>
-                                  </div>
-                                </SelectValue>
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="admin">
-                                  <div className="flex items-center gap-2">
-                                    <Shield className="h-3 w-3" />
-                                    Admin
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="agent">
-                                  <div className="flex items-center gap-2">
-                                    <UserCheck className="h-3 w-3" />
-                                    Agent
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="member">
-                                  <div className="flex items-center gap-2">
-                                    <User className="h-3 w-3" />
-                                    DPC Member
-                                  </div>
-                                </SelectItem>
-                                <SelectItem value="user">
-                                  <div className="flex items-center gap-2">
-                                    <User className="h-3 w-3" />
-                                    System User
-                                  </div>
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell>
-                            {user.role === 'agent' || user.role === 'admin' ? (
-                              <Input
-                                type="text"
-                                placeholder="Enter agent #"
-                                defaultValue={user.agentNumber || ''}
-                                className="w-[120px]"
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    const value = e.currentTarget.value.trim();
-                                    if (value !== (user.agentNumber || '')) {
-                                      updateAgentNumberMutation.mutate({
-                                        userId: user.id,
-                                        agentNumber: value
-                                      });
-                                    }
-                                  }
-                                }}
-                                onBlur={(e) => {
-                                  const value = e.target.value.trim();
-                                  if (value !== (user.agentNumber || '')) {
-                                    updateAgentNumberMutation.mutate({
-                                      userId: user.id,
-                                      agentNumber: value
-                                    });
-                                  }
-                                }}
-                                disabled={updateAgentNumberMutation.isPending}
-                              />
-                            ) : (
-                              <span className="text-gray-400 text-sm">N/A</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {user.subscription ? (
-                              <Badge variant="outline" className="text-blue-600">
-                                {user.subscription.planName} - ${user.subscription.amount}/mo
-                              </Badge>
-                            ) : user.role === 'member' || user.role === 'user' ? (
-                              <Badge variant="outline" className="text-gray-600">
-                                No Active Plan
-                              </Badge>
-                            ) : (
-                              <span className="text-gray-400 text-sm">N/A</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <Badge
-                                variant={user.approvalStatus === 'approved' && user.isActive ? 'default' : 
-                                        user.approvalStatus === 'pending' ? 'secondary' : 
-                                        user.approvalStatus === 'suspended' || !user.isActive ? 'destructive' : 'outline'}
-                              >
-                                {user.approvalStatus === 'suspended' || (!user.isActive && user.approvalStatus !== 'pending') ? 'Suspended' : 
-                                 user.approvalStatus === 'approved' && user.isActive ? 'Active' : 
-                                 user.approvalStatus || 'Unknown'}
-                              </Badge>
-                              {user.emailVerified && (
-                                <Badge variant="outline" className="text-xs">
-                                  Email Verified
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {user.createdAt ? (() => {
-                              try {
-                                const date = new Date(user.createdAt);
-                                return !isNaN(date.getTime()) ? format(date, 'MMM d, yyyy') : 'Invalid Date';
-                              } catch (e) {
-                                return 'Invalid Date';
-                              }
-                            })() : 'Unknown'}
-                          </TableCell>
-                          <TableCell>
-                            {user.lastLoginAt ? (() => {
-                              try {
-                                const date = new Date(user.lastLoginAt);
-                                return !isNaN(date.getTime()) ? format(date, 'MMM d, h:mm a') : 'Invalid Date';
-                              } catch (e) {
-                                return 'Invalid Date';
-                              }
-                            })() : 'Never'}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end space-x-2">
-                              {user.approvalStatus === 'pending' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-green-600 hover:text-green-700"
-                                  onClick={() => approveUserMutation.mutate(user.id)}
-                                  disabled={approveUserMutation.isPending}
-                                >
-                                  Approve
-                                </Button>
-                              )}
-                              {(user.role === 'member' || user.role === 'user') && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
-                                >
-                                  View DPC Details
-                                </Button>
-                              )}
-                              {(user.approvalStatus === 'suspended' || !user.isActive) && user.approvalStatus !== 'pending' ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-green-600 hover:text-green-700"
-                                  onClick={() => {
-                                    const reactivateSubscriptions = confirm(
-                                      "Do you want to reactivate their subscriptions as well?"
-                                    );
-                                    reactivateUserMutation.mutate({ 
-                                      userId: user.id, 
-                                      reactivateSubscriptions 
-                                    });
-                                  }}
-                                  disabled={reactivateUserMutation.isPending}
-                                >
-                                  <UserCheck className="h-3 w-3 mr-1" />
-                                  {reactivateUserMutation.isPending ? 'Reactivating...' : 'Reactivate'}
-                                </Button>
-                              ) : user.isActive && user.approvalStatus === 'approved' ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-red-600 hover:text-red-700"
-                                  onClick={() => {
-                                    const reason = prompt("Reason for suspension (optional):");
-                                    if (reason !== null) { // User didn't cancel
-                                      suspendUserMutation.mutate({ userId: user.id, reason });
-                                    }
-                                  }}
-                                  disabled={suspendUserMutation.isPending}
-                                >
-                                  <Ban className="h-3 w-3 mr-1" />
-                                  {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
-                                </Button>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* Users Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid grid-cols-3 w-full mb-4">
+            <TabsTrigger value="members">
+              DPC Members ({filterBySearch(members).length})
+            </TabsTrigger>
+            <TabsTrigger value="agents">
+              Agents ({filterBySearch(agents).length})
+            </TabsTrigger>
+            <TabsTrigger value="admins">
+              Administrators ({filterBySearch(admins).length})
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Members Tab */}
+          <TabsContent value="members">
+            <Card>
+              <CardHeader>
+                <CardTitle>DPC Members</CardTitle>
+                <CardDescription>
+                  Active subscribers and enrolled members in the Direct Primary Care program
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <LoadingSpinner />
+                  </div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-500">
+                    Error loading users: {error.message}
+                  </div>
+                ) : (
+                  <UserTable users={filterBySearch(members)} showRole={false} showPlan={true} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Agents Tab */}
+          <TabsContent value="agents">
+            <Card>
+              <CardHeader>
+                <CardTitle>Agents</CardTitle>
+                <CardDescription>
+                  Sales agents who can enroll members and track commissions
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <LoadingSpinner />
+                  </div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-500">
+                    Error loading users: {error.message}
+                  </div>
+                ) : (
+                  <UserTable users={filterBySearch(agents)} showRole={false} showPlan={false} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Admins Tab */}
+          <TabsContent value="admins">
+            <Card>
+              <CardHeader>
+                <CardTitle>Administrators</CardTitle>
+                <CardDescription>
+                  System administrators with full access to manage the platform
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <LoadingSpinner />
+                  </div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-500">
+                    Error loading users: {error.message}
+                  </div>
+                ) : (
+                  <UserTable users={filterBySearch(admins)} showRole={false} showPlan={false} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
