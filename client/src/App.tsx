@@ -34,6 +34,7 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import PendingApproval from "@/pages/pending-approval";
 import TestAuth from "@/pages/test-auth";
+import AdminDirect from "@/pages/admin-direct";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
 import { lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
@@ -64,6 +65,7 @@ function Router() {
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />
+      <Route path="/admin-direct" component={AdminDirect} />
 
       {/* Protected routes - require authentication */}
       {isAuthenticated && (
