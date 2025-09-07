@@ -55,42 +55,7 @@ export default function AdminLeads() {
   const [activityNotes, setActivityNotes] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  log('Component initialized', { user: user?.email, authLoading });
-  
-  // Redirect to login if not authenticated (AFTER all hooks)
-  if (!authLoading && !user) {
-    window.location.href = '/login';
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">Redirecting to login...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Check if user is admin
-  useEffect(() => {
-    log('Auth check useEffect triggered', { 
-      authLoading, 
-      hasUser: !!user, 
-      userRole: user?.role 
-    });
-
-    if (!authLoading) {
-      if (!user) {
-        logWarning('No user found, redirecting to login');
-        setLocation('/login');
-      } else if (user.role !== 'admin') {
-        logWarning('User is not admin, redirecting to login', { role: user.role });
-        setLocation('/login');
-      } else {
-        log('Admin user confirmed', { email: user.email });
-      }
-    }
-  }, [user, authLoading, setLocation, log, logWarning]);
-
-  // Fetch all leads
+  // Fetch all leads - MUST be before any conditional returns
   const { data: leads, isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
     enabled: !!user && user.role === 'admin',
@@ -135,17 +100,7 @@ export default function AdminLeads() {
     }
   });
 
-  // Log error if any
-  useEffect(() => {
-    if (leadsError) {
-      console.error('[AdminLeads] Failed to fetch leads:', leadsError);
-    }
-    if (leads && leads.length > 0) {
-      console.log('[AdminLeads] Successfully fetched leads:', leads.length);
-    }
-  }, [leadsError, leads]);
-
-  // Fetch agents for assignment
+  // Fetch agents for assignment - MUST be before any conditional returns
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ['/api/admin/agents'],
     enabled: !!user && user.role === 'admin',
@@ -157,7 +112,7 @@ export default function AdminLeads() {
     }
   });
 
-  // Update lead status
+  // Update lead status - MUST be before any conditional returns
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, updates }: { leadId: number; updates: Partial<Lead> }) => {
       const response = await apiRequest(`/api/leads/${leadId}`, {
@@ -175,7 +130,7 @@ export default function AdminLeads() {
     },
   });
 
-  // Assign lead to agent
+  // Assign lead to agent - MUST be before any conditional returns
   const assignLeadMutation = useMutation({
     mutationFn: async ({ leadId, agentId }: { leadId: number; agentId: string }) => {
       const response = await apiRequest(`/api/admin/leads/${leadId}/assign`, {
@@ -196,7 +151,7 @@ export default function AdminLeads() {
     },
   });
 
-  // Add activity note
+  // Add activity note - MUST be before any conditional returns
   const addActivityMutation = useMutation({
     mutationFn: async ({ leadId, notes }: { leadId: number; notes: string }) => {
       const response = await apiRequest(`/api/leads/${leadId}/activities`, {
@@ -216,6 +171,51 @@ export default function AdminLeads() {
       });
     },
   });
+
+  // Check if user is admin - AFTER all hooks
+  useEffect(() => {
+    log('Auth check useEffect triggered', { 
+      authLoading, 
+      hasUser: !!user, 
+      userRole: user?.role 
+    });
+
+    if (!authLoading) {
+      if (!user) {
+        logWarning('No user found, redirecting to login');
+        setLocation('/login');
+      } else if (user.role !== 'admin') {
+        logWarning('User is not admin, redirecting to login', { role: user.role });
+        setLocation('/login');
+      } else {
+        log('Admin user confirmed', { email: user.email });
+      }
+    }
+  }, [user, authLoading, setLocation, log, logWarning]);
+
+  // Log error if any
+  useEffect(() => {
+    if (leadsError) {
+      console.error('[AdminLeads] Failed to fetch leads:', leadsError);
+    }
+    if (leads && leads.length > 0) {
+      console.log('[AdminLeads] Successfully fetched leads:', leads.length);
+    }
+  }, [leadsError, leads]);
+
+  log('Component initialized', { user: user?.email, authLoading });
+  
+  // Redirect to login if not authenticated (AFTER all hooks)
+  if (!authLoading && !user) {
+    window.location.href = '/login';
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleAssignLead = () => {
     if (selectedLead && selectedAgentId) {
