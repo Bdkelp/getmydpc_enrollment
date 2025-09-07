@@ -42,7 +42,7 @@ CREATE POLICY "Agents can view own commissions" ON public.commissions
       AND (
         auth.users.raw_user_meta_data->>'role' = 'admin'
         OR auth.users.email LIKE '%@mypremierplans.com'
-        OR (auth.users.raw_user_meta_data->>'role' = 'agent' AND auth.users.id = agent_id)
+        OR (auth.users.raw_user_meta_data->>'role' = 'agent' AND auth.users.id = agent_id::uuid)
       )
     )
   );
@@ -65,8 +65,8 @@ CREATE POLICY "Service role bypass family_members" ON public.family_members
 
 CREATE POLICY "Users can view own family members" ON public.family_members
   FOR SELECT USING (
-    primary_user_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    primary_user_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -75,8 +75,8 @@ CREATE POLICY "Users can view own family members" ON public.family_members
 
 CREATE POLICY "Users can manage own family members" ON public.family_members
   FOR ALL USING (
-    primary_user_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    primary_user_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -89,8 +89,8 @@ CREATE POLICY "Service role bypass payments" ON public.payments
 
 CREATE POLICY "Users can view own payments" ON public.payments
   FOR SELECT USING (
-    user_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    user_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -142,8 +142,8 @@ CREATE POLICY "Service role bypass subscriptions" ON public.subscriptions
 
 CREATE POLICY "Users can view own subscriptions" ON public.subscriptions
   FOR SELECT USING (
-    user_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    user_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -168,8 +168,8 @@ CREATE POLICY "Service role bypass leads" ON public.leads
 
 CREATE POLICY "Agents can view assigned leads" ON public.leads
   FOR SELECT USING (
-    assigned_agent_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    assigned_agent_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -178,8 +178,8 @@ CREATE POLICY "Agents can view assigned leads" ON public.leads
 
 CREATE POLICY "Agents can manage assigned leads" ON public.leads
   FOR ALL USING (
-    assigned_agent_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    assigned_agent_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -192,8 +192,8 @@ CREATE POLICY "Service role bypass lead_activities" ON public.lead_activities
 
 CREATE POLICY "Agents can view own lead activities" ON public.lead_activities
   FOR SELECT USING (
-    agent_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    agent_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
       OR auth.users.email LIKE '%@mypremierplans.com'
@@ -202,8 +202,8 @@ CREATE POLICY "Agents can view own lead activities" ON public.lead_activities
 
 CREATE POLICY "Agents can manage own lead activities" ON public.lead_activities
   FOR ALL USING (
-    agent_id = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
+    agent_id::uuid = auth.uid()
+    OR auth.uid() IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
       OR auth.users.email LIKE '%@mypremierplans.com'
