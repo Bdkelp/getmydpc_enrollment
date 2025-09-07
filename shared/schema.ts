@@ -113,11 +113,15 @@ export const payments = pgTable("payments", {
   userId: varchar("user_id").references(() => users.id).notNull(),
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: varchar("currency").default("USD"), // Payment currency
   status: varchar("status").notNull(), // succeeded, failed, pending, refunded
+  transactionId: varchar("transaction_id").unique(), // External transaction ID
   stripePaymentIntentId: varchar("stripe_payment_intent_id").unique(),
   stripeChargeId: varchar("stripe_charge_id"),
   paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
+  metadata: jsonb("metadata"), // Additional payment metadata
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Enrollment modifications audit table
