@@ -105,11 +105,30 @@ export default function AdminLeads() {
         log('Leads API response received', { 
           responseType: typeof response, 
           isArray: Array.isArray(response),
-          length: Array.isArray(response) ? response.length : 'N/A'
+          length: Array.isArray(response) ? response.length : 'N/A',
+          hasUsers: response?.users !== undefined,
+          hasLeads: response?.leads !== undefined,
+          actualResponse: response
         });
 
+        // Check if the response is wrapped in an object
+        if (response && typeof response === 'object' && !Array.isArray(response)) {
+          if (response.leads && Array.isArray(response.leads)) {
+            log('Response has leads property, extracting array', { count: response.leads.length });
+            return response.leads;
+          }
+          if (response.users && Array.isArray(response.users)) {
+            log('Response has users property (might be wrong endpoint), extracting array', { count: response.users.length });
+            return response.users;
+          }
+        }
+
         if (!Array.isArray(response)) {
-          logWarning('Expected array response but got', typeof response);
+          logWarning('Expected array response but got', { 
+            type: typeof response,
+            keys: response ? Object.keys(response) : 'null',
+            value: response 
+          });
           return [];
         }
 

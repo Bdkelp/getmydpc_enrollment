@@ -966,6 +966,11 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
     );
     
     console.log(`[Admin Leads API] Found ${leads.length} leads`);
+    console.log('[Admin Leads API] Sample lead being sent:', leads[0] || 'No leads');
+    console.log('[Admin Leads API] Response format:', { 
+      isArray: Array.isArray(leads),
+      count: leads.length 
+    });
     
     // The storage layer already handles the snake_case to camelCase mapping
     res.json(leads);
