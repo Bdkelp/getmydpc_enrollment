@@ -29,12 +29,6 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     const { getSession } = await import("@/lib/supabase");
     const session = await getSession();
     
-    console.log(`[apiRequest:${requestId}] Session check:`, {
-      hasSession: !!session,
-      hasAccessToken: !!session?.access_token,
-      tokenPreview: session?.access_token ? session.access_token.substring(0, 20) + '...' : 'NO TOKEN'
-    });
-    
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -43,9 +37,6 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     // Add auth token if available
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`;
-      console.log(`[apiRequest:${requestId}] Authorization header added`);
-    } else {
-      console.error(`[apiRequest:${requestId}] NO ACCESS TOKEN AVAILABLE - Request will likely fail`);
     }
 
     const response = await fetch(url, {
@@ -127,19 +118,10 @@ export const getQueryFn: <T>(options: {
     const { getSession } = await import("@/lib/supabase");
     const session = await getSession();
 
-    console.log('[getQueryFn] Session check for', queryKey[0], {
-      hasSession: !!session,
-      hasAccessToken: !!session?.access_token,
-      tokenPreview: session?.access_token ? session.access_token.substring(0, 20) + '...' : 'NO TOKEN'
-    });
-
     const headers: Record<string, string> = {};
 
     if (session?.access_token) {
       headers["Authorization"] = `Bearer ${session.access_token}`;
-      console.log('[getQueryFn] Authorization header added for', queryKey[0]);
-    } else {
-      console.error('[getQueryFn] NO ACCESS TOKEN for', queryKey[0]);
     }
 
     const res = await fetch(queryKey[0] as string, {
