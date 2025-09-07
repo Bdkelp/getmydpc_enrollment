@@ -1,0 +1,69 @@
+utils.js:232 Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')
+    at utils.js:232:16
+(anonymous) @ utils.js:232Understand this error
+tabutils.js:2 Uncaught TypeError: Cannot read properties of undefined (reading 'onUpdated')
+    at tabutils.js:2:13
+(anonymous) @ tabutils.js:2Understand this error
+contextmenu.js:124 Uncaught TypeError: Cannot read properties of undefined (reading 'onClicked')
+    at contextmenu.js:124:21
+(anonymous) @ contextmenu.js:124Understand this error
+download.js:9 Uncaught TypeError: Cannot read properties of undefined (reading 'onCreated')
+    at download.js:9:18
+(anonymous) @ download.js:9Understand this error
+index-Y43W3Kon.js:365  POST https://sgtnzhgxlkcvtrzejobx.supabase.co/storage/v1/bucket 400 (Bad Request)
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+u @ index-Y43W3Kon.js:365
+Promise.then
+m @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+RT @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+Vi @ index-Y43W3Kon.js:365
+Al @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+Vi @ index-Y43W3Kon.js:365
+Ts @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+(anonymous) @ index-Y43W3Kon.js:365
+Na @ index-Y43W3Kon.js:365
+createBucket @ index-Y43W3Kon.js:365
+lj @ index-Y43W3Kon.js:367
+await in lj
+(anonymous) @ index-Y43W3Kon.js:367Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/login-sessions 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+(anonymous) @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/pending-users 500 (Internal Server Error)
+(anonymous) @ index-Y43W3Kon.js:48
+await in (anonymous)
+o @ index-Y43W3Kon.js:48
+C @ index-Y43W3Kon.js:48
+start @ index-Y43W3Kon.js:48
+fetch @ index-Y43W3Kon.js:48
+#u @ index-Y43W3Kon.js:48
+setOptions @ index-Y43W3Kon.js:48
+(anonymous) @ index-Y43W3Kon.js:48
+kc @ index-Y43W3Kon.js:40
+xa @ index-Y43W3Kon.js:40
+(anonymous) @ index-Y43W3Kon.js:40
+k @ index-Y43W3Kon.js:25
+Y @ index-Y43W3Kon.js:25Understand this error
+index-Y43W3Kon.js:48  GET https://enrollment.getmydpc.com/api/admin/users 500 (Internal Server Error)

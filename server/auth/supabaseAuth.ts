@@ -18,7 +18,7 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
 
     // Verify the JWT token with Supabase
     // Create a new Supabase client with the token for this request
-    const { createClient } = require('@supabase/supabase-js');
+    const { createClient } = await import('@supabase/supabase-js');
     const supabaseUrl = process.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
     
