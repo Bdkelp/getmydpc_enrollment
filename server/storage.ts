@@ -470,6 +470,47 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
   }
 }
 
+// Get only members (excluding agents and admins)
+export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
+  try {
+    console.log('[Storage] Fetching members only...');
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        subscriptions (
+          id,
+          status,
+          planId,
+          amount,
+          plans (
+            name
+          )
+        )
+      `)
+      .in('role', ['user', 'member']) // Only get users and members, exclude agents and admins
+      .order('createdAt', { ascending: false });
+
+    if (error) {
+      console.error('[Storage] Error fetching members:', error);
+      throw error;
+    }
+
+    console.log('[Storage] Members data:', {
+      totalMembers: data?.length || 0,
+      sampleRoles: data?.slice(0, 5).map(u => ({ email: u.email, role: u.role })) || []
+    });
+
+    return {
+      users: data || [],
+      totalCount: data?.length || 0
+    };
+  } catch (error) {
+    console.error('[Storage] Error in getMembersOnly:', error);
+    throw error;
+  }
+}
+
 
 export async function getUsersCount(): Promise<number> {
   const { count, error } = await supabase
@@ -805,10 +846,8 @@ function mapLeadFromDB(dbLead: any): Lead {
 export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
   console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
 
-  let query = supabase.from('leads').select(`
-        *,
-        assignedAgent:users!leads_assigned_agent_id_fkey(first_name, last_name, email)
-      `);
+  // Simplified query without the join to avoid foreign key issues
+  let query = supabase.from('leads').select('*');
 
   if (status && status !== 'all') {
     query = query.eq('status', status);
@@ -829,7 +868,13 @@ export async function getAllLeads(status?: string, assignedAgentId?: string): Pr
   }
 
   console.log('[Storage] Found leads:', data?.length || 0);
-  return (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
+  
+  // Map the database records with proper field conversion
+  const mappedLeads = (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
+  
+  console.log('[Storage] Sample lead after mapping:', mappedLeads[0] || 'No leads');
+  
+  return mappedLeads;
 }
 
 // Agent operations

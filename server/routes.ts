@@ -671,7 +671,12 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
 
     console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
-    const usersResult = await storage.getAllUsers();
+    const filterType = req.query.filter as string;
+    
+    // If filter is 'members', only get members (exclude agents/admins)
+    const usersResult = filterType === 'members' 
+      ? await storage.getMembersOnly()
+      : await storage.getAllUsers();
 
     if (!usersResult || !usersResult.users) {
       console.error('[Admin Users API] No users data returned from storage');
@@ -954,83 +959,43 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
     console.log('[Admin Leads API] Fetching leads with filters:', req.query);
     const { status, assignedAgentId } = req.query;
     
-    let leads;
-    if (status && status !== 'all') {
-      // Filter by status
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .eq('status', status)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      leads = (data || []).map((lead: any) => ({
-        id: lead.id,
-        firstName: lead.first_name,
-        lastName: lead.last_name,
-        email: lead.email,
-        phone: lead.phone,
-        message: lead.message,
-        source: lead.source,
-        status: lead.status,
-        assignedAgentId: lead.assigned_agent_id,
-        createdAt: lead.created_at,
-        updatedAt: lead.updated_at
-      }));
-    } else if (assignedAgentId === 'unassigned') {
-      // Get unassigned leads
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .is('assigned_agent_id', null)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      leads = (data || []).map((lead: any) => ({
-        id: lead.id,
-        firstName: lead.first_name,
-        lastName: lead.last_name,
-        email: lead.email,
-        phone: lead.phone,
-        message: lead.message,
-        source: lead.source,
-        status: lead.status,
-        assignedAgentId: lead.assigned_agent_id,
-        createdAt: lead.created_at,
-        updatedAt: lead.updated_at
-      }));
-    } else if (assignedAgentId && assignedAgentId !== 'all') {
-      // Filter by agent
-      const { data, error } = await supabase
-        .from('leads')
-        .select('*')
-        .eq('assigned_agent_id', assignedAgentId)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      leads = (data || []).map((lead: any) => ({
-        id: lead.id,
-        firstName: lead.first_name,
-        lastName: lead.last_name,
-        email: lead.email,
-        phone: lead.phone,
-        message: lead.message,
-        source: lead.source,
-        status: lead.status,
-        assignedAgentId: lead.assigned_agent_id,
-        createdAt: lead.created_at,
-        updatedAt: lead.updated_at
-      }));
-    } else {
-      // Get all leads
-      leads = await storage.getAllLeads();
-    }
+    // Use the storage layer's getAllLeads function which handles mapping correctly
+    const leads = await storage.getAllLeads(
+      status as string || undefined,
+      assignedAgentId as string || undefined
+    );
     
-    console.log('[Admin Leads API] Found leads:', leads.length);
+    console.log(`[Admin Leads API] Found ${leads.length} leads`);
+    
+    // The storage layer already handles the snake_case to camelCase mapping
     res.json(leads);
-  } catch (error) {
-    console.error("[Admin Leads API] Error fetching leads:", error);
-    res.status(500).json({ message: "Failed to fetch leads", error: error.message });
+  } catch (error: any) {
+    console.error('[Admin Leads API] Error fetching leads:', error);
+    res.status(500).json({ 
+      message: "Failed to fetch leads",
+      error: error.message 
+    });
+  }
+});
+
+// Add a members-only endpoint
+router.get("/api/admin/members", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin' && req.user!.role !== 'agent') {
+    return res.status(403).json({ message: "Admin or agent access required" });
+  }
+
+  try {
+    console.log('[Admin Members API] Fetching members only...');
+    const membersResult = await storage.getMembersOnly();
+    
+    console.log(`[Admin Members API] Found ${membersResult.users.length} members`);
+    res.json(membersResult);
+  } catch (error: any) {
+    console.error('[Admin Members API] Error fetching members:', error);
+    res.status(500).json({ 
+      message: "Failed to fetch members",
+      error: error.message 
+    });
   }
 });
 
