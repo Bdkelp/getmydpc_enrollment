@@ -26,7 +26,7 @@ CREATE POLICY "Admins view all commissions" ON public.commissions
 CREATE POLICY "Agents view own commissions" ON public.commissions
   FOR SELECT
   USING (
-    agent_id = (SELECT auth.uid())
+    "agentId" = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -58,7 +58,7 @@ CREATE POLICY "Service role bypass family_members" ON public.family_members
 CREATE POLICY "Users view own family" ON public.family_members
   FOR SELECT
   USING (
-    primary_user_id = (SELECT auth.uid())
+    "primaryUserId" = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
@@ -69,7 +69,7 @@ CREATE POLICY "Users view own family" ON public.family_members
 CREATE POLICY "Users manage own family" ON public.family_members
   FOR ALL
   USING (
-    primary_user_id = (SELECT auth.uid())
+    "primaryUserId" = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -91,7 +91,7 @@ CREATE POLICY "Service role bypass payments" ON public.payments
 CREATE POLICY "Users view own payments" ON public.payments
   FOR SELECT
   USING (
-    user_id = (SELECT auth.uid())
+    "userId" = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' IN ('admin', 'agent')
@@ -147,7 +147,7 @@ CREATE POLICY "Service role bypass sessions" ON public.sessions
 CREATE POLICY "Users view own sessions" ON public.sessions
   FOR SELECT
   USING (
-    user_id = (SELECT auth.uid())
+    "userId" = (SELECT auth.uid())
     OR (SELECT auth.uid()) IN (
       SELECT id FROM auth.users
       WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
@@ -178,7 +178,7 @@ BEGIN
     EXECUTE 'CREATE POLICY "Service role bypass login_sessions" ON public.login_sessions FOR ALL USING (auth.role() = ''service_role'')';
     
     EXECUTE 'CREATE POLICY "Users view own login sessions" ON public.login_sessions FOR SELECT USING (
-      user_id = (SELECT auth.uid())
+      "userId" = (SELECT auth.uid())
       OR (SELECT auth.uid()) IN (
         SELECT id FROM auth.users
         WHERE auth.users.raw_user_meta_data->>''role'' = ''admin''
