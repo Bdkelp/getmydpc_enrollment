@@ -17,10 +17,24 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     }
 
     // Verify the JWT token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Create a new Supabase client with the token for this request
+    const { createClient } = require('@supabase/supabase-js');
+    const supabaseUrl = process.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+    
+    const supabaseWithToken = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+
+    // Now get the user with this authenticated client
+    const { data: { user }, error } = await supabaseWithToken.auth.getUser();
 
     if (error || !user) {
-      console.error('Token verification failed:', error?.message);
+      console.error('Token verification failed:', error?.message || 'No user found');
       return res.status(401).json({ message: 'Invalid token' });
     }
 

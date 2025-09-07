@@ -434,35 +434,48 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching all users...');
-    const { data, error } = await supabase
+    // First fetch all users
+    const { data: users, error: usersError } = await supabase
       .from('users')
-      .select(`
-        *,
-        subscriptions (
-          id,
-          status,
-          planId,
-          amount,
-          plans (
-            name
-          )
-        )
-      `)
-      .order('createdAt', { ascending: false });
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('[Storage] Error fetching users:', error);
-      throw error;
+    if (usersError) {
+      console.error('[Storage] Error fetching users:', usersError);
+      throw usersError;
     }
 
+    // Then fetch subscriptions separately
+    let subscriptions;
+    const { data: subsData, error: subsError } = await supabase
+      .from('subscriptions')
+      .select('*');
+
+    if (subsError) {
+      console.error('[Storage] Error fetching subscriptions:', subsError);
+      // Continue without subscriptions data
+      subscriptions = [];
+    } else {
+      subscriptions = subsData || [];
+    }
+
+    // Map subscriptions to users
+    const usersWithSubscriptions = users?.map(user => {
+      const userSubscription = subscriptions?.find(sub => sub.userId === user.id);
+      return {
+        ...user,
+        subscription: userSubscription || null
+      };
+    }) || [];
+
     console.log('[Storage] Raw user data:', {
-      totalUsers: data?.length || 0,
-      roles: data?.map(u => ({ email: u.email, role: u.role })) || []
+      totalUsers: usersWithSubscriptions.length,
+      roles: usersWithSubscriptions.map(u => ({ email: u.email, role: u.role }))
     });
 
     return {
-      users: data || [],
-      totalCount: data?.length || 0
+      users: usersWithSubscriptions,
+      totalCount: usersWithSubscriptions.length
     };
   } catch (error) {
     console.error('[Storage] Error in getAllUsers:', error);
