@@ -45,10 +45,19 @@ export default function AdminLeads() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, loading: authLoading } = useAuth();
+  
+  // ALL hooks must be declared BEFORE any conditional returns
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [assignmentFilter, setAssignmentFilter] = useState<string>('all');
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [activityNotes, setActivityNotes] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState<string>('');
 
   log('Component initialized', { user: user?.email, authLoading });
   
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated (AFTER all hooks)
   if (!authLoading && !user) {
     window.location.href = '/login';
     return (
@@ -59,14 +68,6 @@ export default function AdminLeads() {
       </div>
     );
   }
-  
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [assignmentFilter, setAssignmentFilter] = useState<string>('all'); // Changed from agentFilter to assignmentFilter to match the Select component's state
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [showAssignDialog, setShowAssignDialog] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
-  const [activityNotes, setActivityNotes] = useState<string>('');
-  const [searchTerm, setSearchTerm] = useState<string>(''); // State for search term
 
   // Check if user is admin
   useEffect(() => {
