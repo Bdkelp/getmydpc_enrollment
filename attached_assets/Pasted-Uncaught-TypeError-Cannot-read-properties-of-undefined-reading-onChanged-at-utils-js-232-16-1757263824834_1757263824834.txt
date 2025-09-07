@@ -1,0 +1,37 @@
+Uncaught TypeError: Cannot read properties of undefined (reading 'onChanged')
+    at utils.js:232:16
+(anonymous) @ utils.js:232Understand this error
+tabutils.js:2 Uncaught TypeError: Cannot read properties of undefined (reading 'onUpdated')
+    at tabutils.js:2:13
+(anonymous) @ tabutils.js:2Understand this error
+contextmenu.js:124 Uncaught TypeError: Cannot read properties of undefined (reading 'onClicked')
+    at contextmenu.js:124:21
+(anonymous) @ contextmenu.js:124Understand this error
+download.js:9 Uncaught TypeError: Cannot read properties of undefined (reading 'onCreated')
+    at download.js:9:18
+(anonymous) @ download.js:9Understand this error
+sgtnzhgxlkcvtrzejobx.supabase.co/storage/v1/bucket:1  Failed to load resource: the server responded with a status of 400 ()Understand this error
+/api/admin/login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/analytics?days=30:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+index-Y43W3Kon.js:48 [apiRequest:8csua21ur] Request failed Object
+jt @ index-Y43W3Kon.js:48Understand this error
+index-Y43W3Kon.js:48 [apiRequest:8csua21ur] Request failed Object
+jt @ index-Y43W3Kon.js:48Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/pending-users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/login-sessions:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
+/api/admin/users:1  Failed to load resource: the server responded with a status of 500 ()Understand this error
