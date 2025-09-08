@@ -398,7 +398,7 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('agentNumber', agentNumber)
+    .eq('agent_number', agentNumber)
     .single();
 
   if (error) {
@@ -406,7 +406,7 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     console.error('Error fetching user by agent number:', error);
     return null;
   }
-  return data;
+  return mapUserFromDB(data);
 }
 
 

@@ -992,7 +992,7 @@ export default function Admin() {
                 {assignAgentNumberDialog.currentNumber ? 'Edit Agent Number' : 'Assign Agent Number'}
               </DialogTitle>
               <DialogDescription>
-                Enter a unique agent number for commission tracking. This number is used to identify who writes business.
+                Enter a unique agent number for commission tracking. Each agent/admin must have a unique identifier.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -1004,13 +1004,27 @@ export default function Admin() {
                   id="agent-number"
                   value={agentNumberInput}
                   onChange={(e) => setAgentNumberInput(e.target.value.toUpperCase())}
-                  placeholder="e.g., MPPSA231154"
+                  placeholder="e.g., MPP0001"
                   className="col-span-3"
-                  maxLength={12}
+                  maxLength={10}
                 />
               </div>
-              <div className="text-sm text-gray-500 ml-[108px]">
-                Format: MPP + Role Code + Year + Last 4 SSN (e.g., MPPSA231154 for Super Admin, MPPAG231154 for Agent)
+              <div className="space-y-2 ml-[108px]">
+                <div className="text-sm text-gray-600 font-medium">Format Guidelines:</div>
+                <div className="text-sm text-gray-500">
+                  • Standard format: <span className="font-mono bg-gray-100 px-1">MPP####</span> (e.g., MPP0001, MPP0100)
+                </div>
+                <div className="text-sm text-gray-500">
+                  • Admins typically use: MPP0001 - MPP0099
+                </div>
+                <div className="text-sm text-gray-500">
+                  • Agents typically use: MPP0100 and above
+                </div>
+                {assignAgentNumberDialog.currentNumber && (
+                  <div className="text-sm text-blue-600 mt-2">
+                    Current: <span className="font-mono font-bold">{assignAgentNumberDialog.currentNumber}</span>
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -1026,6 +1040,16 @@ export default function Admin() {
                     toast({
                       title: "Error",
                       description: "Agent number cannot be empty",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+                  
+                  // Validate format (must start with MPP and have 4 digits)
+                  if (!agentNumberInput.match(/^MPP\d{4}$/)) {
+                    toast({
+                      title: "Error",
+                      description: "Agent number must be in format MPP#### (e.g., MPP0001)",
                       variant: "destructive"
                     });
                     return;
