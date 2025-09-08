@@ -6,7 +6,6 @@ import { initializeEPXService } from './services/epx-payment-service';
 import { WeeklyRecapService } from './services/weekly-recap-service';
 import epxRoutes from './routes/epx-routes';
 import adminLogsRoutes from './routes/admin-logs';
-import debugPaymentsRoutes from './routes/debug-payments-routes';
 
 const app = express();
 app.use(express.json());
@@ -74,7 +73,6 @@ app.use((req, res, next) => {
 
   app.use(epxRoutes);
   app.use(adminLogsRoutes);
-  app.use(debugPaymentsRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

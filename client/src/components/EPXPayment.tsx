@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, CreditCard, AlertCircle, Building2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
 
 interface EPXPaymentProps {
   amount: number;
@@ -63,6 +64,16 @@ export function EPXPayment({
     setError(null);
 
     try {
+      // Get current Supabase session for auth token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        console.error('[EPX Payment] No auth session available:', sessionError);
+        setError('Authentication required. Please sign in again.');
+        setIsLoading(false);
+        return;
+      }
+
       // Create payment session with EPX
       console.log('[EPX Payment] Creating payment session for amount:', amount);
 
@@ -70,7 +81,7 @@ export function EPXPayment({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
           amount,
@@ -172,10 +183,20 @@ export function EPXPayment({
     setError(null);
 
     try {
+      // Get current Supabase session for auth token
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        console.error('[EPX Hosted Checkout] No auth session available:', sessionError);
+        setError('Authentication required. Please sign in again.');
+        setIsLoading(false);
+        return;
+      }
+
       // Get hosted checkout configuration
       const response = await fetch('/api/epx/checkout-config', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${session.access_token}`
         }
       });
 
