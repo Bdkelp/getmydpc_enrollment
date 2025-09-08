@@ -1649,6 +1649,39 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
 
 // Adding a placeholder for SupabaseStorage and its export
 // Storage object with existing functions and necessary stubs
+// Missing function that was referenced in debug-payments.ts
+export async function getPaymentsWithFilters(filters: { limit?: number; offset?: number; status?: string; environment?: string } = {}): Promise<Payment[]> {
+  let query = supabase
+    .from('payments')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (filters.limit) {
+    query = query.limit(filters.limit);
+  }
+
+  if (filters.offset) {
+    query = query.range(filters.offset, filters.offset + (filters.limit || 50) - 1);
+  }
+
+  if (filters.status) {
+    query = query.eq('status', filters.status);
+  }
+
+  if (filters.environment) {
+    query = query.eq('metadata->environment', filters.environment);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching payments with filters:', error);
+    throw new Error(`Failed to get payments: ${error.message}`);
+  }
+
+  return data || [];
+}
+
 export const storage = {
   // Core user functions that exist
   getUser,
@@ -1811,6 +1844,7 @@ export const storage = {
   getUserPayments,
   getPaymentByTransactionId,
   updatePayment,
+  getPaymentsWithFilters,
 
   getFamilyMembers: async () => [],
   addFamilyMember: async (member: any) => member,
