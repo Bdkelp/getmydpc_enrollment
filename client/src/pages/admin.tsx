@@ -32,6 +32,8 @@ import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 // Type definitions for API responses
 interface AdminStats {
@@ -58,6 +60,8 @@ export default function Admin() {
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
+  const [agentNumberInput, setAgentNumberInput] = useState('');
 
   // Test authentication
   useEffect(() => {
@@ -764,12 +768,38 @@ export default function Admin() {
                             {user.role === 'agent' ? 'Agent (Staff)' : user.role}
                           </Badge>
                         </TableCell>
-                        <TableCell>{user.agentNumber || 'N/A'}</TableCell>
                         <TableCell>
                           <div className="flex items-center space-x-2">
-                            <Switch
-                              checked={user.isActive}
-                              onCheckedChange={async () => {
+                            <span>{user.agentNumber || 'Not Assigned'}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-900 p-1 h-6"
+                              onClick={() => {
+                                setAgentNumberInput(user.agentNumber || '');
+                                setAssignAgentNumberDialog({ open: true, userId: user.id, currentNumber: user.agentNumber });
+                              }}
+                            >
+                              {user.agentNumber ? 'Edit' : 'Assign'}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col space-y-1">
+                            <div className="flex items-center space-x-2">
+                              <Badge 
+                                variant={user.approvalStatus === 'approved' ? 'default' : 
+                                        user.approvalStatus === 'suspended' ? 'destructive' : 
+                                        user.approvalStatus === 'rejected' ? 'outline' : 'secondary'}
+                                className={user.approvalStatus === 'approved' ? 'bg-green-100 text-green-800' : ''}
+                              >
+                                {user.approvalStatus || 'pending'}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                checked={user.isActive}
+                                onCheckedChange={async () => {
                                 try {
                                   // Get Supabase session for authentication
                                   const { supabase } = await import('@/lib/supabase');
@@ -811,8 +841,9 @@ export default function Admin() {
                                   });
                                 }
                               }}
-                            />
-                            <span className="text-sm">{user.isActive ? 'Active' : 'Inactive'}</span>
+                              />
+                              <span className="text-sm">{user.isActive ? 'Active' : 'Inactive'}</span>
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -952,6 +983,99 @@ export default function Admin() {
             </div>
           </CardContent>
         </Card>
+        
+        {/* Agent Number Assignment Dialog */}
+        <Dialog open={assignAgentNumberDialog.open} onOpenChange={(open) => setAssignAgentNumberDialog({ ...assignAgentNumberDialog, open })}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>
+                {assignAgentNumberDialog.currentNumber ? 'Edit Agent Number' : 'Assign Agent Number'}
+              </DialogTitle>
+              <DialogDescription>
+                Enter a unique agent number for commission tracking. This number is used to identify who writes business.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="agent-number" className="text-right">
+                  Agent Number
+                </Label>
+                <Input
+                  id="agent-number"
+                  value={agentNumberInput}
+                  onChange={(e) => setAgentNumberInput(e.target.value.toUpperCase())}
+                  placeholder="e.g., MPP00001"
+                  className="col-span-3"
+                />
+              </div>
+              <div className="text-sm text-gray-500 ml-[108px]">
+                Format: MPP followed by numbers (e.g., MPP00001)
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setAssignAgentNumberDialog({ open: false, userId: '', currentNumber: null })}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!agentNumberInput) {
+                    toast({
+                      title: "Error",
+                      description: "Agent number cannot be empty",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+
+                  try {
+                    const { supabase } = await import('@/lib/supabase');
+                    const { data: { session } } = await supabase.auth.getSession();
+                    
+                    if (!session?.access_token) {
+                      throw new Error('Authentication required');
+                    }
+                    
+                    const response = await fetch(`/api/admin/users/${assignAgentNumberDialog.userId}/assign-agent-number`, {
+                      method: 'PUT',
+                      headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        agentNumber: agentNumberInput
+                      })
+                    });
+
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      throw new Error(errorData.message || 'Failed to assign agent number');
+                    }
+
+                    toast({
+                      title: "Success",
+                      description: `Agent number ${agentNumberInput} assigned successfully`,
+                    });
+
+                    setAssignAgentNumberDialog({ open: false, userId: '', currentNumber: null });
+                    setAgentNumberInput('');
+                    refetch();
+                  } catch (error: any) {
+                    toast({
+                      title: "Error",
+                      description: error.message || "Failed to assign agent number",
+                      variant: "destructive"
+                    });
+                  }
+                }}
+              >
+                {assignAgentNumberDialog.currentNumber ? 'Update' : 'Assign'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
