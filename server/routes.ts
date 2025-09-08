@@ -985,6 +985,39 @@ router.put("/api/admin/users/:userId/reactivate", authenticateToken, async (req:
   }
 });
 
+// Assign agent number endpoint
+router.put("/api/admin/users/:userId/assign-agent-number", authenticateToken, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'admin') {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+
+  try {
+    const { userId } = req.params;
+    const { agentNumber } = req.body;
+
+    if (!agentNumber) {
+      return res.status(400).json({ message: "Agent number is required" });
+    }
+
+    // Check if agent number is already taken
+    const existingUser = await storage.getUserByAgentNumber(agentNumber);
+    if (existingUser && existingUser.id !== userId) {
+      return res.status(400).json({ message: "Agent number already assigned to another user" });
+    }
+
+    // Update user with new agent number
+    const updatedUser = await storage.updateUser(userId, {
+      agentNumber: agentNumber,
+      updatedAt: new Date()
+    });
+
+    res.json(updatedUser);
+  } catch (error) {
+    console.error("Error assigning agent number:", error);
+    res.status(500).json({ message: "Failed to assign agent number" });
+  }
+});
+
 router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) => {
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
