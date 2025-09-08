@@ -696,11 +696,11 @@ export default function Admin() {
           <CardContent className="p-0">
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">All Members</h2>
+                <h2 className="text-lg font-semibold text-gray-900">All App Users (Agents & Admins)</h2>
                 <div className="mt-4 sm:mt-0 flex items-center space-x-4">
                   <div className="relative">
                     <Input 
-                      placeholder="Search members..." 
+                      placeholder="Search users..." 
                       className="pl-10 pr-4 py-2"
                     />
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -730,7 +730,7 @@ export default function Admin() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Member
+                        User
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Email
@@ -771,10 +771,18 @@ export default function Admin() {
                               checked={user.isActive}
                               onCheckedChange={async () => {
                                 try {
+                                  // Get Supabase session for authentication
+                                  const { supabase } = await import('@/lib/supabase');
+                                  const { data: { session } } = await supabase.auth.getSession();
+                                  
+                                  if (!session?.access_token) {
+                                    throw new Error('Authentication required');
+                                  }
+                                  
                                   const response = await fetch(`/api/admin/users/${user.id}/toggle-status`, {
                                     method: 'PUT',
                                     headers: {
-                                      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                      'Authorization': `Bearer ${session.access_token}`,
                                       'Content-Type': 'application/json'
                                     },
                                     body: JSON.stringify({
@@ -811,9 +819,102 @@ export default function Admin() {
                           <Button variant="ghost" size="sm" className="text-medical-blue-600 hover:text-medical-blue-900 mr-3">
                             Edit
                           </Button>
-                          <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-900">
-                            Suspend
-                          </Button>
+                          {user.isActive ? (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-red-600 hover:text-red-900"
+                              onClick={async () => {
+                                try {
+                                  // Get Supabase session for authentication
+                                  const { supabase } = await import('@/lib/supabase');
+                                  const { data: { session } } = await supabase.auth.getSession();
+                                  
+                                  if (!session?.access_token) {
+                                    throw new Error('Authentication required');
+                                  }
+                                  
+                                  const response = await fetch(`/api/admin/users/${user.id}/suspend`, {
+                                    method: 'PUT',
+                                    headers: {
+                                      'Authorization': `Bearer ${session.access_token}`,
+                                      'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                      reason: 'Suspended by administrator'
+                                    })
+                                  });
+
+                                  if (!response.ok) {
+                                    const errorData = await response.json();
+                                    throw new Error(errorData.message || 'Failed to suspend user');
+                                  }
+
+                                  toast({
+                                    title: "Success",
+                                    description: `User suspended successfully`,
+                                  });
+
+                                  // Refresh data
+                                  refetch();
+                                } catch (error: any) {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message || "Failed to suspend user",
+                                    variant: "destructive"
+                                  });
+                                }
+                              }}
+                            >
+                              Suspend
+                            </Button>
+                          ) : (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-green-600 hover:text-green-900"
+                              onClick={async () => {
+                                try {
+                                  // Get Supabase session for authentication
+                                  const { supabase } = await import('@/lib/supabase');
+                                  const { data: { session } } = await supabase.auth.getSession();
+                                  
+                                  if (!session?.access_token) {
+                                    throw new Error('Authentication required');
+                                  }
+                                  
+                                  const response = await fetch(`/api/admin/users/${user.id}/reactivate`, {
+                                    method: 'PUT',
+                                    headers: {
+                                      'Authorization': `Bearer ${session.access_token}`,
+                                      'Content-Type': 'application/json'
+                                    }
+                                  });
+
+                                  if (!response.ok) {
+                                    const errorData = await response.json();
+                                    throw new Error(errorData.message || 'Failed to reactivate user');
+                                  }
+
+                                  toast({
+                                    title: "Success",
+                                    description: `User reactivated successfully`,
+                                  });
+
+                                  // Refresh data
+                                  refetch();
+                                } catch (error: any) {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message || "Failed to reactivate user",
+                                    variant: "destructive"
+                                  });
+                                }
+                              }}
+                            >
+                              Reactivate
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
