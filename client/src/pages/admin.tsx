@@ -29,6 +29,9 @@ import {
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
+import { Switch } from "@/components/ui/switch";
+import { TableCell, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 
 // Type definitions for API responses
 interface AdminStats {
@@ -127,6 +130,7 @@ export default function Admin() {
           queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
           queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
           queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-users"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] }); // Invalidate users query for table updates
         }
       )
       .on('postgres_changes', 
@@ -176,7 +180,7 @@ export default function Admin() {
     }
   }, [statsError, toast]);
 
-  const { data: usersData, isLoading: usersLoading, error: usersError } = useQuery<UserData>({
+  const { data: usersData, isLoading: usersLoading, error: usersError, refetch } = useQuery<UserData>({
     queryKey: ["/api/admin/users"],
     enabled: isAuthenticated && user?.role === "admin",
   });
@@ -729,13 +733,16 @@ export default function Admin() {
                         Member
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Plan
+                        Email
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Role
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Agent Number
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Joined
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
@@ -744,44 +751,71 @@ export default function Admin() {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {usersData?.users?.map((user: any) => (
-                      <tr key={user.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="w-10 h-10 medical-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-medical-blue-600 font-semibold text-sm">
-                                {user.firstName?.[0]}{user.lastName?.[0]}
-                              </span>
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
-                                {user.firstName} {user.lastName}
-                              </div>
-                              <div className="text-sm text-gray-500">{user.email}</div>
-                            </div>
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          {user.firstName} {user.lastName}
+                          {user.role === 'agent' && (
+                            <span className="ml-2 text-xs text-blue-600 font-medium">(Staff)</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={user.role === 'admin' ? 'default' : user.role === 'agent' ? 'secondary' : 'outline'}>
+                            {user.role === 'agent' ? 'Agent (Staff)' : user.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{user.agentNumber || 'N/A'}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              checked={user.isActive}
+                              onCheckedChange={async () => {
+                                try {
+                                  const response = await fetch(`/api/admin/users/${user.id}/toggle-status`, {
+                                    method: 'PUT',
+                                    headers: {
+                                      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                      'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                      isActive: !user.isActive,
+                                      userRole: user.role // Send role to backend for proper handling
+                                    })
+                                  });
+
+                                  if (!response.ok) {
+                                    const errorData = await response.json();
+                                    throw new Error(errorData.message || 'Failed to update status');
+                                  }
+
+                                  toast({
+                                    title: "Success",
+                                    description: `${user.role === 'agent' ? 'Agent' : 'User'} ${!user.isActive ? 'activated' : 'deactivated'} successfully`,
+                                  });
+
+                                  // Refresh data
+                                  refetch();
+                                } catch (error: any) {
+                                  toast({
+                                    title: "Error",
+                                    description: error.message || "Failed to update user status",
+                                    variant: "destructive"
+                                  });
+                                }
+                              }}
+                            />
+                            <span className="text-sm">{user.isActive ? 'Active' : 'Inactive'}</span>
                           </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            Individual
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {user.isActive ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(user.createdAt).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        </TableCell>
+                        <TableCell className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <Button variant="ghost" size="sm" className="text-medical-blue-600 hover:text-medical-blue-900 mr-3">
                             Edit
                           </Button>
                           <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-900">
                             Suspend
                           </Button>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
                   </tbody>
                 </table>

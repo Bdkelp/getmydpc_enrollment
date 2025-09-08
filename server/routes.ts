@@ -585,7 +585,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     // Test database connection and table structure first
     try {
       const { supabase } = await import('./lib/supabaseClient');
-      
+
       // Test connection and check table structure
       const { data: connectionTest, error: connectionError } = await supabase
         .from('leads')
@@ -598,10 +598,10 @@ router.post("/api/public/leads", async (req: any, res) => {
       }
 
       console.log(`[${timestamp}] [Public Leads] Database connection successful, table structure verified`);
-      
+
       // Test if we can actually insert (using anon key)
       console.log(`[${timestamp}] [Public Leads] Testing anonymous insert capability...`);
-      
+
     } catch (dbError) {
       console.error(`[${timestamp}] [Public Leads] Database test error:`, dbError);
       throw dbError;
@@ -624,7 +624,7 @@ router.post("/api/public/leads", async (req: any, res) => {
         hint: storageError.hint,
         leadData: leadData
       });
-      
+
       // Try to provide more specific error messages
       if (storageError.message?.includes('column') && storageError.message?.includes('does not exist')) {
         throw new Error(`Database schema mismatch: ${storageError.message}`);
@@ -690,7 +690,7 @@ router.get("/api/admin/users", authenticateToken, async (req: AuthRequest, res) 
 
     console.log('[Admin Users API] Fetching users for admin:', req.user!.email);
     const filterType = req.query.filter as string;
-    
+
     // If filter is 'members', only get members (exclude agents/admins)
     const usersResult = filterType === 'members' 
       ? await storage.getMembersOnly()
@@ -858,7 +858,7 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
     // Validate agent number format if provided
     if (agentNumber && agentNumber.trim() !== '') {
       const trimmedAgentNumber = agentNumber.trim();
-      
+
       // Allow alphanumeric characters only
       if (!/^[a-zA-Z0-9]+$/.test(trimmedAgentNumber)) {
         return res.status(400).json({ 
@@ -866,7 +866,7 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
           error: 'Agent number can only contain letters and numbers' 
         });
       }
-      
+
       if (trimmedAgentNumber.length < 2) {
         return res.status(400).json({ 
           success: false, 
@@ -993,15 +993,15 @@ router.get("/api/admin/leads", authenticateToken, async (req: AuthRequest, res) 
   try {
     console.log('[Admin Leads API] Fetching leads with filters:', req.query);
     const { status, assignedAgentId } = req.query;
-    
+
     // Use the storage layer's getAllLeads function which handles mapping correctly
     const leads = await storage.getAllLeads(
       status as string || undefined,
       assignedAgentId as string || undefined
     );
-    
+
     console.log(`[Admin Leads API] Found ${leads.length} leads`);
-    
+
     // The storage layer already handles the snake_case to camelCase mapping
     res.json(leads);
   } catch (error: any) {
@@ -1022,7 +1022,7 @@ router.get("/api/admin/members", authenticateToken, async (req: AuthRequest, res
   try {
     console.log('[Admin Members API] Fetching members only...');
     const membersResult = await storage.getMembersOnly();
-    
+
     console.log(`[Admin Members API] Found ${membersResult.users.length} members`);
     res.json(membersResult);
   } catch (error: any) {
@@ -1812,6 +1812,109 @@ export async function registerRoutes(app: any) {
       res.status(500).json({ error: 'Failed to log activity' });
     }
   });
+
+  // Toggle user status (activate/deactivate)
+  router.put("/api/admin/users/:userId/toggle-status", authenticateToken, async (req: AuthRequest, res) => {
+    if (req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { userId } = req.params;
+      const { isActive, userRole } = req.body;
+
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const newStatus = isActive !== undefined ? isActive : !user.isActive;
+
+      // Update user status
+      const updatedUser = await storage.updateUser(userId, {
+        isActive: newStatus,
+        updatedAt: new Date()
+      });
+
+      // Only handle subscription reactivation for actual members, NOT agents
+      if (newStatus && (user.role === 'member' || user.role === 'user')) {
+        try {
+          const subscription = await storage.getUserSubscription(userId);
+          if (subscription && subscription.status === 'cancelled') {
+            await storage.updateSubscription(subscription.id, {
+              status: 'active',
+              updatedAt: new Date()
+            });
+            console.log(`Reactivated subscription for member ${userId}`);
+          }
+        } catch (error) {
+          console.log('No subscription to reactivate or error reactivating:', error);
+        }
+      } else if (user.role === 'agent') {
+        console.log(`Agent ${userId} status updated - no subscription handling needed`);
+      }
+
+      const userType = user.role === 'agent' ? 'Agent' : 'User';
+      res.json({ 
+        success: true, 
+        user: updatedUser,
+        message: `${userType} ${newStatus ? 'activated' : 'deactivated'} successfully`
+      });
+    } catch (error: any) {
+      console.error('Error toggling user status:', error);
+      res.status(500).json({ 
+        message: error.message || "Failed to update user status" 
+      });
+    }
+  });
+
+  // Bulk reactivate all agents (emergency fix)
+  router.post("/api/admin/reactivate-agents", authenticateToken, async (req: AuthRequest, res) => {
+    if (req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      console.log('Bulk reactivating all agents...');
+
+      // Get all agents
+      const { users } = await storage.getAllUsers();
+      const agents = users.filter(user => user.role === 'agent');
+
+      console.log(`Found ${agents.length} agents to reactivate`);
+
+      const reactivatedAgents = [];
+
+      for (const agent of agents) {
+        if (!agent.isActive) {
+          try {
+            const updatedAgent = await storage.updateUser(agent.id, {
+              isActive: true,
+              updatedAt: new Date()
+            });
+            reactivatedAgents.push(updatedAgent);
+            console.log(`Reactivated agent: ${agent.email}`);
+          } catch (error) {
+            console.error(`Failed to reactivate agent ${agent.email}:`, error);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully reactivated ${reactivatedAgents.length} agents`,
+        reactivatedCount: reactivatedAgents.length,
+        totalAgents: agents.length
+      });
+    } catch (error: any) {
+      console.error('Error bulk reactivating agents:', error);
+      res.status(500).json({
+        message: error.message || "Failed to reactivate agents"
+      });
+    }
+  });
+
 
   // Create and return the server
   const { createServer } = await import("http");
