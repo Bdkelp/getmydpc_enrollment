@@ -46,7 +46,7 @@ export const users = pgTable("users", {
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
-  agentNumber: varchar("agent_number").unique(), // Unique agent identifier for production tracking
+  agentNumber: varchar("agent_number"), // Agent identifier for production tracking
   isActive: boolean("is_active").default(true),
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
@@ -58,6 +58,19 @@ export const users = pgTable("users", {
   registrationUserAgent: text("registration_user_agent"), // Track user agent
   suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
   enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
+  // Authentication fields
+  username: varchar("username"),
+  passwordHash: text("password_hash"),
+  emailVerificationToken: text("email_verification_token"),
+  resetPasswordToken: text("reset_password_token"),
+  resetPasswordExpiry: timestamp("reset_password_expiry"),
+  // Social login IDs
+  googleId: varchar("google_id"),
+  facebookId: varchar("facebook_id"),
+  appleId: varchar("apple_id"),
+  microsoftId: varchar("microsoft_id"),
+  linkedinId: varchar("linkedin_id"),
+  twitterId: varchar("twitter_id"),
   // Session tracking
   lastLoginAt: timestamp("last_login_at"),
   lastActivityAt: timestamp("last_activity_at"),
@@ -65,10 +78,7 @@ export const users = pgTable("users", {
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
   memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // Will be cleared after encryption
-  ssnEncrypted: text("ssn_encrypted"), // Encrypted SSN storage
-  ssnLastFour: varchar("ssn_last_four", { length: 4 }), // Last 4 digits only
-  paymentTokenEncrypted: text("payment_token_encrypted"), // Encrypted payment tokens
+  ssn: varchar("ssn"), // Encrypted SSN storage
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -169,6 +179,7 @@ export const leads = pgTable("leads", {
   source: varchar("source").default("contact_form"),
   status: varchar("status").default("new"),
   assignedAgentId: varchar("assigned_agent_id"),
+  notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -190,9 +201,7 @@ export const familyMembers = pgTable("family_members", {
   middleName: varchar("middle_name"),
   dateOfBirth: varchar("date_of_birth"),
   gender: varchar("gender"),
-  ssn: varchar("ssn"), // Will be cleared after encryption
-  ssnEncrypted: text("ssn_encrypted"), // Encrypted SSN storage
-  ssnLastFour: varchar("ssn_last_four", { length: 4 }), // Last 4 digits only
+  ssn: varchar("ssn"),
   email: varchar("email"),
   phone: varchar("phone"),
   relationship: varchar("relationship"), // spouse, child, parent, etc
