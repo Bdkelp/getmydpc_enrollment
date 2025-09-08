@@ -1702,7 +1702,7 @@ export const storage = {
     const { data, error } = await supabase
       .from('subscriptions')
       .select('*')
-      .eq('userId', userId)
+      .eq('user_id', userId)  // Use snake_case column name
       .order('created_at', { ascending: false });
 
     if (error) {
