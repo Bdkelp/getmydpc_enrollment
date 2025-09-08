@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSession, onAuthStateChange, signOut } from "@/lib/supabase";
 import { useEffect, useState } from "react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { User } from "@shared/schema";
-import { apiRequest } from "@/lib/api";
 
 interface AuthUser extends Omit<User, "role"> {
   role: string | null;
@@ -191,15 +190,15 @@ export function useAuth() {
           );
         }
         return userData;
-      } catch (fetchError) {
-        if (fetchError.name === 'AbortError') {
+      } catch (fetchError: any) {
+        if (fetchError?.name === 'AbortError') {
           console.warn("[useAuth] User fetch request timed out");
           return null;
         }
         console.error("[useAuth] User fetch error:", fetchError);
         
         // If it's a network error, don't throw - just return null
-        if (fetchError.message?.includes('Failed to fetch')) {
+        if (fetchError?.message?.includes('Failed to fetch')) {
           console.warn("[useAuth] Network error, returning null user");
           return null;
         }
