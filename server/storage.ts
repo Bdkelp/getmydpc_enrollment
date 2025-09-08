@@ -1887,6 +1887,110 @@ export const storage = {
   updateCommissionPaymentStatus: async () => {},
   getCommissionStats: async () => ({ totalUnpaid: 0, totalPaid: 0 }),
 
+  // Login session methods
+  createLoginSession: async (sessionData: {
+    userId: string;
+    ipAddress?: string;
+    userAgent?: string;
+    deviceType?: string;
+    browser?: string;
+    location?: string;
+  }) => {
+    const { data, error } = await supabase
+      .from('login_sessions')
+      .insert([{
+        user_id: sessionData.userId,
+        ip_address: sessionData.ipAddress,
+        user_agent: sessionData.userAgent,
+        device_type: sessionData.deviceType,
+        browser: sessionData.browser,
+        location: sessionData.location,
+        login_time: new Date().toISOString(),
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating login session:', error);
+      throw new Error(`Failed to create login session: ${error.message}`);
+    }
+    return data;
+  },
+
+  updateLoginSession: async (sessionId: string, updates: {
+    logoutTime?: Date;
+    sessionDurationMinutes?: number;
+    isActive?: boolean;
+  }) => {
+    const updateData: any = {
+      updated_at: new Date().toISOString()
+    };
+
+    if (updates.logoutTime) updateData.logout_time = updates.logoutTime.toISOString();
+    if (updates.sessionDurationMinutes) updateData.session_duration_minutes = updates.sessionDurationMinutes;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+
+    const { data, error } = await supabase
+      .from('login_sessions')
+      .update(updateData)
+      .eq('id', sessionId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating login session:', error);
+      throw new Error(`Failed to update login session: ${error.message}`);
+    }
+    return data;
+  },
+
+  getUserLoginSessions: async (userId: string, limit = 10) => {
+    const { data, error } = await supabase
+      .from('login_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('login_time', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error fetching user login sessions:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  getAllLoginSessions: async (limit = 50) => {
+    try {
+      const { data, error } = await supabase
+        .from('login_sessions')
+        .select(`
+          *,
+          users!login_sessions_user_id_fkey (
+            id,
+            firstName,
+            lastName,
+            email,
+            role
+          )
+        `)
+        .order('login_time', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        console.error('Error fetching all login sessions:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Unexpected error fetching login sessions:', error);
+      return [];
+    }
+  },
+
   getAdminDashboardStats: async () => {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
