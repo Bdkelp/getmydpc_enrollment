@@ -856,10 +856,26 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
     // Validate agent number format if provided
     if (agentNumber && agentNumber.trim() !== '') {
       const trimmedAgentNumber = agentNumber.trim();
-      if (trimmedAgentNumber.length < 3) {
+      
+      // Allow alphanumeric characters only
+      if (!/^[a-zA-Z0-9]+$/.test(trimmedAgentNumber)) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Agent number must be at least 3 characters long' 
+          error: 'Agent number can only contain letters and numbers' 
+        });
+      }
+      
+      if (trimmedAgentNumber.length < 2) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Agent number must be at least 2 characters long' 
+        });
+      }
+
+      if (trimmedAgentNumber.length > 20) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Agent number cannot exceed 20 characters' 
         });
       }
 

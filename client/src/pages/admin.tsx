@@ -642,40 +642,47 @@ export default function Admin() {
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Link href="/registration">
-                <Button className="w-full justify-start" variant="outline">
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Enroll New Member
-                </Button>
-              </Link>
-              <Link href="/admin/enrollments">
-                <Button className="w-full justify-start" variant="outline" onClick={() => {
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => setLocation('/registration')}
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Enroll New Member
+              </Button>
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => {
                   console.log('[Admin] Navigating to enrollments');
                   setLocation('/admin/enrollments');
-                }}>
-                  <Users className="h-4 w-4 mr-2" />
-                  View All Enrollments
-                </Button>
-              </Link>
-              <Link href="/admin/leads">
-                <Button className="w-full justify-start" variant="outline" onClick={() => {
+                }}
+              >
+                <Users className="h-4 w-4 mr-2" />
+                View All Enrollments
+              </Button>
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => {
                   console.log('[Admin] Navigating to leads');
                   setLocation('/admin/leads');
-                }}>
-                  <TrendingUp className="h-4 w-4 mr-2" />
-                  Manage Leads
-                </Button>
-              </Link>
-              <Link href="/admin/users">
-                <Button className="w-full justify-start bg-red-50 border-red-200 hover:bg-red-100" variant="outline" 
-                       onClick={() => {
-                         console.log('[Admin] Navigating to user management');
-                         setLocation('/admin/users');
-                       }}>
-                  <Shield className="h-4 w-4 mr-2 text-red-600" />
-                  <span className="text-red-700">Manage User Roles</span>
-                </Button>
-              </Link>
+                }}
+              >
+                <TrendingUp className="h-4 w-4 mr-2" />
+                Manage Leads
+              </Button>
+              <Button 
+                className="w-full justify-start bg-red-50 border-red-200 hover:bg-red-100" 
+                variant="outline"
+                onClick={() => {
+                  console.log('[Admin] Navigating to user management');
+                  setLocation('/admin/users');
+                }}
+              >
+                <Shield className="h-4 w-4 mr-2 text-red-600" />
+                <span className="text-red-700">Manage User Roles</span>
+              </Button>
             </div>
           </CardContent>
         </Card>
