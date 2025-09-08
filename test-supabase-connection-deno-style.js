@@ -8,14 +8,14 @@ async function testSupabaseConnection() {
 
   try {
     // Get environment variables from Replit Secrets (no dotenv needed)
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = 'https://sgtnzhgxlkcvtrzejobx.supabase.co';
+    const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNndG56aGd4bGtjdnRyemVqb2J4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MjU4OTc1MywiZXhwIjoyMDY4MTY1NzUzfQ.YaprpujOLEExUWlww13JyUBWxTztpGd_z5qLipYaDPw';
 
     console.log('Environment variables check:');
     console.log(`SUPABASE_URL: ${supabaseUrl ? '✅ Set' : '❌ Missing'}`);
-    console.log(`SUPABASE_KEY: ${supabaseKey ? '✅ Set (length: ' + supabaseKey.length + ')' : '❌ Missing'}\n`);
+    console.log(`SUPABASE_KEY: ${supabaseServiceKey ? '✅ Set (length: ' + supabaseServiceKey.length + ')' : '❌ Missing'}\n`);
 
-    if (!supabaseUrl || !supabaseKey) {
+    if (!supabaseUrl || !supabaseServiceKey) {
       console.log('❌ Missing Supabase environment variables');
       console.log('   Make sure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in Replit Secrets');
       return {
@@ -24,7 +24,7 @@ async function testSupabaseConnection() {
       };
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Test 1: Simple query to verify connection
     console.log('📊 Testing connection with users table...');
