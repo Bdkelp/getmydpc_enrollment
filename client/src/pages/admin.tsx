@@ -210,7 +210,7 @@ export default function Admin() {
   });
 
   // Fetch all login sessions for monitoring
-  const { data: allLoginSessions, isLoading: sessionsLoading } = useQuery({
+  const { data: allLoginSessions = [], isLoading: sessionsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/login-sessions"],
     enabled: isAuthenticated && user?.role === "admin",
   });
