@@ -242,6 +242,17 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     // Store transaction details for webhook processing with comprehensive logging
     let paymentRecord;
     try {
+      console.log('[EPX Create Payment] Creating payment record with data:', {
+        userId: sanitizedCustomerId,
+        subscriptionId: subscriptionId || null,
+        amount: sanitizedAmount.toString(),
+        currency: 'USD',
+        status: 'pending',
+        paymentMethod: paymentMethod || 'card',
+        transactionId: tranNbr,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+      });
+
       paymentRecord = await storage.createPayment({
         userId: sanitizedCustomerId,
         subscriptionId: subscriptionId || null,
@@ -258,6 +269,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
           ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
           userAgent: req.headers['user-agent'] || 'unknown',
           timestamp: new Date().toISOString(),
+          requestBody: req.body, // Store original request for debugging
           ...(paymentMethod === 'ach' && {
             achLastFour: achAccountNumber?.slice(-4),
             achAccountType
@@ -265,14 +277,55 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
         }
       });
       
-      console.log('[EPX Create Payment] Payment record created:', {
+      console.log('[EPX Create Payment] ✅ Payment record created successfully:', {
         paymentId: paymentRecord?.id,
-        transactionId: tranNbr
+        transactionId: tranNbr,
+        amount: sanitizedAmount,
+        userId: sanitizedCustomerId,
+        timestamp: new Date().toISOString()
       });
-    } catch (storageError) {
-      console.error('[EPX Create Payment] Storage error:', storageError);
-      // Continue with payment creation even if storage fails
-      console.warn('[EPX Create Payment] Continuing payment creation despite storage error');
+    } catch (storageError: any) {
+      console.error('[EPX Create Payment] ❌ CRITICAL: Storage error - payment record NOT created:', {
+        error: storageError.message,
+        stack: storageError.stack,
+        transactionId: tranNbr,
+        userId: sanitizedCustomerId,
+        amount: sanitizedAmount,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Force create a minimal payment record for audit trail
+      try {
+        paymentRecord = await storage.createPayment({
+          userId: sanitizedCustomerId,
+          amount: sanitizedAmount.toString(),
+          currency: 'USD',
+          status: 'pending',
+          paymentMethod: paymentMethod || 'card',
+          transactionId: tranNbr,
+          metadata: {
+            error: 'Storage error during creation',
+            errorMessage: storageError.message,
+            timestamp: new Date().toISOString(),
+            environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+          }
+        });
+        console.log('[EPX Create Payment] ✅ Minimal payment record created after error:', paymentRecord?.id);
+      } catch (fallbackError: any) {
+        console.error('[EPX Create Payment] ❌ FATAL: Could not create even minimal payment record:', fallbackError.message);
+        // Log to file system as last resort
+        const fs = require('fs');
+        const logData = {
+          timestamp: new Date().toISOString(),
+          transactionId: tranNbr,
+          userId: sanitizedCustomerId,
+          amount: sanitizedAmount,
+          error: 'Failed to create payment record',
+          originalError: storageError.message,
+          fallbackError: fallbackError.message
+        };
+        fs.appendFileSync('payment-errors.log', JSON.stringify(logData) + '\n');
+      }
     }
 
     // Log transaction creation for audit trail
@@ -351,15 +404,37 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
     }
 
     // Process the webhook payload
+    console.log('[EPX Webhook] Processing webhook payload:', {
+      body: req.body,
+      headers: req.headers,
+      timestamp: new Date().toISOString()
+    });
+
     const result = epxService.processWebhook(req.body);
+    
+    console.log('[EPX Webhook] Webhook processing result:', {
+      isApproved: result.isApproved,
+      transactionId: result.transactionId,
+      authCode: result.authCode,
+      error: result.error,
+      timestamp: new Date().toISOString()
+    });
 
     if (result.transactionId) {
       // Update payment status in database
+      console.log('[EPX Webhook] Looking up payment by transaction ID:', result.transactionId);
       const payment = await storage.getPaymentByTransactionId(result.transactionId);
 
       if (payment) {
+        console.log('[EPX Webhook] Found payment record:', {
+          paymentId: payment.id,
+          currentStatus: payment.status,
+          amount: payment.amount,
+          userId: payment.userId
+        });
+
         // Update payment with comprehensive logging
-        await storage.updatePayment(payment.id, {
+        const updateResult = await storage.updatePayment(payment.id, {
           status: result.isApproved ? 'completed' : 'failed',
           authorizationCode: result.authCode,
           metadata: {
@@ -371,6 +446,8 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
             epxResponse: req.body // Store full EPX response for audit
           }
         });
+
+        console.log('[EPX Webhook] Payment update result:', updateResult);
 
         // Comprehensive transaction logging
         console.log(`[EPX Transaction Log] Payment ${result.isApproved ? 'APPROVED' : 'DECLINED'}:`, {
@@ -415,13 +492,31 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
           }
         });
       } else {
-        console.error('[EPX Transaction Log] PAYMENT NOT FOUND:', {
+        console.error('[EPX Transaction Log] ❌ PAYMENT NOT FOUND:', {
           transactionId: result.transactionId,
           environment: process.env.EPX_ENVIRONMENT || 'sandbox',
           webhookData: req.body,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          note: 'This could indicate the payment was never created or transaction ID mismatch'
         });
+
+        // Log to file system for critical analysis
+        const fs = require('fs');
+        const errorLog = {
+          timestamp: new Date().toISOString(),
+          error: 'PAYMENT_NOT_FOUND_IN_WEBHOOK',
+          transactionId: result.transactionId,
+          webhookData: req.body,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+        };
+        fs.appendFileSync('payment-errors.log', JSON.stringify(errorLog) + '\n');
       }
+    } else {
+      console.error('[EPX Webhook] ❌ No transaction ID in webhook result:', {
+        result,
+        originalPayload: req.body,
+        timestamp: new Date().toISOString()
+      });
     }
 
     // Acknowledge receipt

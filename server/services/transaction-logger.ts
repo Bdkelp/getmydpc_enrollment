@@ -184,6 +184,20 @@ export class TransactionLogger {
     // This would query the database for all transactions in the date range
     // and export them in a compliance-friendly format
   }
+
+  /**
+   * Debug logging status and recent activity
+   */
+  debugLoggingStatus(): void {
+    console.log(`[EPX Transaction Log] Debug Status Check:`, {
+      timestamp: new Date().toISOString(),
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      nodeEnv: process.env.NODE_ENV,
+      instance: 'Singleton',
+      status: 'Active',
+      note: 'Logger is operational - if you are not seeing payment logs, check payment creation process'
+    });
+  }
 }
 
 // Export singleton instance
