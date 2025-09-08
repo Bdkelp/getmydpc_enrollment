@@ -1,38 +1,37 @@
-
 #!/usr/bin/env node
 
 // Test Supabase connection using Replit Secrets
-import { createClient } from '@supabase/supabase-js';
+const { createClient } = require('@supabase/supabase-js');
 
 async function testSupabaseConnection() {
   console.log('🔍 Testing Supabase connection using Replit Secrets...\n');
 
   try {
     // Get environment variables from Replit Secrets (no dotenv needed)
-    const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-    
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     console.log('Environment variables check:');
     console.log(`SUPABASE_URL: ${supabaseUrl ? '✅ Set' : '❌ Missing'}`);
     console.log(`SUPABASE_KEY: ${supabaseKey ? '✅ Set (length: ' + supabaseKey.length + ')' : '❌ Missing'}\n`);
-    
+
     if (!supabaseUrl || !supabaseKey) {
       console.log('❌ Missing Supabase environment variables');
-      console.log('   Make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in Replit Secrets');
+      console.log('   Make sure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in Replit Secrets');
       return {
         success: false,
         message: "Missing Supabase environment variables"
       };
     }
-    
+
     const supabase = createClient(supabaseUrl, supabaseKey);
-    
+
     // Test 1: Simple query to verify connection
     console.log('📊 Testing connection with users table...');
     const { data: usersData, error: usersError, count: usersCount } = await supabase
       .from("users")
       .select("*", { count: "exact", head: true });
-      
+
     if (usersError) {
       console.log('❌ Users table query failed:', usersError.message);
     } else {
@@ -45,7 +44,7 @@ async function testSupabaseConnection() {
     const { data: plansData, error: plansError, count: plansCount } = await supabase
       .from("plans")
       .select("*", { count: "exact", head: true });
-      
+
     if (plansError) {
       console.log('❌ Plans table query failed:', plansError.message);
     } else {
@@ -58,7 +57,7 @@ async function testSupabaseConnection() {
     const { data: leadsData, error: leadsError, count: leadsCount } = await supabase
       .from("leads")
       .select("*", { count: "exact", head: true });
-      
+
     if (leadsError) {
       console.log('❌ Leads table query failed:', leadsError.message);
     } else {
@@ -71,7 +70,7 @@ async function testSupabaseConnection() {
     const { data: paymentsData, error: paymentsError, count: paymentsCount } = await supabase
       .from("payments")
       .select("*", { count: "exact", head: true });
-      
+
     if (paymentsError) {
       console.log('❌ Payments table query failed:', paymentsError.message);
     } else {
@@ -83,14 +82,14 @@ async function testSupabaseConnection() {
     console.log('\n🔍 Checking recent payments (last 30 days)...');
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const { data: recentPayments, error: recentPaymentsError } = await supabase
       .from("payments")
       .select("id, amount, status, created_at, transaction_id")
       .gte("created_at", thirtyDaysAgo.toISOString())
       .order("created_at", { ascending: false })
       .limit(10);
-      
+
     if (recentPaymentsError) {
       console.log('❌ Recent payments query failed:', recentPaymentsError.message);
     } else {
@@ -109,7 +108,7 @@ async function testSupabaseConnection() {
     const { data: membersData, error: membersError, count: membersCount } = await supabase
       .from("all_members")
       .select("*", { count: "exact", head: true });
-      
+
     if (membersError) {
       console.log('❌ all_members view query failed:', membersError.message);
       console.log('   This view might not exist and may need to be created');
@@ -128,7 +127,7 @@ async function testSupabaseConnection() {
     ].filter(Boolean).length;
 
     console.log(`\n📈 Test Summary: ${successfulTests}/6 tests passed`);
-    
+
     return {
       success: true,
       message: "Supabase connection test completed",
