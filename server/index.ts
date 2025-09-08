@@ -13,17 +13,17 @@ app.use(express.urlencoded({ extended: false }));
 
 // CORS setup - improved for external browser access
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: function(origin: string | undefined, callback: (err: Error | null, origin?: boolean) => void) {
     // Allow requests with no origin (mobile apps, etc.)
     if (!origin) return callback(null, true);
 
     // Allow Replit domains and your production domain
-    const allowedOrigins = [
+    const allowedOrigins: (string | RegExp)[] = [
       /\.replit\.dev$/,
       /\.replit\.app$/,
       'https://enrollment.getmydpc.com',
       process.env.VITE_PUBLIC_URL
-    ].filter(Boolean);
+    ].filter((item): item is string | RegExp => Boolean(item));
 
     const isAllowed = allowedOrigins.some(pattern => {
       if (typeof pattern === 'string') {
