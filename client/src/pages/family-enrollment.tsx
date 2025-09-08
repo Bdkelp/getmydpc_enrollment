@@ -255,14 +255,18 @@ export default function FamilyEnrollment() {
                       name="ssn"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Social Security Number *</FormLabel>
+                          <FormLabel>Last 4 Digits of SSN *</FormLabel>
                           <FormControl>
                             <Input 
-                              type="password" 
-                              placeholder="123456789" 
-                              maxLength={9}
+                              type="text" 
+                              placeholder="1154" 
+                              maxLength={4}
                               autoComplete="off"
-                              {...field} 
+                              {...field}
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                field.onChange(value);
+                              }}
                             />
                           </FormControl>
                           <FormMessage />

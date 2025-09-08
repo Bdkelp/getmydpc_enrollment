@@ -78,7 +78,7 @@ export const users = pgTable("users", {
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
   memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // Encrypted SSN storage
+  ssn: varchar("ssn"), // Encrypted SSN storage - used for agent number generation (last 4 digits)
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
   createdAt: timestamp("created_at").defaultNow(),

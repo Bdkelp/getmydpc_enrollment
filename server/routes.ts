@@ -857,27 +857,21 @@ router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (re
 
     // Validate agent number format if provided
     if (agentNumber && agentNumber.trim() !== '') {
-      const trimmedAgentNumber = agentNumber.trim();
+      const trimmedAgentNumber = agentNumber.trim().toUpperCase();
 
-      // Allow alphanumeric characters only
-      if (!/^[a-zA-Z0-9]+$/.test(trimmedAgentNumber)) {
+      // Validate MPP format: MPP + 2-letter role code + 2-digit year + 4-digit SSN
+      const agentNumberPattern = /^MPP[SA|AG][0-9]{2}[0-9]{4}$/;
+      if (!agentNumberPattern.test(trimmedAgentNumber)) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Agent number can only contain letters and numbers' 
+          error: 'Agent number must follow format: MPP[SA|AG][YY][SSSS] (e.g., MPPSA231154 for Super Admin or MPPAG231154 for Agent)' 
         });
       }
 
-      if (trimmedAgentNumber.length < 2) {
+      if (trimmedAgentNumber.length !== 12) {
         return res.status(400).json({ 
           success: false, 
-          error: 'Agent number must be at least 2 characters long' 
-        });
-      }
-
-      if (trimmedAgentNumber.length > 20) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Agent number cannot exceed 20 characters' 
+          error: 'Agent number must be exactly 12 characters (MPP + 2-letter role + 2-digit year + 4-digit SSN)' 
         });
       }
 

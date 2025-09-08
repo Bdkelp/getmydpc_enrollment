@@ -508,23 +508,24 @@ export default function Registration() {
                         name="ssn"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Social Security Number (Optional)</FormLabel>
+                            <FormLabel>Last 4 Digits of SSN (Required for Agent Number)</FormLabel>
                             <FormControl>
                               <Input 
-                                type="password" 
-                                placeholder="123-45-6789 (Optional)" 
-                                maxLength={11}
+                                type="text" 
+                                placeholder="1154" 
+                                maxLength={4}
                                 autoComplete="off"
                                 {...field}
-                                value={formatSSN(field.value || '')}
                                 onChange={(e) => {
-                                  const formatted = formatSSN(e.target.value);
-                                  const cleaned = cleanSSN(formatted);
-                                  field.onChange(cleaned);
+                                  const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                                  field.onChange(value);
                                 }}
                               />
                             </FormControl>
                             <FormMessage />
+                            <p className="text-xs text-gray-500">
+                              Used to generate your unique agent identifier (e.g., MPPSA231154)
+                            </p>
                           </FormItem>
                         )}
                       />

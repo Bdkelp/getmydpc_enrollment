@@ -470,12 +470,14 @@ export default function AdminUsers() {
                   {user.role === 'agent' || user.role === 'admin' ? (
                     <Input
                       type="text"
-                      placeholder="Enter agent #"
+                      placeholder="MPPSA231154"
                       defaultValue={user.agentNumber || ''}
-                      className="w-[120px]"
+                      className="w-[140px]"
+                      maxLength={12}
+                      style={{ textTransform: 'uppercase' }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
-                          const value = e.currentTarget.value.trim();
+                          const value = e.currentTarget.value.trim().toUpperCase();
                           if (value !== (user.agentNumber || '')) {
                             updateAgentNumberMutation.mutate({
                               userId: user.id,
@@ -485,7 +487,7 @@ export default function AdminUsers() {
                         }
                       }}
                       onBlur={(e) => {
-                        const value = e.target.value.trim();
+                        const value = e.target.value.trim().toUpperCase();
                         if (value !== (user.agentNumber || '')) {
                           updateAgentNumberMutation.mutate({
                             userId: user.id,

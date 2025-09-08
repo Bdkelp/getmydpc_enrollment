@@ -1004,12 +1004,13 @@ export default function Admin() {
                   id="agent-number"
                   value={agentNumberInput}
                   onChange={(e) => setAgentNumberInput(e.target.value.toUpperCase())}
-                  placeholder="e.g., MPP00001"
+                  placeholder="e.g., MPPSA231154"
                   className="col-span-3"
+                  maxLength={12}
                 />
               </div>
               <div className="text-sm text-gray-500 ml-[108px]">
-                Format: MPP followed by numbers (e.g., MPP00001)
+                Format: MPP + Role Code + Year + Last 4 SSN (e.g., MPPSA231154 for Super Admin, MPPAG231154 for Agent)
               </div>
             </div>
             <DialogFooter>
