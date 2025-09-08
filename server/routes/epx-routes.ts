@@ -30,7 +30,7 @@ try {
     merchNbr: process.env.EPX_MERCH_NBR || '900300',
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
-    environment: process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox',
+    environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
     redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/payment/success`,
     responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
     cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
@@ -353,7 +353,6 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
         // Send comprehensive enrollment notification (member, agent, admins)
         await sendEnrollmentNotification({
           memberEmail: payment.userId, // Assuming userId is the member's email for notification
-          agentEmail: 'agent@example.com', // Replace with actual agent email
           adminEmail: 'info@mypremierplans.com', // Admin email
           transactionDetails: {
             transactionId: result.transactionId,
