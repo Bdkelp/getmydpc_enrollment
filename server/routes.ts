@@ -1344,8 +1344,7 @@ router.put("/api/agent/members/:memberId", authenticateToken, async (req: AuthRe
     delete updateData.isActive;
     delete updateData.createdAt;
     delete updateData.enrolledByAgentId;
-    delete updateData.stripeCustomerId;
-    delete updateData.stripeSubscriptionId;
+    // EPX payment system - no legacy payment fields to exclude
 
     // Validate phone number format if provided
     if (updateData.phone) {

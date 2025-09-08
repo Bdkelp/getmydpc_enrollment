@@ -13,6 +13,9 @@ import { transactionLogger } from '../services/transaction-logger';
 const router = Router();
 
 // Initialize EPX Service on startup
+let epxServiceInitialized = false;
+let epxInitError: string | null = null;
+
 try {
   // Get the base URL from environment
   const baseUrl = process.env.REPLIT_DEV_DOMAIN
@@ -46,14 +49,48 @@ try {
     baseUrl
   });
 
+  // Validate critical configuration
+  if (!epxConfig.mac) {
+    throw new Error('EPX_MAC environment variable is required for payment processing');
+  }
+  
+  if (!epxConfig.custNbr || !epxConfig.merchNbr) {
+    throw new Error('EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing');
+  }
+
   initializeEPXService(epxConfig);
   const epxService = getEPXService();
+  epxServiceInitialized = true;
   console.log('[EPX Routes] EPX Service initialized successfully');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
   console.log('[EPX Routes] Base URL:', baseUrl);
-} catch (error) {
+} catch (error: any) {
+  epxInitError = error.message || 'Unknown error during EPX initialization';
   console.error('[EPX Routes] Failed to initialize EPX Service:', error);
+  console.error('[EPX Routes] Payment processing will not be available');
 }
+
+/**
+ * Health check endpoint for EPX payment service
+ */
+router.get('/api/epx/health', (req: Request, res: Response) => {
+  if (epxServiceInitialized) {
+    res.json({
+      status: 'healthy',
+      service: 'EPX Payment Service',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      initialized: true
+    });
+  } else {
+    res.status(503).json({
+      status: 'unhealthy',
+      service: 'EPX Payment Service',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      initialized: false,
+      error: epxInitError || 'Service not initialized'
+    });
+  }
+});
 
 /**
  * Get EPX Hosted Checkout configuration for frontend
@@ -92,16 +129,32 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     
     console.log('[EPX Create Payment] Body:', JSON.stringify(req.body, null, 2));
 
+    // Check if EPX service is initialized
+    if (!epxServiceInitialized) {
+      console.error('[EPX Create Payment] EPX Service not initialized');
+      console.error('[EPX Create Payment] Initialization error:', epxInitError);
+      return res.status(503).json({
+        success: false,
+        error: 'Payment service temporarily unavailable',
+        details: epxInitError || 'EPX service not configured properly. Please check environment variables.',
+        requiredVars: [
+          'EPX_MAC (32-character key from North.com)',
+          'EPX_CUST_NBR (Customer number)',
+          'EPX_MERCH_NBR (Merchant number)'
+        ]
+      });
+    }
+
     // Validate EPX service initialization
     let epxService;
     try {
       epxService = getEPXService();
-    } catch (serviceError) {
-      console.error('[EPX Create Payment] EPX Service not initialized:', serviceError);
-      return res.status(500).json({
+    } catch (serviceError: any) {
+      console.error('[EPX Create Payment] EPX Service retrieval failed:', serviceError);
+      return res.status(503).json({
         success: false,
-        error: 'Payment service not available. Please try again later.',
-        details: 'EPX service initialization failed'
+        error: 'Payment service temporarily unavailable',
+        details: serviceError.message || 'EPX service initialization failed'
       });
     }
 
