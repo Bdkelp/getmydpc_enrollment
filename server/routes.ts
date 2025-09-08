@@ -375,6 +375,7 @@ router.put("/api/user/profile", authenticateToken, async (req: AuthRequest, res)
     delete updateData.role; // Prevent role modification via profile update
     delete updateData.createdAt; // Prevent creation date modification
     delete updateData.approvalStatus; // Prevent approval status modification
+    delete updateData.agentNumber; // Prevent agent number modification via profile update
 
     // Validate phone number format if provided
     if (updateData.phone) {
@@ -831,6 +832,7 @@ router.put("/api/admin/users/:userId/role", authenticateToken, async (req: AuthR
 });
 
 router.put("/api/admin/users/:userId/agent-number", authenticateToken, async (req: AuthRequest, res) => {
+  // CRITICAL: Only admins can assign/modify agent numbers for commission tracking
   if (req.user!.role !== 'admin') {
     return res.status(403).json({ message: "Admin access required" });
   }

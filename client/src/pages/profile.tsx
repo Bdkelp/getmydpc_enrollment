@@ -518,7 +518,7 @@ export default function Profile() {
                               <FormItem>
                                 <FormLabel>Agent Number</FormLabel>
                                 <FormControl>
-                                  <Input {...field} />
+                                  <Input {...field} readOnly={user?.role === 'agent'} />
                                 </FormControl>
                                 <FormMessage />
                               </FormItem>
