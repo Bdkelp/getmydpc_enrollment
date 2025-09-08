@@ -21,9 +21,9 @@ async function activateAdmin() {
           id: '8bda1072-ab65-4733-a84b-2a3609a69450', // Use the ID from Supabase Auth
           email: 'michael@mypremierplans.com',
           role: 'admin',
-          isActive: true,
-          firstName: 'Michael',
-          lastName: 'Admin'
+          is_active: true,
+          first_name: 'Michael',
+          last_name: 'Admin'
         })
         .select()
         .single();
@@ -36,7 +36,7 @@ async function activateAdmin() {
           .insert({
             id: '8bda1072-ab65-4733-a84b-2a3609a69450',
             email: 'michael@mypremierplans.com',
-            isActive: true
+            is_active: true
           })
           .select()
           .single();
@@ -54,14 +54,14 @@ async function activateAdmin() {
     } else if (checkData) {
       console.log('Current user data:', checkData);
       
-      // Update only the fields that exist
-      const updateFields: any = { isActive: true };
+      // Update only the fields that exist (using snake_case for database)
+      const updateFields: any = { is_active: true };
       
       // Check which fields exist and update them
       if ('role' in checkData) updateFields.role = 'admin';
-      if ('firstName' in checkData) updateFields.firstName = 'Michael';
-      if ('lastName' in checkData) updateFields.lastName = 'Admin';
-      if ('approvalStatus' in checkData) updateFields.approvalStatus = 'approved';
+      if ('first_name' in checkData) updateFields.first_name = 'Michael';
+      if ('last_name' in checkData) updateFields.last_name = 'Admin';
+      if ('approval_status' in checkData) updateFields.approval_status = 'approved';
       
       const { data, error } = await supabase
         .from('users')
