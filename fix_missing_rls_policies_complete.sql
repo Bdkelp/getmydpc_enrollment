@@ -16,21 +16,23 @@ CREATE POLICY "Service role bypass commissions" ON public.commissions
 CREATE POLICY "Admins view all commissions" ON public.commissions
   FOR SELECT
   USING (
-    (SELECT auth.uid()) IN (
-      SELECT id FROM auth.users
-      WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
-      OR auth.users.email LIKE '%@mypremierplans.com'
+    EXISTS (
+      SELECT 1 FROM auth.users
+      WHERE auth.users.id = auth.uid()
+      AND (auth.users.raw_user_meta_data->>'role' = 'admin'
+           OR auth.users.email LIKE '%@mypremierplans.com')
     )
   );
 
 CREATE POLICY "Agents view own commissions" ON public.commissions
   FOR SELECT
   USING (
-    agent_id::uuid = (SELECT auth.uid())
-    OR (SELECT auth.uid()) IN (
-      SELECT id FROM auth.users
-      WHERE auth.users.raw_user_meta_data->>'role' = 'admin'
-      OR auth.users.email LIKE '%@mypremierplans.com'
+    agent_id::uuid = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM auth.users
+      WHERE auth.users.id = auth.uid()
+      AND (auth.users.raw_user_meta_data->>'role' = 'admin'
+           OR auth.users.email LIKE '%@mypremierplans.com')
     )
   );
 
