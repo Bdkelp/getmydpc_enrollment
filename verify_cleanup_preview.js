@@ -1,73 +1,61 @@
 
-import { Pool } from '@neondatabase/serverless';
-import dotenv from 'dotenv';
+#!/usr/bin/env node
 
-dotenv.config();
+// Cleanup Preview Script - Supabase Version
+const { createClient } = require('@supabase/supabase-js');
+require('dotenv').config();
 
-async function verifyCleanupPreview() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL not found in environment variables');
-    process.exit(1);
-  }
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing Supabase configuration');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+async function previewCleanup() {
   try {
-    console.log('🔍 CLEANUP PREVIEW - What will be removed/preserved:\n');
-    
-    // Check current data counts
-    const counts = await pool.query(`
-      SELECT 
-        'users' as table_name, COUNT(*) as current_count FROM users
-      UNION ALL
-      SELECT 'subscriptions', COUNT(*) FROM subscriptions
-      UNION ALL
-      SELECT 'payments', COUNT(*) FROM payments
-      UNION ALL
-      SELECT 'family_members', COUNT(*) FROM family_members
-      UNION ALL
-      SELECT 'leads', COUNT(*) FROM leads
-      UNION ALL
-      SELECT 'lead_activities', COUNT(*) FROM lead_activities
-      UNION ALL
-      SELECT 'commissions', COUNT(*) FROM commissions
-      UNION ALL
-      SELECT 'enrollment_modifications', COUNT(*) FROM enrollment_modifications
-      ORDER BY table_name;
-    `);
-    
-    console.log('📊 Current Database State:');
-    counts.rows.forEach(row => {
-      console.log(`   ${row.table_name}: ${row.current_count} records`);
-    });
-    
-    // Show which users will be kept vs removed
-    const adminEmails = ['michael@mypremierplans.com', 'travis@mypremierplans.com'];
-    const agentEmails = ['mdkeener@gmail.com', 'tmatheny77@gmail.com', 'svillarreal@cyariskmanagement.com'];
-    const keepEmails = [...adminEmails, ...agentEmails];
-    
-    const usersToKeep = await pool.query(
-      `SELECT email, role FROM users WHERE email IN (${keepEmails.map((_, i) => `$${i + 1}`).join(', ')})`,
-      keepEmails
-    );
-    
-    const usersToRemove = await pool.query(
-      `SELECT COUNT(*) as count FROM users WHERE email NOT IN (${keepEmails.map((_, i) => `$${i + 1}`).join(', ')}) OR email IS NULL`,
-      keepEmails
-    );
-    
-    console.log('\n👥 User Account Changes:');
+    console.log('🔍 PRODUCTION CLEANUP PREVIEW');
+    console.log('=====================================\n');
+
+    const keepEmails = [
+      'michael@mypremierplans.com',
+      'travis@mypremierplans.com',
+      'richard@mypremierplans.com', 
+      'joaquin@mypremierplans.com',
+      'mdkeener@gmail.com'
+    ];
+
+    // Check which users will be kept
+    const { data: usersToKeep } = await supabase
+      .from('users')
+      .select('email, role')
+      .in('email', keepEmails);
+
+    // Count users that will be removed
+    const { count: totalUsers } = await supabase
+      .from('users')
+      .select('*', { count: 'exact', head: true });
+
+    const { count: usersToRemove } = await supabase
+      .from('users')  
+      .select('*', { count: 'exact', head: true })
+      .not('email', 'in', `(${keepEmails.map(e => `"${e}"`).join(',')})`);
+
+    console.log('👥 User Account Changes:');
     console.log('   ✅ WILL KEEP (Admin/Agent accounts):');
-    usersToKeep.rows.forEach(user => {
+    (usersToKeep || []).forEach(user => {
       console.log(`      - ${user.email} (${user.role})`);
     });
-    console.log(`   ❌ WILL REMOVE: ${usersToRemove.rows[0].count} test member accounts`);
-    
+    console.log(`   ❌ WILL REMOVE: ${usersToRemove || 0} test member accounts`);
+
     console.log('\n📋 What will be PRESERVED:');
     console.log('   ✅ All leads and lead activities');
     console.log('   ✅ Admin and agent user accounts');
     console.log('   ✅ Database structure and plans');
-    
+
     console.log('\n🗑️  What will be REMOVED:');
     console.log('   ❌ All test member enrollments');
     console.log('   ❌ All subscriptions and payments');
@@ -75,14 +63,13 @@ async function verifyCleanupPreview() {
     console.log('   ❌ All commissions');
     console.log('   ❌ All enrollment modifications');
     console.log('   ❌ All user sessions');
-    
+
     console.log('\n⚠️  Ready to run production cleanup? Use: node clear_production_prep.js');
-    
+
   } catch (error) {
     console.error('❌ Error during verification:', error);
-  } finally {
-    await pool.end();
+    process.exit(1);
   }
 }
 
-verifyCleanupPreview();
+previewCleanup();

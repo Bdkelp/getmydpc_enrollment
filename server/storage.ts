@@ -55,7 +55,7 @@ import type {
   Commission,
   FamilyMember,
   LeadActivity,
-  UpsertUser, // Keep these types even if not directly used in the snippet
+  UpsertUser,
   InsertPlan,
   InsertSubscription,
   InsertPayment,
@@ -64,9 +64,6 @@ import type {
   InsertLeadActivity,
   InsertCommission,
 } from "@shared/schema";
-import { eq, desc, and, or, like, count, gte, lte, sql, isNull, sum } from "drizzle-orm"; // Keep these imports even if not directly used in the snippet
-// Note: The crypto import below is redundant as it's already imported at the top.
-// import crypto from "crypto"; // Keep these imports even if not directly used in the snippet
 
 export interface IStorage {
   // User operations (required for Replit Auth)

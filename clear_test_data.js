@@ -1,64 +1,68 @@
 
-import { Pool } from '@neondatabase/serverless';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+#!/usr/bin/env node
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Test Data Cleanup Script - Supabase Version
+const { createClient } = require('@supabase/supabase-js');
+const { readFileSync } = require('fs');
+const { join } = require('path');
+require('dotenv').config();
 
-// Load environment variables
-import dotenv from 'dotenv';
-dotenv.config();
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error('❌ Missing Supabase configuration');
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function clearTestData() {
-  if (!process.env.DATABASE_URL) {
-    console.error('DATABASE_URL not found in environment variables');
-    process.exit(1);
-  }
-
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  
   try {
     console.log('🧹 Starting test data cleanup...');
     
-    // Read and execute the SQL script
-    const sqlScript = readFileSync(join(__dirname, 'clear_test_data.sql'), 'utf8');
-    await pool.query(sqlScript);
+    // Execute cleanup operations using Supabase client
+    const tables = [
+      'family_members',
+      'commissions', 
+      'payments',
+      'subscriptions',
+      'enrollment_modifications',
+      'lead_activities'
+    ];
+
+    for (const table of tables) {
+      console.log(`Clearing ${table}...`);
+      await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
+
+    // Clear test users (preserve admins/agents)
+    console.log('Clearing test users...');
+    const preserveEmails = [
+      'michael@mypremierplans.com',
+      'travis@mypremierplans.com',
+      'richard@mypremierplans.com',
+      'joaquin@mypremierplans.com',
+      'mdkeener@gmail.com'
+    ];
+    
+    await supabase.from('users')
+      .delete()
+      .not('email', 'in', `(${preserveEmails.map(e => `"${e}"`).join(',')})`);
     
     console.log('✅ Test data cleanup completed successfully!');
     console.log('📊 Final record counts:');
     
     // Show final counts
-    const result = await pool.query(`
-      SELECT 
-        'users' as table_name, COUNT(*) as remaining_records FROM users
-      UNION ALL
-      SELECT 'subscriptions', COUNT(*) FROM subscriptions
-      UNION ALL
-      SELECT 'payments', COUNT(*) FROM payments
-      UNION ALL
-      SELECT 'family_members', COUNT(*) FROM family_members
-      UNION ALL
-      SELECT 'leads', COUNT(*) FROM leads
-      UNION ALL
-      SELECT 'lead_activities', COUNT(*) FROM lead_activities
-      UNION ALL
-      SELECT 'commissions', COUNT(*) FROM commissions
-      UNION ALL
-      SELECT 'enrollment_modifications', COUNT(*) FROM enrollment_modifications
-      ORDER BY table_name;
-    `);
-    
-    result.rows.forEach(row => {
-      console.log(`   ${row.table_name}: ${row.remaining_records} records`);
-    });
+    const allTables = [...tables, 'users', 'leads'];
+    for (const table of allTables) {
+      const { count } = await supabase.from(table).select('*', { count: 'exact', head: true });
+      console.log(`   ${table}: ${count || 0} records`);
+    }
     
   } catch (error) {
     console.error('❌ Error during cleanup:', error);
     process.exit(1);
-  } finally {
-    await pool.end();
   }
 }
 
