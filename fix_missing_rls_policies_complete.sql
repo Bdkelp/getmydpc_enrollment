@@ -199,6 +199,48 @@ BEGIN
 END
 $$;
 
+-- 7. Storage bucket policies for profile images and other buckets
+-- Enable RLS on storage.buckets
+ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing storage policies
+DROP POLICY IF EXISTS "Give anon users access to JPG images in folder" ON storage.objects;
+DROP POLICY IF EXISTS "Give authenticated users access to own folder" ON storage.objects;
+DROP POLICY IF EXISTS "Public bucket access" ON storage.buckets;
+DROP POLICY IF EXISTS "Authenticated bucket access" ON storage.buckets;
+
+-- Create storage bucket policies
+CREATE POLICY "Public bucket access" ON storage.buckets
+  FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated bucket access" ON storage.buckets
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated' OR auth.role() = 'service_role');
+
+CREATE POLICY "Service role bucket access" ON storage.buckets
+  FOR ALL USING (auth.role() = 'service_role');
+
+-- Create storage object policies  
+CREATE POLICY "Anyone can view public images" ON storage.objects
+  FOR SELECT USING (bucket_id = 'profile-images');
+
+CREATE POLICY "Authenticated users can upload images" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'profile-images' 
+    AND (auth.role() = 'authenticated' OR auth.role() = 'service_role')
+  );
+
+CREATE POLICY "Users can update own images" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'profile-images' 
+    AND (auth.uid()::text = (storage.foldername(name))[1] OR auth.role() = 'service_role')
+  );
+
+CREATE POLICY "Users can delete own images" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'profile-images' 
+    AND (auth.uid()::text = (storage.foldername(name))[1] OR auth.role() = 'service_role')
+  );
+
 -- 7. VERIFICATION: Check all tables now have policies
 SELECT 
   'POLICY VERIFICATION' as check_type,
