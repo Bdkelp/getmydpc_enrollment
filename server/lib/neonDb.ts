@@ -13,20 +13,35 @@ export const neonPool = new Pool({
   ssl: {
     rejectUnauthorized: false // Required for Neon
   },
-  max: 20, // Maximum number of clients in the pool
+  max: 10, // Reduced pool size for stability
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // Increased timeout to 10 seconds
+  query_timeout: 30000, // 30 second query timeout
 });
 
-// Test the connection
-neonPool.connect((err, client, release) => {
-  if (err) {
-    console.error('[NeonDB] Error connecting to database:', err.stack);
-  } else {
-    console.log('[NeonDB] Successfully connected to Neon database');
-    release();
+// Test the connection with retry logic
+const testConnection = async (retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const client = await neonPool.connect();
+      console.log('[NeonDB] Successfully connected to Neon database');
+      client.release();
+      return;
+    } catch (err: any) {
+      console.error(`[NeonDB] Connection attempt ${i + 1}/${retries} failed:`, err.message);
+      if (i < retries - 1) {
+        console.log('[NeonDB] Retrying connection in 2 seconds...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        console.error('[NeonDB] Failed to connect after', retries, 'attempts');
+        // Don't throw - allow the app to start even if initial connection fails
+      }
+    }
   }
-});
+};
+
+// Start connection test
+testConnection();
 
 // Helper function to execute queries
 export async function query(text: string, params?: any[]) {
