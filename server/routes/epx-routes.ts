@@ -369,14 +369,32 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     console.error(`[EPX Create Payment] ERROR after ${processingTime}ms:`, {
       message: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
+      requestBody: req.body,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'user-agent': req.headers['user-agent']
+      }
     });
+
+    // Log detailed error information for debugging
+    if (error.code) {
+      console.error(`[EPX Create Payment] Error code: ${error.code}`);
+    }
+    if (error.errno) {
+      console.error(`[EPX Create Payment] Error errno: ${error.errno}`);
+    }
+    if (error.syscall) {
+      console.error(`[EPX Create Payment] Error syscall: ${error.syscall}`);
+    }
 
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to create payment session',
       details: 'Internal server error during payment creation',
-      processingTime
+      processingTime,
+      errorType: error.name,
+      errorCode: error.code || 'UNKNOWN'
     });
   }
 });

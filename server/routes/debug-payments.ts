@@ -197,6 +197,162 @@ router.get('/api/debug/payment-flow-analysis', async (req: Request, res: Respons
         amount: p.amount,
         status: p.status,
         method: p.payment_method,
+
+
+/**
+ * Debug endpoint to test the full payment creation flow
+ */
+router.post('/api/debug/test-payment-flow', async (req: Request, res: Response) => {
+  try {
+    console.log('[Debug Payment Flow] Testing complete payment creation flow...');
+
+    const testData = {
+      amount: '10.00',
+      customerId: 'debug-test-' + Date.now(),
+      customerEmail: 'test@example.com',
+      planId: 1,
+      description: 'Debug test payment'
+    };
+
+    console.log('[Debug Payment Flow] Test data:', testData);
+
+    // Test EPX service initialization
+    try {
+      const { getEPXService } = await import('../services/epx-payment-service');
+      const epxService = getEPXService();
+      console.log('[Debug Payment Flow] ✅ EPX Service retrieved successfully');
+    } catch (epxError: any) {
+      console.error('[Debug Payment Flow] ❌ EPX Service error:', epxError.message);
+      return res.status(500).json({
+        success: false,
+        step: 'epx_service_check',
+        error: epxError.message
+      });
+    }
+
+    // Test storage connection
+    try {
+      const { storage } = await import('../storage');
+      console.log('[Debug Payment Flow] ✅ Storage imported successfully');
+    } catch (storageError: any) {
+      console.error('[Debug Payment Flow] ❌ Storage error:', storageError.message);
+      return res.status(500).json({
+        success: false,
+        step: 'storage_check',
+        error: storageError.message
+      });
+    }
+
+    // Test TAC generation
+    try {
+      const { getEPXService } = await import('../services/epx-payment-service');
+      const epxService = getEPXService();
+      
+      const tacResponse = await epxService.generateTAC({
+        amount: 10.00,
+        tranNbr: 'DEBUG_' + Date.now(),
+        customerEmail: testData.customerEmail,
+        orderDescription: testData.description
+      });
+
+      if (tacResponse.success) {
+        console.log('[Debug Payment Flow] ✅ TAC generation successful');
+      } else {
+        console.error('[Debug Payment Flow] ❌ TAC generation failed:', tacResponse.error);
+        return res.status(500).json({
+          success: false,
+          step: 'tac_generation',
+          error: tacResponse.error
+        });
+      }
+    } catch (tacError: any) {
+      console.error('[Debug Payment Flow] ❌ TAC generation exception:', tacError.message);
+      return res.status(500).json({
+        success: false,
+        step: 'tac_generation_exception',
+        error: tacError.message
+      });
+    }
+
+    console.log('[Debug Payment Flow] ✅ All tests passed');
+
+    res.json({
+
+
+/**
+ * Debug endpoint to check EPX configuration
+ */
+router.get('/api/debug/epx-config', async (req: Request, res: Response) => {
+  try {
+    console.log('[Debug EPX Config] Checking EPX configuration...');
+
+    const config = {
+      EPX_ENVIRONMENT: process.env.EPX_ENVIRONMENT || 'sandbox',
+      EPX_MAC: process.env.EPX_MAC ? `${process.env.EPX_MAC.substring(0, 8)}...` : 'NOT_SET',
+      EPX_CUST_NBR: process.env.EPX_CUST_NBR || 'NOT_SET',
+      EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || 'NOT_SET',
+      EPX_DBA_NBR: process.env.EPX_DBA_NBR || 'NOT_SET',
+      EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT_SET',
+      REPLIT_DEV_DOMAIN: process.env.REPLIT_DEV_DOMAIN || 'NOT_SET',
+      NODE_ENV: process.env.NODE_ENV || 'NOT_SET'
+    };
+
+    const issues = [];
+    
+    if (!process.env.EPX_MAC) {
+      issues.push('EPX_MAC is not set');
+    } else if (process.env.EPX_MAC.length !== 32) {
+      issues.push(`EPX_MAC has incorrect length: ${process.env.EPX_MAC.length} (should be 32)`);
+    }
+    
+    if (!process.env.EPX_CUST_NBR) {
+      issues.push('EPX_CUST_NBR is not set');
+    }
+    
+    if (!process.env.EPX_MERCH_NBR) {
+      issues.push('EPX_MERCH_NBR is not set');
+    }
+    
+    if (!process.env.REPLIT_DEV_DOMAIN) {
+      issues.push('REPLIT_DEV_DOMAIN is not set');
+    }
+
+    console.log('[Debug EPX Config] Configuration check completed');
+
+    res.json({
+      success: true,
+      config,
+      issues,
+      hasIssues: issues.length > 0,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('[Debug EPX Config] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+      success: true,
+      message: 'Payment flow test completed successfully',
+      testData,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('[Debug Payment Flow] Unexpected error:', error);
+    res.status(500).json({
+      success: false,
+      step: 'unexpected_error',
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
         environment: p.metadata?.environment || 'unknown',
         createdAt: p.created_at,
         hasWebhookData: !!(p.metadata?.epxResponse || p.metadata?.bricToken),
