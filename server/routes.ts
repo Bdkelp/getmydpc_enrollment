@@ -1749,6 +1749,7 @@ export async function registerRoutes(app: any) {
         id: paymentId,
         userId: userId,
         amount: amount || 79,
+        currency: 'USD', // Explicitly set currency to avoid schema cache issues
         status: 'completed',
         transactionId: paymentId,
         paymentMethod: 'test-card',
