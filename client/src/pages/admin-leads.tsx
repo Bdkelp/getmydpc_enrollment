@@ -16,7 +16,6 @@ import { useLocation } from 'wouter';
 import { ChevronLeft, Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
-import { Navigate } from 'wouter'; // Assuming Navigate is the correct component for redirection
 
 interface Lead {
   id: number;

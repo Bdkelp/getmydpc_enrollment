@@ -38,7 +38,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Navigate } from "wouter/use-location";
 
 interface Enrollment {
   id: string;
@@ -67,7 +66,7 @@ export default function AdminEnrollments() {
   const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
 
   log("Component mounted", { user: user?.email, authLoading });
 
@@ -465,7 +464,6 @@ export default function AdminEnrollments() {
                   Agent
                 </label>
                 <Select
-                  id="agent-filter"
                   value={selectedAgentId}
                   onValueChange={setSelectedAgentId}
                 >
@@ -488,7 +486,7 @@ export default function AdminEnrollments() {
                 <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-1">
                   Status
                 </label>
-                <Select id="status-filter" value={statusFilter} onValueChange={setStatusFilter}>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Status" />
                   </SelectTrigger>
