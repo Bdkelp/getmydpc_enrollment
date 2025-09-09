@@ -592,9 +592,19 @@ export default function AdminUsers() {
                         size="sm"
                         className="text-green-600 hover:text-green-700"
                         onClick={() => {
-                          const reactivateSubscriptions = confirm(
-                            "Do you want to reactivate their subscriptions as well?"
-                          );
+                          // Only ask about subscriptions for members
+                          let reactivateSubscriptions = false;
+                          if (user.role === 'member' || user.role === 'user') {
+                            reactivateSubscriptions = confirm(
+                              "Do you want to reactivate their subscription as well?"
+                            );
+                          } else {
+                            // For agents and admins, just confirm the account reactivation
+                            const confirmReactivation = confirm(
+                              `Reactivate ${user.role} account for ${user.firstName} ${user.lastName}?`
+                            );
+                            if (!confirmReactivation) return;
+                          }
                           reactivateUserMutation.mutate({ 
                             userId: user.id, 
                             reactivateSubscriptions 
