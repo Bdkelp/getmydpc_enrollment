@@ -558,11 +558,12 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
       subscriptions = subsData || [];
     }
 
-    // Map subscriptions to users
+    // Map subscriptions to users and convert to camelCase
     const usersWithSubscriptions = users?.map(user => {
       const userSubscription = subscriptions?.find(sub => sub.userId === user.id);
+      const mappedUser = mapUserFromDB(user);
       return {
-        ...user,
+        ...mappedUser,
         subscription: userSubscription || null
       };
     }) || [];
@@ -601,21 +602,38 @@ export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: U
         )
       `)
       .in('role', ['user', 'member']) // Only get users and members, exclude agents and admins
-      .order('createdAt', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('[Storage] Error fetching members:', error);
       throw error;
     }
 
+    // Map users to proper format with camelCase
+    const mappedUsers = data?.map(user => {
+      const mappedUser = mapUserFromDB(user);
+      // Handle nested subscription data if present
+      if (user.subscriptions && user.subscriptions.length > 0) {
+        const subscription = user.subscriptions[0];
+        mappedUser.subscription = {
+          id: subscription.id,
+          status: subscription.status,
+          planId: subscription.planId,
+          amount: subscription.amount,
+          planName: subscription.plans?.name || 'Unknown Plan'
+        };
+      }
+      return mappedUser;
+    }) || [];
+
     console.log('[Storage] Members data:', {
-      totalMembers: data?.length || 0,
-      sampleRoles: data?.slice(0, 5).map(u => ({ email: u.email, role: u.role })) || []
+      totalMembers: mappedUsers.length,
+      sampleRoles: mappedUsers.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
     });
 
     return {
-      users: data || [],
-      totalCount: data?.length || 0
+      users: mappedUsers,
+      totalCount: mappedUsers.length
     };
   } catch (error) {
     console.error('[Storage] Error in getMembersOnly:', error);

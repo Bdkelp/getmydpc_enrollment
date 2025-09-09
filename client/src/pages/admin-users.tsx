@@ -310,7 +310,9 @@ export default function AdminUsers() {
         title: "Success",
         description: "User reactivated successfully.",
       });
+      // Invalidate queries to refresh the user list and show updated status
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/pending-users'] });
     },
     onError: () => {
       toast({
@@ -531,6 +533,7 @@ export default function AdminUsers() {
                       variant={user.approvalStatus === 'approved' && user.isActive ? 'default' : 
                               user.approvalStatus === 'pending' ? 'secondary' : 
                               user.approvalStatus === 'suspended' || !user.isActive ? 'destructive' : 'outline'}
+                      className={user.approvalStatus === 'approved' && user.isActive ? 'bg-green-100 text-green-800 border-green-200' : ''}
                     >
                       {user.approvalStatus === 'suspended' || (!user.isActive && user.approvalStatus !== 'pending') ? 'Suspended' : 
                        user.approvalStatus === 'approved' && user.isActive ? 'Active' : 
@@ -594,14 +597,18 @@ export default function AdminUsers() {
                         onClick={() => {
                           // Only ask about subscriptions for members
                           let reactivateSubscriptions = false;
+                          const userName = user.firstName && user.lastName 
+                            ? `${user.firstName} ${user.lastName}` 
+                            : user.firstName || user.lastName || user.email || 'this user';
+                          
                           if (user.role === 'member' || user.role === 'user') {
                             reactivateSubscriptions = confirm(
-                              "Do you want to reactivate their subscription as well?"
+                              `Reactivate account for ${userName}? Would you also like to reactivate their subscription?`
                             );
                           } else {
                             // For agents and admins, just confirm the account reactivation
                             const confirmReactivation = confirm(
-                              `Reactivate ${user.role} account for ${user.firstName} ${user.lastName}?`
+                              `Reactivate ${user.role} account for ${userName}?`
                             );
                             if (!confirmReactivation) return;
                           }
