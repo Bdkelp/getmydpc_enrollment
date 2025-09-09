@@ -242,18 +242,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     // Store transaction details for webhook processing with comprehensive logging
     let paymentRecord;
     try {
-      console.log('[EPX Create Payment] Creating payment record with data:', {
-        userId: sanitizedCustomerId,
-        subscriptionId: subscriptionId || null,
-        amount: sanitizedAmount.toString(),
-        currency: 'USD',
-        status: 'pending',
-        paymentMethod: paymentMethod || 'card',
-        transactionId: tranNbr,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox'
-      });
-
-      paymentRecord = await storage.createPayment({
+      const paymentData = {
         userId: sanitizedCustomerId,
         subscriptionId: subscriptionId || null,
         amount: sanitizedAmount.toString(),
@@ -269,13 +258,20 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
           ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
           userAgent: req.headers['user-agent'] || 'unknown',
           timestamp: new Date().toISOString(),
-          requestBody: req.body, // Store original request for debugging
+          requestBody: req.body,
           ...(paymentMethod === 'ach' && {
             achLastFour: achAccountNumber?.slice(-4),
             achAccountType
           })
         }
+      };
+      
+      console.log('[EPX Create Payment] Creating payment record with data:', {
+        ...paymentData,
+        metadata: { ...paymentData.metadata, tac: '***MASKED***', requestBody: '***MASKED***' }
       });
+
+      paymentRecord = await storage.createPayment(paymentData);
       
       console.log('[EPX Create Payment] ✅ Payment record created successfully:', {
         paymentId: paymentRecord?.id,

@@ -263,7 +263,7 @@ function mapUserFromDB(data: any): User | null {
     username: data.username,
     passwordHash: data.password_hash || data.passwordHash,
     emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
-    resetPasswordToken: data.reset_password_token || data.resetPasswordToken,
+    resetPasswordToken: data.reset_password_token || data.resetPasswordExpiry,
     resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
     lastLoginAt: data.last_login_at || data.lastLoginAt,
     lastActivityAt: data.last_activity_at || data.lastActivityAt,
@@ -297,7 +297,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
   // Convert camelCase to snake_case for database
   const dbUpdates: any = {};
-  
+
   // Map the fields that might be updated
   if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
   if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
@@ -324,10 +324,10 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   if (updates.twoFactorEnabled !== undefined) dbUpdates.two_factor_enabled = updates.twoFactorEnabled;
   if (updates.twoFactorSecret !== undefined) dbUpdates.two_factor_secret = updates.twoFactorSecret;
   if (updates.stripeCustomerId !== undefined) dbUpdates.stripe_customer_id = updates.stripeCustomerId;
-  
+
   // Always update the timestamp
   dbUpdates.updated_at = new Date();
-  
+
   const { data, error } = await supabase
     .from('users')
     .update(dbUpdates)
@@ -449,12 +449,12 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     console.error('Error fetching user by agent number:', error);
     return null;
   }
-  
+
   // Map database snake_case to camelCase
   if (!data) return null;
-  
+
   const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
-  
+
   return {
     id: data.id,
     email: data.email,
@@ -496,7 +496,7 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     username: data.username,
     passwordHash: data.password_hash || data.passwordHash,
     emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
-    resetPasswordToken: data.reset_password_token || data.resetPasswordToken,
+    resetPasswordToken: data.reset_password_token || data.resetPasswordExpiry,
     resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
     lastLoginAt: data.last_login_at || data.lastLoginAt,
     lastActivityAt: data.last_activity_at || data.lastActivityAt,
@@ -811,7 +811,6 @@ export async function getAgentLeads(agentId: string, status?: string): Promise<L
   try {
     const { data, error } = await supabase
       .from('leads')
-      .select('*')
       .eq('assigned_agent_id', agentId)
       .order('created_at', { ascending: false });
 
@@ -1816,127 +1815,121 @@ export async function clearTestData(): Promise<void> {
 // Payment operations implementation
 export async function createPayment(paymentData: {
   userId: string;
-  subscriptionId: string | null;
+  subscriptionId?: string | null;
   amount: string;
-  currency: string;
+  currency?: string;
   status: string;
   paymentMethod: string;
-  transactionId: string;
-  metadata?: any;
-}) {
-  const timestamp = new Date().toISOString();
-  console.log(`[Storage] Creating payment record at ${timestamp}:`, {
+  transactionId?: string;
+  authorizationCode?: string;
+  metadata?: Record<string, any>;
+}): Promise<any> {
+  console.log('[Storage] Creating payment:', {
     userId: paymentData.userId,
-    transactionId: paymentData.transactionId,
     amount: paymentData.amount,
     status: paymentData.status,
-    paymentMethod: paymentData.paymentMethod
+    paymentMethod: paymentData.paymentMethod,
+    transactionId: paymentData.transactionId,
+    hasMetadata: !!paymentData.metadata
   });
 
-  try {
-    // Validate required fields
-    if (!paymentData.userId || !paymentData.transactionId || !paymentData.amount) {
-      throw new Error('Missing required payment data fields');
-    }
+  // Define the payment record with explicit field mapping
+  const paymentRecord = {
+    user_id: paymentData.userId,
+    amount: paymentData.amount,
+    status: paymentData.status,
+    currency: paymentData.currency || 'USD',
+    payment_method: paymentData.paymentMethod || 'card',
+    ...(paymentData.subscriptionId && { subscription_id: paymentData.subscriptionId }),
+    ...(paymentData.transactionId && { transaction_id: paymentData.transactionId }),
+    ...(paymentData.authorizationCode && { authorization_code: paymentData.authorizationCode }),
+    ...(paymentData.metadata && { metadata: paymentData.metadata })
+  };
 
-    // WORKAROUND: Use raw SQL to bypass Supabase schema cache issue
-    // This directly inserts into the database without relying on the cached schema
-    const { data, error } = await supabase.rpc('create_payment_workaround', {
-      p_user_id: paymentData.userId,
-      p_subscription_id: paymentData.subscriptionId,
-      p_amount: paymentData.amount,
-      p_currency: paymentData.currency || 'USD',
-      p_status: paymentData.status || 'pending',
-      p_payment_method: paymentData.paymentMethod || 'card',
-      p_transaction_id: paymentData.transactionId,
-      p_metadata: paymentData.metadata || {}
-    });
+  try {
+    console.log('[Storage] Inserting payment record:', paymentRecord);
+
+    const { data, error } = await supabase
+      .from('payments')
+      .insert(paymentRecord)
+      .select()
+      .single();
 
     if (error) {
-      // Fallback to direct insert with minimal fields if RPC doesn't exist
-      console.log('[Storage] RPC failed, trying direct insert with minimal fields...');
-      
-      // Try inserting with only the essential fields that we know work
-      const minimalData = {
+      console.error('[Storage] Payment creation error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+
+      // Try with only essential fields to avoid schema cache issues
+      console.log('[Storage] Trying with essential fields only...');
+      const essentialRecord = {
         user_id: paymentData.userId,
         amount: paymentData.amount,
-        status: paymentData.status || 'pending'
+        status: paymentData.status,
+        currency: 'USD',
+        payment_method: 'card'
       };
-      
-      const { data: fallbackData, error: fallbackError } = await supabase
+
+      const { data: essentialData, error: essentialError } = await supabase
         .from('payments')
-        .insert(minimalData)
+        .insert(essentialRecord)
         .select()
         .single();
-      
-      if (fallbackError) {
-        console.error('[Storage] Fallback insert also failed:', {
-          error: fallbackError.message,
-          details: fallbackError.details,
-          hint: fallbackError.hint,
-          code: fallbackError.code
-        });
-        
-        // Last resort: Create a minimal payment record
-        console.log('[Storage] Attempting last resort minimal insert...');
-        const lastResortData = {
-          user_id: paymentData.userId,
-          amount: paymentData.amount,
-          status: 'pending'
-        };
-        
-        const { data: lastResortResult, error: lastResortError } = await supabase
-          .from('payments')
-          .insert([lastResortData]) // Use array format
-          .select('*')
-          .single();
-          
-        if (lastResortError) {
-          throw new Error(`All payment creation methods failed: ${lastResortError.message}`);
-        }
-        
-        // Update the record with additional fields using update
-        // Skip problematic columns that aren't in schema cache
-        if (lastResortResult) {
-          console.log('[Storage] Created minimal payment, ID:', lastResortResult.id);
-          
-          // Return the result with manually added fields that would have been in the update
-          // This avoids hitting the schema cache for problematic columns
-          const enhancedResult = {
-            ...lastResortResult,
-            currency: paymentData.currency || 'USD',
-            payment_method: paymentData.paymentMethod || 'card',
+
+      if (essentialError) {
+        console.error('[Storage] Essential payment creation failed:', essentialError);
+        throw essentialError;
+      }
+
+      console.log('[Storage] Essential payment created, ID:', essentialData?.id);
+
+      // Try to update with additional fields if the essential creation succeeded
+      if (essentialData?.id && (paymentData.transactionId || paymentData.metadata || paymentData.subscriptionId)) {
+        try {
+          const updateFields: any = {};
+          if (paymentData.transactionId) updateFields.transaction_id = paymentData.transactionId;
+          if (paymentData.metadata) updateFields.metadata = paymentData.metadata;
+          if (paymentData.subscriptionId) updateFields.subscription_id = paymentData.subscriptionId;
+          if (paymentData.authorizationCode) updateFields.authorization_code = paymentData.authorizationCode;
+
+          const { data: updatedData, error: updateError } = await supabase
+            .from('payments')
+            .update(updateFields)
+            .eq('id', essentialData.id)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.warn('[Storage] Payment update failed, returning essential data:', updateError.message);
+            return {
+              ...essentialData,
+              ...updateFields
+            };
+          }
+
+          console.log('[Storage] Payment updated successfully');
+          return updatedData;
+        } catch (updateError: any) {
+          console.warn('[Storage] Payment update exception:', updateError.message);
+          return {
+            ...essentialData,
             transaction_id: paymentData.transactionId,
-            metadata: paymentData.metadata || {},
+            metadata: paymentData.metadata,
             subscription_id: paymentData.subscriptionId
           };
-          
-          console.log('[Storage] Payment created with workaround, returning enhanced data');
-          return enhancedResult;
         }
       }
-      
-      return fallbackData;
+
+      return essentialData;
     }
 
-    if (!data) {
-      console.error('[Storage] No data returned from payment creation');
-      throw new Error('Payment creation failed - no data returned');
-    }
-
-    console.log('[Storage] Payment created successfully:', {
-      id: data.id,
-      transactionId: data.transaction_id || data.transactionId,
-      status: data.status
-    });
-
+    console.log('[Storage] Payment created successfully:', data?.id);
     return data;
   } catch (error: any) {
-    console.error('[Storage] Error in createPayment:', {
-      message: error.message,
-      stack: error.stack,
-      paymentData
-    });
+    console.error('[Storage] Payment creation exception:', error);
     throw error;
   }
 }
@@ -2105,7 +2098,7 @@ export const storage = {
   updateSubscription: async (id: number, updates: any) => {
     // Convert camelCase to snake_case for database
     const dbUpdates: any = {};
-    
+
     // Map the fields that might be updated
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.pendingReason !== undefined) dbUpdates.pending_reason = updates.pendingReason;
@@ -2115,7 +2108,7 @@ export const storage = {
     if (updates.stripeSubscriptionId !== undefined) dbUpdates.stripe_subscription_id = updates.stripeSubscriptionId;
     if (updates.updatedAt !== undefined) dbUpdates.updated_at = updates.updatedAt;
     else dbUpdates.updated_at = new Date().toISOString();
-    
+
     const { data: updatedSub, error } = await supabase
       .from('subscriptions')
       .update(dbUpdates)
@@ -2177,7 +2170,7 @@ export const storage = {
         subscription_id: paymentData.subscriptionId,
         amount: paymentData.amount,
         currency: paymentData.currency || 'USD',
-        status: paymentData.status || 'pending',
+        status: paymentData.status,
         payment_method: paymentData.paymentMethod || 'card',
         transaction_id: paymentData.transactionId,
         metadata: paymentData.metadata || {},
@@ -2414,7 +2407,7 @@ export const storage = {
 
       // Get unique user IDs from sessions
       const userIds = [...new Set(sessions.map(s => s.user_id).filter(Boolean))];
-      
+
       if (userIds.length === 0) {
         return sessions;
       }
@@ -2605,7 +2598,7 @@ export const storage = {
       ).length;
 
       const totalMembers = actualMembers.length;
-      
+
       console.log('[Analytics] Calculated metrics:', {
         totalMembers,
         activeSubscriptions: activeSubscriptions.length,
