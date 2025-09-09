@@ -171,6 +171,30 @@ export default function AdminLeads() {
     },
   });
 
+  // Safely calculate arrays, ensuring 'leads' and 'agents' are arrays
+  const safeLeads = Array.isArray(leads) ? leads : [];
+  const safeAgents = Array.isArray(agents) ? agents : [];
+
+  // Filter leads based on search and status - MUST be before any conditional returns
+  const filteredLeads = React.useMemo(() => {
+    return safeLeads.filter(lead => {
+      if (!lead) return false;
+
+      const matchesSearch = searchTerm === "" || 
+        (lead.firstName && lead.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (lead.lastName && lead.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (lead.phone && lead.phone.includes(searchTerm));
+
+      const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
+      const matchesAgent = assignmentFilter === "all" || 
+        (assignmentFilter === "unassigned" && !lead.assignedAgentId) ||
+        lead.assignedAgentId === assignmentFilter;
+
+      return matchesSearch && matchesStatus && matchesAgent;
+    });
+  }, [safeLeads, searchTerm, statusFilter, assignmentFilter]);
+
   // Check if user is admin - AFTER all hooks
   useEffect(() => {
     log('Auth check useEffect triggered', { 
@@ -280,10 +304,6 @@ export default function AdminLeads() {
     );
   };
 
-  // Safely calculate counts, ensuring 'leads' is an array
-  const safeLeads = Array.isArray(leads) ? leads : [];
-  const safeAgents = Array.isArray(agents) ? agents : [];
-
   const unassignedCount = safeLeads.filter(lead => !lead.assignedAgentId).length;
   const newLeadsCount = safeLeads.filter(lead => lead.status === 'new').length;
   const contactedCount = safeLeads.filter(lead => lead.status === 'contacted').length;
@@ -322,26 +342,6 @@ export default function AdminLeads() {
       </div>
     );
   }
-
-  // Filter leads based on search and status
-  const filteredLeads = React.useMemo(() => {
-    return safeLeads.filter(lead => {
-      if (!lead) return false;
-
-      const matchesSearch = searchTerm === "" || 
-        (lead.firstName && lead.firstName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (lead.lastName && lead.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (lead.phone && lead.phone.includes(searchTerm));
-
-      const matchesStatus = statusFilter === "all" || lead.status === statusFilter;
-      const matchesAgent = assignmentFilter === "all" || 
-        (assignmentFilter === "unassigned" && !lead.assignedAgentId) ||
-        lead.assignedAgentId === assignmentFilter;
-
-      return matchesSearch && matchesStatus && matchesAgent;
-    });
-  }, [safeLeads, searchTerm, statusFilter, assignmentFilter, safeAgents]);
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
