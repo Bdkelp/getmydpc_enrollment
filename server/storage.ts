@@ -295,9 +295,42 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 }
 
 export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
+  // Convert camelCase to snake_case for database
+  const dbUpdates: any = {};
+  
+  // Map the fields that might be updated
+  if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
+  if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
+  if (updates.email !== undefined) dbUpdates.email = updates.email;
+  if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+  if (updates.role !== undefined) dbUpdates.role = updates.role;
+  if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
+  if (updates.approvalStatus !== undefined) dbUpdates.approval_status = updates.approvalStatus;
+  if (updates.approvedAt !== undefined) dbUpdates.approved_at = updates.approvedAt;
+  if (updates.approvedBy !== undefined) dbUpdates.approved_by = updates.approvedBy;
+  if (updates.rejectionReason !== undefined) dbUpdates.rejection_reason = updates.rejectionReason;
+  if (updates.agentNumber !== undefined) dbUpdates.agent_number = updates.agentNumber;
+  if (updates.company !== undefined) dbUpdates.company = updates.company;
+  if (updates.address !== undefined) dbUpdates.address = updates.address;
+  if (updates.city !== undefined) dbUpdates.city = updates.city;
+  if (updates.state !== undefined) dbUpdates.state = updates.state;
+  if (updates.zipCode !== undefined) dbUpdates.zip_code = updates.zipCode;
+  if (updates.country !== undefined) dbUpdates.country = updates.country;
+  if (updates.dateOfBirth !== undefined) dbUpdates.date_of_birth = updates.dateOfBirth;
+  if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
+  if (updates.profilePictureUrl !== undefined) dbUpdates.profile_picture_url = updates.profilePictureUrl;
+  if (updates.isEmailVerified !== undefined) dbUpdates.is_email_verified = updates.isEmailVerified;
+  if (updates.isPhoneVerified !== undefined) dbUpdates.is_phone_verified = updates.isPhoneVerified;
+  if (updates.twoFactorEnabled !== undefined) dbUpdates.two_factor_enabled = updates.twoFactorEnabled;
+  if (updates.twoFactorSecret !== undefined) dbUpdates.two_factor_secret = updates.twoFactorSecret;
+  if (updates.stripeCustomerId !== undefined) dbUpdates.stripe_customer_id = updates.stripeCustomerId;
+  
+  // Always update the timestamp
+  dbUpdates.updated_at = new Date();
+  
   const { data, error } = await supabase
     .from('users')
-    .update({ ...updates, updated_at: new Date() }) // Added updated_at
+    .update(dbUpdates)
     .eq('id', id)
     .select()
     .single();
@@ -307,7 +340,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     throw new Error(`Failed to update user: ${error.message}`);
   }
 
-  return data;
+  return mapUserFromDB(data);
 }
 
 export async function updateUserProfile(id: string, profileData: Partial<User>): Promise<User> {
@@ -1986,13 +2019,41 @@ export const storage = {
       return [];
     }
 
-    return data || [];
+    // Map the results to camelCase
+    return (data || []).map(sub => ({
+      id: sub.id,
+      userId: sub.user_id,
+      planId: sub.plan_id,
+      status: sub.status,
+      pendingReason: sub.pending_reason,
+      pendingDetails: sub.pending_details,
+      startDate: sub.start_date,
+      endDate: sub.end_date,
+      nextBillingDate: sub.next_billing_date,
+      amount: sub.amount,
+      stripeSubscriptionId: sub.stripe_subscription_id,
+      createdAt: sub.created_at,
+      updatedAt: sub.updated_at
+    }));
   },
   createSubscription: async (sub: any) => sub,
-  updateSubscription: async (id: number, data: any) => {
+  updateSubscription: async (id: number, updates: any) => {
+    // Convert camelCase to snake_case for database
+    const dbUpdates: any = {};
+    
+    // Map the fields that might be updated
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.pendingReason !== undefined) dbUpdates.pending_reason = updates.pendingReason;
+    if (updates.pendingDetails !== undefined) dbUpdates.pending_details = updates.pendingDetails;
+    if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
+    if (updates.nextBillingDate !== undefined) dbUpdates.next_billing_date = updates.nextBillingDate;
+    if (updates.stripeSubscriptionId !== undefined) dbUpdates.stripe_subscription_id = updates.stripeSubscriptionId;
+    if (updates.updatedAt !== undefined) dbUpdates.updated_at = updates.updatedAt;
+    else dbUpdates.updated_at = new Date().toISOString();
+    
     const { data: updatedSub, error } = await supabase
       .from('subscriptions')
-      .update({ ...data, updated_at: new Date().toISOString() })
+      .update(dbUpdates)
       .eq('id', id)
       .select()
       .single();
@@ -2002,7 +2063,22 @@ export const storage = {
       throw new Error(`Failed to update subscription: ${error.message}`);
     }
 
-    return updatedSub;
+    // Map back to camelCase
+    return {
+      id: updatedSub.id,
+      userId: updatedSub.user_id,
+      planId: updatedSub.plan_id,
+      status: updatedSub.status,
+      pendingReason: updatedSub.pending_reason,
+      pendingDetails: updatedSub.pending_details,
+      startDate: updatedSub.start_date,
+      endDate: updatedSub.end_date,
+      nextBillingDate: updatedSub.next_billing_date,
+      amount: updatedSub.amount,
+      stripeSubscriptionId: updatedSub.stripe_subscription_id,
+      createdAt: updatedSub.created_at,
+      updatedAt: updatedSub.updated_at
+    };
   },
   getActiveSubscriptions: async () => [],
 
