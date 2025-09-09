@@ -612,10 +612,11 @@ export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: U
     // Map users to proper format with camelCase
     const mappedUsers = data?.map(user => {
       const mappedUser = mapUserFromDB(user);
+      if (!mappedUser) return null;
       // Handle nested subscription data if present
       if (user.subscriptions && user.subscriptions.length > 0) {
         const subscription = user.subscriptions[0];
-        mappedUser.subscription = {
+        (mappedUser as any).subscription = {
           id: subscription.id,
           status: subscription.status,
           planId: subscription.planId,
@@ -624,7 +625,7 @@ export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: U
         };
       }
       return mappedUser;
-    }) || [];
+    }).filter(u => u !== null) || [];
 
     console.log('[Storage] Members data:', {
       totalMembers: mappedUsers.length,
