@@ -144,44 +144,21 @@ export default function Payment() {
     // Show acknowledgment toast
     toast({
       title: "Policy Accepted",
-      description: "Cancellation and refund policy has been downloaded. Processing payment...",
+      description: "Cancellation and refund policy has been downloaded. Opening payment form...",
     });
     
-    // Now process the actual payment
-    console.log("Starting mock payment with plan ID:", selectedPlanId);
-    setIsProcessingPayment(true);
-    try {
-      // Call mock payment endpoint
-      const data = await apiRequest("/api/mock-payment", {
-        method: "POST",
-        body: JSON.stringify({
-          planId: selectedPlanId,
-          policyAccepted: true, // Include policy acceptance in payment data
-        })
-      });
-      
-      console.log("Mock payment response:", data);
-      
-      if (data.success) {
-        toast({
-          title: "Payment Successful",
-          description: "Enrollment complete! Redirecting to confirmation...",
-        });
-        console.log("Redirecting to confirmation page...");
-        setTimeout(() => {
-          setLocation("/confirmation");
-        }, 1500);
-      } else {
-        throw new Error(data.message || "Payment failed");
-      }
-    } catch (error: any) {
-      console.error("Mock payment error:", error);
+    // Use EPX payment directly (in sandbox mode, no real charges)
+    setIsProcessingPayment(false);
+    
+    // Check if user data is loaded
+    if (user?.id && user?.email) {
+      setShowEPXPayment(true);
+    } else {
       toast({
-        title: "Payment Failed",
-        description: error.message || "There was an error processing your payment. Please try again.",
-        variant: "destructive",
+        title: "User data not loaded",
+        description: "Please wait for your user information to load before proceeding.",
+        variant: "destructive"
       });
-      setIsProcessingPayment(false);
     }
   };
   
@@ -399,7 +376,7 @@ export default function Payment() {
                             onClick={handleMockPayment}
                             disabled={isProcessingPayment || !selectedPlanId}
                           >
-                            Use Test Payment (Demo)
+                            Test Payment (EPX Sandbox)
                           </Button>
                         </div>
                         
