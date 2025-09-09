@@ -189,7 +189,15 @@ export default function AdminUsers() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update user role');
+        const errorData = await response.text();
+        let errorMessage = 'Failed to update user role';
+        try {
+          const parsedError = JSON.parse(errorData);
+          errorMessage = parsedError.message || errorMessage;
+        } catch {
+          errorMessage = errorData || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       return response.json();
@@ -201,10 +209,11 @@ export default function AdminUsers() {
       });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
     },
-    onError: () => {
+    onError: (error: Error) => {
+      console.error('[AdminUsers] Error updating role:', error);
       toast({
         title: "Error",
-        description: "Failed to update user role.",
+        description: error.message || "Failed to update user role.",
         variant: "destructive",
       });
     },

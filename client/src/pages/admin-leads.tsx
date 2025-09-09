@@ -44,7 +44,7 @@ export default function AdminLeads() {
   const { log, logError, logWarning } = useDebugLog('AdminLeads');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   
   // ALL hooks must be declared BEFORE any conditional returns
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -185,8 +185,8 @@ export default function AdminLeads() {
         logWarning('No user found, redirecting to login');
         setLocation('/login');
       } else if (user.role !== 'admin') {
-        logWarning('User is not admin, redirecting to login', { role: user.role });
-        setLocation('/login');
+        logWarning('User is not admin, redirecting to agent dashboard', { role: user.role });
+        setLocation('/agent');
       } else {
         log('Admin user confirmed', { email: user.email });
       }
@@ -205,13 +205,36 @@ export default function AdminLeads() {
 
   log('Component initialized', { user: user?.email, authLoading });
   
+  // Loading state
+  if (authLoading || leadsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="text-gray-600 mt-4">Loading leads...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Redirect to login if not authenticated (AFTER all hooks)
-  if (!authLoading && !user) {
-    window.location.href = '/login';
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600 mb-4">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect if not admin
+  if (user.role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
+          <Button onClick={() => setLocation('/agent')}>Go to Agent Dashboard</Button>
         </div>
       </div>
     );
