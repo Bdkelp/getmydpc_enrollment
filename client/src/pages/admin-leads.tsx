@@ -226,42 +226,10 @@ export default function AdminLeads() {
     }
   }, [leadsError, leads]);
 
-  log('Component initialized', { user: user?.email, authLoading });
-  
-  // Loading state
-  if (authLoading || leadsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="text-gray-600 mt-4">Loading leads...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect to login if not authenticated (AFTER all hooks)
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">Redirecting to login...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect if not admin
-  if (user.role !== 'admin') {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
-          <Button onClick={() => setLocation('/agent')}>Go to Agent Dashboard</Button>
-        </div>
-      </div>
-    );
-  }
+  // MOVED: Log statement should be after hooks but before returns
+  useEffect(() => {
+    log('Component initialized', { user: user?.email, authLoading });
+  }, [user, authLoading, log]);
 
   const handleAssignLead = () => {
     if (selectedLead && selectedAgentId) {
@@ -309,24 +277,34 @@ export default function AdminLeads() {
   const contactedCount = safeLeads.filter(lead => lead.status === 'contacted').length;
   const qualifiedCount = safeLeads.filter(lead => lead.status === 'qualified').length;
 
-  if (authLoading) {
+  // Consolidated single check for loading and auth states
+  if (authLoading || leadsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading leads...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="text-gray-600 mt-4">Loading leads...</p>
         </div>
       </div>
     );
   }
 
-  if (!user || user.role !== 'admin') {
-    logWarning('User not authenticated or not admin, redirecting to login');
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">Access Denied. Please log in as an administrator.</p>
-          <Button onClick={() => setLocation('/login')}>Go to Login</Button>
+          <p className="text-gray-600 mb-4">Redirecting to login...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (user.role !== 'admin') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
+          <Button onClick={() => setLocation('/agent')}>Go to Agent Dashboard</Button>
         </div>
       </div>
     );
