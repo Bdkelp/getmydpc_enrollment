@@ -97,18 +97,18 @@ export interface IStorage {
   updatePlan(id: number, data: Partial<Plan>): Promise<Plan>;
 
   // Subscription operations
-  getUserSubscription(userId: string): Promise<Subscription | undefined>;
+  getUserSubscription(user_Id: string): Promise<Subscription | undefined>;
   createSubscription(subscription: InsertSubscription): Promise<Subscription>;
   updateSubscription(id: number, data: Partial<Subscription>): Promise<Subscription>;
   getActiveSubscriptions(): Promise<Subscription[]>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
-  getUserPayments(userId: string): Promise<Payment[]>;
+  getUserPayments(user_Id: string): Promise<Payment[]>;
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
 
   // Family member operations
-  getFamilyMembers(primaryUserId: string): Promise<FamilyMember[]>;
+  getFamilyMembers(primary_user_id: string): Promise<FamilyMember[]>;
   addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember>;
 
   // Admin operations
