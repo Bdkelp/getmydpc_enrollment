@@ -2255,27 +2255,49 @@ export const storage = {
 
   getAllLoginSessions: async (limit = 50) => {
     try {
-      const { data, error } = await supabase
+      // First get the login sessions
+      const { data: sessions, error: sessionsError } = await supabase
         .from('login_sessions')
-        .select(`
-          *,
-          users!login_sessions_user_id_fkey (
-            id,
-            firstName,
-            lastName,
-            email,
-            role
-          )
-        `)
+        .select('*')
         .order('login_time', { ascending: false })
         .limit(limit);
 
-      if (error) {
-        console.error('Error fetching all login sessions:', error);
+      if (sessionsError) {
+        console.error('Error fetching all login sessions:', sessionsError);
         return [];
       }
 
-      return data || [];
+      if (!sessions || sessions.length === 0) {
+        return [];
+      }
+
+      // Get unique user IDs from sessions
+      const userIds = [...new Set(sessions.map(s => s.user_id).filter(Boolean))];
+      
+      if (userIds.length === 0) {
+        return sessions;
+      }
+
+      // Fetch user details separately
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, firstName, lastName, email, role')
+        .in('id', userIds);
+
+      if (usersError) {
+        console.error('Error fetching users for sessions:', usersError);
+        // Return sessions without user data
+        return sessions;
+      }
+
+      // Map users to sessions
+      const usersMap = new Map(users?.map(u => [u.id, u]) || []);
+      const sessionsWithUsers = sessions.map(session => ({
+        ...session,
+        user: session.user_id ? usersMap.get(session.user_id) : null
+      }));
+
+      return sessionsWithUsers;
     } catch (error) {
       console.error('Unexpected error fetching login sessions:', error);
       return [];
