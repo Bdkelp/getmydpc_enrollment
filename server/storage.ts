@@ -1917,10 +1917,38 @@ export async function getPaymentByTransactionId(transactionId: string): Promise<
 
 export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
   try {
+    // Map camelCase to snake_case for database columns
+    const fieldMapping: Record<string, string> = {
+      userId: 'user_id',
+      subscriptionId: 'subscription_id',
+      paymentMethod: 'payment_method',
+      transactionId: 'transaction_id',
+      authorizationCode: 'authorization_code',
+      stripePaymentIntentId: 'stripe_payment_intent_id',
+      createdAt: 'created_at',
+      updatedAt: 'updated_at'
+    };
+    
     // Build UPDATE query dynamically for Neon
     const fields = Object.keys(updates);
     const values = Object.values(updates);
-    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+    const setClause = fields.map((field, index) => {
+      // Convert camelCase to snake_case
+      const dbField = fieldMapping[field] || field;
+      // Special handling for metadata - convert to JSON
+      if (field === 'metadata') {
+        return `${dbField} = $${index + 2}::jsonb`;
+      }
+      return `${dbField} = $${index + 2}`;
+    }).join(', ');
+    
+    // Convert metadata to JSON string if present
+    const processedValues = values.map((value, index) => {
+      if (fields[index] === 'metadata' && typeof value === 'object') {
+        return JSON.stringify(value);
+      }
+      return value;
+    });
     
     const updateQuery = `
       UPDATE payments 
@@ -1929,7 +1957,7 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       RETURNING *;
     `;
     
-    const result = await query(updateQuery, [id, ...values]);
+    const result = await query(updateQuery, [id, ...processedValues]);
     
     if (!result.rows || result.rows.length === 0) {
       throw new Error('Payment not found');
