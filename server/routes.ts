@@ -1762,7 +1762,7 @@ export async function registerRoutes(app: any) {
       });
 
       // Create subscription if it doesn't exist
-      let subscription = await storage.getSubscriptionByUserId(userId);
+      let subscription = await storage.getUserSubscription(userId);
       if (!subscription) {
         subscription = await storage.createSubscription({
           userId: userId,
