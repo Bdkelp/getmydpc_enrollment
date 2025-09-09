@@ -634,55 +634,92 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 }
 
 // Lead operations
-export async function createLead(leadData: {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  message?: string;
-  source?: string;
-  status?: string;
-}): Promise<Lead> {
-  console.log('[Storage] Creating lead with data:', leadData);
+export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lead> {
+  try {
+    console.log('[Storage] Creating lead with data:', leadData);
 
-  const { data, error } = await supabase
-    .from('leads')
-    .insert([{
-      first_name: leadData.firstName,    // Use snake_case for database
-      last_name: leadData.lastName,      // Use snake_case for database
+    // Map camelCase to snake_case for database
+    const dbData = {
+      first_name: leadData.firstName,
+      last_name: leadData.lastName,
       email: leadData.email,
       phone: leadData.phone,
       message: leadData.message || '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }])
-    .select()
-    .single();
+      assigned_agent_id: leadData.assignedAgentId || null,
+      notes: leadData.notes || null
+    };
 
-  if (error) {
-    console.error('Error creating lead:', error);
-    throw new Error(`Failed to create lead: ${error.message}`);
+    const { data, error } = await supabase
+      .from('leads')
+      .insert(dbData)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Storage] Supabase error creating lead:', error);
+      throw error;
+    }
+
+    // Map snake_case back to camelCase
+    const mappedLead = {
+      id: data.id,
+      firstName: data.first_name,
+      lastName: data.last_name,
+      email: data.email,
+      phone: data.phone,
+      message: data.message,
+      source: data.source,
+      status: data.status,
+      assignedAgentId: data.assigned_agent_id,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      notes: data.notes
+    };
+
+    console.log('[Storage] Created lead with ID:', mappedLead.id);
+    return mappedLead;
+  } catch (error) {
+    console.error('[Storage] Error creating lead:', error);
+    throw error;
   }
-
-  console.log('[Storage] Created lead:', data);
-  return mapLeadFromDB(data);
 }
 
 export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
-  let query = supabase.from('leads').select('*')
-    .eq('assigned_agent_id', agentId);
-  if (status) {
-    query = query.eq('status', status);
-  }
-  const { data, error } = await query.order('created_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('assigned_agent_id', agentId)
+      .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('Error fetching agent leads:', error);
-    return [];
+    if (error) {
+      console.error('[Storage] Error fetching agent leads:', error);
+      throw error;
+    }
+
+    // Map snake_case to camelCase
+    const mappedData = (data || []).map(lead => ({
+      id: lead.id,
+      firstName: lead.first_name,
+      lastName: lead.last_name,
+      email: lead.email,
+      phone: lead.phone,
+      message: lead.message,
+      source: lead.source,
+      status: lead.status,
+      assignedAgentId: lead.assigned_agent_id,
+      createdAt: lead.created_at,
+      updatedAt: lead.updated_at,
+      notes: lead.notes
+    }));
+
+    return mappedData;
+  } catch (error) {
+    console.error('[Storage] Error fetching agent leads:', error);
+    throw error;
   }
-  return (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
 }
 
 export async function getLead(id: number): Promise<Lead | undefined> {
@@ -698,7 +735,21 @@ export async function getLead(id: number): Promise<Lead | undefined> {
     throw new Error(`Failed to get lead: ${error.message}`);
   }
 
-  return data;
+  // Map snake_case to camelCase
+  return data ? {
+    id: data.id,
+    firstName: data.first_name,
+    lastName: data.last_name,
+    email: data.email,
+    phone: data.phone,
+    message: data.message,
+    source: data.source,
+    status: data.status,
+    assignedAgentId: data.assigned_agent_id,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    notes: data.notes
+  } : undefined;
 }
 
 export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
@@ -714,21 +765,36 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
     return undefined;
   }
 
-  return data;
+  // Map snake_case to camelCase
+  return data ? {
+    id: data.id,
+    firstName: data.first_name,
+    lastName: data.last_name,
+    email: data.email,
+    phone: data.phone,
+    message: data.message,
+    source: data.source,
+    status: data.status,
+    assignedAgentId: data.assigned_agent_id,
+    createdAt: data.created_at,
+    updatedAt: data.updated_at,
+    notes: data.notes
+  } : undefined;
 }
 
 export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
   // Map camelCase to snake_case for database update
-  const updateData: any = { updated_at: new Date() };
+  const updateData: any = { updated_at: new Date().toISOString() };
 
-  if (data.firstName) updateData.first_name = data.firstName;
-  if (data.lastName) updateData.last_name = data.lastName;
-  if (data.email) updateData.email = data.email;
-  if (data.phone) updateData.phone = data.phone;
-  if (data.message) updateData.message = data.message;
-  if (data.source) updateData.source = data.source;
-  if (data.status) updateData.status = data.status;
+  if (data.firstName !== undefined) updateData.first_name = data.firstName;
+  if (data.lastName !== undefined) updateData.last_name = data.lastName;
+  if (data.email !== undefined) updateData.email = data.email;
+  if (data.phone !== undefined) updateData.phone = data.phone;
+  if (data.message !== undefined) updateData.message = data.message;
+  if (data.source !== undefined) updateData.source = data.source;
+  if (data.status !== undefined) updateData.status = data.status;
   if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+  if (data.notes !== undefined) updateData.notes = data.notes;
 
   const { data: updatedLead, error } = await supabase
     .from('leads')
@@ -741,22 +807,62 @@ export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead>
     console.error('Error updating lead:', error);
     throw new Error(`Failed to update lead: ${error.message}`);
   }
-  return mapLeadFromDB(updatedLead)!;
+
+  // Map snake_case back to camelCase
+  return updatedLead ? {
+    id: updatedLead.id,
+    firstName: updatedLead.first_name,
+    lastName: updatedLead.last_name,
+    email: updatedLead.email,
+    phone: updatedLead.phone,
+    message: updatedLead.message,
+    source: updatedLead.source,
+    status: updatedLead.status,
+    assignedAgentId: updatedLead.assigned_agent_id,
+    createdAt: updatedLead.created_at,
+    updatedAt: updatedLead.updated_at,
+    notes: updatedLead.notes
+  } : undefined as any; // Should not happen if error is not thrown
 }
 
 export async function assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
-  const { data: updatedLead, error } = await supabase
-    .from('leads')
-    .update({ assigned_agent_id: agentId, status: 'qualified', updated_at: new Date() })
-    .eq('id', leadId)
-    .select()
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .update({
+        assigned_agent_id: agentId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select()
+      .single();
 
-  if (error) {
-    console.error('Error assigning lead to agent:', error);
-    throw new Error(`Failed to assign lead to agent: ${error.message}`);
+    if (error) {
+      console.error('[Storage] Error assigning lead:', error);
+      throw error;
+    }
+
+    // Map snake_case back to camelCase
+    const mappedLead = {
+      id: data.id,
+      firstName: data.first_name,
+      lastName: data.last_name,
+      email: data.email,
+      phone: data.phone,
+      message: data.message,
+      source: data.source,
+      status: data.status,
+      assignedAgentId: data.assigned_agent_id,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      notes: data.notes
+    };
+
+    return mappedLead;
+  } catch (error) {
+    console.error('[Storage] Error assigning lead:', error);
+    throw error;
   }
-  return mapLeadFromDB(updatedLead)!;
 }
 
 // Lead activity operations
@@ -850,41 +956,113 @@ function mapLeadFromDB(dbLead: any): Lead {
     assignedAgentId: dbLead.assigned_agent_id || dbLead.assignedAgentId,
     createdAt: dbLead.created_at || dbLead.createdAt,
     updatedAt: dbLead.updated_at || dbLead.updatedAt,
+    notes: dbLead.notes
   };
 }
 
-export async function getAllLeads(status?: string, assignedAgentId?: string): Promise<Lead[]> {
-  console.log('[Storage] Fetching all leads with filters:', { status, assignedAgentId });
+export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: string): Promise<Lead[]> {
+  try {
+    console.log('[Storage] Getting all leads with filters:', { statusFilter, assignedAgentFilter });
 
-  // Simplified query without the join to avoid foreign key issues
-  let query = supabase.from('leads').select('*');
+    // Use raw SQL to handle snake_case column names from database
+    let query = `
+      SELECT 
+        id,
+        first_name as "firstName",
+        last_name as "lastName", 
+        email,
+        phone,
+        message,
+        source,
+        status,
+        assigned_agent_id as "assignedAgentId",
+        created_at as "createdAt",
+        updated_at as "updatedAt",
+        notes
+      FROM leads
+    `;
 
-  if (status && status !== 'all') {
-    query = query.eq('status', status);
+    const conditions = [];
+    const params: any[] = [];
+
+    if (statusFilter && statusFilter !== 'all') {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(statusFilter);
+    }
+
+    if (assignedAgentFilter) {
+      if (assignedAgentFilter === 'unassigned') {
+        conditions.push('assigned_agent_id IS NULL');
+      } else if (assignedAgentFilter !== 'all') {
+        conditions.push(`assigned_agent_id = $${params.length + 1}`);
+        params.push(assignedAgentFilter);
+      }
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const { data, error } = await supabase
+      .rpc('execute_sql', {
+        sql_query: query,
+        params: params
+      });
+
+    if (error) {
+      console.error('[Storage] Supabase error:', error);
+      // Fallback to direct query
+      let supabaseQuery = supabase
+        .from('leads')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (statusFilter && statusFilter !== 'all') {
+        supabaseQuery = supabaseQuery.eq('status', statusFilter);
+      }
+
+      if (assignedAgentFilter) {
+        if (assignedAgentFilter === 'unassigned') {
+          supabaseQuery = supabaseQuery.is('assigned_agent_id', null);
+        } else if (assignedAgentFilter !== 'all') {
+          supabaseQuery = supabaseQuery.eq('assigned_agent_id', assignedAgentFilter);
+        }
+      }
+
+      const { data: fallbackData, error: fallbackError } = await supabaseQuery;
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      // Map snake_case to camelCase
+      const mappedData = (fallbackData || []).map(lead => ({
+        id: lead.id,
+        firstName: lead.first_name,
+        lastName: lead.last_name,
+        email: lead.email,
+        phone: lead.phone,
+        message: lead.message,
+        source: lead.source,
+        status: lead.status,
+        assignedAgentId: lead.assigned_agent_id,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at,
+        notes: lead.notes
+      }));
+
+      console.log(`[Storage] Retrieved ${mappedData.length} leads from database (fallback)`);
+      return mappedData;
+    }
+
+    console.log(`[Storage] Retrieved ${data?.length || 0} leads from database`);
+    return data || [];
+  } catch (error) {
+    console.error('[Storage] Error fetching leads:', error);
+    throw error;
   }
-
-  if (assignedAgentId === 'unassigned') {
-    query = query.is('assigned_agent_id', null);
-  } else if (assignedAgentId && assignedAgentId !== 'all') {
-    query = query.eq('assigned_agent_id', assignedAgentId);
-  }
-
-  const { data, error } = await query.order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('[Storage] Error fetching all leads:', error);
-    console.error('[Storage] Error details:', error.message);
-    return []; // Return empty array instead of throwing to prevent app crashes
-  }
-
-  console.log('[Storage] Found leads:', data?.length || 0);
-  
-  // Map the database records with proper field conversion
-  const mappedLeads = (data || []).map(mapLeadFromDB).filter(Boolean) as Lead[];
-  
-  console.log('[Storage] Sample lead after mapping:', mappedLeads[0] || 'No leads');
-  
-  return mappedLeads;
 }
 
 // Agent operations
@@ -1517,85 +1695,85 @@ export async function clearTestData(): Promise<void> {
 
 // Payment operations implementation
 export async function createPayment(paymentData: {
-    userId: string;
-    subscriptionId: string | null;
-    amount: string;
-    currency: string;
-    status: string;
-    paymentMethod: string;
-    transactionId: string;
-    metadata?: any;
-  }) {
-    const timestamp = new Date().toISOString();
-    console.log(`[Storage] Creating payment record at ${timestamp}:`, {
-      userId: paymentData.userId,
-      transactionId: paymentData.transactionId,
+  userId: string;
+  subscriptionId: string | null;
+  amount: string;
+  currency: string;
+  status: string;
+  paymentMethod: string;
+  transactionId: string;
+  metadata?: any;
+}) {
+  const timestamp = new Date().toISOString();
+  console.log(`[Storage] Creating payment record at ${timestamp}:`, {
+    userId: paymentData.userId,
+    transactionId: paymentData.transactionId,
+    amount: paymentData.amount,
+    status: paymentData.status,
+    paymentMethod: paymentData.paymentMethod
+  });
+
+  try {
+    // Validate required fields
+    if (!paymentData.userId || !paymentData.transactionId || !paymentData.amount) {
+      throw new Error('Missing required payment data fields');
+    }
+
+    const insertData = {
+      user_id: paymentData.userId,
+      subscription_id: paymentData.subscriptionId,
       amount: paymentData.amount,
-      status: paymentData.status,
-      paymentMethod: paymentData.paymentMethod
+      currency: paymentData.currency || 'USD',
+      status: paymentData.status || 'pending',
+      payment_method: paymentData.paymentMethod || 'card',
+      transaction_id: paymentData.transactionId,
+      metadata: paymentData.metadata || {},
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+
+    console.log('[Storage] Inserting payment data:', {
+      ...insertData,
+      metadata: 'object'
     });
 
-    try {
-      // Validate required fields
-      if (!paymentData.userId || !paymentData.transactionId || !paymentData.amount) {
-        throw new Error('Missing required payment data fields');
-      }
+    const { data, error } = await supabase
+      .from('payments')
+      .insert(insertData)
+      .select()
+      .single();
 
-      const insertData = {
-        user_id: paymentData.userId,
-        subscription_id: paymentData.subscriptionId,
-        amount: paymentData.amount,
-        currency: paymentData.currency || 'USD',
-        status: paymentData.status || 'pending',
-        payment_method: paymentData.paymentMethod || 'card',
-        transaction_id: paymentData.transactionId,
-        metadata: paymentData.metadata || {},
-        created_at: timestamp,
-        updated_at: timestamp
-      };
-
-      console.log('[Storage] Inserting payment data:', {
-        ...insertData,
-        metadata: 'object'
+    if (error) {
+      console.error('[Storage] Supabase error creating payment:', {
+        error: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
       });
-
-      const { data, error } = await supabase
-        .from('payments')
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('[Storage] Supabase error creating payment:', {
-          error: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        throw new Error(`Database error: ${error.message}`);
-      }
-
-      if (!data) {
-        console.error('[Storage] No data returned from payment creation');
-        throw new Error('Payment creation failed - no data returned');
-      }
-
-      console.log('[Storage] Payment created successfully:', {
-        id: data.id,
-        transactionId: data.transaction_id,
-        status: data.status
-      });
-
-      return data;
-    } catch (error: any) {
-      console.error('[Storage] Error in createPayment:', {
-        message: error.message,
-        stack: error.stack,
-        paymentData
-      });
-      throw error;
+      throw new Error(`Database error: ${error.message}`);
     }
+
+    if (!data) {
+      console.error('[Storage] No data returned from payment creation');
+      throw new Error('Payment creation failed - no data returned');
+    }
+
+    console.log('[Storage] Payment created successfully:', {
+      id: data.id,
+      transactionId: data.transaction_id,
+      status: data.status
+    });
+
+    return data;
+  } catch (error: any) {
+    console.error('[Storage] Error in createPayment:', {
+      message: error.message,
+      stack: error.stack,
+      paymentData
+    });
+    throw error;
   }
+}
 
 export async function getUserPayments(userId: string): Promise<Payment[]> {
   const { data, error } = await supabase
@@ -1863,7 +2041,21 @@ export const storage = {
       console.error('Error fetching lead:', error);
       return undefined;
     }
-    return data;
+    // Map snake_case to camelCase
+    return data ? {
+      id: data.id,
+      firstName: data.first_name,
+      lastName: data.last_name,
+      email: data.email,
+      phone: data.phone,
+      message: data.message,
+      source: data.source,
+      status: data.status,
+      assignedAgentId: data.assigned_agent_id,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      notes: data.notes
+    } : undefined;
   },
   getAgentLeads,
   getAllLeads,
@@ -2064,15 +2256,15 @@ export const storage = {
       // Calculate revenue from active subscriptions only
       const monthlyRevenue = allSubscriptions
         .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (parseFloat(sub.amount) || 0), 0);
+        .reduce((total, sub) => total + (sub.amount || 0), 0);
 
-      const totalCommissions = allCommissions.reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
+      const totalCommissions = allCommissions.reduce((total, comm) => total + (comm.commission_amount || 0), 0);
       const paidCommissions = allCommissions
         .filter(comm => comm.payment_status === 'paid')
-        .reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
+        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
       const pendingCommissions = allCommissions
         .filter(comm => comm.payment_status === 'unpaid' || comm.payment_status === 'pending')
-        .reduce((total, comm) => total + (parseFloat(comm.commission_amount) || 0), 0);
+        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
