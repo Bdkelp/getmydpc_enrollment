@@ -151,11 +151,11 @@ export interface IStorage {
 
   // Commission operations
   createCommission(commission: InsertCommission): Promise<Commission>;
-  getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]>;
-  getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]>;
-  getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined>;
+  getAgentCommissions(agent_Id: string, start_Date?: string, endDate?: string): Promise<Commission[]>;
+  getAllCommissions(start_Date?: string, endDate?: string): Promise<Commission[]>;
+  getCommissionBySubscriptionId(subscription_Id: number): Promise<Commission | undefined>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
-  getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
+  getCommissionStats(agent_Id?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
 
   // Analytics
   getAnalytics(): Promise<any>;
