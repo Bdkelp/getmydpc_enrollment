@@ -159,7 +159,7 @@ export class EPXPaymentService {
       console.log('[EPX] TAC payload:', { ...payload, MAC: '***MASKED***' });
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for Replit environment
 
       const response = await fetch(this.keyExchangeUrl, {
         method: 'POST',
@@ -170,6 +170,13 @@ export class EPXPaymentService {
         },
         body: JSON.stringify(payload),
         signal: controller.signal
+      }).catch((fetchError: any) => {
+        // Handle network errors specifically
+        if (fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+          console.error('[EPX] Network timeout - EPX service may be unavailable from this environment');
+          throw new Error('EPX_NETWORK_TIMEOUT');
+        }
+        throw fetchError;
       });
 
       clearTimeout(timeoutId);
@@ -204,14 +211,14 @@ export class EPXPaymentService {
       if (error.name === 'AbortError') {
         return {
           success: false,
-          error: 'Request timeout - EPX service took too long to respond'
+          error: 'EPX service timeout - The payment processor is not responding. Please try again later.'
         };
       }
       
-      if (error.message.includes('fetch')) {
+      if (error.message === 'EPX_NETWORK_TIMEOUT' || error.message.includes('fetch') || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
         return {
           success: false,
-          error: 'Unable to connect to EPX payment service. Please check your network connection.'
+          error: 'EPX payment service is currently unavailable. This may be due to network restrictions in the development environment. Please contact support if this persists.'
         };
       }
       
