@@ -1,4 +1,5 @@
-import { supabase } from './lib/supabaseClient';
+import { supabase } from './lib/supabaseClient'; // Keep for auth only
+import { neonPool, query } from './lib/neonDb'; // Use for all database operations
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
@@ -1834,111 +1835,47 @@ export async function createPayment(paymentData: {
   });
 
   try {
-    // WORKAROUND: Due to Supabase schema cache issues, we start with minimal fields
-    // and avoid problematic columns (transaction_id, metadata) in the initial insert
-    console.log('[Storage] Using minimal insert approach to bypass schema cache issues...');
-    
-    const minimalRecord = {
-      user_id: paymentData.userId,
-      amount: paymentData.amount,
-      status: paymentData.status,
-      currency: paymentData.currency || 'USD',
-      payment_method: paymentData.paymentMethod || 'card'
-    };
+    // Use direct PostgreSQL query to Neon - no more Supabase schema cache issues!
+    const insertQuery = `
+      INSERT INTO payments (
+        user_id,
+        amount,
+        status,
+        currency,
+        payment_method,
+        transaction_id,
+        subscription_id,
+        metadata,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()
+      )
+      RETURNING *;
+    `;
 
-    console.log('[Storage] Inserting minimal payment record:', minimalRecord);
+    const values = [
+      paymentData.userId,
+      paymentData.amount,
+      paymentData.status,
+      paymentData.currency || 'USD',
+      paymentData.paymentMethod || 'card',
+      paymentData.transactionId || null,
+      paymentData.subscriptionId || null,
+      paymentData.metadata ? JSON.stringify(paymentData.metadata) : null
+    ];
 
-    const { data: createdPayment, error: createError } = await supabase
-      .from('payments')
-      .insert(minimalRecord)
-      .select()
-      .single();
+    console.log('[Storage] Executing direct SQL insert to Neon database');
+    const result = await query(insertQuery, values);
 
-    if (createError) {
-      console.error('[Storage] Minimal payment creation failed:', {
-        code: createError.code,
-        message: createError.message,
-        details: createError.details,
-        hint: createError.hint
-      });
-      
-      // If even the minimal insert fails, throw the error
-      throw new Error(`Payment creation failed: ${createError.message}`);
-    }
-
-    if (!createdPayment) {
+    if (!result.rows || result.rows.length === 0) {
       throw new Error('Payment creation failed - no data returned');
     }
 
-    console.log('[Storage] Minimal payment created successfully, ID:', createdPayment.id);
+    const createdPayment = result.rows[0];
+    console.log('[Storage] Payment created successfully in Neon:', createdPayment.id);
 
-    // Return the payment with all the fields that would have been saved
-    // This avoids trying to update with problematic columns
-    const fullPaymentData = {
-      ...createdPayment,
-      transaction_id: paymentData.transactionId,
-      metadata: paymentData.metadata,
-      subscription_id: paymentData.subscriptionId,
-      authorization_code: paymentData.authorizationCode
-    };
-
-    // Try to save the additional fields via raw SQL to bypass cache
-    if (paymentData.transactionId || paymentData.metadata || paymentData.subscriptionId) {
-      try {
-        console.log('[Storage] Attempting to update payment with additional fields via raw SQL...');
-        
-        // Build the SET clause dynamically
-        const setClauses: string[] = [];
-        const values: any[] = [];
-        let paramIndex = 2; // $1 is the ID
-        
-        if (paymentData.transactionId) {
-          setClauses.push(`transaction_id = $${paramIndex}`);
-          values.push(paymentData.transactionId);
-          paramIndex++;
-        }
-        
-        if (paymentData.subscriptionId) {
-          setClauses.push(`subscription_id = $${paramIndex}`);
-          values.push(paymentData.subscriptionId);
-          paramIndex++;
-        }
-        
-        if (paymentData.metadata) {
-          setClauses.push(`metadata = $${paramIndex}::jsonb`);
-          values.push(JSON.stringify(paymentData.metadata));
-          paramIndex++;
-        }
-        
-        if (setClauses.length > 0) {
-          const updateQuery = `
-            UPDATE payments 
-            SET ${setClauses.join(', ')}, updated_at = NOW()
-            WHERE id = $1
-            RETURNING *;
-          `;
-          
-          const { data: updatedPayment, error: updateError } = await supabase.rpc('exec_sql', {
-            query: updateQuery,
-            params: [createdPayment.id, ...values]
-          });
-          
-          if (updateError) {
-            console.warn('[Storage] Raw SQL update failed (non-critical):', updateError.message);
-            // Don't throw - return what we have
-          } else if (updatedPayment) {
-            console.log('[Storage] Payment updated with additional fields via raw SQL');
-            return updatedPayment;
-          }
-        }
-      } catch (sqlError: any) {
-        console.warn('[Storage] Raw SQL update exception (non-critical):', sqlError.message);
-        // Don't throw - the payment was created successfully
-      }
-    }
-
-    console.log('[Storage] Returning payment with simulated fields:', fullPaymentData.id);
-    return fullPaymentData;
+    return createdPayment;
     
   } catch (error: any) {
     console.error('[Storage] Payment creation exception:', {
@@ -1951,53 +1888,58 @@ export async function createPayment(paymentData: {
 }
 
 export async function getUserPayments(userId: string): Promise<Payment[]> {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  if (error) {
+  try {
+    // Use direct Neon query instead of Supabase
+    const result = await query(
+      'SELECT * FROM payments WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    return result.rows || [];
+  } catch (error: any) {
     console.error('Error fetching user payments:', error);
     throw new Error(`Failed to get user payments: ${error.message}`);
   }
-
-  return data || [];
 }
 
 export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
-  const { data, error } = await supabase
-    .from('payments')
-    .select('*')
-    .eq('transaction_id', transactionId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return undefined;
+  try {
+    // Use direct Neon query instead of Supabase
+    const result = await query(
+      'SELECT * FROM payments WHERE transaction_id = $1 LIMIT 1',
+      [transactionId]
+    );
+    return result.rows[0] || undefined;
+  } catch (error: any) {
     console.error('Error fetching payment by transaction ID:', error);
     return undefined;
   }
-
-  return data;
 }
 
 export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
-  const { data, error } = await supabase
-    .from('payments')
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) {
+  try {
+    // Build UPDATE query dynamically for Neon
+    const fields = Object.keys(updates);
+    const values = Object.values(updates);
+    const setClause = fields.map((field, index) => `${field} = $${index + 2}`).join(', ');
+    
+    const updateQuery = `
+      UPDATE payments 
+      SET ${setClause}, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+    `;
+    
+    const result = await query(updateQuery, [id, ...values]);
+    
+    if (!result.rows || result.rows.length === 0) {
+      throw new Error('Payment not found');
+    }
+    
+    return result.rows[0];
+  } catch (error: any) {
     console.error('Error updating payment:', error);
     throw new Error(`Failed to update payment: ${error.message}`);
   }
-
-  return data;
 }
 
 // Adding a placeholder for SupabaseStorage and its export
