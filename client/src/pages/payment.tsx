@@ -376,10 +376,20 @@ export default function Payment() {
                           <Button
                             type="button"
                             className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
-                            onClick={() => setShowEPXPayment(true)}
-                            disabled={isProcessingPayment || !selectedPlanId}
+                            onClick={() => {
+                              if (!user?.id || !user?.email) {
+                                toast({
+                                  title: "User data not loaded",
+                                  description: "Please wait for your user information to load before proceeding.",
+                                  variant: "destructive"
+                                });
+                                return;
+                              }
+                              setShowEPXPayment(true);
+                            }}
+                            disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email}
                           >
-                            {isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`}
+                            {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
                           </Button>
                           
                           <Button
@@ -555,13 +565,13 @@ export default function Payment() {
       />
       
       {/* EPX Payment Modal */}
-      {showEPXPayment && selectedPlan && (
+      {showEPXPayment && selectedPlan && user?.id && user?.email && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <EPXPayment
               amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
-              customerId={user?.id || ""}
-              customerEmail={user?.email || ""}
+              customerId={user.id}
+              customerEmail={user.email}
               planId={selectedPlanId?.toString()}
               description={`${selectedPlan.name} - DPC Subscription`}
               onSuccess={handleEPXPaymentSuccess}
