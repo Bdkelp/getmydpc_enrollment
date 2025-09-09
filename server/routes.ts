@@ -343,9 +343,14 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
     const activeSubscription = userSubscriptions.find(sub => sub.status === 'active');
 
     let planInfo = null;
-    if (activeSubscription) {
-      const plan = await storage.getPlan(activeSubscription.planId);
-      planInfo = plan;
+    if (activeSubscription && activeSubscription.planId) {
+      try {
+        const plan = await storage.getPlan(activeSubscription.planId);
+        planInfo = plan;
+      } catch (error) {
+        console.error('Error fetching plan:', error);
+        // Continue without plan info
+      }
     }
 
     const userResponse = {
@@ -483,6 +488,9 @@ router.post("/api/process-payment", authenticateToken, async (req: AuthRequest, 
     }
 
     // Validate plan exists
+    if (!planId) {
+      return res.status(400).json({ message: "Plan ID is required" });
+    }
     const plan = await storage.getPlan(planId);
     if (!plan) {
       return res.status(404).json({
@@ -1443,7 +1451,7 @@ router.put("/api/agent/members/:memberId/subscription", authenticateToken, async
     }
 
     // Get new plan details
-    const newPlan = await storage.getPlan(planId);
+    const newPlan = planId ? await storage.getPlan(planId) : null;
     if (!newPlan) {
       return res.status(404).json({ message: "Plan not found" });
     }
