@@ -227,6 +227,7 @@ router.post("/api/auth/login", async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        agentNumber: user.agentNumber, // Include agent number in login response
         profileImageUrl: user.profileImageUrl,
         isActive: user.isActive,
         approvalStatus: user.approvalStatus
@@ -359,6 +360,7 @@ router.get("/api/auth/user", authenticateToken, async (req: AuthRequest, res) =>
       firstName: req.user.firstName,
       lastName: req.user.lastName,
       role: req.user.role,
+      agentNumber: req.user.agentNumber, // Include agent number for agents and admins
       subscription: activeSubscription,
       plan: planInfo,
       isActive: req.user.isActive,
