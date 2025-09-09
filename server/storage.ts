@@ -3,17 +3,24 @@ import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const IV_LENGTH = 16; // For AES, this is always 16
 
 export function encryptSensitiveData(data: string): string {
-  const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'); // Ensure 32 bytes key
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
   let encrypted = cipher.update(data, 'utf8', 'hex');
   encrypted += cipher.final('hex');
-  return encrypted;
+  return iv.toString('hex') + ':' + encrypted;
 }
 
 export function decryptSensitiveData(encryptedData: string): string {
-  const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
-  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+  const parts = encryptedData.split(':');
+  const iv = Buffer.from(parts.shift()!, 'hex');
+  const encrypted = parts.join(':');
+  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'); // Ensure 32 bytes key
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
 }
@@ -251,14 +258,17 @@ function mapUserFromDB(data: any): User | null {
     ssn: data.ssn,
     dateOfHire: data.date_of_hire || data.dateOfHire,
     planStartDate: data.plan_start_date || data.planStartDate,
-    created_at: data.created_at || data.created_at || new Date(),
-    updated_at: data.updated_at || data.updated_at || new Date(),
+    createdAt: data.created_at || new Date(),
+    updatedAt: data.updated_at || new Date(),
     username: data.username,
     passwordHash: data.password_hash || data.passwordHash,
     emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
     resetPasswordToken: data.reset_password_token || data.resetPasswordToken,
     resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
     lastLoginAt: data.last_login_at || data.lastLoginAt,
+    lastActivityAt: data.last_activity_at || data.lastActivityAt,
+    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
+    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
     googleId: data.google_id || data.googleId,
     facebookId: data.facebook_id || data.facebookId,
     appleId: data.apple_id || data.appleId,
@@ -406,7 +416,66 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     console.error('Error fetching user by agent number:', error);
     return null;
   }
-  return mapUserFromDB(data);
+  
+  // Map database snake_case to camelCase
+  if (!data) return null;
+  
+  const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
+  
+  return {
+    id: data.id,
+    email: data.email,
+    firstName: data.first_name || data.firstName || '',
+    lastName: data.last_name || data.lastName || '',
+    middleName: data.middle_name || data.middleName,
+    profileImageUrl: data.profile_image_url || data.profileImageUrl,
+    phone: data.phone,
+    dateOfBirth: data.date_of_birth || data.dateOfBirth,
+    gender: data.gender,
+    address: data.address,
+    address2: data.address2,
+    city: data.city,
+    state: data.state,
+    zipCode: data.zip_code || data.zipCode,
+    emergencyContactName: data.emergency_contact_name || data.emergencyContactName,
+    emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
+    role: normalizedRole,
+    agentNumber: data.agent_number || data.agentNumber,
+    isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
+    approvalStatus: data.approval_status || data.approvalStatus || 'approved',
+    approvedAt: data.approved_at || data.approvedAt,
+    approvedBy: data.approved_by || data.approvedBy,
+    rejectionReason: data.rejection_reason || data.rejectionReason,
+    emailVerified: data.email_verified !== undefined ? data.email_verified : (data.emailVerified !== undefined ? data.emailVerified : false),
+    emailVerifiedAt: data.email_verified_at || data.emailVerifiedAt,
+    registrationIp: data.registration_ip || data.registrationIp,
+    registrationUserAgent: data.registration_user_agent || data.registrationUserAgent,
+    suspiciousFlags: data.suspicious_flags || data.suspiciousFlags,
+    enrolledByAgentId: data.enrolled_by_agent_id || data.enrolledByAgentId,
+    employerName: data.employer_name || data.employerName,
+    divisionName: data.division_name || data.divisionName,
+    memberType: data.member_type || data.memberType,
+    ssn: data.ssn,
+    dateOfHire: data.date_of_hire || data.dateOfHire,
+    planStartDate: data.plan_start_date || data.planStartDate,
+    createdAt: data.created_at || new Date(),
+    updatedAt: data.updated_at || new Date(),
+    username: data.username,
+    passwordHash: data.password_hash || data.passwordHash,
+    emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
+    resetPasswordToken: data.reset_password_token || data.resetPasswordToken,
+    resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
+    lastLoginAt: data.last_login_at || data.lastLoginAt,
+    lastActivityAt: data.last_activity_at || data.lastActivityAt,
+    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
+    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
+    googleId: data.google_id || data.googleId,
+    facebookId: data.facebook_id || data.facebookId,
+    appleId: data.apple_id || data.appleId,
+    microsoftId: data.microsoft_id || data.microsoftId,
+    linkedinId: data.linkedin_id || data.linkedinId,
+    twitterId: data.twitter_id || data.twitterId
+  } as User;
 }
 
 
@@ -936,12 +1005,12 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
   }
 
   // Find the agent with the minimum lead count
-  agents.sort((a, b) => (a.leadCount || 0) - (b.leadCount || 0));
+  agents.sort((a: any, b: any) => (a.leadCount || 0) - (b.leadCount || 0));
   return agents[0]?.agentId || null;
 }
 
 // Helper function to map database snake_case to camelCase
-function mapLeadFromDB(dbLead: any): Lead {
+function mapLeadFromDB(dbLead: any): Lead | null {
   if (!dbLead) return null;
 
   return {
@@ -1163,17 +1232,17 @@ export async function getAnalyticsOverview(days: number): Promise<any> {
   }
 
   const newEnrollments = allEnrollments.filter(enrollment => {
-    const enrollmentDate = new Date(enrollment.created_at);
+    if (!enrollment.createdAt) return false;
+    const enrollmentDate = new Date(enrollment.createdAt);
     return enrollmentDate >= startDate && enrollmentDate <= endDate;
   }).length;
 
-  const activeSubscriptions = allEnrollments.filter(enrollment =>
-    enrollment.subscriptionStatus === 'active' // Assuming subscriptionStatus is available in User object or needs join
-  ).length;
+  // Note: User type doesn't have subscriptionStatus or subscriptionAmount
+  // These would need to be fetched from subscriptions table
+  // For now, returning placeholder values
+  const activeSubscriptions = 0; // TODO: Join with subscriptions table
 
-  const monthlyRevenue = allEnrollments
-    .filter(enrollment => enrollment.subscriptionStatus === 'active') // Assuming subscriptionStatus
-    .reduce((total, enrollment) => total + (parseFloat(enrollment.subscriptionAmount) || 0), 0); // Assuming subscriptionAmount
+  const monthlyRevenue = 0; // TODO: Join with subscriptions table
 
   const averageRevenue = totalMembers > 0 ? monthlyRevenue / totalMembers : 0;
 
@@ -1211,8 +1280,7 @@ export async function getPlanBreakdown(): Promise<any[]> {
   const { data, error } = await supabase
     .from('subscriptions')
     .select('planId, plans:planId(name), amount')
-    .eq('status', 'active')
-    .rpc('get_plan_breakdown'); // Assuming a Supabase RPC function for this
+    .eq('status', 'active');
 
   if (error) {
     console.error('Error fetching plan breakdown:', error);
@@ -1220,9 +1288,9 @@ export async function getPlanBreakdown(): Promise<any[]> {
   }
 
   const breakdown = data || [];
-  const total = breakdown.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const total = breakdown.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
 
-  return breakdown.map(item => ({
+  return breakdown.map((item: any) => ({
     planId: item.planId,
     planName: item.plans.name,
     memberCount: item.memberCount || 0, // Assuming memberCount is returned by RPC
@@ -1591,7 +1659,7 @@ export async function getPlanById(id: string): Promise<Plan | undefined> {
 
   if (error) {
     console.error('Error fetching plan:', error);
-    return null;
+    return undefined;
   }
   return mapPlanFromDB(data) || undefined;
 }
@@ -2373,8 +2441,10 @@ export const storage = {
         sub.status === 'cancelled' && sub.updated_at && sub.updated_at >= cutoffDateISO
       ).length;
 
+      const totalMembers = actualMembers.length;
+      
       console.log('[Analytics] Calculated metrics:', {
-        totalMembers: actualMembers.length,
+        totalMembers,
         activeSubscriptions: activeSubscriptions.length,
         monthlyRevenue,
         newEnrollments: newEnrollmentsThisMonth,
@@ -2512,7 +2582,7 @@ export const storage = {
         refunds: 0, // Add when you track refunds
         netRevenue: totalRevenue,
         projectedAnnualRevenue: subscriptionRevenue * 12,
-        averageRevenuePerUser: activeSubscriptions > 0 ? subscriptionRevenue / activeSubscriptions : 0,
+        averageRevenuePerUser: activeSubscriptions.length > 0 ? subscriptionRevenue / activeSubscriptions.length : 0,
         revenueByMonth: [
           {
             month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
