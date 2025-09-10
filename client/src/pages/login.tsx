@@ -66,8 +66,8 @@ export default function Login() {
         // Let the useAuth hook handle user data fetching and navigation
         // Small delay to ensure session is properly stored
         setTimeout(() => {
-          // Use router navigation instead of full page reload to preserve session
-          setLocation('/admin');
+          // Force a page reload to ensure auth state is fully refreshed
+          window.location.href = '/admin';
         }, 1000);
       }
     } catch (error: any) {
