@@ -16,6 +16,7 @@ export default defineConfig({
         ]
       : []),
   ],
+  root: path.resolve(import.meta.dirname),
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
@@ -23,7 +24,6 @@ export default defineConfig({
       "@assets": path.resolve(import.meta.dirname, "../attached_assets"),
     },
   },
-  // Remove this line entirely: root: path.resolve(import.meta.dirname, "client"),
   build: {
     outDir: "dist",
     emptyOutDir: true,
