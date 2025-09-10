@@ -55,10 +55,24 @@ export default function Login() {
           description: "Successfully logged in. Redirecting...",
         });
         
-        // Just refresh the page - this will trigger useAuth to check the session
+        // Wait for Supabase to emit SIGNED_IN event, then redirect
+        const { onAuthStateChange } = await import("@/lib/supabase");
+        const { data: listener } = onAuthStateChange((event, session) => {
+          console.log("Auth event:", event);
+          if (event === 'SIGNED_IN' && session) {
+            // Use client-side navigation to preserve session
+            setLocation('/');
+            // Clean up listener
+            if (listener?.subscription) {
+              listener.subscription.unsubscribe();
+            }
+          }
+        });
+        
+        // Fallback: redirect after 2 seconds if event doesn't fire
         setTimeout(() => {
-          window.location.href = '/';
-        }, 1000);
+          setLocation('/');
+        }, 2000);
       }
     } catch (error: any) {
       console.error("Login failed:", error);

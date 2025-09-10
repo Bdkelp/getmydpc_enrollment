@@ -150,11 +150,8 @@ export function useAuth() {
             console.log("[useAuth] Clearing expired session");
             setTimeout(async () => {
               try {
-                if (typeof localStorage !== "undefined") {
-                  localStorage.removeItem("supabase.auth.token");
-                }
                 setSession(null);
-                await signOut();
+                await signOut(); // Let Supabase handle storage cleanup
               } catch (clearError) {
                 console.warn("[useAuth] Session cleanup failed:", clearError);
               }
