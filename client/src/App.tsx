@@ -65,7 +65,7 @@ function Router() {
       <Route path="/payment/failed" component={PaymentFailed} />
       <Route path="/payment/cancel" component={PaymentCancel} />
       <Route path="/payment/error" component={PaymentFailed} />
-      <Route path="/login" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
+      <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={user.role === "admin" ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
       <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />

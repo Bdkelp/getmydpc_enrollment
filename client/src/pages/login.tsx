@@ -69,9 +69,9 @@ export default function Login() {
           // Check role and redirect appropriately
           const redirectPath = result.user?.role === 'admin' ? '/admin' : 
                              result.user?.role === 'agent' ? '/agent' : '/';
-          // Force a page reload to ensure auth state is fully refreshed
-          window.location.href = redirectPath;
-        }, 1000);
+          // Force a complete page reload to ensure auth state is fully refreshed
+          window.location.replace(redirectPath);
+        }, 1500);
       }
     } catch (error: any) {
       console.error("Login failed:", error);
