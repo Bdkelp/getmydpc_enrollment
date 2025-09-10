@@ -311,19 +311,14 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   if (updates.approvedBy !== undefined) dbUpdates.approved_by = updates.approvedBy;
   if (updates.rejectionReason !== undefined) dbUpdates.rejection_reason = updates.rejectionReason;
   if (updates.agentNumber !== undefined) dbUpdates.agent_number = updates.agentNumber;
-  if (updates.company !== undefined) dbUpdates.company = updates.company;
   if (updates.address !== undefined) dbUpdates.address = updates.address;
   if (updates.city !== undefined) dbUpdates.city = updates.city;
   if (updates.state !== undefined) dbUpdates.state = updates.state;
   if (updates.zipCode !== undefined) dbUpdates.zip_code = updates.zipCode;
-  if (updates.country !== undefined) dbUpdates.country = updates.country;
   if (updates.dateOfBirth !== undefined) dbUpdates.date_of_birth = updates.dateOfBirth;
   if (updates.gender !== undefined) dbUpdates.gender = updates.gender;
-  if (updates.profilePictureUrl !== undefined) dbUpdates.profile_picture_url = updates.profilePictureUrl;
-  if (updates.isEmailVerified !== undefined) dbUpdates.is_email_verified = updates.isEmailVerified;
-  if (updates.isPhoneVerified !== undefined) dbUpdates.is_phone_verified = updates.isPhoneVerified;
-  if (updates.twoFactorEnabled !== undefined) dbUpdates.two_factor_enabled = updates.twoFactorEnabled;
-  if (updates.twoFactorSecret !== undefined) dbUpdates.two_factor_secret = updates.twoFactorSecret;
+  if (updates.profileImageUrl !== undefined) dbUpdates.profile_image_url = updates.profileImageUrl;
+  if (updates.emailVerified !== undefined) dbUpdates.email_verified = updates.emailVerified;
   if (updates.stripeCustomerId !== undefined) dbUpdates.stripe_customer_id = updates.stripeCustomerId;
 
   // Always update the timestamp
@@ -360,7 +355,7 @@ export async function getUserByUsername(username: string): Promise<User | null> 
     console.error('Error fetching user by username:', error);
     return null;
   }
-  return data;
+  return mapUserFromDB(data);
 }
 
 export async function getUserByGoogleId(googleId: string): Promise<User | null> {
@@ -810,10 +805,16 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
 
 export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('leads')
-      .eq('assigned_agent_id', agentId)
-      .order('created_at', { ascending: false });
+      .select('*')
+      .eq('assigned_agent_id', agentId);
+    
+    if (status) {
+      query = query.eq('status', status);
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('[Storage] Error fetching agent leads:', error);
