@@ -1,8 +1,12 @@
 {
   "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "client/dist",
+  "framework": null,
   "functions": {
     "dist/index.js": {
-      "runtime": "@vercel/node@3"
+      "runtime": "@vercel/node@3",
+      "includeFiles": "dist/**"
     }
   },
   "rewrites": [
@@ -12,7 +16,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "/client/dist/index.html"
+      "destination": "/$1"
     }
   ]
 }
