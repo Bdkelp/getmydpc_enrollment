@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { signIn, signInWithOAuth } from "@/lib/supabase";
 import { Heart, Mail, Lock, Loader2 } from "lucide-react";
 import { FaGoogle, FaFacebook, FaTwitter, FaLinkedin, FaMicrosoft, FaApple } from "react-icons/fa";
@@ -50,28 +50,15 @@ export default function Login() {
         console.log("Login successful, user:", result.user);
         console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
         
-        // Wait for the session to be properly stored in Supabase
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify the session is stored
-        const { getSession } = await import("@/lib/supabase");
-        const storedSession = await getSession();
-        console.log("Stored session verified:", !!storedSession);
-        
         toast({
           title: "Welcome back!",
-          description: "Successfully logged in",
+          description: "Successfully logged in. Redirecting...",
         });
         
-        // Let the useAuth hook handle user data fetching and navigation
-        // Small delay to ensure session is properly stored
+        // Just refresh the page - this will trigger useAuth to check the session
         setTimeout(() => {
-          // Check role and redirect appropriately
-          const redirectPath = result.user?.role === 'admin' ? '/admin' : 
-                             result.user?.role === 'agent' ? '/agent' : '/';
-          // Force a complete page reload to ensure auth state is fully refreshed
-          window.location.replace(redirectPath);
-        }, 1500);
+          window.location.href = '/';
+        }, 1000);
       }
     } catch (error: any) {
       console.error("Login failed:", error);
