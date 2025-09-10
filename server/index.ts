@@ -1,42 +1,47 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import cors from 'cors';
-import { initializeEPXService } from './services/epx-payment-service';
-import { WeeklyRecapService } from './services/weekly-recap-service';
-import epxRoutes from './routes/epx-routes';
-import adminLogsRoutes from './routes/admin-logs';
+import cors from "cors";
+import { initializeEPXService } from "./services/epx-payment-service";
+import { WeeklyRecapService } from "./services/weekly-recap-service";
+import epxRoutes from "./routes/epx-routes";
+import adminLogsRoutes from "./routes/admin-logs";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // CORS setup - improved for external browser access
-app.use(cors({
-  origin: function(origin: string | undefined, callback: (err: Error | null, origin?: boolean) => void) {
-    // Allow requests with no origin (mobile apps, etc.)
-    if (!origin) return callback(null, true);
+app.use(
+  cors({
+    origin: function (
+      origin: string | undefined,
+      callback: (err: Error | null, origin?: boolean) => void,
+    ) {
+      // Allow requests with no origin (mobile apps, etc.)
+      if (!origin) return callback(null, true);
 
-    // Allow Replit domains and your production domain
-    const allowedOrigins: (string | RegExp)[] = [
-      /\.replit\.dev$/,
-      /\.replit\.app$/,
-      'https://enrollment.getmydpc.com',
-      process.env.VITE_PUBLIC_URL
-    ].filter((item): item is string | RegExp => Boolean(item));
+      // Allow Replit domains and your production domain
+      const allowedOrigins: (string | RegExp)[] = [
+        /\.replit\.dev$/,
+        /\.replit\.app$/,
+        "https://enrollment.getmydpc.com",
+        process.env.VITE_PUBLIC_URL,
+      ].filter((item): item is string | RegExp => Boolean(item));
 
-    const isAllowed = allowedOrigins.some(pattern => {
-      if (typeof pattern === 'string') {
-        return origin === pattern;
-      }
-      return pattern.test(origin);
-    });
+      const isAllowed = allowedOrigins.some((pattern) => {
+        if (typeof pattern === "string") {
+          return origin === pattern;
+        }
+        return pattern.test(origin);
+      });
 
-    callback(null, isAllowed);
-  },
-  credentials: true,
-  optionsSuccessStatus: 200
-}));
+      callback(null, isAllowed);
+    },
+    credentials: true,
+    optionsSuccessStatus: 200,
+  }),
+);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -78,7 +83,7 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    console.error('Error handler caught:', err);
+    console.error("Error handler caught:", err);
     res.status(status).json({ message });
   });
 
@@ -95,19 +100,24 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-    console.log(`Server running on port ${port}`);
-    console.log(`Environment: ${process.env.NODE_ENV}`);
-    console.log(`EPX Service configured: Browser Post ready`);
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    },
+    () => {
+      log(`serving on port ${port}`);
+      console.log(`Server running on port ${port}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+      console.log(`EPX Service configured: Browser Post ready`);
 
-    // Initialize weekly recap service
-    WeeklyRecapService.scheduleWeeklyRecap();
+      // Initialize weekly recap service
+      WeeklyRecapService.scheduleWeeklyRecap();
 
-    return server;
-  });
+      return server;
+    },
+  );
 })();
+
+export default app;
