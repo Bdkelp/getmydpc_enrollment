@@ -61,7 +61,7 @@
   --shadow-2xl: 0 25px 60px -15px rgba(0, 0, 0, 0.15);
   --shadow-colored: 0 10px 25px -3px rgba(37, 99, 235, 0.15), 0 4px 10px -2px rgba(37, 99, 235, 0.08);
   --shadow-inset: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
-  
+
   /* Transition timings */
   --transition-fast: 150ms;
   --transition-base: 250ms;
@@ -90,20 +90,20 @@
   --destructive-foreground: hsl(0, 0%, 98%);
   --ring: hsl(210, 100%, 60%);
   --radius: 0.75rem;
-  
+
   /* Dark mode gradients */
   --gradient-primary: linear-gradient(135deg, hsl(210, 100%, 60%) 0%, hsl(210, 100%, 52%) 100%);
   --gradient-secondary: linear-gradient(135deg, hsl(220, 15%, 12%) 0%, hsl(220, 15%, 16%) 100%);
   --gradient-hero: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 50%, hsl(220, 15%, 12%) 100%);
   --gradient-card: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 100%);
-  
+
   /* Dark mode shadows */
   --shadow-colored: 0 10px 15px -3px rgba(59, 130, 246, 0.2), 0 4px 6px -2px rgba(59, 130, 246, 0.1);
 }
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
 
   html {
@@ -121,7 +121,12 @@
     text-rendering: optimizeLegibility;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-semibold tracking-tight;
     line-height: 1.2;
   }
@@ -172,46 +177,135 @@
 }
 
 @layer utilities {
+
   /* Medical Blue Colors */
-  .medical-blue-50 { background-color: var(--medical-blue-50); }
-  .medical-blue-100 { background-color: var(--medical-blue-100); }
-  .medical-blue-200 { background-color: var(--medical-blue-200); }
-  .medical-blue-300 { background-color: var(--medical-blue-300); }
-  .medical-blue-400 { background-color: var(--medical-blue-400); }
-  .medical-blue-500 { background-color: var(--medical-blue-500); }
-  .medical-blue-600 { background-color: var(--medical-blue-600); }
-  .medical-blue-700 { background-color: var(--medical-blue-700); }
-  .medical-blue-800 { background-color: var(--medical-blue-800); }
-  .medical-blue-900 { background-color: var(--medical-blue-900); }
-  
+  .medical-blue-50 {
+    background-color: var(--medical-blue-50);
+  }
+
+  .medical-blue-100 {
+    background-color: var(--medical-blue-100);
+  }
+
+  .medical-blue-200 {
+    background-color: var(--medical-blue-200);
+  }
+
+  .medical-blue-300 {
+    background-color: var(--medical-blue-300);
+  }
+
+  .medical-blue-400 {
+    background-color: var(--medical-blue-400);
+  }
+
+  .medical-blue-500 {
+    background-color: var(--medical-blue-500);
+  }
+
+  .medical-blue-600 {
+    background-color: var(--medical-blue-600);
+  }
+
+  .medical-blue-700 {
+    background-color: var(--medical-blue-700);
+  }
+
+  .medical-blue-800 {
+    background-color: var(--medical-blue-800);
+  }
+
+  .medical-blue-900 {
+    background-color: var(--medical-blue-900);
+  }
+
   /* Medical Blue Text Colors */
-  .text-medical-blue-500 { color: var(--medical-blue-500); }
-  .text-medical-blue-600 { color: var(--medical-blue-600); }
-  .text-medical-blue-700 { color: var(--medical-blue-700); }
-  .text-medical-blue-800 { color: var(--medical-blue-800); }
-  .text-medical-blue-900 { color: var(--medical-blue-900); }
+  .text-medical-blue-500 {
+    color: var(--medical-blue-500);
+  }
+
+  .text-medical-blue-600 {
+    color: var(--medical-blue-600);
+  }
+
+  .text-medical-blue-700 {
+    color: var(--medical-blue-700);
+  }
+
+  .text-medical-blue-800 {
+    color: var(--medical-blue-800);
+  }
+
+  .text-medical-blue-900 {
+    color: var(--medical-blue-900);
+  }
 
   /* Medical Green Colors */
-  .medical-green-50 { background-color: var(--medical-green-50); }
-  .medical-green-100 { background-color: var(--medical-green-100); }
-  .medical-green-500 { background-color: var(--medical-green-500); }
-  .medical-green-600 { background-color: var(--medical-green-600); }
-  .text-medical-green-500 { color: var(--medical-green-500); }
-  .text-medical-green-600 { color: var(--medical-green-600); }
+  .medical-green-50 {
+    background-color: var(--medical-green-50);
+  }
+
+  .medical-green-100 {
+    background-color: var(--medical-green-100);
+  }
+
+  .medical-green-500 {
+    background-color: var(--medical-green-500);
+  }
+
+  .medical-green-600 {
+    background-color: var(--medical-green-600);
+  }
+
+  .text-medical-green-500 {
+    color: var(--medical-green-500);
+  }
+
+  .text-medical-green-600 {
+    color: var(--medical-green-600);
+  }
 
   /* Gradients */
-  .bg-gradient-primary { background: var(--gradient-primary); }
-  .bg-gradient-secondary { background: var(--gradient-secondary); }
-  .bg-gradient-hero { background: var(--gradient-hero); }
-  .bg-gradient-card { background: var(--gradient-card); }
+  .bg-gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .bg-gradient-secondary {
+    background: var(--gradient-secondary);
+  }
+
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
 
   /* Enhanced Shadows */
-  .shadow-soft { box-shadow: var(--shadow-sm); }
-  .shadow-medium { box-shadow: var(--shadow-md); }
-  .shadow-large { box-shadow: var(--shadow-lg); }
-  .shadow-extra-large { box-shadow: var(--shadow-xl); }
-  .shadow-massive { box-shadow: var(--shadow-2xl); }
-  .shadow-colored { box-shadow: var(--shadow-colored); }
+  .shadow-soft {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .shadow-medium {
+    box-shadow: var(--shadow-md);
+  }
+
+  .shadow-large {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .shadow-extra-large {
+    box-shadow: var(--shadow-xl);
+  }
+
+  .shadow-massive {
+    box-shadow: var(--shadow-2xl);
+  }
+
+  .shadow-colored {
+    box-shadow: var(--shadow-colored);
+  }
 
   /* Glass Effect */
   .glass {
@@ -230,7 +324,7 @@
   .hover-lift {
     @apply transition-all duration-300 ease-in-out;
   }
-  
+
   .hover-lift:hover {
     @apply -translate-y-1 shadow-large;
   }
@@ -287,15 +381,24 @@
   }
 
   @keyframes bounce-subtle {
-    0%, 20%, 53%, 80%, 100% {
+
+    0%,
+    20%,
+    53%,
+    80%,
+    100% {
       transform: translate3d(0, 0, 0);
     }
-    40%, 43% {
+
+    40%,
+    43% {
       transform: translate3d(0, -8px, 0);
     }
+
     70% {
       transform: translate3d(0, -4px, 0);
     }
+
     90% {
       transform: translate3d(0, -2px, 0);
     }
@@ -305,6 +408,7 @@
     0% {
       transform: translateX(-100%);
     }
+
     100% {
       transform: translateX(200%);
     }
@@ -315,6 +419,7 @@
       opacity: 0;
       transform: translateY(10px);
     }
+
     100% {
       opacity: 1;
       transform: translateY(0);
@@ -326,6 +431,7 @@
       opacity: 0;
       transform: scale(0.95);
     }
+
     100% {
       opacity: 1;
       transform: scale(1);

@@ -2,7 +2,7 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       borderRadius: {
@@ -99,11 +99,11 @@ export default {
         },
       },
       scale: {
-        '102': '1.02',
-        '105': '1.05',
+        "102": "1.02",
+        "105": "1.05",
       },
       backdropBlur: {
-        xs: '2px',
+        xs: "2px",
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -112,14 +112,14 @@ export default {
         "bounce-subtle": "bounce-subtle 2s infinite",
         "fade-in": "fadeIn 0.5s ease-in-out",
         "slide-up": "slideUp 0.5s ease-out",
-        "glow": "glow 2s ease-in-out infinite alternate",
+        glow: "glow 2s ease-in-out infinite alternate",
       },
       boxShadow: {
-        'soft': '0 2px 8px rgba(0, 0, 0, 0.06)',
-        'medium': '0 4px 16px rgba(0, 0, 0, 0.08)',
-        'large': '0 8px 32px rgba(0, 0, 0, 0.12)',
-        'colored': '0 8px 32px rgba(59, 130, 246, 0.15)',
-        'glow': '0 0 20px rgba(59, 130, 246, 0.3)',
+        soft: "0 2px 8px rgba(0, 0, 0, 0.06)",
+        medium: "0 4px 16px rgba(0, 0, 0, 0.08)",
+        large: "0 8px 32px rgba(0, 0, 0, 0.12)",
+        colored: "0 8px 32px rgba(59, 130, 246, 0.15)",
+        glow: "0 0 20px rgba(59, 130, 246, 0.3)",
       },
     },
   },
