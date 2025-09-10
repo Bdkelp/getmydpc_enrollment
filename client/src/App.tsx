@@ -43,9 +43,17 @@ function Router() {
 
   console.log('Router state:', { isAuthenticated, isLoading, user });
 
-  // Show loading only if actually loading
+  // Always show loading when auth state is being determined
+  // This prevents the 404 from showing while authentication is loading
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -112,6 +120,16 @@ function Router() {
 
       {/* Registration requires authentication for agents/admins */}
       <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin") ? Registration : () => <Redirect to="/login" />} />
+
+      {/* Catch protected routes that require authentication */}
+      {!isAuthenticated && (
+        <>
+          <Route path="/admin" component={() => <Redirect to="/login" />} />
+          <Route path="/admin/*" component={() => <Redirect to="/login" />} />
+          <Route path="/agent" component={() => <Redirect to="/login" />} />
+          <Route path="/agent/*" component={() => <Redirect to="/login" />} />
+        </>
+      )}
 
       {/* 404 for all unmatched routes */}
       <Route path="*" component={NotFound} />
