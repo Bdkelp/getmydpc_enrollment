@@ -9,6 +9,7 @@ import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
 import { supabase } from './lib/supabaseClient'; // Assuming supabase client is imported here
 import epxRoutes from './routes/epx-routes';
+import supabaseAuthRoutes from './routes/supabase-auth';
 
 const router = Router();
 
@@ -1727,6 +1728,9 @@ export async function registerRoutes(app: any) {
     next();
   };
 
+  // Register Supabase auth routes FIRST (before authMiddleware)
+  app.use(supabaseAuthRoutes);
+  
   // Use the router
   app.use(router);
 
