@@ -21,10 +21,12 @@ app.use(
       // Allow requests with no origin (mobile apps, etc.)
       if (!origin) return callback(null, true);
 
-      // Allow Replit domains and your production domain
+      // Allow Replit domains, localhost, and your production domain
       const allowedOrigins: (string | RegExp)[] = [
         /\.replit\.dev$/,
         /\.replit\.app$/,
+        /^http:\/\/localhost:\d+$/,  // Allow any localhost port
+        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1
         "https://enrollment.getmydpc.com",
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));

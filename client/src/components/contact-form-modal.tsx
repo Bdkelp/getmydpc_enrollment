@@ -87,14 +87,28 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       
       if (!response.ok) {
         let errorData;
+        let errorMessage = "Server error";
         try {
-          errorData = await response.text();
-          console.error("Server response error:", errorData);
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const jsonError = await response.json();
+            console.error("Server response error (JSON):", jsonError);
+            errorMessage = jsonError.error || jsonError.message || `HTTP ${response.status}`;
+          } else {
+            errorData = await response.text();
+            console.error("Server response error (text):", errorData);
+            // Check if it's HTML (likely a 404 or routing issue)
+            if (errorData.includes("<!DOCTYPE") || errorData.includes("<html")) {
+              errorMessage = "API endpoint not found. Please try again.";
+            } else {
+              errorMessage = errorData || `HTTP ${response.status}`;
+            }
+          }
         } catch (parseError) {
           console.error("Could not parse error response:", parseError);
-          errorData = `HTTP ${response.status}`;
+          errorMessage = `HTTP ${response.status}`;
         }
-        throw new Error(`Server error: ${response.status} - ${errorData}`);
+        throw new Error(errorMessage);
       }
       
       const result = await response.json();
