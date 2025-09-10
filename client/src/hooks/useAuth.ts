@@ -78,7 +78,7 @@ export function useAuth() {
         // Invalidate queries when auth state changes
         if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
           try {
-            queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
           } catch (queryError) {
             console.warn("[useAuth] Query invalidation failed:", queryError);
           }
@@ -109,7 +109,7 @@ export function useAuth() {
     isLoading: userLoading,
     error,
   } = useQuery({
-    queryKey: ["/api/auth/user", session?.access_token],
+    queryKey: ["/api/auth/me", session?.access_token],
     queryFn: async () => {
       if (!session?.access_token || !session?.user) {
         console.log("[useAuth] No valid session, skipping user fetch.");
@@ -117,7 +117,7 @@ export function useAuth() {
       }
 
       // Add a small delay to prevent race conditions
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const tokenPreview =
         session.access_token.length > 50
@@ -129,7 +129,7 @@ export function useAuth() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        const response = await fetch("/api/auth/user", {
+        const response = await fetch("/api/auth/me", {
           method: "GET",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -143,7 +143,9 @@ export function useAuth() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            console.log("[useAuth] Unauthorized response - token may be expired");
+            console.log(
+              "[useAuth] Unauthorized response - token may be expired",
+            );
             // Clear the session safely with a delay to prevent race conditions
             console.log("[useAuth] Clearing expired session");
             setTimeout(async () => {
@@ -191,18 +193,18 @@ export function useAuth() {
         }
         return userData;
       } catch (fetchError: any) {
-        if (fetchError?.name === 'AbortError') {
+        if (fetchError?.name === "AbortError") {
           console.warn("[useAuth] User fetch request timed out");
           return null;
         }
         console.error("[useAuth] User fetch error:", fetchError);
-        
+
         // If it's a network error, don't throw - just return null
-        if (fetchError?.message?.includes('Failed to fetch')) {
+        if (fetchError?.message?.includes("Failed to fetch")) {
           console.warn("[useAuth] Network error, returning null user");
           return null;
         }
-        
+
         throw fetchError;
       }
     },
@@ -212,7 +214,7 @@ export function useAuth() {
       if (
         error?.message?.includes("401") ||
         error?.message?.includes("Unauthorized") ||
-        error?.name === 'AbortError'
+        error?.name === "AbortError"
       ) {
         console.warn(
           "[useAuth] Not retrying due to auth error or timeout:",
@@ -235,7 +237,7 @@ export function useAuth() {
   const isAuthenticated = !!(session?.user && session?.access_token && user);
   const isLoadingAuth = !isInitialized;
   const isLoadingUser = isInitialized && !!session?.access_token && userLoading;
-  
+
   return {
     user: user || null,
     session: session || null,
