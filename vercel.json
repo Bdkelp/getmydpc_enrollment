@@ -1,18 +1,17 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "buildCommand": "cd client && vite build",
   "outputDirectory": "client/dist",
   "framework": null,
   "functions": {
-    "dist/index.js": {
-      "runtime": "@vercel/node@3",
-      "includeFiles": "dist/**"
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@20.10.0"
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/dist/index.js"
+      "destination": "/api/$1"
     },
     {
       "source": "/(.*)",
