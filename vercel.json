@@ -2,20 +2,9 @@
   "version": 2,
   "buildCommand": "cd client && vite build",
   "outputDirectory": "client/dist",
-  "framework": null,
   "functions": {
     "api/**/*.ts": {
-      "runtime": "@vercel/node@20.10.0"
+      "runtime": "@vercel/node@20"
     }
-  },
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/$1"
-    }
-  ]
+  }
 }
