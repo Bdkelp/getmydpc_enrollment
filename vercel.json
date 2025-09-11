@@ -1,9 +1,6 @@
 {
   "version": 2,
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/client/dist/index.html"
-    }
-  ]
+  "buildCommand": "cd client && npm install && vite build",
+  "outputDirectory": "client/dist",
+  "framework": null
 }
