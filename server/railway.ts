@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import { registerRoutes } from './routes';
-import storage from './storage';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 const corsOptions = {
   origin: [
     'https://enrollment.getmydpc.com',  // Production frontend on Vercel
-    'https://getmydpc-enrollment-*.vercel.app',  // Vercel preview deployments
+    /^https:\/\/.*\.vercel\.app$/,  // All Vercel preview deployments
     'http://localhost:5173',  // Local development
     'http://localhost:5000'   // Local development
   ],
