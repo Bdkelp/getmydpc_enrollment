@@ -14,7 +14,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: true,
     flowType: 'pkce',
-    storage: window.localStorage
+    storage: window.localStorage,
+    redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
     // Use default storage key - removing custom key to avoid issues
   }
 });

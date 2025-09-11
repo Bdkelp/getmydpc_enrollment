@@ -129,11 +129,10 @@ export function useAuth() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        // Use absolute URL in production
-        const apiUrl =
-          window.location.hostname === "localhost"
-            ? "/api/auth/me"
-            : `${window.location.origin}/api/auth/me`;
+        // Use Railway backend URL in production
+        const apiUrl = import.meta.env.DEV 
+          ? "/api/auth/me"
+          : `${import.meta.env.VITE_API_BASE_URL || 'https://your-railway-backend-url.railway.app'}/api/auth/me`;
 
         console.log("[useAuth] Fetching from:", apiUrl);
 
