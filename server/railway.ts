@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { registerRoutes } from './routes';
-import { initializeDatabase } from './storage';
+import storage from './storage';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,13 +31,6 @@ app.get('/health', (req, res) => {
     environment: process.env.NODE_ENV || 'production',
     platform: 'railway'
   });
-});
-
-// Initialize database connection
-initializeDatabase().then(() => {
-  console.log('[Railway] Database connected successfully');
-}).catch(error => {
-  console.error('[Railway] Database connection failed:', error);
 });
 
 // Register all API routes

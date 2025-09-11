@@ -17,9 +17,15 @@ const getAuthToken = async (): Promise<string | null> => {
 export const apiRequest = async (url: string, options: RequestInit = {}) => {
   const requestId = Math.random().toString(36).substr(2, 9);
   const startTime = Date.now();
+  
+  // Import API_URL from apiClient to get the Railway backend URL
+  const { API_URL } = await import("@/lib/apiClient");
+  
+  // Construct full URL if it's a relative path
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
 
   console.log(`[apiRequest:${requestId}] Starting request`, {
-    url,
+    url: fullUrl,
     method: options.method || 'GET',
     timestamp: new Date().toISOString()
   });
@@ -45,10 +51,10 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
       headers['Authorization'] = `Bearer ${session.access_token}`;
       console.log(`[apiRequest:${requestId}] Auth token added, user:`, session.user?.email);
     } else {
-      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, url);
+      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, fullUrl);
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(fullUrl, {
       credentials: 'include',
       headers,
       ...options,
@@ -59,7 +65,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
       status: response.status,
       statusText: response.statusText,
       duration: `${duration}ms`,
-      url
+      url: fullUrl
     });
 
     if (!response.ok) {
@@ -76,7 +82,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
         statusText: response.statusText,
         error: errorText,
         duration: `${duration}ms`,
-        url
+        url: fullUrl
       });
 
       // Handle specific error cases
@@ -101,7 +107,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     console.log(`[apiRequest:${requestId}] Request completed successfully`, {
       duration: `${duration}ms`,
       dataLength: JSON.stringify(data).length,
-      url
+      url: fullUrl
     });
 
     return data;
@@ -110,7 +116,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     console.error(`[apiRequest:${requestId}] Request failed`, {
       error: error.message,
       duration: `${duration}ms`,
-      url,
+      url: fullUrl,
       stack: error.stack
     });
     throw error;
@@ -123,6 +129,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    // Import API_URL from apiClient to get the Railway backend URL
+    const { API_URL } = await import("@/lib/apiClient");
+    
     // Get the Supabase session to include auth token
     const { supabase } = await import("@/lib/supabase");
     
@@ -141,8 +150,12 @@ export const getQueryFn: <T>(options: {
     } else {
       console.warn("[getQueryFn] No auth token available for:", queryKey[0]);
     }
+    
+    // Construct full URL if it's a relative path
+    const url = queryKey[0] as string;
+    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
 
-    const res = await fetch(queryKey[0] as string, {
+    const res = await fetch(fullUrl, {
       credentials: "include",
       headers,
     });
