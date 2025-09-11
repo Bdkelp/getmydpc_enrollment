@@ -73,25 +73,38 @@ export default function Register() {
     try {
       const { confirmPassword, agreeToTerms, ...userData } = data;
 
-      const { data: result, error } = await signUp(userData.email, userData.password, {
-        first_name: userData.firstName,
-        last_name: userData.lastName,
-        username: userData.username
+      // Call backend API endpoint instead of Supabase directly
+      const response = await apiRequest('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: userData.email,
+          password: userData.password,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          username: userData.username
+        })
       });
 
-      if (error) {
-        throw new Error(error.message);
+      if (response.success) {
+        // Set the Supabase session if available
+        if (response.session) {
+          const { supabase } = await import("@/lib/supabase");
+          await supabase.auth.setSession({
+            access_token: response.session.access_token,
+            refresh_token: response.session.refresh_token
+          });
+        }
+
+        toast({
+          title: "Registration submitted!",
+          description: response.message || "Your account is pending approval. You'll receive an email once approved.",
+        });
+
+        // Redirect to pending approval page
+        setTimeout(() => {
+          setLocation("/pending-approval");
+        }, 2000);
       }
-
-      toast({
-        title: "Registration submitted!",
-        description: "Your account is pending approval. You'll receive an email once approved.",
-      });
-
-      // Redirect to pending approval page
-      setTimeout(() => {
-        setLocation("/pending-approval");
-      }, 2000);
     } catch (error: any) {
       toast({
         title: "Registration failed",

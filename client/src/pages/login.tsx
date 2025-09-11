@@ -39,40 +39,46 @@ export default function Login() {
     setIsLoading(true);
     try {
       console.log("Attempting login with:", data.email);
-      const { data: result, error } = await signIn(data.email, data.password);
+      
+      // Call backend API endpoint instead of Supabase directly
+      const response = await apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: data.email,
+          password: data.password
+        })
+      });
 
-      if (error) {
-        console.error("Login error:", error);
-        throw new Error(error.message);
-      }
+      if (response.success && response.session && response.user) {
+        console.log("Login successful, user:", response.user.email);
+        console.log("Session token:", response.session.access_token?.substring(0, 50) + '...');
 
-      if (result.user && result.session) {
-        console.log("Login successful, user:", result.user);
-        console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
+        // Set the Supabase session to sync with the backend
+        const { supabase } = await import("@/lib/supabase");
+        await supabase.auth.setSession({
+          access_token: response.session.access_token,
+          refresh_token: response.session.refresh_token
+        });
 
         toast({
           title: "Welcome back!",
           description: "Successfully logged in. Redirecting...",
         });
 
-        // Wait for Supabase to emit SIGNED_IN event, then redirect
-        const { onAuthStateChange } = await import("@/lib/supabase");
-        const { data: listener } = onAuthStateChange((event, session) => {
-          console.log("Auth event:", event);
-          if (event === 'SIGNED_IN' && session) {
-            // Use client-side navigation to preserve session
-            setLocation('/');
-            // Clean up listener
-            if (listener?.subscription) {
-              listener.subscription.unsubscribe();
-            }
-          }
-        });
+        // Invalidate queries to refresh user data
+        await queryClient.invalidateQueries();
 
-        // Fallback: redirect after 2 seconds if event doesn't fire
+        // Redirect to dashboard or home page
         setTimeout(() => {
-          setLocation('/');
-        }, 2000);
+          // Check user role and redirect accordingly
+          if (response.user.role === 'admin') {
+            setLocation('/admin');
+          } else if (response.user.role === 'agent') {
+            setLocation('/agent-dashboard');
+          } else {
+            setLocation('/');
+          }
+        }, 500);
       }
     } catch (error: any) {
       console.error("Login failed:", error);

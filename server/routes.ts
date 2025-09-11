@@ -222,6 +222,13 @@ router.post("/api/auth/login", async (req, res) => {
 
     res.json({
       success: true,
+      session: {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+        expires_in: data.session.expires_in,
+        token_type: data.session.token_type
+      },
       user: {
         id: user.id,
         email: user.email,
@@ -280,12 +287,22 @@ router.post("/api/auth/register", async (req, res) => {
     });
 
     res.json({
+      success: true,
       message: 'Registration successful. Please check your email to verify your account.',
+      session: data.session ? {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at,
+        expires_in: data.session.expires_in,
+        token_type: data.session.token_type
+      } : null,
       user: {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
-        lastName: user.lastName
+        lastName: user.lastName,
+        role: user.role,
+        approvalStatus: user.approvalStatus
       }
     });
   } catch (error) {
