@@ -1,18 +1,12 @@
 {
   "version": 2,
-  "buildCommand": "cd client && npm install && vite build",
+  "buildCommand": "cd client && npm run build",
   "outputDirectory": "client/dist",
-  "installCommand": "npm install",
-  "framework": null,
-  "functions": {
-    "api/**/*.{js,ts}": {
-      "runtime": "@vercel/node@20"
-    }
-  },
+  "installCommand": "cd client && npm install",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
