@@ -78,7 +78,11 @@ export function useAuth() {
         // Invalidate queries when auth state changes
         if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
           try {
-            queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+            queryClient.invalidateQueries({
+              queryKey: [
+                "https://shimmering-nourishment.up.railway.app/api/auth/me",
+              ],
+            });
           } catch (queryError) {
             console.warn("[useAuth] Query invalidation failed:", queryError);
           }
@@ -109,7 +113,10 @@ export function useAuth() {
     isLoading: userLoading,
     error,
   } = useQuery({
-    queryKey: ["/api/auth/me", session?.access_token],
+    queryKey: [
+      "https://shimmering-nourishment.up.railway.app/api/auth/me",
+      session?.access_token,
+    ],
     queryFn: async () => {
       if (!session?.access_token || !session?.user) {
         console.log("[useAuth] No valid session, skipping user fetch.");
@@ -130,10 +137,11 @@ export function useAuth() {
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
         // Use absolute URL in production
-        const apiUrl = window.location.hostname === 'localhost' 
-          ? "/api/auth/me"
-          : `${window.location.origin}/api/auth/me`;
-        
+        const apiUrl =
+          window.location.hostname === "localhost"
+            ? "/api/auth/me"
+            : "https://shimmering-nourishment.up.railway.app/api/auth/me";
+
         console.log("[useAuth] Fetching from:", apiUrl);
 
         const response = await fetch(apiUrl, {
