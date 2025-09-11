@@ -8,8 +8,9 @@ const PORT = process.env.PORT || 3000;
 // CORS configuration for Railway backend
 const corsOptions = {
   origin: [
-    'https://enrollment.getmydpc.com',  // Production frontend on Vercel
-    /^https:\/\/.*\.vercel\.app$/,  // All Vercel preview deployments
+    'https://enrollment.getmydpc.com',  // Production custom domain on Vercel
+    'https://getmydpc-enrollment.vercel.app',  // Production Vercel domain
+    /^https:\/\/getmydpc-enrollment-.*\.vercel\.app$/,  // Vercel preview deployments
     'http://localhost:5173',  // Local development
     'http://localhost:5000'   // Local development
   ],
