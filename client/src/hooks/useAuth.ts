@@ -129,7 +129,14 @@ export function useAuth() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        const response = await fetch("/api/auth/me", {
+        // Use absolute URL in production
+        const apiUrl = window.location.hostname === 'localhost' 
+          ? "/api/auth/me"
+          : `${window.location.origin}/api/auth/me`;
+        
+        console.log("[useAuth] Fetching from:", apiUrl);
+
+        const response = await fetch(apiUrl, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
