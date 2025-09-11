@@ -49,7 +49,8 @@ export default function Login() {
         })
       });
 
-      if (response.success && response.session && response.user) {
+      // Backend returns { user, session, dbUser } directly, not wrapped in success property
+      if (response && response.session && response.user) {
         console.log("Login successful, user:", response.user.email);
         console.log("Session token:", response.session.access_token?.substring(0, 50) + '...');
 
@@ -68,12 +69,13 @@ export default function Login() {
         // Invalidate queries to refresh user data
         await queryClient.invalidateQueries();
 
-        // Redirect to dashboard or home page
+        // Redirect to dashboard or home page based on dbUser role
         setTimeout(() => {
-          // Check user role and redirect accordingly
-          if (response.user.role === 'admin') {
+          // Use dbUser.role since that's what the backend sends
+          const userRole = response.dbUser?.role || response.user?.role || 'user';
+          if (userRole === 'admin') {
             setLocation('/admin');
-          } else if (response.user.role === 'agent') {
+          } else if (userRole === 'agent') {
             setLocation('/agent-dashboard');
           } else {
             setLocation('/');

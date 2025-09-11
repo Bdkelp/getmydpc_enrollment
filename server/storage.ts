@@ -302,6 +302,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   // Map the fields that might be updated
   if (updates.firstName !== undefined) dbUpdates.first_name = updates.firstName;
   if (updates.lastName !== undefined) dbUpdates.last_name = updates.lastName;
+  if (updates.lastLoginAt !== undefined) dbUpdates.last_login_at = updates.lastLoginAt;
   if (updates.email !== undefined) dbUpdates.email = updates.email;
   if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
   if (updates.role !== undefined) dbUpdates.role = updates.role;
@@ -324,6 +325,9 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   // Always update the timestamp
   dbUpdates.updated_at = new Date();
 
+  // Check if this is a non-critical update (like last_login_at)
+  const isNonCriticalUpdate = Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
+
   const { data, error } = await supabase
     .from('users')
     .update(dbUpdates)
@@ -333,6 +337,18 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
 
   if (error) {
     console.error('Error updating user:', error);
+    
+    // For non-critical updates like last_login_at, don't throw - just return the existing user
+    if (isNonCriticalUpdate) {
+      console.warn(`Non-critical user update failed for ${id}, continuing anyway:`, error.message);
+      // Try to get the current user data
+      const currentUser = await getUser(id);
+      if (currentUser) {
+        return currentUser;
+      }
+    }
+    
+    // For critical updates, still throw the error
     throw new Error(`Failed to update user: ${error.message}`);
   }
 
