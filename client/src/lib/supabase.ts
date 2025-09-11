@@ -114,14 +114,40 @@ export const getUser = async () => {
 };
 
 export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo: `${window.location.origin}/auth-callback`
-    }
-  });
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/auth-callback`
+      }
+    });
 
-  return { data, error };
+    if (error) {
+      // Handle specific OAuth errors
+      if (error.message?.includes('provider is not enabled')) {
+        return { 
+          data: null, 
+          error: {
+            ...error,
+            message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} login is not configured. Please use email/password login instead.`
+          }
+        };
+      }
+      return { data, error };
+    }
+
+    return { data, error };
+  } catch (err: any) {
+    return {
+      data: null,
+      error: {
+        message: `Social login with ${provider} is currently unavailable. Please use email/password login.`,
+        __isAuthError: true,
+        name: 'AuthApiError',
+        status: 400
+      }
+    };
+  }
 };
 
 export const onAuthStateChange = (callback: (event: any, session: any) => void) => {

@@ -111,10 +111,15 @@ router.post('/api/auth/login', async (req, res) => {
       });
     }
     
-    // Update last login
-    await storage.updateUser(dbUser.id, { 
-      lastLoginAt: new Date() 
-    });
+    // Update last login - temporarily skip due to RLS recursion issue
+    try {
+      await storage.updateUser(dbUser.id, { 
+        lastLoginAt: new Date() 
+      });
+    } catch (updateError) {
+      console.warn('[Login] Could not update last login time:', updateError);
+      // Continue with login even if update fails
+    }
     
     // Return session data
     res.json({
