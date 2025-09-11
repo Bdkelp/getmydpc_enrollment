@@ -4,3 +4,5 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gzclient/dist\nclient/.env\nclient/.env.production
+client/.env
+client/.env.production
