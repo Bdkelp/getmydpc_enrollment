@@ -8,12 +8,8 @@ const getApiUrl = () => {
     return import.meta.env.VITE_API_URL;
   }
   
-  // In development, use local Express server
-  if (import.meta.env.DEV) {
-    return 'http://localhost:5000';
-  }
-  
-  // Fallback to current origin (for backwards compatibility)
+  // In Replit development, both frontend and backend are served from the same origin
+  // Use window.location.origin to access the backend API
   return window.location.origin;
 };
 
