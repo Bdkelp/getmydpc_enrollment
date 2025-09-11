@@ -129,6 +129,13 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    // Import API_URL to get the correct backend URL
+    const { API_URL } = await import("@/lib/apiClient");
+    
+    // Build the full URL using API_URL for relative paths
+    const url = queryKey[0] as string;
+    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+    
     // Get the Supabase session to include auth token
     const { supabase } = await import("@/lib/supabase");
 
@@ -143,12 +150,12 @@ export const getQueryFn: <T>(options: {
 
     if (session?.access_token) {
       headers["Authorization"] = `Bearer ${session.access_token}`;
-      console.log("[getQueryFn] Auth token added for:", queryKey[0]);
+      console.log("[getQueryFn] Auth token added for:", fullUrl);
     } else {
-      console.warn("[getQueryFn] No auth token available for:", queryKey[0]);
+      console.warn("[getQueryFn] No auth token available for:", fullUrl);
     }
 
-    const res = await fetch(queryKey[0] as string, {
+    const res = await fetch(fullUrl, {
       credentials: "include",
       headers,
     });
