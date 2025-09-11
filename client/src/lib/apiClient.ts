@@ -1,19 +1,24 @@
-// Auto-detect API URL for Replit deployment
-const getApiBaseUrl = () => {
-  // If explicit API URL is set, use it
-  if (import.meta.env.VITE_API_URL) {
+// API Client Configuration for split deployment
+// Frontend: Vercel
+// Backend: Railway
+
+const getApiUrl = () => {
+  // In production, use the Railway backend URL from environment variable
+  if (import.meta.env.PROD && import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-
-  // For Replit deployment, API is served from same domain
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
+  
+  // In development, use local Express server
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000';
   }
-
-  return '';
+  
+  // Fallback to current origin (for backwards compatibility)
+  return window.location.origin;
 };
 
-const API_BASE_URL = getApiBaseUrl();
+export const API_URL = getApiUrl();
+const API_BASE_URL = API_URL;
 
 const apiClient = {
   async get(endpoint: string) {

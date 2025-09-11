@@ -1,11 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-// Update API base URL for Railway backend
-const API_BASE = import.meta.env.DEV
-  ? 'http://localhost:5000'
-  : import.meta.env.VITE_API_BASE_URL || 'https://your-railway-backend-url.railway.app';
-
-
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -23,9 +17,15 @@ const getAuthToken = async (): Promise<string | null> => {
 export const apiRequest = async (url: string, options: RequestInit = {}) => {
   const requestId = Math.random().toString(36).substr(2, 9);
   const startTime = Date.now();
+  
+  // Import API_URL from apiClient to get the Railway backend URL
+  const { API_URL } = await import("@/lib/apiClient");
+  
+  // Construct full URL if it's a relative path
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
 
   console.log(`[apiRequest:${requestId}] Starting request`, {
-    url,
+    url: fullUrl,
     method: options.method || 'GET',
     timestamp: new Date().toISOString()
   });
@@ -43,7 +43,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> || {}),
     };
 
     // Add auth token if available
@@ -51,10 +51,10 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
       headers['Authorization'] = `Bearer ${session.access_token}`;
       console.log(`[apiRequest:${requestId}] Auth token added, user:`, session.user?.email);
     } else {
-      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, url);
+      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, fullUrl);
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(fullUrl, {
       credentials: 'include',
       headers,
       ...options,
@@ -65,7 +65,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
       status: response.status,
       statusText: response.statusText,
       duration: `${duration}ms`,
-      url
+      url: fullUrl
     });
 
     if (!response.ok) {
@@ -82,7 +82,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
         statusText: response.statusText,
         error: errorText,
         duration: `${duration}ms`,
-        url
+        url: fullUrl
       });
 
       // Handle specific error cases
@@ -107,17 +107,17 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
     console.log(`[apiRequest:${requestId}] Request completed successfully`, {
       duration: `${duration}ms`,
       dataLength: JSON.stringify(data).length,
-      url
+      url: fullUrl
     });
 
     return data;
   } catch (error) {
     const duration = Date.now() - startTime;
     console.error(`[apiRequest:${requestId}] Request failed`, {
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       duration: `${duration}ms`,
-      url,
-      stack: error.stack
+      url: fullUrl,
+      stack: error instanceof Error ? error.stack : undefined
     });
     throw error;
   }
