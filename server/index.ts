@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// CORS setup - improved for external browser access
+// CORS setup - improved for Replit deployment
 app.use(
   cors({
     origin: function (
@@ -21,12 +21,14 @@ app.use(
       // Allow requests with no origin (mobile apps, etc.)
       if (!origin) return callback(null, true);
 
-      // Allow Replit domains, localhost, and your production domain
+      // Allow Replit domains and production domain
       const allowedOrigins: (string | RegExp)[] = [
         /\.replit\.dev$/,
         /\.replit\.app$/,
-        /^http:\/\/localhost:\d+$/,  // Allow any localhost port
-        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1
+        /^https:\/\/.*\.replit\.dev$/,
+        /^https:\/\/.*\.replit\.app$/,
+        /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
+        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
         "https://enrollment.getmydpc.com",
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));
@@ -44,6 +46,24 @@ app.use(
     optionsSuccessStatus: 200,
   }),
 );
+
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// API health check
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

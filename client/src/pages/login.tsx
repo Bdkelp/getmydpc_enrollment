@@ -26,7 +26,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -40,21 +40,21 @@ export default function Login() {
     try {
       console.log("Attempting login with:", data.email);
       const { data: result, error } = await signIn(data.email, data.password);
-      
+
       if (error) {
         console.error("Login error:", error);
         throw new Error(error.message);
       }
-      
+
       if (result.user && result.session) {
         console.log("Login successful, user:", result.user);
         console.log("Session token:", result.session.access_token?.substring(0, 50) + '...');
-        
+
         toast({
           title: "Welcome back!",
           description: "Successfully logged in. Redirecting...",
         });
-        
+
         // Wait for Supabase to emit SIGNED_IN event, then redirect
         const { onAuthStateChange } = await import("@/lib/supabase");
         const { data: listener } = onAuthStateChange((event, session) => {
@@ -68,7 +68,7 @@ export default function Login() {
             }
           }
         });
-        
+
         // Fallback: redirect after 2 seconds if event doesn't fire
         setTimeout(() => {
           setLocation('/');
@@ -123,7 +123,7 @@ export default function Login() {
               <TabsTrigger value="password">Password</TabsTrigger>
               <TabsTrigger value="magic-link">Magic Link</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="password" className="space-y-4">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -148,7 +148,7 @@ export default function Login() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="password"
@@ -172,7 +172,7 @@ export default function Login() {
                   </FormItem>
                 )}
               />
-              
+
               <div className="flex items-center justify-between">
                 <Link href="/forgot-password">
                   <span className="text-sm text-medical-blue-600 hover:text-medical-blue-700 cursor-pointer">
@@ -180,7 +180,7 @@ export default function Login() {
                   </span>
                 </Link>
               </div>
-              
+
               <Button 
                 type="submit" 
                 className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300"
@@ -198,7 +198,7 @@ export default function Login() {
                 </form>
               </Form>
             </TabsContent>
-            
+
             <TabsContent value="magic-link" className="space-y-4">
               <p className="text-sm text-gray-600 text-center mb-4">
                 We'll send you a link to sign in without a password
@@ -206,7 +206,7 @@ export default function Login() {
               <MagicLinkLogin />
             </TabsContent>
           </Tabs>
-          
+
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />
@@ -215,7 +215,7 @@ export default function Login() {
               <span className="bg-white px-2 text-gray-500">Or continue with</span>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-2 gap-3">
             <Button
               variant="outline"

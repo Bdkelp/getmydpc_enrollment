@@ -1,42 +1,87 @@
-// API Client Configuration for split deployment
-// Frontend: Vercel
-// Backend: Railway
-
-const getApiUrl = () => {
-  // In production, use the Railway backend URL from environment variable
-  if (import.meta.env.PROD && import.meta.env.VITE_API_URL) {
+// Auto-detect API URL for Replit deployment
+const getApiBaseUrl = () => {
+  // If explicit API URL is set, use it
+  if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  
-  // In development, use local Express server
-  if (import.meta.env.DEV) {
-    return 'http://localhost:5000';
+
+  // For Replit deployment, API is served from same domain
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
   }
-  
-  // Fallback to current origin (for backwards compatibility)
-  return window.location.origin;
+
+  return '';
 };
 
-export const API_URL = getApiUrl();
+const API_BASE_URL = getApiBaseUrl();
 
-// Helper function to make API requests with proper headers
-export const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
-  const url = `${API_URL}${endpoint}`;
-  
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    credentials: 'include', // Important for cookies/sessions
-  });
-  
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.statusText}`);
+const apiClient = {
+  async get(endpoint: string) {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  },
+
+  async post(endpoint: string, data?: any) {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  },
+
+  async put(endpoint: string, data?: any) {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
+  },
+
+  async delete(endpoint: string) {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'DELETE',
+      headers: {
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return response.json();
   }
-  
-  return response.json();
 };
 
-export default API_URL;
+export default apiClient;
