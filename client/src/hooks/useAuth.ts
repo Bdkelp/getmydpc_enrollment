@@ -79,7 +79,7 @@ export function useAuth() {
         if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
           try {
             queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-            });
+          
           } catch (queryError) {
             console.warn("[useAuth] Query invalidation failed:", queryError);
           }
