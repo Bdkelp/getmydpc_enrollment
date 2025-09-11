@@ -110,7 +110,6 @@ export function useAuth() {
     error,
   } = useQuery({
     queryKey: ["/api/auth/me", session?.access_token],
-    ],
     queryFn: async () => {
       if (!session?.access_token || !session?.user) {
         console.log("[useAuth] No valid session, skipping user fetch.");
@@ -131,9 +130,10 @@ export function useAuth() {
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
         // Use absolute URL in production
-        const apiUrl = window.location.hostname === 'localhost' 
-        ? "/api/auth/me"
-        : `${window.location.origin}/api/auth/me`;
+        const apiUrl =
+          window.location.hostname === "localhost"
+            ? "/api/auth/me"
+            : `${window.location.origin}/api/auth/me`;
 
         console.log("[useAuth] Fetching from:", apiUrl);
 
