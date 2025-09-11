@@ -8,7 +8,7 @@ import { Heart, DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
-import heroImage from "@assets/enrollment dr image_1752013719087.jpg";
+import heroImage from "@assets/enrollment-dr-image.jpg";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
