@@ -1,78 +1,77 @@
+
 // API Client for split deployment (Frontend: Vercel, Backend: Railway)
 
-function getApiUrl(): string {
-  // Prefer explicit base if provided (works in prod and dev)
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL as string; // e.g. https://your-app.up.railway.app
+const buildBaseUrl = () => {
+  // Prefer explicit env var in production
+  let raw = import.meta.env.VITE_API_URL as string | undefined;
+
+  if (import.meta.env.PROD && raw) {
+    // add scheme if missing
+    if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+    // remove trailing slash
+    raw = raw.replace(/\/+$/, '');
+    return raw;
   }
-  // Fallback to same-origin (useful on Replit/local)
+
+  // Dev: same-origin (Replit or local)
   return window.location.origin;
-}
+};
 
-export const API_URL = getApiUrl();
+export const API_BASE_URL = buildBaseUrl();
 
-function normalize(path: string): string {
-  // Ensure exactly one slash between base and path
-  if (!path.startsWith("/")) path = `/${path}`;
-  return `${API_URL}${path}`;
-}
+const join = (base: string, path: string) =>
+  `${base}${path.startsWith('/') ? path : `/${path}`}`;
 
-async function handle<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    // Bubble up rich error for debugging
-    throw new Error(
-      `${res.status} ${res.statusText}: ${text || "Request failed"}`,
-    );
-  }
-  // Some endpoints may return 204/empty
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
-}
-
-export const apiClient = {
-  async get<T = any>(endpoint: string): Promise<T> {
-    const res = await fetch(normalize(endpoint), {
-      credentials: "include",
-      headers: { Accept: "application/json" },
+const apiClient = {
+  async get(endpoint: string) {
+    const res = await fetch(join(API_BASE_URL, endpoint), {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
     });
-    return handle<T>(res);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
   },
 
-  async post<T = any>(endpoint: string, data?: any): Promise<T> {
-    const res = await fetch(normalize(endpoint), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: data != null ? JSON.stringify(data) : undefined,
+  async post(endpoint: string, data?: any) {
+    const res = await fetch(join(API_BASE_URL, endpoint), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: data ? JSON.stringify(data) : undefined,
     });
-    return handle<T>(res);
+    if (!res.ok) {
+      // try to surface server error text
+      let txt = '';
+      try { txt = await res.text(); } catch {}
+      throw new Error(`${res.status} : ${txt || res.statusText}`);
+    }
+    return res.json();
   },
 
-  async put<T = any>(endpoint: string, data?: any): Promise<T> {
-    const res = await fetch(normalize(endpoint), {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: data != null ? JSON.stringify(data) : undefined,
+  async put(endpoint: string, data?: any) {
+    const res = await fetch(join(API_BASE_URL, endpoint), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: data ? JSON.stringify(data) : undefined,
     });
-    return handle<T>(res);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
   },
 
-  async delete<T = any>(endpoint: string): Promise<T> {
-    const res = await fetch(normalize(endpoint), {
-      method: "DELETE",
-      credentials: "include",
-      headers: { Accept: "application/json" },
+  async delete(endpoint: string) {
+    const res = await fetch(join(API_BASE_URL, endpoint), {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
     });
-    return handle<T>(res);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
   },
 };
 
 export default apiClient;
+
+// Maintain backward compatibility
+export const API_URL = API_BASE_URL;
+export { apiClient };
