@@ -7,18 +7,25 @@ const PORT = process.env.PORT || 3000;
 
 // CORS configuration for Railway backend
 const corsOptions = {
-  origin: [
-    'https://enrollment.getmydpc.com',  // Production custom domain on Vercel
-    'https://getmydpc-enrollment.vercel.app',  // Production Vercel domain
-    /^https:\/\/getmydpc-enrollment-.*\.vercel\.app$/,  // Vercel preview deployments
-    'http://localhost:5173',  // Local development
-    'http://localhost:5000'   // Local development
-  ],
+  origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => {
+    // allow server-to-server or curl
+    if (!origin) return cb(null, true);
+
+    const ok = [
+      /^https?:\/\/localhost(:\d+)?$/,
+      /^https:\/\/.*\.vercel\.app$/,           // any vercel preview/prod domain
+      /^https:\/\/enrollment\.getmydpc\.com$/, // your custom prod domain
+    ].some(rx => (typeof rx === 'string' ? origin === rx : rx.test(origin)));
+
+    cb(null, ok);
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Set-Cookie']
+  methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','X-Requested-With'],
+  exposedHeaders: ['Set-Cookie'],
 };
+
+
 
 app.use(cors(corsOptions));
 app.use(express.json());
