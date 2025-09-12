@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { X } from "lucide-react";
+import apiClient from "@/lib/apiClient";
 
 const contactFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -74,44 +75,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       console.log('Making request to:', "/api/public/leads");
       
       // Submit lead to backend (public endpoint for contact form)
-      const response = await fetch("/api/public/leads", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-      
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-      
-      if (!response.ok) {
-        let errorData;
-        let errorMessage = "Server error";
-        try {
-          const contentType = response.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
-            const jsonError = await response.json();
-            console.error("Server response error (JSON):", jsonError);
-            errorMessage = jsonError.error || jsonError.message || `HTTP ${response.status}`;
-          } else {
-            errorData = await response.text();
-            console.error("Server response error (text):", errorData);
-            // Check if it's HTML (likely a 404 or routing issue)
-            if (errorData.includes("<!DOCTYPE") || errorData.includes("<html")) {
-              errorMessage = "API endpoint not found. Please try again.";
-            } else {
-              errorMessage = errorData || `HTTP ${response.status}`;
-            }
-          }
-        } catch (parseError) {
-          console.error("Could not parse error response:", parseError);
-          errorMessage = `HTTP ${response.status}`;
-        }
-        throw new Error(errorMessage);
-      }
-      
-      const result = await response.json();
+      const result = await apiClient.post("/api/public/leads", data);
       console.log('Lead submission successful:', result);
       console.log('=== CONTACT FORM SUBMISSION SUCCESS ===');
       

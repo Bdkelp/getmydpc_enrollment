@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
 import heroImage from "@assets/enrollment-dr-image.jpg";
+import apiClient from "@/lib/apiClient";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();

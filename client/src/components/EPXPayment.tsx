@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, CreditCard, AlertCircle, Building2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
+import apiClient from '@/lib/apiClient';
 
 interface EPXPaymentProps {
   amount: number;
@@ -77,38 +78,21 @@ export function EPXPayment({
       // Create payment session with EPX
       console.log('[EPX Payment] Creating payment session for amount:', amount);
 
-      const response = await fetch('/api/epx/create-payment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          amount,
-          customerId,
-          customerEmail,
-          planId,
-          subscriptionId,
-          description: description || 'DPC Subscription Payment',
-          paymentMethod,
-          ...(paymentMethod === 'ach' && {
-            achRoutingNumber: achData.routingNumber,
-            achAccountNumber: achData.accountNumber,
-            achAccountType: achData.accountType,
-            achAccountName: achData.accountName
-          })
+      const data = await apiClient.post('/api/epx/create-payment', {
+        amount,
+        customerId,
+        customerEmail,
+        planId,
+        subscriptionId,
+        description: description || 'DPC Subscription Payment',
+        paymentMethod,
+        ...(paymentMethod === 'ach' && {
+          achRoutingNumber: achData.routingNumber,
+          achAccountNumber: achData.accountNumber,
+          achAccountType: achData.accountType,
+          achAccountName: achData.accountName
         })
       });
-
-      console.log('[EPX Payment] Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[EPX Payment] Request failed:', response.status, errorText);
-        throw new Error(`Payment request failed: ${response.status}`);
-      }
-
-      const data = await response.json();
       console.log('[EPX Payment] Response data:', data);
 
       if (!data.success || !data.formData) {
@@ -194,13 +178,7 @@ export function EPXPayment({
       }
 
       // Get hosted checkout configuration
-      const response = await fetch('/api/epx/checkout-config', {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
-
-      const data = await response.json();
+      const data = await apiClient.get('/api/epx/checkout-config');
 
       if (!data.success || !data.config) {
         throw new Error(data.error || 'Failed to get checkout configuration');

@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import apiClient from "@/lib/apiClient";
 
 const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -77,20 +78,7 @@ export default function Profile() {
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: ProfileFormData) => {
-      const response = await fetch("/api/user/profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to update profile");
-      }
-
-      return response.json();
+      return await apiClient.put("/api/user/profile", data);
     },
     onSuccess: () => {
       toast({

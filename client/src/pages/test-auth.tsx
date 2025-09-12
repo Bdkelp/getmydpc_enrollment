@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSession, getUser } from "@/lib/supabase";
 import { apiRequest } from "@/lib/queryClient";
+import apiClient from "@/lib/apiClient";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function TestAuth() {
@@ -86,26 +87,19 @@ export default function TestAuth() {
       };
     }
     
-    // Test 6: Direct fetch with manual token
+    // Test 6: Direct apiClient call
     try {
-      const session = await getSession();
-      if (session?.access_token) {
-        const response = await fetch('/api/admin/leads', {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        });
-        const data = await response.json();
-        results.directFetch = {
-          success: response.ok,
-          status: response.status,
-          data: response.ok ? data : data.message
-        };
-      } else {
-        results.directFetch = { error: 'No session token available' };
-      }
+      const data = await apiClient.get('/api/admin/leads');
+      results.directFetch = {
+        success: true,
+        status: 200,
+        data: data
+      };
     } catch (error: any) {
-      results.directFetch = { error: error.message };
+      results.directFetch = { 
+        success: false,
+        error: error.message 
+      };
     }
     
     setTestResults(results);
