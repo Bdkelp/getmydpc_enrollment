@@ -1,32 +1,38 @@
-
 // API Client for split deployment (Frontend: Vercel, Backend: Railway)
 
 const buildBaseUrl = () => {
   // Prefer explicit env var in production
   let raw = import.meta.env.VITE_API_URL as string | undefined;
 
-  if (import.meta.env.PROD && raw) {
-    // add scheme if missing
-    if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
-    // remove trailing slash
-    raw = raw.replace(/\/+$/, '');
-    return raw;
+  // ---- sanitize common copy/paste mistakes ----
+  if (raw) {
+    raw = String(raw)
+      .trim()
+      // remove "VITE_API_URL =" if someone pasted the whole line
+      .replace(/^VITE_API_URL\s*=\s*/i, "")
+      // drop trailing slashes
+      .replace(/\/+$/, "");
+    // add https if missing
+    if (raw && !/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
   }
+  // ---------------------------------------------
 
-  // Dev: same-origin (Replit or local)
+  if (import.meta.env.PROD && raw) return raw;
+
+  // Dev/preview fallback: same-origin (Replit/local)
   return window.location.origin;
 };
 
 export const API_BASE_URL = buildBaseUrl();
 
 const join = (base: string, path: string) =>
-  `${base}${path.startsWith('/') ? path : `/${path}`}`;
+  `${base}${path.startsWith("/") ? path : `/${path}`}`;
 
 const apiClient = {
   async get(endpoint: string) {
     const res = await fetch(join(API_BASE_URL, endpoint), {
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
+      credentials: "include",
+      headers: { Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
@@ -34,15 +40,20 @@ const apiClient = {
 
   async post(endpoint: string, data?: any) {
     const res = await fetch(join(API_BASE_URL, endpoint), {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: data ? JSON.stringify(data) : undefined,
     });
     if (!res.ok) {
       // try to surface server error text
-      let txt = '';
-      try { txt = await res.text(); } catch {}
+      let txt = "";
+      try {
+        txt = await res.text();
+      } catch {}
       throw new Error(`${res.status} : ${txt || res.statusText}`);
     }
     return res.json();
@@ -50,9 +61,12 @@ const apiClient = {
 
   async put(endpoint: string, data?: any) {
     const res = await fetch(join(API_BASE_URL, endpoint), {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
       body: data ? JSON.stringify(data) : undefined,
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -61,9 +75,9 @@ const apiClient = {
 
   async delete(endpoint: string) {
     const res = await fetch(join(API_BASE_URL, endpoint), {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: { Accept: 'application/json' },
+      method: "DELETE",
+      credentials: "include",
+      headers: { Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
