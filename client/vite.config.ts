@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@assets": fileURLToPath(new URL("./src/assets", import.meta.url)),
+      "@shared": fileURLToPath(new URL("../shared", import.meta.url)),
     },
   },
   build: { outDir: "dist" },

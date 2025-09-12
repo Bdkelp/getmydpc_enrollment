@@ -8,7 +8,9 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@assets/*": ["src/assets/*"],
+      "@shared/*": ["../shared/*"]
     },
     "types": []
   },
