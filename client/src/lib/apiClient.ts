@@ -1,88 +1,78 @@
-// API Client Configuration for split deployment
-// Frontend: Vercel
-// Backend: Railway
+// API Client for split deployment (Frontend: Vercel, Backend: Railway)
 
-const getApiUrl = () => {
-  // In production, use the Railway backend URL from environment variable
-  if (import.meta.env.PROD && import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+function getApiUrl(): string {
+  // Prefer explicit base if provided (works in prod and dev)
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL as string; // e.g. https://your-app.up.railway.app
   }
-  
-  // In Replit development, both frontend and backend are served from the same origin
-  // Use window.location.origin to access the backend API
+  // Fallback to same-origin (useful on Replit/local)
   return window.location.origin;
-};
+}
 
 export const API_URL = getApiUrl();
-const API_BASE_URL = API_URL;
 
-const apiClient = {
-  async get(endpoint: string) {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      credentials: 'include',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+function normalize(path: string): string {
+  // Ensure exactly one slash between base and path
+  if (!path.startsWith("/")) path = `/${path}`;
+  return `${API_URL}${path}`;
+}
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
-  },
-
-  async post(endpoint: string, data?: any) {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      credentials: 'include',
-      body: data ? JSON.stringify(data) : undefined,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
-  },
-
-  async put(endpoint: string, data?: any) {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      credentials: 'include',
-      body: data ? JSON.stringify(data) : undefined,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
-  },
-
-  async delete(endpoint: string) {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      method: 'DELETE',
-      headers: {
-        'Accept': 'application/json',
-      },
-      credentials: 'include',
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return response.json();
+async function handle<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    // Bubble up rich error for debugging
+    throw new Error(
+      `${res.status} ${res.statusText}: ${text || "Request failed"}`,
+    );
   }
+  // Some endpoints may return 204/empty
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+export const apiClient = {
+  async get<T = any>(endpoint: string): Promise<T> {
+    const res = await fetch(normalize(endpoint), {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    return handle<T>(res);
+  },
+
+  async post<T = any>(endpoint: string, data?: any): Promise<T> {
+    const res = await fetch(normalize(endpoint), {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: data != null ? JSON.stringify(data) : undefined,
+    });
+    return handle<T>(res);
+  },
+
+  async put<T = any>(endpoint: string, data?: any): Promise<T> {
+    const res = await fetch(normalize(endpoint), {
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: data != null ? JSON.stringify(data) : undefined,
+    });
+    return handle<T>(res);
+  },
+
+  async delete<T = any>(endpoint: string): Promise<T> {
+    const res = await fetch(normalize(endpoint), {
+      method: "DELETE",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    return handle<T>(res);
+  },
 };
 
 export default apiClient;
