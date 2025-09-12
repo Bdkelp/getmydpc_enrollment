@@ -39,6 +39,8 @@ const apiClient = {
   },
 
   async post(endpoint: string, data?: any) {
+    console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data });
+    
     const res = await fetch(join(API_BASE_URL, endpoint), {
       method: "POST",
       credentials: "include",
@@ -48,11 +50,15 @@ const apiClient = {
       },
       body: data ? JSON.stringify(data) : undefined,
     });
+    
+    console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
+    
     if (!res.ok) {
       // try to surface server error text
       let txt = "";
       try {
         txt = await res.text();
+        console.error(`[API] Error response:`, txt);
       } catch {}
       throw new Error(`${res.status} : ${txt || res.statusText}`);
     }

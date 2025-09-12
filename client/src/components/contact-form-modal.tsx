@@ -31,7 +31,7 @@ interface ContactFormModalProps {
 export function ContactFormModal({ isOpen, onClose, title = "Get Started with MyPremierPlans" }: ContactFormModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  
+
   const form = useForm<ContactFormData>({
     resolver: zodResolver(contactFormSchema),
     mode: "onChange",
@@ -46,7 +46,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
 
   const onSubmit = async (data: ContactFormData) => {
     setIsSubmitting(true);
-    
+
     try {
       console.log('=== CONTACT FORM SUBMISSION START ===');
       console.log('Form data:', data);
@@ -54,36 +54,36 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
         isValid: form.formState.isValid,
         errors: form.formState.errors
       });
-      
+
       // Validate required fields client-side
       if (!data.firstName || !data.lastName || !data.email || !data.phone) {
         throw new Error('Please fill in all required fields');
       }
-      
+
       // Validate email format
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(data.email)) {
         throw new Error('Please enter a valid email address');
       }
-      
+
       // Validate phone number (basic validation)
       if (data.phone.length < 10) {
         throw new Error('Please enter a valid phone number');
       }
-      
+
       console.log('Client-side validation passed');
       console.log('Making request to:', "/api/public/leads");
-      
+
       // Submit lead to backend (public endpoint for contact form)
       const result = await apiClient.post("/api/public/leads", data);
       console.log('Lead submission successful:', result);
       console.log('=== CONTACT FORM SUBMISSION SUCCESS ===');
-      
+
       toast({
         title: "Thank you for your interest!",
         description: "We'll contact you within 24 hours to discuss your enrollment options.",
       });
-      
+
       form.reset();
       onClose();
     } catch (error: any) {
@@ -93,9 +93,9 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
         stack: error.stack,
         name: error.name
       });
-      
+
       let errorMessage = "Please try again or call us at 210-512-4318";
-      
+
       if (error.message.includes('Failed to fetch')) {
         errorMessage = "Network error. Please check your connection and try again.";
       } else if (error.message.includes('validation') || error.message.includes('required')) {
@@ -103,7 +103,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
       } else if (error.message.includes('Server error')) {
         errorMessage = "Server error. Please try again in a moment.";
       }
-      
+
       toast({
         title: "Submission Failed",
         description: errorMessage,
@@ -121,14 +121,14 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogClose>
-        
+
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-gray-900">{title}</DialogTitle>
           <DialogDescription className="text-gray-600">
             Fill out this form and an agent will contact you to help with enrollment.
           </DialogDescription>
         </DialogHeader>
-        
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-4">
             <div className="grid grid-cols-2 gap-4">
@@ -145,7 +145,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="lastName"
@@ -160,7 +160,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
                 )}
               />
             </div>
-            
+
             <FormField
               control={form.control}
               name="email"
@@ -174,7 +174,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="phone"
@@ -188,7 +188,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="message"
@@ -207,7 +207,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
                 </FormItem>
               )}
             />
-            
+
             <div className="flex gap-3 pt-4">
               <Button
                 type="button"
@@ -231,7 +231,7 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
             </div>
           </form>
         </Form>
-        
+
         <div className="text-center text-sm text-gray-600 mt-4">
           Or call us directly at <a href="tel:210-512-4318" className="text-medical-blue-600 hover:underline">210-512-4318</a>
         </div>

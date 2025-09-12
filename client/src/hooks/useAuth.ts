@@ -87,14 +87,41 @@ export function useAuth() {
     setError(null);
 
     try {
+      // First try Supabase auth
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        console.error('Supabase auth error:', error);
         setError(error.message);
         return { success: false, error: error.message };
+      }
+
+      // If Supabase succeeds, also try backend verification
+      if (data.session?.access_token) {
+        try {
+          const { default: apiClient } = await import('@/lib/apiClient');
+          
+          // Test the backend connection
+          const response = await fetch(apiClient.API_BASE_URL + '/api/auth/me', {
+            headers: {
+              'Authorization': `Bearer ${data.session.access_token}`,
+              'Accept': 'application/json'
+            },
+            credentials: 'include'
+          });
+          
+          if (!response.ok) {
+            console.warn('Backend auth verification failed:', response.status);
+          } else {
+            console.log('Backend auth verification successful');
+          }
+        } catch (backendError) {
+          console.warn('Could not verify with backend:', backendError);
+          // Don't fail the login if backend is temporarily unavailable
+        }
       }
 
       return { success: true, data };
