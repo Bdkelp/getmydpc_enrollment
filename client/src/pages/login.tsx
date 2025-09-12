@@ -22,9 +22,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { apiClient } from "@/lib/apiClient";
+import apiClient from "@/lib/apiClient";
 import { queryClient } from "@/lib/queryClient";
-import { signIn, signInWithOAuth } from "@/lib/supabase";
+import { signInWithOAuth } from "@/lib/supabase";
 import { Heart, Mail, Lock, Loader2 } from "lucide-react";
 import {
   FaGoogle,
