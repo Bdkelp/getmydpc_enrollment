@@ -74,9 +74,8 @@ export default function Login() {
             password: data.password,
           });
           break; // success
-        } catch (e) {
+        } catch (e: any) {
           lastErr = e;
-          // If 404/401/500, try next endpoint
         }
       }
 
@@ -87,8 +86,8 @@ export default function Login() {
         );
       }
 
-      // Expecting { user, session, dbUser } from backend
-      if (response.session && response.user) {
+      // Backend shape: { success, session, user }
+      if (response.success && response.session && response.user) {
         console.log("Login successful, user:", response.user.email);
 
         // Sync Supabase session for client-side libs
@@ -105,7 +104,7 @@ export default function Login() {
 
         await queryClient.invalidateQueries();
 
-        const role = response.dbUser?.role || response.user?.role || "user";
+        const role = response.user?.role || "user";
         setTimeout(() => {
           if (role === "admin") setLocation("/admin");
           else if (role === "agent") setLocation("/agent-dashboard");
@@ -115,7 +114,11 @@ export default function Login() {
         return;
       }
 
-      throw new Error("Unexpected server response (missing session/user)");
+      // If we got here, the server replied but not with success
+      throw new Error(
+        response?.message ||
+          "Unexpected server response (missing success/session/user)",
+      );
     } catch (error: any) {
       console.error("Login failed:", error);
       toast({
