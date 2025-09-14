@@ -102,10 +102,10 @@ export function useAuth() {
       // If Supabase succeeds, also try backend verification
       if (data.session?.access_token) {
         try {
-          const { default: apiClient } = await import('@/lib/apiClient');
-          
+          const { API_BASE_URL } = await import('@/lib/apiClient');
+
           // Test the backend connection
-          const response = await fetch(apiClient.API_BASE_URL + '/api/auth/me', {
+          const response = await fetch(API_BASE_URL + '/api/auth/me', {
             headers: {
               'Authorization': `Bearer ${data.session.access_token}`,
               'Accept': 'application/json'
