@@ -28,6 +28,7 @@ app.use(
         /\.replit\.app$/,
         /^https:\/\/.*\.replit\.dev$/,
         /^https:\/\/.*\.replit\.app$/,
+        /^https:\/\/.*\.vercel\.app$/,
         /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
         /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
         "https://enrollment.getmydpc.com",
