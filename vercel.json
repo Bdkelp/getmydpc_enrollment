@@ -1,4 +1,7 @@
 {
   "version": 2,
+  "env": {
+    "VITE_API_URL": "https://your-backend.example.com"
+  },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
