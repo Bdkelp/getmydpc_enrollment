@@ -668,42 +668,6 @@ router.post("/api/public/leads", async (req: any, res) => {
       JSON.stringify(leadData, null, 2),
     );
 
-    // Test database connection and table structure first
-    try {
-      const { supabase } = await import("./lib/supabaseClient");
-
-      // Test connection and check table structure
-      const { data: connectionTest, error: connectionError } = await supabase
-        .from("leads")
-        .select("id, first_name, last_name, email, phone")
-        .limit(1);
-
-      if (connectionError) {
-        console.error(
-          `[${timestamp}] [Public Leads] Database connection test failed:`,
-          connectionError,
-        );
-        throw new Error(
-          `Database connection failed: ${connectionError.message}`,
-        );
-      }
-
-      console.log(
-        `[${timestamp}] [Public Leads] Database connection successful, table structure verified`,
-      );
-
-      // Test if we can actually insert (using anon key)
-      console.log(
-        `[${timestamp}] [Public Leads] Testing anonymous insert capability...`,
-      );
-    } catch (dbError) {
-      console.error(
-        `[${timestamp}] [Public Leads] Database test error:`,
-        dbError,
-      );
-      throw dbError;
-    }
-
     let lead;
     try {
       lead = await storage.createLead(leadData);
