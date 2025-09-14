@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
+import { API_BASE_URL } from "@/lib/apiClient";
 
 export interface AuthUser {
   id: string;
@@ -100,18 +101,16 @@ export function useAuth() {
       }
 
       // If Supabase succeeds, also try backend verification
-      if (data.session?.access_token) {
-        try {
-          const { API_BASE_URL } = await import('@/lib/apiClient');
-
-          // Test the backend connection
-          const response = await fetch(API_BASE_URL + '/api/auth/me', {
-            headers: {
-              'Authorization': `Bearer ${data.session.access_token}`,
-              'Accept': 'application/json'
-            },
-            credentials: 'include'
-          });
+        if (data.session?.access_token) {
+          try {
+            // Test the backend connection
+            const response = await fetch(API_BASE_URL + '/api/auth/me', {
+              headers: {
+                'Authorization': `Bearer ${data.session.access_token}`,
+                'Accept': 'application/json'
+              },
+              credentials: 'include'
+            });
           
           if (!response.ok) {
             console.warn('Backend auth verification failed:', response.status);
