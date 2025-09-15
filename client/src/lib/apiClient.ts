@@ -43,8 +43,8 @@ const apiClient = {
     return res.json();
   },
 
-  async post(endpoint: string, data?: any) {
-    console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data });
+  async post(endpoint: string, data?: any, retryCount = 0) {
+    console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data, retryCount });
     
     try {
       const res = await fetch(join(API_BASE_URL, endpoint), {
@@ -60,6 +60,13 @@ const apiClient = {
       console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
       
       if (!res.ok) {
+        // Retry on CORS or server errors
+        if (retryCount === 0 && (res.status === 0 || res.status >= 500 || res.status === 401)) {
+          console.log(`[API] Retrying POST ${endpoint} after ${res.status} error...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return this.post(endpoint, data, retryCount + 1);
+        }
+        
         // try to surface server error text
         let txt = "";
         try {
@@ -84,6 +91,14 @@ const apiClient = {
       return res.json();
     } catch (networkError) {
       console.error(`[API] Network error for POST ${endpoint}:`, networkError);
+      
+      // Retry on network errors
+      if (retryCount === 0 && (networkError.message.includes('fetch') || networkError.message.includes('Network'))) {
+        console.log(`[API] Retrying POST ${endpoint} after network error...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return this.post(endpoint, data, retryCount + 1);
+      }
+      
       throw new Error(`Network error: ${networkError.message}`);
     }
   },

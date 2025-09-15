@@ -59,10 +59,28 @@ app.use(cors(corsOptions));
 app.options('*', (req, res) => {
   console.log(`[CORS Preflight] ${req.method} ${req.path} from origin: ${req.headers.origin}`);
   
-  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+  ];
+  
+  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
+  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+  
+  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
   res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
-  res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
   res.status(200).end();
 });

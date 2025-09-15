@@ -20,6 +20,37 @@ router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Diagnostic endpoint for CORS testing
+router.get("/api/test-cors", (req, res) => {
+  const origin = req.headers.origin;
+  console.log('[CORS Test] Request from origin:', origin);
+  
+  // Set CORS headers
+  const allowedOrigins = [
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+  ];
+  
+  if (allowedOrigins.includes(origin as string)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.json({
+    status: "CORS test successful",
+    timestamp: new Date().toISOString(),
+    origin: origin,
+    corsAllowed: allowedOrigins.includes(origin as string),
+    headers: req.headers
+  });
+});
+
 // Public test endpoint (NO AUTH - for debugging only)
 router.get("/api/public/test-leads-noauth", async (req, res) => {
   try {
@@ -131,6 +162,22 @@ router.get("/api/plans", async (req, res) => {
 
 // Auth routes (public - no authentication required)
 router.post("/api/auth/login", async (req, res) => {
+  // Set CORS headers for auth endpoint
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+  ];
+  
+  if (allowedOrigins.includes(origin as string)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+
   try {
     const { email, password } = req.body;
 
@@ -584,13 +631,9 @@ router.post("/api/public/leads", async (req: any, res) => {
   console.log(`[${timestamp}] [Public Leads] === ENDPOINT HIT ===`);
   console.log(`[${timestamp}] [Public Leads] Method:`, req.method);
   console.log(`[${timestamp}] [Public Leads] Origin:`, req.headers.origin);
-  console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
-  console.log(
-    `[${timestamp}] [Public Leads] Raw body:`,
-    JSON.stringify(req.body, null, 2),
-  );
-
-  // Ensure CORS headers are set for this endpoint
+  console.log(`[${timestamp}] [Public Leads] Headers:`, JSON.stringify(req.headers, null, 2));
+  
+  // Set CORS headers FIRST before any other processing
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://enrollment.getmydpc.com',
@@ -604,12 +647,21 @@ router.post("/api/public/leads", async (req: any, res) => {
   const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
   
+  // Always set CORS headers for this public endpoint
   if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
     res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+    console.log(`[${timestamp}] [Public Leads] CORS allowed for origin: ${origin}`);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+    console.log(`[${timestamp}] [Public Leads] CORS wildcard for origin: ${origin}`);
   }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+  
+  console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
+  console.log(`[${timestamp}] [Public Leads] Raw body:`, JSON.stringify(req.body, null, 2));
 
   try {
     // Check if body exists and is parsed
