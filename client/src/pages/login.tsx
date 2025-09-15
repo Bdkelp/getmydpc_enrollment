@@ -73,8 +73,10 @@ export default function Login() {
             email: data.email,
             password: data.password,
           });
+          console.log(`[Login] SUCCESS endpoint: ${ep}`);
           break; // success
         } catch (e: any) {
+          console.log(`[Login] FAILED endpoint: ${ep}`, e.message);
           lastErr = e;
         }
       }
@@ -86,16 +88,49 @@ export default function Login() {
         );
       }
 
-      // Backend shape: { success, session, user }
-      if (response.success && response.session && response.user) {
-        console.log("Login successful, user:", response.user.email);
+      // ADD DETAILED RESPONSE LOGGING
+      console.log('=== LOGIN RESPONSE DEBUG ===');
+      console.log('ACTUAL RESPONSE DATA:', JSON.stringify(response, null, 2));
+      console.log('Response keys:', Object.keys(response));
+      console.log('Has success?', !!response.success);
+      console.log('Has session?', !!response.session);
+      console.log('Has user?', !!response.user);
+      console.log('Has token?', !!response.token);
+      console.log('Has dbUser?', !!response.dbUser);
+      console.log('=== END DEBUG ===');
 
-        // Sync Supabase session for client-side libs
-        const { supabase } = await import("@/lib/supabase");
-        await supabase.auth.setSession({
-          access_token: response.session.access_token,
-          refresh_token: response.session.refresh_token,
-        });
+      // Check for different possible response formats
+      const hasSuccessFormat = response.success && response.session && response.user;
+      const hasTokenFormat = response.token && response.user;
+      const hasSupabaseFormat = response.user && response.session;
+
+      console.log('Format checks:');
+      console.log('- Success format (success + session + user):', hasSuccessFormat);
+      console.log('- Token format (token + user):', hasTokenFormat);
+      console.log('- Supabase format (user + session):', hasSupabaseFormat);
+
+      // Backend shape: Check multiple possible formats
+      if (hasSuccessFormat || hasTokenFormat || hasSupabaseFormat) {
+        // Extract user and session from different possible formats
+        const user = response.user || response.dbUser;
+        const session = response.session;
+        const token = response.token;
+
+        console.log("Login successful, user:", user?.email);
+
+        // Sync Supabase session for client-side libs (if session exists)
+        if (session?.access_token) {
+          const { supabase } = await import("@/lib/supabase");
+          await supabase.auth.setSession({
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
+          });
+        }
+
+        // Store token if provided (JWT auth)
+        if (token) {
+          localStorage.setItem('auth_token', token);
+        }
 
         toast({
           title: "Welcome back!",
@@ -104,7 +139,7 @@ export default function Login() {
 
         await queryClient.invalidateQueries();
 
-        const role = response.user?.role || "user";
+        const role = user?.role || "user";
         setTimeout(() => {
           if (role === "admin") setLocation("/admin");
           else if (role === "agent") setLocation("/agent-dashboard");
@@ -114,10 +149,11 @@ export default function Login() {
         return;
       }
 
-      // If we got here, the server replied but not with success
+      // If we got here, the server replied but not with expected format
+      console.error('Login failed - unexpected response format:', response);
       throw new Error(
         response?.message ||
-          "Unexpected server response (missing success/session/user)",
+          `Unexpected server response format. Expected: success+session+user OR token+user OR user+session. Got: ${Object.keys(response).join(', ')}`,
       );
     } catch (error: any) {
       console.error("Login failed:", error);
