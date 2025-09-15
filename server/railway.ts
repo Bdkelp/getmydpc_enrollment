@@ -102,6 +102,17 @@ app.get('/api/test-cors', (req, res) => {
   });
 });
 
+// Additional CORS test endpoint (alternative naming)
+app.get('/api/cors-test', (req, res) => {
+  res.json({
+    message: 'CORS test successful!',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    platform: 'railway',
+    status: 'ok'
+  });
+});
+
 // CORS debug endpoint
 app.get('/api/debug/cors', (req, res) => {
   const origin = req.headers.origin;
