@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { X } from "lucide-react";
 import apiClient from "@/lib/apiClient";
+import { API_BASE_URL } from "@/lib/apiClient";
 
 const contactFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -46,67 +47,51 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
 
   const onSubmit = async (data: ContactFormData) => {
     setIsSubmitting(true);
-
     try {
-      console.log('=== CONTACT FORM SUBMISSION START ===');
-      console.log('Form data:', data);
-      console.log('Form validation state:', {
-        isValid: form.formState.isValid,
-        errors: form.formState.errors
+      console.log('[ContactForm] Submitting lead data:', data);
+
+      const response = await fetch(`${API_BASE_URL}/api/public/leads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email,
+          phone: data.phone,
+          message: data.message || 'I\'m interested in Get Started with MyPremierPlans',
+        }),
       });
 
-      // Validate required fields client-side
-      if (!data.firstName || !data.lastName || !data.email || !data.phone) {
-        throw new Error('Please fill in all required fields');
+      console.log('[ContactForm] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ContactForm] Error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(data.email)) {
-        throw new Error('Please enter a valid email address');
+      const result = await response.json();
+      console.log('[ContactForm] Success response:', result);
+
+      if (result.success) {
+        toast({
+          title: "Thank you for your interest!",
+          description: "We've received your information and will contact you soon.",
+        });
+        form.reset();
+        onClose();
+      } else {
+        throw new Error(result.message || 'Failed to submit form');
       }
-
-      // Validate phone number (basic validation)
-      if (data.phone.length < 10) {
-        throw new Error('Please enter a valid phone number');
-      }
-
-      console.log('Client-side validation passed');
-      console.log('Making request to:', "/api/public/leads");
-
-      // Submit lead to backend (public endpoint for contact form)
-      const result = await apiClient.post("/api/public/leads", data);
-      console.log('Lead submission successful:', result);
-      console.log('=== CONTACT FORM SUBMISSION SUCCESS ===');
-
-      toast({
-        title: "Thank you for your interest!",
-        description: "We'll contact you within 24 hours to discuss your enrollment options.",
-      });
-
-      form.reset();
-      onClose();
     } catch (error: any) {
-      console.error('=== CONTACT FORM SUBMISSION ERROR ===');
-      console.error('Error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name
-      });
-
-      let errorMessage = "Please try again or call us at 210-512-4318";
-
-      if (error.message.includes('Failed to fetch')) {
-        errorMessage = "Network error. Please check your connection and try again.";
-      } else if (error.message.includes('validation') || error.message.includes('required')) {
-        errorMessage = error.message;
-      } else if (error.message.includes('Server error')) {
-        errorMessage = "Server error. Please try again in a moment.";
-      }
-
+      console.error('Contact form submission error:', error);
       toast({
-        title: "Submission Failed",
-        description: errorMessage,
+        title: "Submission failed",
+        description: error.message || "Please try again or call us directly at 210-512-4318",
         variant: "destructive",
       });
     } finally {

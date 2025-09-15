@@ -17,10 +17,15 @@ const buildBaseUrl = () => {
   }
   // ---------------------------------------------
 
-  if (import.meta.env.PROD && raw) return raw;
+  if (import.meta.env.PROD && raw) {
+    console.log('[API Client] Using production API URL:', raw);
+    return raw;
+  }
 
-  // Dev/preview fallback: same-origin (Replit/local)
-  return window.location.origin;
+  // Dev fallback: same-origin (Replit/local)
+  const origin = window.location.origin;
+  console.log('[API Client] Using development API URL:', origin);
+  return origin;
 };
 
 export const API_BASE_URL = buildBaseUrl();

@@ -4,6 +4,7 @@ import App from './App.tsx'
 import './index.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ErrorBoundary from './components/ErrorBoundary'
+import './lib/envCheck'
 
 // Global error handler to filter out browser extension errors
 window.addEventListener('error', (event) => {

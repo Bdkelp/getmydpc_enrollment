@@ -228,7 +228,7 @@ export async function getUser(id: string): Promise<User | null> {
       'SELECT * FROM users WHERE id = $1',
       [id]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -307,7 +307,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
       'SELECT * FROM users WHERE email = $1',
       [email]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -411,7 +411,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
     console.error('Error updating user:', error);
-    
+
     // For non-critical updates like last_login_at, don't throw - just return the existing user
     const isNonCriticalUpdate = Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
     if (isNonCriticalUpdate) {
@@ -421,7 +421,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
         return currentUser;
       }
     }
-    
+
     throw new Error(`Failed to update user: ${error.message}`);
   }
 }
@@ -436,7 +436,7 @@ export async function getUserByUsername(username: string): Promise<User | null> 
       'SELECT * FROM users WHERE username = $1',
       [username]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -451,7 +451,7 @@ export async function getUserByGoogleId(googleId: string): Promise<User | null> 
       'SELECT * FROM users WHERE google_id = $1',
       [googleId]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -466,7 +466,7 @@ export async function getUserByFacebookId(facebookId: string): Promise<User | nu
       'SELECT * FROM users WHERE facebook_id = $1',
       [facebookId]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -481,7 +481,7 @@ export async function getUserByTwitterId(twitterId: string): Promise<User | null
       'SELECT * FROM users WHERE twitter_id = $1',
       [twitterId]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -496,7 +496,7 @@ export async function getUserByVerificationToken(token: string): Promise<User | 
       'SELECT * FROM users WHERE email_verification_token = $1',
       [token]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -511,7 +511,7 @@ export async function getUserByResetToken(token: string): Promise<User | null> {
       'SELECT * FROM users WHERE reset_password_token = $1',
       [token]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -526,7 +526,7 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
       'SELECT * FROM users WHERE agent_number = $1',
       [agentNumber]
     );
-    
+
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
@@ -612,7 +612,7 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching all users...');
-    
+
     // First fetch all users using direct Neon query
     const usersResult = await query(
       'SELECT * FROM users ORDER BY created_at DESC'
@@ -622,7 +622,7 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
     const subsResult = await query(
       'SELECT * FROM subscriptions'
     );
-    
+
     const users = usersResult.rows || [];
     const subscriptions = subsResult.rows || [];
 
@@ -655,7 +655,7 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
 export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
     console.log('[Storage] Fetching members only...');
-    
+
     // Use direct Neon query to bypass RLS
     const usersResult = await query(
       `SELECT u.*, 
@@ -775,12 +775,12 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
   try {
     let sql = 'SELECT * FROM users WHERE enrolled_by_agent_id = $1';
     const params: any[] = [agentId];
-    
+
     if (startDate && endDate) {
       sql += ' AND created_at > $2 AND created_at < $3';
       params.push(startDate, endDate);
     }
-    
+
     const result = await query(sql, params);
     return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
   } catch (error: any) {
@@ -794,17 +794,17 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
     let sql = "SELECT * FROM users WHERE role IN ('user', 'member')";
     const params: any[] = [];
     let paramCount = 1;
-    
+
     if (startDate && endDate) {
       sql += ` AND created_at > $${paramCount++} AND created_at < $${paramCount++}`;
       params.push(startDate, endDate);
     }
-    
+
     if (agentId) {
       sql += ` AND enrolled_by_agent_id = $${paramCount++}`;
       params.push(agentId);
     }
-    
+
     const result = await query(sql, params);
     return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
   } catch (error: any) {
@@ -830,65 +830,50 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
   try {
     console.log('[Storage] Creating lead with data:', leadData);
 
+    // Validate required fields
+    if (!leadData.firstName || !leadData.lastName || !leadData.email || !leadData.phone) {
+      throw new Error('Missing required fields: firstName, lastName, email, phone');
+    }
+
     // Map camelCase to snake_case for database
     const dbData = {
-      first_name: leadData.firstName,
-      last_name: leadData.lastName,
-      email: leadData.email,
-      phone: leadData.phone,
-      message: leadData.message || '',
+      first_name: leadData.firstName.trim(),
+      last_name: leadData.lastName.trim(),
+      email: leadData.email.trim().toLowerCase(),
+      phone: leadData.phone.trim(),
+      message: leadData.message ? leadData.message.trim() : '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
       assigned_agent_id: leadData.assignedAgentId || null,
-      notes: leadData.notes || null
+      created_at: new Date(),
+      updated_at: new Date()
     };
 
-    // Use direct Neon query to bypass RLS
-    const result = await query(
-      `INSERT INTO leads (
-        first_name, last_name, email, phone, message, source, status, assigned_agent_id, notes, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [
-        dbData.first_name,
-        dbData.last_name,
-        dbData.email,
-        dbData.phone,
-        dbData.message,
-        dbData.source,
-        dbData.status,
-        dbData.assigned_agent_id,
-        dbData.notes,
-        new Date(),
-        new Date()
-      ]
-    );
+    console.log('[Storage] Mapped data for database:', dbData);
 
-    const data = result.rows[0];
-    if (!data) {
-      throw new Error('Failed to create lead');
+    const { data, error } = await supabase
+      .from('leads')
+      .insert([dbData])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Storage] Supabase error creating lead:', {
+        error: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+      throw new Error(`Database error: ${error.message}`);
     }
 
-    // Map snake_case back to camelCase
-    const mappedLead = {
-      id: data.id,
-      firstName: data.first_name,
-      lastName: data.last_name,
-      email: data.email,
-      phone: data.phone,
-      message: data.message,
-      source: data.source,
-      status: data.status,
-      assignedAgentId: data.assigned_agent_id,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-      notes: data.notes
-    };
+    console.log('[Storage] Lead created successfully:', data);
 
-    console.log('[Storage] Created lead with ID:', mappedLead.id);
-    return mappedLead;
-  } catch (error) {
-    console.error('[Storage] Error creating lead:', error);
-    throw error;
+    // Map back to camelCase for return
+    return mapLeadFromDB(data);
+  } catch (error: any) {
+    console.error('[Storage] Error in createLead:', error);
+    throw new Error(`Failed to create lead: ${error.message}`);
   }
 }
 
@@ -896,14 +881,14 @@ export async function getAgentLeads(agentId: string, status?: string): Promise<L
   try {
     let sql = 'SELECT * FROM leads WHERE assigned_agent_id = $1';
     const params: any[] = [agentId];
-    
+
     if (status) {
       sql += ' AND status = $2';
       params.push(status);
     }
-    
+
     sql += ' ORDER BY created_at DESC';
-    
+
     const result = await query(sql, params);
     const data = result.rows || [];
 
@@ -936,7 +921,7 @@ export async function getLead(id: number): Promise<Lead | undefined> {
       'SELECT * FROM leads WHERE id = $1',
       [id]
     );
-    
+
     const data = result.rows[0];
     if (!data) return undefined;
 
@@ -967,7 +952,7 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
       'SELECT * FROM leads WHERE email = $1',
       [email]
     );
-    
+
     const data = result.rows[0];
     if (!data) return undefined;
 
@@ -1150,7 +1135,7 @@ export async function getAvailableAgentForLead(): Promise<string | null> {
   return agents[0]?.agentId || null;
 }
 
-// Helper function to map database snake_case to camelCase
+// Helper function to map database snake_case to camelCase for leads
 function mapLeadFromDB(dbLead: any): Lead | null {
   if (!dbLead) return null;
 
@@ -1960,7 +1945,7 @@ export async function createPayment(paymentData: {
     console.log('[Storage] Payment created successfully in Neon:', createdPayment.id);
 
     return createdPayment;
-    
+
   } catch (error: any) {
     console.error('[Storage] Payment creation exception:', {
       message: error.message,
@@ -2012,7 +1997,7 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       createdAt: 'created_at',
       updatedAt: 'updated_at'
     };
-    
+
     // Build UPDATE query dynamically for Neon
     const fields = Object.keys(updates);
     const values = Object.values(updates);
@@ -2025,7 +2010,7 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       }
       return `${dbField} = $${index + 2}`;
     }).join(', ');
-    
+
     // Convert metadata to JSON string if present
     const processedValues = values.map((value, index) => {
       if (fields[index] === 'metadata' && typeof value === 'object') {
@@ -2033,20 +2018,20 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       }
       return value;
     });
-    
+
     const updateQuery = `
       UPDATE payments 
       SET ${setClause}, updated_at = NOW()
       WHERE id = $1
       RETURNING *;
     `;
-    
+
     const result = await query(updateQuery, [id, ...processedValues]);
-    
+
     if (!result.rows || result.rows.length === 0) {
       throw new Error('Payment not found');
     }
-    
+
     return result.rows[0];
   } catch (error: any) {
     console.error('Error updating payment:', error);
