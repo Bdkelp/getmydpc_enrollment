@@ -7,50 +7,29 @@ const PORT = process.env.PORT || 3000;
 
 // ✅ Comprehensive CORS configuration for Railway backend
 const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, origin?: boolean) => void) {
-    // Allow requests with no origin (mobile apps, etc.)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'https://enrollment.getmydpc.com',                    // Production Vercel domain
-      'https://shimmering-nourishment.up.railway.app',     // Railway backend domain
-      'http://localhost:3000',                             // Local React dev server
-      'http://localhost:5173',                             // Vite dev server
-      'http://localhost:5000',                             // Replit dev server
-      'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev', // Current Replit domain
-      /\.vercel\.app$/,                                     // Any Vercel preview deployments
-      /\.railway\.app$/,                                    // Any Railway deployments
-      /\.replit\.dev$/                                      // Any Replit deployments
-    ];
-
-    const isAllowed = allowedOrigins.some((pattern) => {
-      if (typeof pattern === 'string') {
-        return origin === pattern;
-      }
-      return pattern.test(origin);
-    });
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log(`[CORS] Blocked origin: ${origin}`);
-      callback(null, false);
-    }
-  },
+  origin: [
+    'https://enrollment.getmydpc.com',                    // Production Vercel domain
+    'https://shimmering-nourishment.up.railway.app',     // Railway backend domain
+    'http://localhost:3000',                             // Local React dev server
+    'http://localhost:5173',                             // Vite dev server
+    'http://localhost:5000',                             // Replit dev server
+    'https://localhost:3000',                            // HTTPS localhost
+    'https://localhost:5173',                            // HTTPS localhost
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev', // Current Replit domain
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With',
-    'Accept',
     'Origin',
+    'X-Requested-With',
+    'Content-Type', 
+    'Accept',
+    'Authorization', 
     'Cache-Control',
     'X-File-Name'
   ],
   exposedHeaders: ['Set-Cookie'],
-  maxAge: 86400, // 24 hours
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 };
 
 app.use(cors(corsOptions));
@@ -119,6 +98,16 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production',
+    platform: 'railway'
+  });
+});
+
+// CORS test endpoint to verify CORS is working
+app.get('/api/test-cors', (req, res) => {
+  res.json({ 
+    message: 'CORS is working!', 
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
     platform: 'railway'
   });
 });
