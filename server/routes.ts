@@ -583,15 +583,33 @@ router.post("/api/public/leads", async (req: any, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [Public Leads] === ENDPOINT HIT ===`);
   console.log(`[${timestamp}] [Public Leads] Method:`, req.method);
-  console.log(
-    `[${timestamp}] [Public Leads] Headers:`,
-    JSON.stringify(req.headers, null, 2),
-  );
+  console.log(`[${timestamp}] [Public Leads] Origin:`, req.headers.origin);
   console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
   console.log(
     `[${timestamp}] [Public Leads] Raw body:`,
     JSON.stringify(req.body, null, 2),
   );
+
+  // Ensure CORS headers are set for this endpoint
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+  ];
+  
+  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
+  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+  
+  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+  }
 
   try {
     // Check if body exists and is parsed

@@ -47,53 +47,76 @@ export function ContactFormModal({ isOpen, onClose, title = "Get Started with My
 
   const onSubmit = async (data: ContactFormData) => {
     setIsSubmitting(true);
-    try {
-      console.log('[ContactForm] Submitting lead data:', data);
+    
+    const submitForm = async (retryCount = 0) => {
+      try {
+        console.log('[ContactForm] Submitting lead data:', data, { retryCount });
 
-      const response = await fetch(`${API_BASE_URL}/api/public/leads`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email,
-          phone: data.phone,
-          message: data.message || 'I\'m interested in Get Started with MyPremierPlans',
-        }),
-      });
-
-      console.log('[ContactForm] Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[ContactForm] Error response:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('[ContactForm] Success response:', result);
-
-      if (result.success) {
-        toast({
-          title: "Thank you for your interest!",
-          description: "We've received your information and will contact you soon.",
+        const response = await fetch(`${API_BASE_URL}/api/public/leads`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email,
+            phone: data.phone,
+            message: data.message || 'I\'m interested in Get Started with MyPremierPlans',
+          }),
         });
-        form.reset();
-        onClose();
-      } else {
-        throw new Error(result.message || 'Failed to submit form');
+
+        console.log('[ContactForm] Response status:', response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[ContactForm] Error response:', errorText);
+          
+          // Retry on server errors or network issues
+          if (retryCount === 0 && (response.status >= 500 || response.status === 0)) {
+            console.log('[ContactForm] Retrying form submission...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return submitForm(retryCount + 1);
+          }
+          
+          throw new Error(`Submission failed (${response.status}). Please try again.`);
+        }
+
+        const result = await response.json();
+        console.log('[ContactForm] Success response:', result);
+
+        if (result.success) {
+          toast({
+            title: "Thank you for your interest!",
+            description: "We've received your information and will contact you soon.",
+          });
+          form.reset();
+          onClose();
+        } else {
+          throw new Error(result.message || 'Failed to submit form');
+        }
+      } catch (error: any) {
+        console.error('Contact form submission error:', error);
+        
+        // Only retry network errors, not validation errors
+        if (retryCount === 0 && (error.message.includes('fetch') || error.message.includes('Network'))) {
+          console.log('[ContactForm] Retrying on network error...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return submitForm(retryCount + 1);
+        }
+        
+        toast({
+          title: "Submission failed",
+          description: error.message || "Please try again or call us directly at 210-512-4318",
+          variant: "destructive",
+        });
       }
-    } catch (error: any) {
-      console.error('Contact form submission error:', error);
-      toast({
-        title: "Submission failed",
-        description: error.message || "Please try again or call us directly at 210-512-4318",
-        variant: "destructive",
-      });
+    };
+    
+    try {
+      await submitForm();
     } finally {
       setIsSubmitting(false);
     }

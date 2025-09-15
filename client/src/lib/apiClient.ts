@@ -46,28 +46,46 @@ const apiClient = {
   async post(endpoint: string, data?: any) {
     console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data });
     
-    const res = await fetch(join(API_BASE_URL, endpoint), {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: data ? JSON.stringify(data) : undefined,
-    });
-    
-    console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
-    
-    if (!res.ok) {
-      // try to surface server error text
-      let txt = "";
-      try {
-        txt = await res.text();
-        console.error(`[API] Error response:`, txt);
-      } catch {}
-      throw new Error(`${res.status} : ${txt || res.statusText}`);
+    try {
+      const res = await fetch(join(API_BASE_URL, endpoint), {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      
+      console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
+      
+      if (!res.ok) {
+        // try to surface server error text
+        let txt = "";
+        try {
+          const responseText = await res.text();
+          txt = responseText;
+          console.error(`[API] Error response:`, txt);
+          
+          // Try to parse as JSON for better error messages
+          try {
+            const errorObj = JSON.parse(responseText);
+            if (errorObj.message) {
+              throw new Error(errorObj.message);
+            }
+          } catch {
+            // Not JSON, use original text
+          }
+        } catch (textError) {
+          console.error(`[API] Could not read error response:`, textError);
+        }
+        throw new Error(`${res.status}: ${txt || res.statusText}`);
+      }
+      return res.json();
+    } catch (networkError) {
+      console.error(`[API] Network error for POST ${endpoint}:`, networkError);
+      throw new Error(`Network error: ${networkError.message}`);
     }
-    return res.json();
   },
 
   async put(endpoint: string, data?: any) {

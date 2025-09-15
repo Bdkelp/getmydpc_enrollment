@@ -16,8 +16,11 @@ const corsOptions = {
       'https://shimmering-nourishment.up.railway.app',     // Railway backend domain
       'http://localhost:3000',                             // Local React dev server
       'http://localhost:5173',                             // Vite dev server
+      'http://localhost:5000',                             // Replit dev server
+      'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev', // Current Replit domain
       /\.vercel\.app$/,                                     // Any Vercel preview deployments
-      /\.railway\.app$/                                     // Any Railway deployments
+      /\.railway\.app$/,                                    // Any Railway deployments
+      /\.replit\.dev$/                                      // Any Replit deployments
     ];
 
     const isAllowed = allowedOrigins.some((pattern) => {
@@ -73,14 +76,22 @@ app.use((req, res, next) => {
     'https://enrollment.getmydpc.com',
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
-    'http://localhost:5173'
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
   ];
   
-  if (allowedOrigins.includes(origin as string)) {
+  // Also check regex patterns for dynamic domains
+  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
+  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+  
+  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
     res.header('Access-Control-Allow-Origin', origin);
   }
   
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
   next();
 });
 

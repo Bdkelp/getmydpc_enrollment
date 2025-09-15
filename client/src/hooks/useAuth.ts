@@ -58,9 +58,9 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchUserProfile = async (token: string) => {
+  const fetchUserProfile = async (token: string, retryCount = 0) => {
     try {
-      console.log('[useAuth] Fetching user profile...');
+      console.log('[useAuth] Fetching user profile...', { retryCount });
 
       const response = await fetch(`${API_BASE_URL}/api/auth/user`, {
         headers: {
@@ -71,8 +71,16 @@ export function useAuth() {
       });
 
       if (!response.ok) {
-        console.error('[useAuth] Failed to fetch user profile:', response.status);
-        throw new Error(`Failed to fetch user profile: ${response.status}`);
+        console.error('[useAuth] Failed to fetch user profile:', response.status, response.statusText);
+        
+        // Retry once on network errors or 5xx errors
+        if (retryCount === 0 && (response.status >= 500 || response.status === 0)) {
+          console.log('[useAuth] Retrying user profile fetch...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return fetchUserProfile(token, retryCount + 1);
+        }
+        
+        throw new Error(`Failed to fetch user profile: ${response.status} ${response.statusText}`);
       }
 
       const userData = await response.json();
@@ -82,6 +90,14 @@ export function useAuth() {
       setIsAuthenticated(true);
     } catch (error) {
       console.error('[useAuth] Error fetching user profile:', error);
+      
+      // Only retry network errors, not auth errors
+      if (retryCount === 0 && error.message.includes('Network error')) {
+        console.log('[useAuth] Retrying on network error...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return fetchUserProfile(token, retryCount + 1);
+      }
+      
       setUser(null);
       setIsAuthenticated(false);
     } finally {
