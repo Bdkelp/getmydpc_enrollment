@@ -2231,7 +2231,7 @@ export async function registerRoutes(app: any) {
     },
   );
 
-  // User activity endpoint
+  // User activity endpoints
   app.post("/api/user/activity", authMiddleware, (req: any, res: any) => {
     try {
       // Log user activity (could be stored in database if needed)
@@ -2242,6 +2242,23 @@ export async function registerRoutes(app: any) {
     } catch (error) {
       console.error("[Activity] Error logging activity:", error);
       res.status(500).json({ error: "Failed to log activity" });
+    }
+  });
+
+  // Get user activity endpoint
+  app.get("/api/user/activity", authMiddleware, (req: any, res: any) => {
+    try {
+      // Return user activity data (placeholder for now)
+      res.json({ 
+        data: { 
+          activities: [], 
+          status: 'coming_soon',
+          lastActivity: new Date().toISOString()
+        } 
+      });
+    } catch (error) {
+      console.error("[Activity] Error fetching activity:", error);
+      res.status(500).json({ error: "Failed to fetch activity" });
     }
   });
 
