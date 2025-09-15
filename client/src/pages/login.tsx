@@ -99,22 +99,27 @@ export default function Login() {
       console.log('Has dbUser?', !!response.dbUser);
       console.log('=== END DEBUG ===');
 
-      // Check for different possible response formats
-      const hasSuccessFormat = response.success && response.session && response.user;
-      const hasTokenFormat = response.token && response.user;
-      const hasSupabaseFormat = response.user && response.session;
+      // Handle the actual Railway backend response format
+      // Backend returns: {success: true, session: {...}, user: {...}}
+      const isValidResponse = response && (
+        (response.success && response.user) ||  // Railway format: {success: true, user: {...}}
+        (response.user && response.session) ||  // Supabase format: {user: {...}, session: {...}}
+        (response.token && response.user) ||    // JWT format: {token: "...", user: {...}}
+        response.id                             // Direct user object
+      );
 
-      console.log('Format checks:');
-      console.log('- Success format (success + session + user):', hasSuccessFormat);
-      console.log('- Token format (token + user):', hasTokenFormat);
-      console.log('- Supabase format (user + session):', hasSupabaseFormat);
+      console.log('Response validation:');
+      console.log('- Has success + user:', !!(response.success && response.user));
+      console.log('- Has user + session:', !!(response.user && response.session));
+      console.log('- Has token + user:', !!(response.token && response.user));
+      console.log('- Is direct user object:', !!response.id);
+      console.log('- Is valid response:', isValidResponse);
 
-      // Backend shape: Check multiple possible formats
-      if (hasSuccessFormat || hasTokenFormat || hasSupabaseFormat) {
-        // Extract user and session from different possible formats
-        const user = response.user || response.dbUser;
-        const session = response.session;
-        const token = response.token;
+      if (isValidResponse) {
+        // Extract user and session data from the response
+        const user = response.user || response;  // user object or direct response
+        const session = response.session;        // session object if present
+        const token = response.token;            // token if present
 
         console.log("Login successful, user:", user?.email);
 
@@ -152,8 +157,9 @@ export default function Login() {
       // If we got here, the server replied but not with expected format
       console.error('Login failed - unexpected response format:', response);
       throw new Error(
-        response?.message ||
-          `Unexpected server response format. Expected: success+session+user OR token+user OR user+session. Got: ${Object.keys(response).join(', ')}`,
+        response?.message || 
+        response?.error ||
+        'Login failed - please check your credentials and try again'
       );
     } catch (error: any) {
       console.error("Login failed:", error);
