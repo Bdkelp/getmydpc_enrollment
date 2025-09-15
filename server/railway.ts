@@ -22,9 +22,9 @@ const corsOptions = {
   allowedHeaders: [
     'Origin',
     'X-Requested-With',
-    'Content-Type', 
+    'Content-Type',
     'Accept',
-    'Authorization', 
+    'Authorization',
     'Cache-Control',
     'X-File-Name'
   ],
@@ -34,33 +34,23 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Explicit preflight handling for all routes
+// Handle preflight requests explicitly for all routes
 app.options('*', (req, res) => {
-  console.log(`[CORS Preflight] ${req.method} ${req.path} from origin: ${req.headers.origin}`);
-  
   const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
-  ];
-  
-  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
-  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
-  
-  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
+  console.log(`[CORS Preflight] ${req.method} ${req.path} from origin: ${origin}`);
+
+  // Check if origin is allowed
+  if (corsOptions.origin.includes(origin as string)) {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+    res.header('Access-Control-Allow-Headers', 'Origin,X-Requested-With,Content-Type,Accept,Authorization,Cache-Control,X-File-Name');
+    res.header('Access-Control-Max-Age', '86400');
+    console.log(`[CORS] Preflight approved for origin: ${origin}`);
   } else {
-    res.header('Access-Control-Allow-Origin', '*');
+    console.log(`[CORS] Preflight blocked for origin: ${origin}`);
   }
-  
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
-  res.header('Access-Control-Max-Age', '86400');
+
   res.status(200).end();
 });
 
@@ -77,15 +67,15 @@ app.use((req, res, next) => {
     'http://localhost:5000',
     'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
   ];
-  
+
   // Also check regex patterns for dynamic domains
   const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
-  
+
   if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
     res.header('Access-Control-Allow-Origin', origin);
   }
-  
+
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
   res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
@@ -104,8 +94,8 @@ app.get('/health', (req, res) => {
 
 // CORS test endpoint to verify CORS is working
 app.get('/api/test-cors', (req, res) => {
-  res.json({ 
-    message: 'CORS is working!', 
+  res.json({
+    message: 'CORS is working!',
     origin: req.headers.origin,
     timestamp: new Date().toISOString(),
     platform: 'railway'
@@ -116,9 +106,9 @@ app.get('/api/test-cors', (req, res) => {
 app.get('/api/debug/cors', (req, res) => {
   const origin = req.headers.origin;
   const userAgent = req.headers['user-agent'];
-  
+
   console.log(`[CORS Debug] Request from origin: ${origin}`);
-  
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
