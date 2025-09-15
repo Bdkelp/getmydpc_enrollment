@@ -2033,7 +2033,7 @@ async function createCommissionWithCheck(
 export async function registerRoutes(app: any) {
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
-    if (req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") {
+    if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
       return next();
     }
 
