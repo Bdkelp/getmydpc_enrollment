@@ -94,6 +94,7 @@ app.get('/health', (req, res) => {
 
 // CORS test endpoint to verify CORS is working
 app.get('/api/test-cors', (req, res) => {
+  console.log('[CORS Test] /api/test-cors endpoint hit');
   res.json({
     message: 'CORS is working!',
     origin: req.headers.origin,
@@ -104,8 +105,21 @@ app.get('/api/test-cors', (req, res) => {
 
 // Additional CORS test endpoint (alternative naming)
 app.get('/api/cors-test', (req, res) => {
+  console.log('[CORS Test] /api/cors-test endpoint hit');
   res.json({
     message: 'CORS test successful!',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    platform: 'railway',
+    status: 'ok'
+  });
+});
+
+// Root CORS test (fallback)
+app.get('/cors-test', (req, res) => {
+  console.log('[CORS Test] /cors-test endpoint hit');
+  res.json({
+    message: 'Root CORS test successful!',
     origin: req.headers.origin,
     timestamp: new Date().toISOString(),
     platform: 'railway',
@@ -139,9 +153,22 @@ app.get('/api/debug/cors', (req, res) => {
 // Register all API routes
 registerRoutes(app);
 
+// Log all registered routes for debugging
+app._router.stack.forEach((middleware) => {
+  if (middleware.route) {
+    console.log(`[Route] ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`[Railway] Server running on port ${PORT}`);
+  console.log(`[Railway] Available endpoints:`);
+  console.log(`  - GET /health`);
+  console.log(`  - GET /api/test-cors`);
+  console.log(`  - GET /api/cors-test`);
+  console.log(`  - GET /cors-test`);
+  console.log(`  - GET /api/debug/cors`);
 });
 
 export default app;
