@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { supabase } from '@/lib/supabase'; // Assuming supabase is exported from here
 // Safe API request function
 const safeApiRequest = async (url: string, options: any = {}) => {
   try {
@@ -40,7 +41,7 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(30);
-  
+
   const lastActivityRef = useRef<number>(Date.now());
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -68,22 +69,22 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
   // Reset the idle timer
   const resetIdleTimer = useCallback(() => {
     lastActivityRef.current = Date.now();
-    
+
     // Clear existing timeouts
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
     if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    
+
     // Reset warning state
     setShowWarning(false);
     setCountdown(30);
-    
+
     if (isAuthenticated) {
       // Set warning timeout (30 seconds before logout)
       warningTimeoutRef.current = setTimeout(() => {
         setShowWarning(true);
         setCountdown(30);
-        
+
         // Start countdown
         countdownIntervalRef.current = setInterval(() => {
           setCountdown(prev => {
@@ -97,7 +98,7 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
           });
         }, 1000);
       }, IDLE_TIMEOUT - WARNING_TIME);
-      
+
       // Set logout timeout
       timeoutRef.current = setTimeout(handleInactiveLogout, IDLE_TIMEOUT);
     }
@@ -114,25 +115,45 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
     });
   }, [resetIdleTimer, updateActivityInBackend, toast]);
 
-  // Track user activity
+  // Track user activity and monitor token refresh
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
-    
-    const handleActivity = () => {
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+
+    const updateLastActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const checkIdleTime = () => {
       const now = Date.now();
       const timeSinceLastActivity = now - lastActivityRef.current;
-      
-      // Only reset if more than 1 second has passed (debounce)
-      if (timeSinceLastActivity > 1000) {
-        resetIdleTimer();
+
+      if (timeSinceLastActivity >= IDLE_TIMEOUT) {
+        setShowWarning(true);
       }
     };
 
-    // Add event listeners
+    // Add event listeners for user activity
     events.forEach(event => {
-      document.addEventListener(event, handleActivity);
+      document.addEventListener(event, updateLastActivity, { passive: true });
+    });
+
+    // Check idle time every minute
+    const idleCheckInterval = setInterval(checkIdleTime, 60000);
+
+    // Monitor token refresh events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('[SessionManager] Token refreshed successfully');
+        // Reset activity timer on successful token refresh
+        lastActivityRef.current = Date.now();
+      } else if (event === 'SIGNED_OUT') {
+        console.log('[SessionManager] User signed out');
+        setShowWarning(false);
+        // Optionally, redirect to login if not already handled by app logic
+        // setLocation('/login');
+      }
     });
 
     // Initial timer setup
@@ -144,20 +165,21 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
     // Cleanup
     return () => {
       events.forEach(event => {
-        document.removeEventListener(event, handleActivity);
+        document.removeEventListener(event, updateLastActivity);
       });
-      
+      clearInterval(idleCheckInterval);
+      clearInterval(activityInterval);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (warningTimeoutRef.current) clearTimeout(warningTimeoutRef.current);
       if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      clearInterval(activityInterval);
+      subscription.unsubscribe();
     };
   }, [isAuthenticated, resetIdleTimer, updateActivityInBackend]);
 
   return (
     <>
       {children}
-      
+
       <AlertDialog open={showWarning} onOpenChange={setShowWarning}>
         <AlertDialogContent>
           <AlertDialogHeader>

@@ -153,3 +153,50 @@ export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter
 export const onAuthStateChange = (callback: (event: any, session: any) => void) => {
   return supabase.auth.onAuthStateChange(callback);
 };
+
+// Monitor and handle token refresh
+export const setupTokenRefreshHandling = () => {
+  return supabase.auth.onAuthStateChange((event, session) => {
+    console.log('[Supabase] Auth event:', event);
+    
+    switch (event) {
+      case 'TOKEN_REFRESHED':
+        console.log('[Supabase] Token refreshed successfully');
+        // Store the new token if needed
+        if (session?.access_token) {
+          localStorage.setItem('supabase_token', session.access_token);
+        }
+        break;
+        
+      case 'SIGNED_OUT':
+        console.log('[Supabase] User signed out');
+        // Clear stored tokens
+        localStorage.removeItem('supabase_token');
+        localStorage.removeItem('auth_token');
+        break;
+        
+      case 'SIGNED_IN':
+        console.log('[Supabase] User signed in');
+        if (session?.access_token) {
+          localStorage.setItem('supabase_token', session.access_token);
+        }
+        break;
+    }
+  });
+};
+
+// Force token refresh if needed
+export const refreshSession = async () => {
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) {
+      console.error('[Supabase] Failed to refresh session:', error);
+      return { data: null, error };
+    }
+    console.log('[Supabase] Session refreshed successfully');
+    return { data, error: null };
+  } catch (err) {
+    console.error('[Supabase] Error refreshing session:', err);
+    return { data: null, error: err };
+  }
+};

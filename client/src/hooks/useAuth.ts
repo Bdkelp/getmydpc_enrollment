@@ -40,16 +40,56 @@ export function useAuth() {
       }
     };
 
-    // Listen for auth changes
+    // Listen for auth changes with better token refresh handling
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('[useAuth] Auth state changed:', event, { hasSession: !!session });
 
-      if (session?.access_token) {
-        await fetchUserProfile(session.access_token);
-      } else {
-        setUser(null);
-        setIsAuthenticated(false);
-        setIsLoading(false);
+      switch (event) {
+        case 'SIGNED_IN':
+          console.log('[useAuth] User signed in');
+          if (session?.access_token) {
+            await fetchUserProfile(session.access_token);
+          }
+          break;
+
+        case 'TOKEN_REFRESHED':
+          console.log('[useAuth] Token refreshed successfully');
+          if (session?.access_token) {
+            await fetchUserProfile(session.access_token);
+          }
+          break;
+
+        case 'SIGNED_OUT':
+          console.log('[useAuth] User signed out');
+          setUser(null);
+          setIsAuthenticated(false);
+          setIsLoading(false);
+          // Clear any stored tokens
+          localStorage.removeItem('auth_token');
+          // Redirect to login
+          window.location.href = '/login';
+          break;
+
+        case 'PASSWORD_RECOVERY':
+          console.log('[useAuth] Password recovery initiated');
+          break;
+
+        case 'USER_UPDATED':
+          console.log('[useAuth] User updated');
+          if (session?.access_token) {
+            await fetchUserProfile(session.access_token);
+          }
+          break;
+
+        default:
+          // Handle any other events
+          if (session?.access_token) {
+            await fetchUserProfile(session.access_token);
+          } else {
+            setUser(null);
+            setIsAuthenticated(false);
+            setIsLoading(false);
+          }
       }
     });
 

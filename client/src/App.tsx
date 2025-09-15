@@ -1,10 +1,12 @@
 import { Switch, Route, Redirect } from "wouter";
+import { useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { SessionManager } from "@/components/SessionManager";
+import { setupTokenRefreshHandling } from "@/lib/supabase";
 import Landing from "@/pages/landing";
 import Registration from "@/pages/registration";
 import Dashboard from "@/pages/dashboard";
@@ -138,6 +140,12 @@ function Router() {
 }
 
 export default function App() {
+  // Initialize token refresh handling
+  useEffect(() => {
+    const subscription = setupTokenRefreshHandling();
+    return () => subscription.unsubscribe();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
