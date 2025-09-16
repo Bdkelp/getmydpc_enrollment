@@ -69,8 +69,8 @@ try {
   console.log('[EPX Routes] Payment Method: Browser Post API (NOT Hosted Checkout)');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
   console.log('[EPX Routes] Base URL:', baseUrl);
-  console.log('[EPX Routes] TAC Endpoint:', 'https://epxuap.com/key-exchange');
-  console.log('[EPX Routes] Payment Endpoint:', 'https://epxuap.com/post');
+  console.log('[EPX Routes] TAC Endpoint:', 'https://keyexch.epxuap.com');
+  console.log('[EPX Routes] Payment Endpoint:', 'https://services.epxuap.com/browserpost/');
   console.log('[EPX Routes] Request Format:', 'Testing both form-encoded and JSON formats');
   
   // Test EPX connectivity on startup

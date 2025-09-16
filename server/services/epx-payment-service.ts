@@ -87,15 +87,15 @@ export class EPXPaymentService {
   constructor(config: EPXConfig) {
     this.config = config;
 
-    // Set URLs based on environment - using correct EPX endpoint paths
+    // Set URLs based on environment
     if (config.environment === 'production') {
-      this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
+      this.apiUrl = 'https://services.epxuap.com/browserpost/';
+      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
-      // Sandbox URLs - EPX uses same endpoints for sandbox with different credentials
-      this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
+      // Sandbox URLs - using alternative endpoints for better connectivity
+      this.apiUrl = 'https://services.epxuap.com/browserpost/';
+      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     }
 
@@ -188,7 +188,7 @@ export class EPXPaymentService {
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         console.log(`[EPX] TAC generation attempt ${attempt}/${maxRetries}`);
-        
+
         try {
           const controller = new AbortController();
           const timeout = baseTimeout * attempt; // Increase timeout with each retry
@@ -224,7 +224,7 @@ export class EPXPaymentService {
           });
 
           clearTimeout(timeoutId);
-          
+
           // If we get here, the request succeeded
           console.log(`[EPX] TAC request succeeded on attempt ${attempt}`);
           console.log('[EPX] TAC response status:', response.status);
@@ -238,7 +238,7 @@ export class EPXPaymentService {
               body: errorText,
               contentType: requestOptions.headers['Content-Type']
             });
-            
+
             // For 400 errors, provide specific guidance
             if (response.status === 400) {
               console.error('[EPX] 400 Bad Request - Common causes:', {
@@ -253,7 +253,7 @@ export class EPXPaymentService {
                 sentData: { ...payload, MAC: '***MASKED***' }
               });
             }
-            
+
             // Don't retry on 4xx errors (client errors) unless it's attempt 1 with form data
             if (response.status >= 400 && response.status < 500 && attempt > 1) {
               return {
@@ -262,7 +262,7 @@ export class EPXPaymentService {
                 details: `Request format may be incorrect. Status: ${response.status}`
               };
             }
-            
+
             // Retry on 5xx errors (server errors) or first 400 attempt
             lastError = new Error(`TAC request failed: ${response.status} ${errorText}`);
             if (attempt === maxRetries) {
@@ -279,7 +279,7 @@ export class EPXPaymentService {
           let data;
           const responseText = await response.text();
           console.log('[EPX] Raw response:', responseText);
-          
+
           try {
             data = JSON.parse(responseText);
             console.log('[EPX] Parsed JSON response:', data);
@@ -303,13 +303,13 @@ export class EPXPaymentService {
           }
         } catch (error: any) {
           lastError = error;
-          
+
           if (error.message === 'EPX_NETWORK_TIMEOUT' && attempt < maxRetries) {
             console.log(`[EPX] Retrying after timeout, attempt ${attempt + 1}/${maxRetries} in 2 seconds...`);
             await new Promise(resolve => setTimeout(resolve, 2000));
             continue;
           }
-          
+
           // If it's the last attempt or a non-retryable error, break
           if (attempt === maxRetries || !error.message.includes('EPX_NETWORK_TIMEOUT')) {
             break;
@@ -326,21 +326,21 @@ export class EPXPaymentService {
       };
     } catch (error: any) {
       console.error('[EPX] TAC generation error after all retries:', error);
-      
+
       if (error.name === 'AbortError' || error.message === 'EPX_NETWORK_TIMEOUT') {
         return {
           success: false,
           error: 'EPX payment service is currently unavailable. This may be due to network connectivity issues. Please try again in a few minutes.'
         };
       }
-      
+
       if (error.message.includes('fetch') || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
         return {
           success: false,
           error: 'EPX payment service connection failed. Please contact support if this issue persists.'
         };
       }
-      
+
       return {
         success: false,
         error: lastError?.message || error.message || 'TAC generation failed'
