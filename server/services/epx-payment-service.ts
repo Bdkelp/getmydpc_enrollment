@@ -89,13 +89,13 @@ export class EPXPaymentService {
 
     // Set URLs based on environment
     if (config.environment === 'production') {
-      this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
+      this.apiUrl = 'https://services.epxuap.com/browserpost/';
+      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
-      // Sandbox URLs - EPX uses same endpoints for sandbox with different credentials
-      this.apiUrl = 'https://epxuap.com/post';
-      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';  // Removed /api/ prefix
+      // Sandbox URLs - using alternative endpoints for better connectivity
+      this.apiUrl = 'https://services.epxuap.com/browserpost/';
+      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     }
 
