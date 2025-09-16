@@ -536,9 +536,9 @@ router.post(
   },
 );
 
-// Also add it to the main app for direct access
-app.post("/api/user/activity", async (req: any, res: any) => {
-  console.log("🔍 USER ACTIVITY DIRECT ROUTE HIT");
+// Additional user activity endpoint (using router)
+router.post("/api/user/activity-ping", async (req: any, res: any) => {
+  console.log("🔍 USER ACTIVITY PING ROUTE HIT");
   
   // Add CORS headers
   const origin = req.headers.origin;
@@ -560,7 +560,7 @@ app.post("/api/user/activity", async (req: any, res: any) => {
   try {
     res.json({ success: true, timestamp: new Date(), activity: "ping" });
   } catch (error) {
-    console.error("❌ Error in direct user activity:", error);
+    console.error("❌ Error in user activity ping:", error);
     res.status(500).json({ message: "Failed to update activity" });
   }
 });
