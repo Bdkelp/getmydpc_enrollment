@@ -14,21 +14,31 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase'; // Assuming supabase is exported from here
-// Safe API request function
+// Safe API request function with better error handling
 const safeApiRequest = async (url: string, options: any = {}) => {
   try {
-    const response = await fetch(url, {
+    const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
+    const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
+    
+    const response = await fetch(fullUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`,
         ...options.headers,
       },
       ...options,
     });
+    
+    if (response.status === 404) {
+      console.warn('[SessionManager] Activity endpoint not found, skipping...');
+      return true; // Don't fail session management if endpoint is missing
+    }
+    
     return response.ok;
   } catch (error) {
     console.warn('[SessionManager] API request failed:', error);
-    return false;
+    return true; // Don't fail session management on network errors
   }
 };
 

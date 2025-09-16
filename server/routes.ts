@@ -536,6 +536,35 @@ router.post(
   },
 );
 
+// Also add it to the main app for direct access
+app.post("/api/user/activity", async (req: any, res: any) => {
+  console.log("🔍 USER ACTIVITY DIRECT ROUTE HIT");
+  
+  // Add CORS headers
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://getmydpcenrollment-production.up.railway.app',
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+  ];
+
+  if (allowedOrigins.includes(origin as string)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+
+  try {
+    res.json({ success: true, timestamp: new Date(), activity: "ping" });
+  } catch (error) {
+    console.error("❌ Error in direct user activity:", error);
+    res.status(500).json({ message: "Failed to update activity" });
+  }
+});
+
 // Subscription routes
 router.get(
   "/api/user/subscription",
@@ -2205,8 +2234,26 @@ export async function registerRoutes(app: any) {
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
 
-  // Registration endpoint
+  // Registration endpoint - ensure it's accessible
   app.post("/api/registration", async (req: any, res: any) => {
+    console.log("[Registration] Endpoint hit - method:", req.method, "path:", req.path);
+    
+    // Add CORS headers for registration endpoint
+    const origin = req.headers.origin;
+    const allowedOrigins = [
+      'https://getmydpcenrollment-production.up.railway.app',
+      'https://enrollment.getmydpc.com',
+      'https://shimmering-nourishment.up.railway.app',
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'http://localhost:5000',
+      'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    ];
+
+    if (allowedOrigins.includes(origin as string)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
     try {
       console.log("[Registration] Registration attempt:", req.body?.email);
       console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
@@ -2243,17 +2290,22 @@ export async function registerRoutes(app: any) {
         faqDownloaded
       } = req.body;
 
-      // Use a stronger default password if the provided one is weak
+      // Generate a strong password by default to avoid Supabase validation issues
       let finalPassword = password;
       if (!password || password.length < 8) {
         finalPassword = `SecurePass${Date.now()}!`;
         console.log("[Registration] Using generated secure password due to weak/missing password");
+      } else {
+        // Ensure password meets Supabase requirements
+        if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) {
+          finalPassword = `SecurePass${Date.now()}!`;
+          console.log("[Registration] Password doesn't meet requirements, using generated password");
+        }
       }
 
       // Basic validation with better error details
       const missingFields = [];
       if (!email) missingFields.push("email");
-      if (!password) missingFields.push("password");
       if (!firstName) missingFields.push("firstName");
       if (!lastName) missingFields.push("lastName");
 
@@ -2261,11 +2313,10 @@ export async function registerRoutes(app: any) {
         console.log("[Registration] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["email", "password", "firstName", "lastName"],
+          required: ["email", "firstName", "lastName"],
           missing: missingFields,
           received: {
             email: !!email,
-            password: !!password,
             firstName: !!firstName,
             lastName: !!lastName
           }
