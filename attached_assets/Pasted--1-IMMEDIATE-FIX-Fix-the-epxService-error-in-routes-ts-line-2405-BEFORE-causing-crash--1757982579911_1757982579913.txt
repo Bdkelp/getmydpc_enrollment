@@ -1,0 +1,111 @@
+// 1. IMMEDIATE FIX: Fix the epxService error in routes.ts line 2405
+
+// BEFORE (causing crash):
+console.log("EPX Service configured:", epxService ? "Browser Post ready" : "Not configured");
+
+// AFTER (safe fix):
+console.log("EPX Service configured:", typeof epxService !== 'undefined' && epxService ? "Browser Post ready" : "Not configured");
+
+// OR better yet, properly define epxService:
+const epxService = process.env.EPX_SERVICE_ENABLED === 'true' || false;
+console.log("EPX Service configured:", epxService ? "Browser Post ready" : "Not configured");
+
+// 2. MISSING ENDPOINTS FIX
+// I notice your current endpoints are:
+// - GET /health ✅
+// - GET /api/test-cors ✅  
+// - POST /api/mock-payment ✅
+// - GET /api/user/profile ✅
+// - POST/GET /api/user/activity ✅
+
+// BUT MISSING (causing the 404s):
+// - POST /api/registration ❌
+// - POST /api/agent/enrollment ❌
+// - GET /api/agent/:agentId ❌
+
+// 3. ADD MISSING REGISTRATION ENDPOINTS
+// Add these to your routes.ts file:
+
+// Registration endpoint
+app.post('/api/registration', async (req, res) => {
+  try {
+    console.log('Registration attempt:', req.body?.email);
+    
+    const {
+      email,
+      password,
+      firstName,
+      lastName,
+      phone,
+      termsAccepted,
+      privacyAccepted,
+      smsConsent,
+      faqDownloaded
+    } = req.body;
+
+    // Basic validation
+    if (!email || !password || !firstName || !lastName) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['email', 'password', 'firstName', 'lastName']
+      });
+    }
+
+    // TODO: Add actual Supabase registration logic here
+    // For now, return success to test the endpoint
+    res.json({
+      success: true,
+      message: 'Registration endpoint working',
+      data: {
+        email,
+        firstName,
+        lastName
+      }
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      error: 'Registration failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal error'
+    });
+  }
+});
+
+// Agent enrollment endpoint  
+app.post('/api/agent/enrollment', async (req, res) => {
+  try {
+    const { agentCode, userEmail, planType } = req.body;
+    
+    res.json({
+      success: true,
+      message: 'Agent enrollment endpoint working',
+      data: { agentCode, userEmail, planType }
+    });
+    
+  } catch (error) {
+    console.error('Agent enrollment error:', error);
+    res.status(500).json({
+      error: 'Agent enrollment failed',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal error'
+    });
+  }
+});
+
+// Agent lookup endpoint
+app.get('/api/agent/:agentId', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    
+    res.json({
+      success: true,
+      agent: {
+        id: agentId,
+        name: `Agent ${agentId}`,
+        active: true
+      }
+    });
+    
+  } catch (error) {
+    console.error('Agent lookup error:', error);
+    res.status(500
