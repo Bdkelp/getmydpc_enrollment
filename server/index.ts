@@ -113,7 +113,13 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
-  app.use(epxRoutes);
+  // Import routes
+  import routes from "./routes";
+
+  // Use routes
+  app.use("/api", routes);
+  app.use(epxRoutes); // EPX routes already have /api prefix
+
   app.use(adminLogsRoutes);
   app.use(devUtilitiesRoutes);
 

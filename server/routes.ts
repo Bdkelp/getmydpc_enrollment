@@ -14,6 +14,8 @@ import { z } from "zod";
 import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { nanoid } from "nanoid"; // Import nanoid for generating IDs
+import epxRoutes from "./routes/epx-routes"; // Import EPX payment routes
+
 const router = Router();
 
 // Public routes (no authentication required)
@@ -539,7 +541,7 @@ router.post(
 // Additional user activity endpoint (using router)
 router.post("/api/user/activity-ping", async (req: any, res: any) => {
   console.log("🔍 USER ACTIVITY PING ROUTE HIT");
-  
+
   // Add CORS headers
   const origin = req.headers.origin;
   const allowedOrigins = [
@@ -1365,7 +1367,7 @@ router.get(
     console.log("User:", req.user?.email);
     console.log("Role:", req.user?.role);
     console.log("Headers:", req.headers.authorization);
-    
+
     if (req.user!.role !== "admin") {
       console.log("❌ Access denied - not admin");
       return res.status(403).json({ message: "Admin access required" });
@@ -1631,16 +1633,16 @@ router.get(
   authenticateToken,
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-    
+
     if (req.user!.role !== "agent" && req.user!.role !== "admin") {
       console.log("❌ Access denied - not agent or admin");
       return res.status(403).json({ message: "Agent or admin access required" });
     }
-    
+
     try {
       const { startDate, endDate } = req.query;
       let enrollments;
-      
+
       if (req.user!.role === "admin") {
         // Admin sees all enrollments
         enrollments = await storage.getAllEnrollments(
@@ -1655,7 +1657,7 @@ router.get(
           endDate as string
         );
       }
-      
+
       console.log("✅ Got", enrollments?.length || 0, "enrollments");
       res.json(enrollments);
     } catch (error) {
@@ -1984,7 +1986,7 @@ router.get(
   authenticateToken,
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-    
+
     if (req.user!.role !== "agent" && req.user!.role !== "admin") {
       console.log("❌ Access denied - not agent or admin");
       return res.status(403).json({ message: "Agent or admin access required" });
@@ -2239,7 +2241,7 @@ export async function registerRoutes(app: any) {
     console.log("🔍 REGISTRATION START - Data received");
     console.log("Request body keys:", Object.keys(req.body || {}));
     console.log("[Registration] Endpoint hit - method:", req.method, "path:", req.path);
-    
+
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
     const allowedOrigins = [
@@ -2295,15 +2297,15 @@ export async function registerRoutes(app: any) {
 
       // Generate a strong password by default to avoid Supabase validation issues
       let finalPassword = password;
-      
+
       console.log("✅ Step 2: Processing password...");
       console.log("[Registration] Original password provided:", !!password);
-      
+
       // Always generate a strong password for DPC enrollments to avoid Supabase issues
       const timestamp = Date.now();
       const randomNum = Math.floor(Math.random() * 9999);
       finalPassword = `MPP${timestamp}${randomNum}!Secure`;
-      
+
       console.log("[Registration] Using strong generated password for Supabase compliance");
       console.log("[Registration] Generated password length:", finalPassword.length);
 
@@ -2330,7 +2332,7 @@ export async function registerRoutes(app: any) {
       console.log("✅ Step 3: Before Supabase auth signUp...");
       console.log("[Registration] Email:", email);
       console.log("[Registration] Password strength check passed");
-      
+
       // Use existing registration logic with improved password
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -2364,7 +2366,7 @@ export async function registerRoutes(app: any) {
       }
 
       console.log("✅ Step 5: Before database user creation...");
-      
+
       // Create user in our database with full enrollment data
       const user = await storage.createUser({
         id: data.user.id,
@@ -2395,7 +2397,7 @@ export async function registerRoutes(app: any) {
 
       console.log("✅ Step 6: User created in database successfully");
       console.log("[Registration] User ID:", user.id);
-      
+
       // Create subscription if plan is selected
       if (planId && totalMonthlyPrice) {
         try {
@@ -2418,7 +2420,7 @@ export async function registerRoutes(app: any) {
       }
 
       console.log("✅ Step 8: Before family members processing...");
-      
+
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
         console.log("[Registration] Processing", familyMembers.length, "family members");
@@ -2426,16 +2428,8 @@ export async function registerRoutes(app: any) {
           if (familyMember.firstName && familyMember.lastName) {
             try {
               await storage.addFamilyMember({
+                ...familyMemberData,
                 primaryUserId: user.id,
-                firstName: familyMember.firstName,
-                lastName: familyMember.lastName,
-                middleName: familyMember.middleName || "",
-                dateOfBirth: familyMember.dateOfBirth ? new Date(familyMember.dateOfBirth) : null,
-                gender: familyMember.gender || null,
-                relationship: familyMember.relationship || "family",
-                phone: familyMember.phone || "",
-                ssn: familyMember.ssn || "",
-                createdAt: new Date()
               });
               console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
             } catch (familyError) {
@@ -2473,7 +2467,7 @@ export async function registerRoutes(app: any) {
       console.error("❌ REGISTRATION ERROR:", error.message);
       console.error("❌ Error details:", error);
       console.error("❌ Stack trace:", error.stack);
-      
+
       res.status(500).json({
         error: "Registration failed",
         message: error.message,
@@ -2662,7 +2656,7 @@ export async function registerRoutes(app: any) {
   app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
     try {
       console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-      
+
       if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
         console.log("❌ Access denied - not agent or admin");
         return res.status(403).json({ error: 'Agent or admin access required' });
@@ -2705,19 +2699,19 @@ export async function registerRoutes(app: any) {
   app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
     try {
       console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-      
+
       if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
         console.log("❌ Access denied - not agent or admin");
         return res.status(403).json({ error: 'Agent or admin access required' });
       }
-      
+
       const { startDate, endDate } = req.query;
       const commissions = await storage.getAgentCommissions(
         req.user.id,
         startDate as string,
         endDate as string
       );
-      
+
       console.log("✅ Got", commissions?.length || 0, "commissions");
       res.json({
         success: true,
