@@ -110,3 +110,28 @@ export function getEnrollmentDataFromURL() {
     password: 'TempPassword123!' // You'll need to handle this differently
   };
 }
+
+export function debugStorage() {
+  console.log('=== STORAGE DEBUG ===');
+  console.log('localStorage available:', typeof localStorage !== 'undefined');
+  console.log('sessionStorage available:', typeof sessionStorage !== 'undefined');
+  console.log('localStorage:', localStorage);
+  console.log('sessionStorage:', sessionStorage);
+  
+  // Test storage
+  try {
+    localStorage.setItem('test', 'value');
+    console.log('localStorage test:', localStorage.getItem('test'));
+    localStorage.removeItem('test');
+  } catch (e) {
+    console.log('localStorage error:', e);
+  }
+  
+  try {
+    sessionStorage.setItem('test', 'value');
+    console.log('sessionStorage test:', sessionStorage.getItem('test'));
+    sessionStorage.removeItem('test');
+  } catch (e) {
+    console.log('sessionStorage error:', e);
+  }
+}

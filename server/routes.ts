@@ -2711,49 +2711,109 @@ export async function registerRoutes(app: any) {
   });
 
   // Fix: /api/agent/enrollments (404)
-  app.get('/api/agent/enrollments', async (req: any, res: any) => {
+  app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
     try {
-      // TODO: Add authentication check
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const agentId = req.user.id;
+      const { startDate, endDate } = req.query;
+
+      const enrollments = await storage.getEnrollmentsByAgent(
+        agentId,
+        startDate as string,
+        endDate as string
+      );
+
       res.json({
         success: true,
-        enrollments: [],
-        total: 0,
-        message: 'Enrollments endpoint working'
+        enrollments: enrollments || [],
+        total: enrollments?.length || 0,
+        agentId: agentId
       });
     } catch (error: any) {
+      console.error('Agent enrollments error:', error);
       res.status(500).json({ error: 'Failed to fetch enrollments' });
     }
   });
 
   // Fix: /api/agent/stats (403) - permission issue
-  app.get('/api/agent/stats', async (req: any, res: any) => {
+  app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
     try {
-      // For now, return mock data to fix 403
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const agentId = req.user.id;
+
+      // Get enrollment counts
+      const enrollments = await storage.getAgentEnrollments(agentId);
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+
+      const monthlyEnrollments = enrollments.filter(
+        (e) => new Date(e.createdAt) >= thisMonth,
+      ).length;
+
+      // Get active members count
+      const activeMembers = enrollments.filter((e) => e.isActive).length;
+
+      // Get commission stats
+      const commissionStats = await storage.getCommissionStats(agentId);
+
       res.json({
         success: true,
         stats: {
-          totalEnrollments: 0,
-          monthlyEnrollments: 0,
-          pendingEnrollments: 0
+          totalEnrollments: enrollments.length,
+          monthlyEnrollments,
+          activeMembers,
+          pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
+          ...commissionStats
         }
       });
     } catch (error: any) {
+      console.error('Agent stats error:', error);
       res.status(500).json({ error: 'Failed to fetch stats' });
     }
   });
 
   // Fix: /api/agent/commission-stats (404)
-  app.get('/api/agent/commission-stats', async (req: any, res: any) => {
+  app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
     try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      // Get actual commission stats for the agent
+      const agentId = req.user.id;
+      const commissions = await storage.getAgentCommissions(agentId);
+      
+      const totalCommission = commissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+      
+      const monthlyCommissions = commissions.filter(c => new Date(c.createdAt) >= thisMonth);
+      const monthlyCommission = monthlyCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
+      
+      const pendingCommissions = commissions.filter(c => c.paymentStatus === 'unpaid');
+      const pendingCommission = pendingCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
+
       res.json({
         success: true,
         commissionStats: {
-          totalCommission: 0,
-          monthlyCommission: 0,
-          pendingCommission: 0
+          totalCommission: totalCommission.toFixed(2),
+          monthlyCommission: monthlyCommission.toFixed(2),
+          pendingCommission: pendingCommission.toFixed(2),
+          totalCount: commissions.length,
+          monthlyCount: monthlyCommissions.length,
+          pendingCount: pendingCommissions.length
         }
       });
     } catch (error: any) {
+      console.error('Commission stats error:', error);
       res.status(500).json({ error: 'Failed to fetch commission stats' });
     }
   });
