@@ -23,50 +23,36 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 // Create profile images bucket if it doesn't exist
 export async function ensureProfileImagesBucket() {
   try {
-    // Check if user is authenticated before attempting bucket operations
+    // Skip bucket operations entirely in development or if no session
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
       console.log('No active session, skipping bucket setup');
       return;
     }
 
+    // Only try to list buckets, don't create them automatically
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();
 
     if (listError) {
-      console.warn('Could not list buckets:', listError);
+      console.warn('Storage access limited:', listError.message);
       return;
     }
 
     const bucketExists = buckets?.some(bucket => bucket.name === 'profile-images');
-
-    if (!bucketExists) {
-      // Only attempt to create bucket if user has admin privileges
-      const { data: user } = await supabase.auth.getUser();
-      if (user?.user?.user_metadata?.role === 'admin') {
-        const { error: createError } = await supabase.storage.createBucket('profile-images', {
-          public: true,
-          allowedMimeTypes: ['image/*'],
-          fileSizeLimit: 5242880 // 5MB
-        });
-
-        if (createError) {
-        console.warn('Could not create profile-images bucket:', createError.message);
-        // Don't throw error - the bucket might already exist or we might not have permissions
-        // Profile uploads will handle individual upload errors gracefully
-      } else {
-        console.log('Profile-images bucket created successfully');
-      }
+    
+    if (bucketExists) {
+      console.log('Profile-images bucket exists and accessible');
     } else {
-      console.log('Profile-images bucket already exists');
+      console.warn('Profile-images bucket not found - profile uploads may not work');
     }
-  } } catch (error) {
-    console.warn('Error in ensureProfileImagesBucket:', error);
+  } catch (error) {
+    console.warn('Storage check failed (this is normal in development):', error);
     // Don't throw - this is not critical for app functionality
   }
 }
 
-// Initialize storage on app start
-ensureProfileImagesBucket();
+// Don't initialize storage automatically on app start
+// ensureProfileImagesBucket();
 
 // Auth helper functions
 export const signIn = async (email: string, password: string) => {
@@ -198,5 +184,55 @@ export const refreshSession = async () => {
   } catch (err) {
     console.error('[Supabase] Error refreshing session:', err);
     return { data: null, error: err };
+  }
+};
+
+// Safe storage upload with error handling
+export const uploadProfileImage = async (file: File, userId: string) => {
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${userId}-${Math.random()}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+
+    const { data, error } = await supabase.storage
+      .from('profile-images')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Storage upload error:', error);
+      throw error;
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('profile-images')
+      .getPublicUrl(filePath);
+
+    return { data: { path: filePath, publicUrl }, error: null };
+  } catch (error) {
+    console.error('Profile image upload failed:', error);
+    return { data: null, error };
+  }
+};
+
+// Safe storage delete
+export const deleteProfileImage = async (filePath: string) => {
+  try {
+    const { error } = await supabase.storage
+      .from('profile-images')
+      .remove([filePath]);
+
+    if (error) {
+      console.error('Storage delete error:', error);
+      throw error;
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error('Profile image delete failed:', error);
+    return { error };
   }
 };
