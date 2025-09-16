@@ -2295,19 +2295,10 @@ export async function registerRoutes(app: any) {
         faqDownloaded
       } = req.body;
 
-      // Generate a strong password by default to avoid Supabase validation issues
-      let finalPassword = password;
-
-      console.log("✅ Step 2: Processing password...");
-      console.log("[Registration] Original password provided:", !!password);
-
-      // Always generate a strong password for DPC enrollments to avoid Supabase issues
-      const timestamp = Date.now();
-      const randomNum = Math.floor(Math.random() * 9999);
-      finalPassword = `MPP${timestamp}${randomNum}!Secure`;
-
-      console.log("[Registration] Using strong generated password for Supabase compliance");
-      console.log("[Registration] Generated password length:", finalPassword.length);
+      console.log("✅ Step 2: Email validation debugging...");
+      console.log("[Registration] Email received:", email);
+      console.log("[Registration] Email type:", typeof email);
+      console.log("[Registration] Email length:", email?.length);
 
       // Basic validation with better error details
       const missingFields = [];
@@ -2329,13 +2320,48 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      console.log("✅ Step 3: Before Supabase auth signUp...");
-      console.log("[Registration] Email:", email);
-      console.log("[Registration] Password strength check passed");
+      // Email validation with detailed logging
+      console.log("✅ Step 3: Email format validation...");
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const isValidEmail = emailRegex.test(email);
+      console.log("[Registration] Email regex test result:", isValidEmail);
+      console.log("[Registration] Email regex pattern:", emailRegex.toString());
+      
+      if (!isValidEmail) {
+        console.error("[Registration] Email validation failed for:", email);
+        return res.status(400).json({
+          error: "Invalid email format",
+          email: email,
+          regexPattern: emailRegex.toString()
+        });
+      }
 
-      // Use existing registration logic with improved password
+      // Generate a strong password by default to avoid Supabase validation issues
+      let finalPassword = password;
+
+      console.log("✅ Step 4: Processing password...");
+      console.log("[Registration] Original password provided:", !!password);
+
+      // Always generate a strong password for DPC enrollments to avoid Supabase issues
+      const timestamp = Date.now();
+      const randomNum = Math.floor(Math.random() * 9999);
+      finalPassword = `MPP${timestamp}${randomNum}!Secure`;
+
+      console.log("[Registration] Using strong generated password for Supabase compliance");
+      console.log("[Registration] Generated password length:", finalPassword.length);
+
+      console.log("✅ Step 5: Before Supabase auth signUp...");
+      console.log("[Registration] Email for Supabase:", email);
+      console.log("[Registration] Password strength check passed");
+      console.log("[Registration] Supabase signup payload:", {
+        email: email,
+        passwordLength: finalPassword.length,
+        hasMetadata: !!firstName
+      });
+
+      // Use existing registration logic with improved password and detailed error handling
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(), // Ensure clean email format
         password: finalPassword,
         options: {
           data: {
@@ -2348,29 +2374,42 @@ export async function registerRoutes(app: any) {
 
       if (error) {
         console.error("❌ SUPABASE AUTH ERROR:", error.message);
-        console.error("❌ Error details:", error);
+        console.error("❌ Error details:", JSON.stringify(error, null, 2));
         console.error("[Registration] Supabase error code:", error.status);
+        console.error("[Registration] Error source:", error.name || 'Unknown');
+        
+        // Check if it's an email validation error from Supabase
+        if (error.message && error.message.toLowerCase().includes('invalid')) {
+          console.error("❌ EMAIL VALIDATION ERROR FROM SUPABASE");
+          console.error("❌ Original email:", email);
+          console.error("❌ Processed email:", email.trim().toLowerCase());
+        }
+        
         return res.status(400).json({
           error: error.message || "Registration failed",
+          source: "Supabase Auth",
           details: process.env.NODE_ENV === "development" ? error : undefined
         });
       }
 
-      console.log("✅ Step 4: Supabase user created successfully");
+      console.log("✅ Step 6: Supabase user created successfully");
       console.log("[Registration] Supabase user ID:", data.user?.id);
+      console.log("[Registration] Supabase user email:", data.user?.email);
 
       if (!data.user) {
+        console.error("❌ No user data returned from Supabase");
         return res.status(400).json({
-          error: "Failed to create user"
+          error: "Failed to create user - no user data returned"
         });
       }
 
-      console.log("✅ Step 5: Before database user creation...");
+      console.log("✅ Step 7: Before database user creation...");
+      console.log("[Registration] Creating user with email:", data.user.email);
 
       // Create user in our database with full enrollment data
       const user = await storage.createUser({
         id: data.user.id,
-        email: data.user.email!,
+        email: data.user.email!, // Use the email from Supabase to ensure consistency
         firstName: firstName || "User",
         lastName: lastName || "",
         middleName: middleName || "",
