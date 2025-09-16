@@ -87,15 +87,15 @@ export class EPXPaymentService {
   constructor(config: EPXConfig) {
     this.config = config;
 
-    // Set URLs based on environment
+    // Set URLs based on environment - using correct EPX endpoint paths
     if (config.environment === 'production') {
-      this.apiUrl = 'https://services.epxuap.com/browserpost/';
-      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
+      this.apiUrl = 'https://epxuap.com/post';
+      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     } else {
-      // Sandbox URLs - using alternative endpoints for better connectivity
-      this.apiUrl = 'https://services.epxuap.com/browserpost/';
-      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
+      // Sandbox URLs - EPX uses same endpoints for sandbox with different credentials
+      this.apiUrl = 'https://epxuap.com/post';
+      this.keyExchangeUrl = 'https://epxuap.com/key-exchange';
       this.customPayApiUrl = 'https://epi.epxuap.com';
     }
 
@@ -155,7 +155,30 @@ export class EPXPaymentService {
       }
 
       console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
-      console.log('[EPX] TAC payload:', { ...payload, MAC: '***MASKED***' });
+      console.log('[EPX] TAC payload structure check:', {
+        hasMAC: !!payload.MAC,
+        macLength: payload.MAC?.length,
+        custNbr: payload.CUST_NBR,
+        merchNbr: payload.MERCH_NBR,
+        dbaNbr: payload.DBA_NBR,
+        terminalNbr: payload.TERMINAL_NBR,
+        amount: payload.AMOUNT,
+        tranNbr: payload.TRAN_NBR,
+        tranCode: payload.TRAN_CODE,
+        redirectUrl: payload.REDIRECT_URL,
+        responseUrl: payload.RESPONSE_URL,
+        fieldsCount: Object.keys(payload).length
+      });
+
+      // Convert to form data format - EPX may expect form-encoded data instead of JSON
+      const formData = new URLSearchParams();
+      Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, value.toString());
+        }
+      });
+
+      console.log('[EPX] Form data string:', formData.toString().replace(/MAC=[^&]*/g, 'MAC=***MASKED***'));
 
       // Retry logic for network issues
       const maxRetries = 3;
@@ -171,17 +194,27 @@ export class EPXPaymentService {
           const timeout = baseTimeout * attempt; // Increase timeout with each retry
           const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-          response = await fetch(this.keyExchangeUrl, {
+          // Try both JSON and form-encoded formats
+          const requestOptions = {
             method: 'POST',
-            headers: {
+            headers: attempt <= 2 ? {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'Accept': 'application/json, text/plain, */*',
+              'User-Agent': 'DPC-EPX-Integration/1.0',
+              'Connection': 'keep-alive'
+            } : {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
               'User-Agent': 'DPC-EPX-Integration/1.0',
               'Connection': 'keep-alive'
             },
-            body: JSON.stringify(payload),
+            body: attempt <= 2 ? formData.toString() : JSON.stringify(payload),
             signal: controller.signal
-          }).catch((fetchError: any) => {
+          };
+
+          console.log(`[EPX] Request ${attempt} Content-Type:`, requestOptions.headers['Content-Type']);
+
+          response = await fetch(this.keyExchangeUrl, requestOptions).catch((fetchError: any) => {
             // Handle network errors specifically
             if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
               console.error(`[EPX] Network timeout on attempt ${attempt} - EPX service may be unavailable`);
@@ -198,29 +231,62 @@ export class EPXPaymentService {
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[EPX] TAC request failed on attempt ${attempt}:`, response.status, errorText);
+            console.error(`[EPX] TAC request failed on attempt ${attempt}:`, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: Object.fromEntries(response.headers.entries()),
+              body: errorText,
+              contentType: requestOptions.headers['Content-Type']
+            });
             
-            // Don't retry on 4xx errors (client errors)
-            if (response.status >= 400 && response.status < 500) {
+            // For 400 errors, provide specific guidance
+            if (response.status === 400) {
+              console.error('[EPX] 400 Bad Request - Common causes:', {
+                possibleIssues: [
+                  'Invalid MAC key format or value',
+                  'Incorrect merchant/terminal numbers for sandbox',
+                  'Missing required fields',
+                  'Incorrect data format (amount, dates, etc.)',
+                  'Wrong Content-Type header',
+                  'Field length violations'
+                ],
+                sentData: { ...payload, MAC: '***MASKED***' }
+              });
+            }
+            
+            // Don't retry on 4xx errors (client errors) unless it's attempt 1 with form data
+            if (response.status >= 400 && response.status < 500 && attempt > 1) {
               return {
                 success: false,
-                error: `TAC request failed: ${response.status} ${errorText}`
+                error: `TAC request failed: ${response.status} ${errorText}`,
+                details: `Request format may be incorrect. Status: ${response.status}`
               };
             }
             
-            // Retry on 5xx errors (server errors)
+            // Retry on 5xx errors (server errors) or first 400 attempt
             lastError = new Error(`TAC request failed: ${response.status} ${errorText}`);
             if (attempt === maxRetries) {
               return {
                 success: false,
-                error: lastError.message
+                error: lastError.message,
+                details: 'All retry attempts failed'
               };
             }
             continue;
           }
 
-          const data = await response.json();
-          console.log('[EPX] TAC response data:', data);
+          // Try to parse response as JSON first, then as text
+          let data;
+          const responseText = await response.text();
+          console.log('[EPX] Raw response:', responseText);
+          
+          try {
+            data = JSON.parse(responseText);
+            console.log('[EPX] Parsed JSON response:', data);
+          } catch (parseError) {
+            console.log('[EPX] Response is not JSON, treating as text:', responseText);
+            data = { rawResponse: responseText };
+          }
 
           if (data.TAC) {
             console.log('[EPX] TAC generated successfully');
