@@ -1,0 +1,76 @@
+Failed to load resource: the server responded with a status of 404 ()Understand this error
+index-B6YbOKBT.js:48  POST https://getmydpcenrollment-production.up.railway.app/api/registration 400 (Bad Request)
+St @ index-B6YbOKBT.js:48
+await in St
+mutationFn @ index-B6YbOKBT.js:490
+fn @ index-B6YbOKBT.js:48
+k @ index-B6YbOKBT.js:48
+start @ index-B6YbOKBT.js:48
+execute @ index-B6YbOKBT.js:48
+await in execute
+mutate @ index-B6YbOKBT.js:48
+(anonymous) @ index-B6YbOKBT.js:48
+B @ index-B6YbOKBT.js:490
+(anonymous) @ index-B6YbOKBT.js:417
+await in (anonymous)
+j_ @ index-B6YbOKBT.js:37
+S_ @ index-B6YbOKBT.js:37
+__ @ index-B6YbOKBT.js:37
+Jg @ index-B6YbOKBT.js:37
+ex @ index-B6YbOKBT.js:37
+(anonymous) @ index-B6YbOKBT.js:37
+cf @ index-B6YbOKBT.js:40
+ig @ index-B6YbOKBT.js:37
+lh @ index-B6YbOKBT.js:37
+Wu @ index-B6YbOKBT.js:37
+z_ @ index-B6YbOKBT.js:37Understand this error
+index-B6YbOKBT.js:48 [apiRequest:u5pkl9wa1] Request failed {status: 400, statusText: '', error: '{"error":"Email address \\"john.doe@gmail.com\\" is invalid"}', duration: '1275ms', url: 'https://getmydpcenrollment-production.up.railway.app/api/registration'}
+St @ index-B6YbOKBT.js:48
+await in St
+mutationFn @ index-B6YbOKBT.js:490
+fn @ index-B6YbOKBT.js:48
+k @ index-B6YbOKBT.js:48
+start @ index-B6YbOKBT.js:48
+execute @ index-B6YbOKBT.js:48
+await in execute
+mutate @ index-B6YbOKBT.js:48
+(anonymous) @ index-B6YbOKBT.js:48
+B @ index-B6YbOKBT.js:490
+(anonymous) @ index-B6YbOKBT.js:417
+await in (anonymous)
+j_ @ index-B6YbOKBT.js:37
+S_ @ index-B6YbOKBT.js:37
+__ @ index-B6YbOKBT.js:37
+Jg @ index-B6YbOKBT.js:37
+ex @ index-B6YbOKBT.js:37
+(anonymous) @ index-B6YbOKBT.js:37
+cf @ index-B6YbOKBT.js:40
+ig @ index-B6YbOKBT.js:37
+lh @ index-B6YbOKBT.js:37
+Wu @ index-B6YbOKBT.js:37
+z_ @ index-B6YbOKBT.js:37Understand this error
+index-B6YbOKBT.js:48 [apiRequest:u5pkl9wa1] Request failed {error: 'HTTP 400: {"error":"Email address \\"john.doe@gmail.com\\" is invalid"}', duration: '1276ms', url: 'https://getmydpcenrollment-production.up.railway.app/api/registration', stack: 'Error: HTTP 400: {"error":"Email address \\"john.do….getmydpc.com/assets/index-B6YbOKBT.js:490:11972)'}
+St @ index-B6YbOKBT.js:48
+await in St
+mutationFn @ index-B6YbOKBT.js:490
+fn @ index-B6YbOKBT.js:48
+k @ index-B6YbOKBT.js:48
+start @ index-B6YbOKBT.js:48
+execute @ index-B6YbOKBT.js:48
+await in execute
+mutate @ index-B6YbOKBT.js:48
+(anonymous) @ index-B6YbOKBT.js:48
+B @ index-B6YbOKBT.js:490
+(anonymous) @ index-B6YbOKBT.js:417
+await in (anonymous)
+j_ @ index-B6YbOKBT.js:37
+S_ @ index-B6YbOKBT.js:37
+__ @ index-B6YbOKBT.js:37
+Jg @ index-B6YbOKBT.js:37
+ex @ index-B6YbOKBT.js:37
+(anonymous) @ index-B6YbOKBT.js:37
+cf @ index-B6YbOKBT.js:40
+ig @ index-B6YbOKBT.js:37
+lh @ index-B6YbOKBT.js:37
+Wu @ index-B6YbOKBT.js:37
+z_ @ index-B6YbOKBT.js:37Understand this error
