@@ -521,6 +521,23 @@ router.put(
   },
 );
 
+// User activity tracking endpoint for SessionManager
+router.post(
+  "/api/user/activity",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 USER ACTIVITY ROUTE HIT - User:", req.user?.email);
+    try {
+      // Update user's last activity timestamp
+      // You can store this in your database or just acknowledge the ping
+      res.json({ success: true, timestamp: new Date() });
+    } catch (error) {
+      console.error("❌ Error updating user activity:", error);
+      res.status(500).json({ message: "Failed to update activity" });
+    }
+  },
+);
+
 // Subscription routes
 router.get(
   "/api/user/subscription",
