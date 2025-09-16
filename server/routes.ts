@@ -1317,16 +1317,24 @@ router.get(
   "/api/admin/login-sessions",
   authenticateToken,
   async (req: AuthRequest, res) => {
+    console.log("🔍 LOGIN SESSIONS ROUTE HIT");
+    console.log("User:", req.user?.email);
+    console.log("Role:", req.user?.role);
+    console.log("Headers:", req.headers.authorization);
+    
     if (req.user!.role !== "admin") {
+      console.log("❌ Access denied - not admin");
       return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
+      console.log("✅ Calling getAllLoginSessions...");
       const { limit = "50" } = req.query;
       const loginSessions = await storage.getAllLoginSessions(parseInt(limit as string));
+      console.log("✅ Got", loginSessions?.length || 0, "login sessions");
       res.json(loginSessions);
     } catch (error) {
-      console.error("Error fetching login sessions:", error);
+      console.error("❌ Error fetching login sessions:", error);
       res.status(500).json({ message: "Failed to fetch login sessions" });
     }
   },
