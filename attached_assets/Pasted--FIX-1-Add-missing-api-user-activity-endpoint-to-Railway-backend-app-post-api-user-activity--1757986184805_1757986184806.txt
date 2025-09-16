@@ -1,0 +1,193 @@
+// FIX 1: Add missing /api/user/activity endpoint to Railway backend
+app.post('/api/user/activity', async (req, res) => {
+  try {
+    console.log('User activity request:', req.body);
+    
+    // TODO: Implement actual activity logging
+    res.json({
+      success: true,
+      message: 'Activity logged',
+      data: req.body
+    });
+  } catch (error) {
+    console.error('Activity logging error:', error);
+    res.status(500).json({
+      error: 'Failed to log activity',
+      details: error.message
+    });
+  }
+});
+
+// FIX 2: Check Frontend API Configuration
+// In your frontend code, check your API base URL:
+
+// Look for something like this in your code:
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://enrollment.getmydpc.com';
+
+// It should be:
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://getmydpcenrollment-production.up.railway.app';
+
+// Or in your API client configuration:
+const apiClient = {
+  baseURL: 'https://getmydpcenrollment-production.up.railway.app', // Change this
+  // other config...
+};
+
+// FIX 3: Alternative Storage Since localStorage Isn't Working
+// Use sessionStorage as fallback:
+
+function saveEnrollmentData(data) {
+  try {
+    // Try localStorage first
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('enrollmentData', JSON.stringify(data));
+      console.log('Saved to localStorage');
+    } else if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('enrollmentData', JSON.stringify(data));
+      console.log('Saved to sessionStorage');
+    } else {
+      // Fallback to in-memory storage
+      window.enrollmentData = data;
+      console.log('Saved to window object');
+    }
+  } catch (error) {
+    console.error('Storage error:', error);
+    // Use window object as last resort
+    window.enrollmentData = data;
+  }
+}
+
+function getEnrollmentData() {
+  try {
+    // Try localStorage first
+    if (typeof localStorage !== 'undefined') {
+      const data = localStorage.getItem('enrollmentData');
+      if (data) return JSON.parse(data);
+    }
+    
+    // Try sessionStorage
+    if (typeof sessionStorage !== 'undefined') {
+      const data = sessionStorage.getItem('enrollmentData');
+      if (data) return JSON.parse(data);
+    }
+    
+    // Try window object
+    if (window.enrollmentData) {
+      return window.enrollmentData;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting enrollment data:', error);
+    return null;
+  }
+}
+
+// FIX 4: Debug Storage Issues
+function debugStorage() {
+  console.log('=== STORAGE DEBUG ===');
+  console.log('localStorage available:', typeof localStorage !== 'undefined');
+  console.log('sessionStorage available:', typeof sessionStorage !== 'undefined');
+  console.log('localStorage:', localStorage);
+  console.log('sessionStorage:', sessionStorage);
+  
+  // Test storage
+  try {
+    localStorage.setItem('test', 'value');
+    console.log('localStorage test:', localStorage.getItem('test'));
+    localStorage.removeItem('test');
+  } catch (e) {
+    console.log('localStorage error:', e);
+  }
+  
+  try {
+    sessionStorage.setItem('test', 'value');
+    console.log('sessionStorage test:', sessionStorage.getItem('test'));
+    sessionStorage.removeItem('test');
+  } catch (e) {
+    console.log('sessionStorage error:', e);
+  }
+}
+
+// FIX 5: Temporary Registration Fix (URL Parameters)
+// Since storage isn't working, pass data via URL parameters
+
+function navigateToRegistrationWithData(enrollmentData) {
+  const params = new URLSearchParams({
+    email: enrollmentData.email || '',
+    firstName: enrollmentData.firstName || '',
+    lastName: enrollmentData.lastName || '',
+    phone: enrollmentData.phone || ''
+  });
+  
+  navigate(`/registration?${params.toString()}`);
+}
+
+// In registration page, read from URL:
+function getEnrollmentDataFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return {
+    email: urlParams.get('email'),
+    firstName: urlParams.get('firstName'),
+    lastName: urlParams.get('lastName'),
+    phone: urlParams.get('phone'),
+    password: 'TempPassword123!' // You'll need to handle this differently
+  };
+}
+
+// FIX 6: Complete Registration Handler with URL fallback
+function handleCompleteRegistration() {
+  // Try to get data from storage first
+  let enrollmentData = getEnrollmentData();
+  
+  // If no storage data, try URL parameters
+  if (!enrollmentData || !enrollmentData.email) {
+    enrollmentData = getEnrollmentDataFromURL();
+    console.log('Using URL data:', enrollmentData);
+  }
+  
+  if (!enrollmentData || !enrollmentData.email) {
+    alert('No enrollment data found. Please start the enrollment process over.');
+    navigate('/enrollment/start');
+    return;
+  }
+  
+  const registrationPayload = {
+    email: enrollmentData.email,
+    password: enrollmentData.password || 'TempPassword123!', // Handle password separately
+    firstName: enrollmentData.firstName,
+    lastName: enrollmentData.lastName,
+    phone: enrollmentData.phone,
+    termsAccepted: true,
+    privacyAccepted: true,
+    smsConsent: true,
+    faqDownloaded: true
+  };
+  
+  console.log('Registration payload:', registrationPayload);
+  
+  // Submit to correct API endpoint
+  fetch('https://getmydpcenrollment-production.up.railway.app/api/registration', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(registrationPayload)
+  })
+  .then(response => response.json())
+  .then(data => {
+    console.log('Registration response:', data);
+    if (data.success) {
+      alert('Registration successful!');
+      // Clear stored data
+      clearEnrollmentData();
+      navigate('/dashboard');
+    } else {
+      alert('Registration failed: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(error => {
+    console.error('Registration error:', error);
+    alert('Registration failed. Please try again.');
+  });
+}
