@@ -384,8 +384,8 @@ export default function AdminLeads() {
 
         {/* Filters */}
         <div className="flex gap-4 mb-4">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
+          <Select value={statusFilter} onValueChange={setStatusFilter} name="leadStatusFilter">
+            <SelectTrigger id="admin-leads-status-filter" className="w-[180px]">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent>
@@ -398,8 +398,8 @@ export default function AdminLeads() {
             </SelectContent>
           </Select>
 
-          <Select value={assignmentFilter} onValueChange={setAssignmentFilter}>
-            <SelectTrigger className="w-[200px]">
+          <Select value={assignmentFilter} onValueChange={setAssignmentFilter} name="leadAssignmentFilter">
+            <SelectTrigger id="admin-leads-assignment-filter" className="w-[200px]">
               <SelectValue placeholder="Filter by assignment" />
             </SelectTrigger>
             <SelectContent>
@@ -415,10 +415,13 @@ export default function AdminLeads() {
 
           {/* Search Input */}
           <Input 
+            id="admin-leads-search"
+            name="leadSearch"
             placeholder="Search leads by name or email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-[300px]"
+            autoComplete="off"
           />
         </div>
       </div>

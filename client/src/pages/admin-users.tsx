@@ -480,12 +480,15 @@ export default function AdminUsers() {
                 <TableCell>
                   {user.role === 'agent' || user.role === 'admin' ? (
                     <Input
+                      id={`agent-number-${user.id}`}
+                      name="agentNumber"
                       type="text"
                       placeholder="MPPSA231154"
                       defaultValue={user.agentNumber || ''}
                       className="w-[140px]"
                       maxLength={12}
                       style={{ textTransform: 'uppercase' }}
+                      autoComplete="off"
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           const value = e.currentTarget.value.trim().toUpperCase();
@@ -739,10 +742,13 @@ export default function AdminUsers() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
+                id="admin-users-search"
+                name="userSearch"
                 placeholder="Search by name or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
+                autoComplete="off"
               />
             </div>
           </CardContent>

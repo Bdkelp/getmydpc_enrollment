@@ -443,31 +443,34 @@ export default function AdminEnrollments() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
-                <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="admin-enrollments-search" className="block text-sm font-medium text-gray-700 mb-1">
                   Search
                 </label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
-                    id="search"
+                    id="admin-enrollments-search"
+                    name="enrollmentSearch"
                     type="text"
                     placeholder="Name or email..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
+                    autoComplete="off"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="admin-enrollments-agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
                   Agent
                 </label>
                 <Select
                   value={selectedAgentId}
                   onValueChange={setSelectedAgentId}
+                  name="enrollmentAgentFilter"
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="admin-enrollments-agent-filter">
                     <SelectValue placeholder="All Agents" />
                   </SelectTrigger>
                   <SelectContent>
@@ -483,11 +486,11 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="admin-enrollments-status-filter" className="block text-sm font-medium text-gray-700 mb-1">
                   Status
                 </label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger>
+                <Select value={statusFilter} onValueChange={setStatusFilter} name="enrollmentStatusFilter">
+                  <SelectTrigger id="admin-enrollments-status-filter">
                     <SelectValue placeholder="All Status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -500,30 +503,34 @@ export default function AdminEnrollments() {
               </div>
 
               <div>
-                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="admin-enrollments-start-date" className="block text-sm font-medium text-gray-700 mb-1">
                   Start Date
                 </label>
                 <Input
-                  id="start-date"
+                  id="admin-enrollments-start-date"
+                  name="enrollmentStartDate"
                   type="date"
                   value={dateFilter.startDate}
                   onChange={(e) =>
                     setDateFilter({ ...dateFilter, startDate: e.target.value })
                   }
+                  autoComplete="off"
                 />
               </div>
 
               <div>
-                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="admin-enrollments-end-date" className="block text-sm font-medium text-gray-700 mb-1">
                   End Date
                 </label>
                 <Input
-                  id="end-date"
+                  id="admin-enrollments-end-date"
+                  name="enrollmentEndDate"
                   type="date"
                   value={dateFilter.endDate}
                   onChange={(e) =>
                     setDateFilter({ ...dateFilter, endDate: e.target.value })
                   }
+                  autoComplete="off"
                 />
               </div>
             </div>

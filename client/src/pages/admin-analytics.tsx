@@ -241,8 +241,8 @@ export default function AdminAnalytics() {
               </div>
             </div>
             <div className="flex items-center space-x-2">
-              <Select value={timeRange} onValueChange={setTimeRange}>
-                <SelectTrigger className="w-[180px]">
+              <Select value={timeRange} onValueChange={setTimeRange} name="analyticsTimeRange">
+                <SelectTrigger id="admin-analytics-time-range" className="w-[180px]">
                   <SelectValue placeholder="Select time range" />
                 </SelectTrigger>
                 <SelectContent>
@@ -253,8 +253,8 @@ export default function AdminAnalytics() {
                 </SelectContent>
               </Select>
               <div className="flex items-center space-x-2">
-                <Select value={selectedReport} onValueChange={setSelectedReport}>
-                  <SelectTrigger className="w-[150px]">
+                <Select value={selectedReport} onValueChange={setSelectedReport} name="analyticsReport">
+                  <SelectTrigger id="admin-analytics-report-select" className="w-[150px]">
                     <SelectValue placeholder="Select report" />
                   </SelectTrigger>
                   <SelectContent>
@@ -265,8 +265,8 @@ export default function AdminAnalytics() {
                     <SelectItem value="revenue">Revenue Details</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={exportFormat} onValueChange={setExportFormat}>
-                  <SelectTrigger className="w-[100px]">
+                <Select value={exportFormat} onValueChange={setExportFormat} name="analyticsExportFormat">
+                  <SelectTrigger id="admin-analytics-export-format" className="w-[100px]">
                     <SelectValue placeholder="Format" />
                   </SelectTrigger>
                   <SelectContent>
@@ -454,11 +454,14 @@ export default function AdminAnalytics() {
                 <CardTitle>Detailed Reports</CardTitle>
                 <div className="flex items-center space-x-2">
                   <input
+                    id="admin-analytics-email"
+                    name="reportEmail"
                     type="email"
                     placeholder="Email report to..."
                     value={emailAddress}
                     onChange={(e) => setEmailAddress(e.target.value)}
                     className="px-3 py-1 border rounded text-sm w-48"
+                    autoComplete="email"
                   />
                   <Button 
                     size="sm"

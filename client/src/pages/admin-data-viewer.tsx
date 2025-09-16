@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowLeft, Download, RefreshCw, Database } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, Database, Search } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -15,10 +15,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function AdminDataViewer() {
   const { toast } = useToast();
   const [selectedTable, setSelectedTable] = useState("users");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
+  
+  // Placeholder for safeAgents - replace with actual data fetching if needed
+  const safeAgents = [
+    { id: "agent1", firstName: "John", lastName: "Doe", agentNumber: "A001" },
+    { id: "agent2", firstName: "Jane", lastName: "Smith", agentNumber: "A002" },
+  ];
 
   // Fetch data for selected table
   const { data: tableData, isLoading, refetch } = useQuery({
@@ -136,6 +154,101 @@ export default function AdminDataViewer() {
                 Export CSV
               </Button>
             </div>
+          </div>
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center justify-between mt-6 space-y-4 md:space-y-0 md:space-x-6">
+            
+              <div className="flex items-center space-x-2">
+                <label htmlFor="admin-db-search" className="block text-sm font-medium text-gray-700 mb-1">
+                  Search
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="admin-db-search"
+                    name="search"
+                    type="text"
+                    placeholder="Name or email..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="admin-db-agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                  Agent
+                </label>
+                <Select
+                  value={selectedAgentId}
+                  onValueChange={setSelectedAgentId}
+                  name="agentFilter"
+                >
+                  <SelectTrigger id="admin-db-agent-filter">
+                    <SelectValue placeholder="All Agents" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Agents</SelectItem>
+                    {safeAgents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.firstName} {agent.lastName}
+                        {agent.agentNumber && ` (${agent.agentNumber})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label htmlFor="admin-db-status-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <Select value={statusFilter} onValueChange={setStatusFilter} name="statusFilter">
+                  <SelectTrigger id="admin-db-status-filter">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label htmlFor="admin-db-start-date" className="block text-sm font-medium text-gray-700 mb-1">
+                  Start Date
+                </label>
+                <Input
+                  id="admin-db-start-date"
+                  name="startDate"
+                  type="date"
+                  value={dateFilter.startDate}
+                  onChange={(e) =>
+                    setDateFilter({ ...dateFilter, startDate: e.target.value })
+                  }
+                  autoComplete="off"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="admin-db-end-date" className="block text-sm font-medium text-gray-700 mb-1">
+                  End Date
+                </label>
+                <Input
+                  id="admin-db-end-date"
+                  name="endDate"
+                  type="date"
+                  value={dateFilter.endDate}
+                  onChange={(e) =>
+                    setDateFilter({ ...dateFilter, endDate: e.target.value })
+                  }
+                  autoComplete="off"
+                />
+              </div>
           </div>
         </div>
       </div>
