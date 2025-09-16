@@ -1,6 +1,6 @@
 /**
  * Payment Service Abstraction Layer
- * Supports multiple payment providers: Mock, PayAnywhere, EPx Hosted Checkout (North.com)
+ * Supports multiple payment providers: Mock, PayAnywhere, EPX Browser Post API (North.com)
  */
 
 export interface PaymentProvider {
@@ -9,15 +9,6 @@ export interface PaymentProvider {
   refundPayment(transactionId: string, amount?: number): Promise<RefundResponse>;
   getTransaction(transactionId: string): Promise<TransactionDetails>;
   validateWebhook(payload: any, signature: string): boolean;
-  // EPx specific - creates a hosted checkout session
-  createCheckoutSession?(paymentData: PaymentRequest): Promise<CheckoutSessionResponse>;
-}
-
-export interface CheckoutSessionResponse {
-  success: boolean;
-  checkoutId?: string;
-  checkoutUrl?: string;
-  error?: string;
 }
 
 export interface PaymentRequest {
@@ -116,60 +107,10 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 }
 
-// EPx Hosted Checkout Provider (North.com)
-export class EPxProvider implements PaymentProvider {
-  name = 'epx';
-  private checkoutId: string;
-  private environment: 'sandbox' | 'production';
-  private apiUrl: string;
-  private webhookSecret: string;
+// Note: EPX Browser Post API integration is handled in epx-payment-service.ts
+// This payment-service.ts file is for legacy/alternative payment provider abstractions
 
-  constructor(config: {
-    checkoutId: string;
-    environment: 'sandbox' | 'production';
-    webhookSecret?: string;
-  }) {
-    this.checkoutId = config.checkoutId;
-    this.environment = config.environment;
-    this.webhookSecret = config.webhookSecret || '';
-    // EPx hosted checkout URLs
-    this.apiUrl = config.environment === 'production' 
-      ? 'https://hosted.epxuap.com' 
-      : 'https://hosted.epxuap.com'; // Same URL for both environments, differentiated by checkout ID
-  }
-
-  async createCheckoutSession(paymentData: PaymentRequest): Promise<CheckoutSessionResponse> {
-    console.log('[EPx] Creating checkout session');
-
-    try {
-      // For EPx hosted checkout, we don't directly process payment
-      // Instead, we return the checkout configuration for the frontend
-      return {
-        success: true,
-        checkoutId: this.checkoutId,
-        checkoutUrl: `${this.apiUrl}/checkout`,
-        // Additional data can be passed to customize the checkout
-      };
-    } catch (error: any) {
-      console.error('[EPx] Checkout session error:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to create checkout session'
-      };
-    }
-  }
-
-  async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
-    console.log('[EPx] Direct payment processing not supported - use hosted checkout');
-
-    // EPx uses hosted checkout, so direct payment processing is not applicable
-    return {
-      success: false,
-      transactionId: '',
-      status: 'error',
-      message: 'EPx requires hosted checkout - use createCheckoutSession instead'
-    };
-  }
+    
 
   async refundPayment(transactionId: string, amount?: number): Promise<RefundResponse> {
     console.log('[EPx] Processing refund for transaction:', transactionId);
@@ -374,15 +315,7 @@ export class PaymentService {
     return this.provider.validateWebhook(payload, signature);
   }
 
-  async createCheckoutSession(paymentData: PaymentRequest): Promise<CheckoutSessionResponse> {
-    if (this.provider.createCheckoutSession) {
-      return this.provider.createCheckoutSession(paymentData);
-    }
-    return {
-      success: false,
-      error: 'Checkout sessions not supported by current payment provider'
-    };
-  }
+  
 }
 
 // Export singleton instance

@@ -1,19 +1,18 @@
 /**
  * EPX Payment Service Implementation
- * Supports EPX Hosted Checkout and Browser Post API
+ * Browser Post API Integration with North.com EPX
  */
 
 import crypto from 'crypto';
 
 export interface EPXConfig {
-  checkoutId?: string;  // For Hosted Checkout
-  mac?: string;         // For Browser Post API (MAC from Key Exchange)
-  epiId?: string;       // For Custom Pay API
+  mac: string;          // MAC key for Browser Post API (from Key Exchange)
+  epiId?: string;       // For Custom Pay API (refunds/voids)
   epiKey?: string;      // For Custom Pay API signature
-  custNbr?: string;     // Customer Number
-  merchNbr?: string;    // Merchant Number
-  dbaNbr?: string;      // DBA Number
-  terminalNbr?: string; // Terminal Number
+  custNbr: string;      // Customer Number
+  merchNbr: string;     // Merchant Number
+  dbaNbr: string;       // DBA Number
+  terminalNbr: string;  // Terminal Number
   environment: 'sandbox' | 'production';
   redirectUrl: string;
   responseUrl: string;

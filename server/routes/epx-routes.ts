@@ -1,6 +1,6 @@
 /**
  * EPX Payment Routes
- * Handles EPX Hosted Checkout and Browser Post API
+ * Browser Post API Integration with North.com EPX
  */
 
 import { Router, Request, Response } from 'express';
