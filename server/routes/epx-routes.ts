@@ -244,6 +244,16 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       achAccountName
     });
 
+    // Safety check: ensure tacResponse exists and has expected structure
+    if (!tacResponse || typeof tacResponse !== 'object') {
+      console.error('[EPX Create Payment] EPX service returned invalid response:', tacResponse);
+      return res.status(500).json({
+        success: false,
+        error: 'EPX service returned invalid response',
+        details: 'Payment service temporarily unavailable'
+      });
+    }
+
     console.log('[EPX Create Payment] TAC Response:', {
       success: tacResponse.success,
       hasTAC: !!tacResponse.tac,

@@ -162,6 +162,7 @@ export class EPXPaymentService {
       const maxRetries = 3;
       const baseTimeout = 30000; // 30 second timeout
       let lastError: any;
+      let response: Response | null = null;
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         console.log(`[EPX] TAC generation attempt ${attempt}/${maxRetries}`);
@@ -171,7 +172,7 @@ export class EPXPaymentService {
           const timeout = baseTimeout * attempt; // Increase timeout with each retry
           const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-          const response = await fetch(this.keyExchangeUrl, {
+          response = await fetch(this.keyExchangeUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -194,9 +195,7 @@ export class EPXPaymentService {
           
           // If we get here, the request succeeded
           console.log(`[EPX] TAC request succeeded on attempt ${attempt}`);
-          break;
-
-      console.log('[EPX] TAC response status:', response.status);
+          console.log('[EPX] TAC response status:', response.status);
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -204,13 +203,19 @@ export class EPXPaymentService {
             
             // Don't retry on 4xx errors (client errors)
             if (response.status >= 400 && response.status < 500) {
-              throw new Error(`TAC request failed: ${response.status} ${errorText}`);
+              return {
+                success: false,
+                error: `TAC request failed: ${response.status} ${errorText}`
+              };
             }
             
             // Retry on 5xx errors (server errors)
             lastError = new Error(`TAC request failed: ${response.status} ${errorText}`);
             if (attempt === maxRetries) {
-              throw lastError;
+              return {
+                success: false,
+                error: lastError.message
+              };
             }
             continue;
           }
@@ -246,6 +251,14 @@ export class EPXPaymentService {
           }
         }
       }
+
+      // If we get here, all retries failed - ensure we return a proper response object
+      console.error('[EPX] All TAC generation attempts failed:', lastError?.message);
+      return {
+        success: false,
+        error: lastError?.message || 'EPX service timeout after all retries',
+        details: 'All connection attempts to EPX service failed'
+      };
     } catch (error: any) {
       console.error('[EPX] TAC generation error after all retries:', error);
       
