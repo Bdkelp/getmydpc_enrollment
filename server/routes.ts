@@ -1313,6 +1313,25 @@ router.get(
   },
 );
 
+router.get(
+  "/api/admin/login-sessions",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { limit = "50" } = req.query;
+      const loginSessions = await storage.getAllLoginSessions(parseInt(limit as string));
+      res.json(loginSessions);
+    } catch (error) {
+      console.error("Error fetching login sessions:", error);
+      res.status(500).json({ message: "Failed to fetch login sessions" });
+    }
+  },
+);
+
 router.put(
   "/api/admin/leads/:leadId/assign",
   authenticateToken,
