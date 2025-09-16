@@ -528,12 +528,7 @@ router.post(
   async (req: AuthRequest, res) => {
     console.log("🔍 USER ACTIVITY ROUTE HIT - User:", req.user?.email);
     try {
-      // Just acknowledge the activity ping - no database update needed
-      res.json({ 
-        success: true, 
-        timestamp: new Date(),
-        userId: req.user?.id 
-      });
+      res.json({ success: true, timestamp: new Date() });
     } catch (error) {
       console.error("❌ Error updating user activity:", error);
       res.status(500).json({ message: "Failed to update activity" });
