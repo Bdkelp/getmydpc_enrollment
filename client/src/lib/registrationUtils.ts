@@ -59,7 +59,7 @@ export function handleCompleteRegistration(navigate: (path: string) => void) {
       
       // Try direct fetch as fallback
       console.log('Retrying with direct fetch...');
-      return fetch(`${apiClient.API_BASE_URL || 'https://getmydpcenrollment-production.up.railway.app'}/api/registration`, {
+      return fetch(`${import.meta.env.VITE_API_URL || 'https://getmydpcenrollment-production.up.railway.app'}/api/registration`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

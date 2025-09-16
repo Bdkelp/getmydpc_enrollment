@@ -29,8 +29,10 @@ app.use(
         /^https:\/\/.*\.replit\.dev$/,
         /^https:\/\/.*\.replit\.app$/,
         /^https:\/\/.*\.vercel\.app$/,
+        /^https:\/\/.*\.railway\.app$/,
         /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
         /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
+        "https://getmydpcenrollment-production.up.railway.app",
         "https://enrollment.getmydpc.com",
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));

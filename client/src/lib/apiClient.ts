@@ -22,8 +22,8 @@ const buildBaseUrl = () => {
     return raw;
   }
 
-  // Check if we're on Railway production domain
-  if (window.location.hostname.includes('railway.app')) {
+  // Check if we're on Railway production domain or use Railway as fallback
+  if (window.location.hostname.includes('railway.app') || import.meta.env.PROD) {
     const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
     console.log('[API Client] Using Railway production API URL:', railwayUrl);
     return railwayUrl;
