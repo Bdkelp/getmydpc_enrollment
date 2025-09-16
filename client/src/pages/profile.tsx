@@ -129,19 +129,6 @@ export default function Profile() {
 
     setIsUploadingPhoto(true);
     try {
-      // First check if storage is available by checking bucket existence
-      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
-      
-      if (bucketError || !buckets?.some(b => b.name === 'profile-images')) {
-        console.warn('Profile images storage not available:', bucketError);
-        toast({
-          title: "Upload unavailable",
-          description: "Profile photo upload is currently not available. Please try again later.",
-          variant: "destructive",
-        });
-        return;
-      }
-
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/profile.${fileExt}`;
 
@@ -150,8 +137,7 @@ export default function Profile() {
         .upload(fileName, file, { upsert: true });
 
       if (uploadError) {
-        console.error('Storage upload error:', uploadError);
-        throw new Error('Failed to upload file to storage');
+        throw uploadError;
       }
 
       const { data: { publicUrl } } = supabase.storage
@@ -169,10 +155,9 @@ export default function Profile() {
         description: "Your profile photo has been updated.",
       });
     } catch (error: any) {
-      console.error('Profile photo upload failed:', error);
       toast({
         title: "Upload failed",
-        description: "Failed to upload photo. Profile photos are temporarily unavailable.",
+        description: error.message || "Failed to upload photo. Please try again.",
         variant: "destructive",
       });
     } finally {

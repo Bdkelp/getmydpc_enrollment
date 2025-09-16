@@ -178,16 +178,9 @@ export const refreshSession = async () => {
   }
 };
 
-// Safe storage upload with error handling (only use when bucket exists)
+// Storage upload for profile images
 export const uploadProfileImage = async (file: File, userId: string) => {
   try {
-    // First verify bucket exists
-    const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
-    
-    if (bucketError || !buckets?.some(b => b.name === 'profile-images')) {
-      throw new Error('Profile images storage bucket not available');
-    }
-
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}-${Math.random()}.${fileExt}`;
     const filePath = `avatars/${fileName}`;
@@ -200,7 +193,6 @@ export const uploadProfileImage = async (file: File, userId: string) => {
       });
 
     if (error) {
-      console.error('Storage upload error:', error);
       throw error;
     }
 
