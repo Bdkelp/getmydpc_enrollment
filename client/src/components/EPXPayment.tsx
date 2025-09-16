@@ -162,86 +162,7 @@ export function EPXPayment({
     }
   };
 
-  const handleHostedCheckout = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Get current Supabase session for auth token
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session?.access_token) {
-        console.error('[EPX Hosted Checkout] No auth session available:', sessionError);
-        setError('Authentication required. Please sign in again.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Get hosted checkout configuration
-      const data = await apiClient.get('/api/epx/checkout-config');
-
-      if (!data.success || !data.config) {
-        throw new Error(data.error || 'Failed to get checkout configuration');
-      }
-
-      // Load EPX hosted checkout script
-      const script = document.createElement('script');
-      script.src = data.config.scriptUrl;
-      script.async = true;
-      script.onload = () => {
-        // Initialize hosted checkout
-        if ((window as any).EPXHostedCheckout) {
-          (window as any).EPXHostedCheckout.init({
-            checkoutId: data.config.checkoutId,
-            amount: amount,
-            customerEmail: customerEmail,
-            onSuccess: (result: any) => {
-              toast({
-                title: "Payment Successful",
-                description: "Your payment has been processed successfully"
-              });
-              if (onSuccess) {
-                onSuccess(result.transactionId);
-              }
-            },
-            onError: (error: any) => {
-              setError(error.message || 'Payment failed');
-              if (onError) {
-                onError(error.message);
-              }
-            },
-            onCancel: () => {
-              if (onCancel) {
-                onCancel();
-              }
-            }
-          });
-        } else {
-          throw new Error('Failed to load EPX checkout');
-        }
-      };
-      script.onerror = () => {
-        setError('Failed to load payment provider');
-        setIsLoading(false);
-      };
-
-      document.body.appendChild(script);
-    } catch (err: any) {
-      console.error('[EPX Hosted Checkout] Error:', err);
-      setError(err.message || 'Checkout initialization failed');
-      setIsLoading(false);
-
-      toast({
-        title: "Checkout Error",
-        description: err.message || 'Failed to initialize checkout',
-        variant: "destructive"
-      });
-
-      if (onError) {
-        onError(err.message);
-      }
-    }
-  };
+  // Browser Post API only - no hosted checkout needed
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -382,7 +303,7 @@ export function EPXPayment({
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
+                Processing Payment...
               </>
             ) : (
               <>
@@ -392,23 +313,6 @@ export function EPXPayment({
                   <><Building2 className="mr-2 h-4 w-4" />Process ACH Payment</>
                 )}
               </>
-            )}
-          </Button>
-
-          <Button 
-            onClick={handleHostedCheckout}
-            disabled={isLoading}
-            variant="outline"
-            className="w-full"
-            size="lg"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Loading Checkout...
-              </>
-            ) : (
-              'Use Hosted Checkout'
             )}
           </Button>
 
@@ -431,7 +335,7 @@ export function EPXPayment({
               ACH payments may take 3-5 business days to process.
             </p>
           )}
-          <p className="mt-1">Powered by North.com EPx</p>
+          <p className="mt-1">Secure Browser Post Payment • Powered by North.com EPx</p>
         </div>
       </CardContent>
     </Card>

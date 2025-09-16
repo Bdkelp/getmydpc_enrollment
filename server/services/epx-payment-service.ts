@@ -304,17 +304,17 @@ export class EPXPaymentService {
   }
 
   /**
-   * Get hosted checkout configuration
+   * Get Browser Post API status - we only support Browser Post, not Hosted Checkout
    */
-  getHostedCheckoutConfig() {
-    if (!this.config.checkoutId) {
-      throw new Error('Checkout ID not configured for Hosted Checkout');
-    }
-
+  getBrowserPostStatus() {
     return {
-      checkoutId: this.config.checkoutId,
-      scriptUrl: 'https://hosted.epxuap.com/button.js',
-      environment: this.config.environment
+      method: 'browser-post',
+      ready: !!this.config.mac,
+      environment: this.config.environment,
+      endpoints: {
+        tac: this.keyExchangeUrl,
+        payment: this.apiUrl
+      }
     };
   }
 

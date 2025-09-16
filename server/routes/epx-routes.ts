@@ -24,16 +24,20 @@ try {
       ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
       : 'http://localhost:5000';
 
+  // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
-    checkoutId: process.env.EPX_CHECKOUT_ID,
+    // MAC key is required for Browser Post API TAC generation
     mac: process.env.EPX_MAC || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
+    // EPI credentials for Custom Pay API (refunds/voids)
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,
+    // Merchant identification
     custNbr: process.env.EPX_CUST_NBR || '9001',
     merchNbr: process.env.EPX_MERCH_NBR || '900300',
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
+    // Browser Post API URLs
     redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/payment/success`,
     responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
     cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
@@ -61,9 +65,12 @@ try {
   initializeEPXService(epxConfig);
   const epxService = getEPXService();
   epxServiceInitialized = true;
-  console.log('[EPX Routes] EPX Service initialized successfully');
+  console.log('[EPX Routes] ✅ EPX Browser Post API Service initialized successfully');
+  console.log('[EPX Routes] Payment Method: Browser Post API (NOT Hosted Checkout)');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
   console.log('[EPX Routes] Base URL:', baseUrl);
+  console.log('[EPX Routes] TAC Endpoint:', 'https://epxuap.com/key-exchange');
+  console.log('[EPX Routes] Payment Endpoint:', 'https://epxuap.com/post');
   
   // Test EPX connectivity on startup
   setTimeout(async () => {
@@ -114,22 +121,29 @@ router.get('/api/epx/health', (req: Request, res: Response) => {
 });
 
 /**
- * Get EPX Hosted Checkout configuration for frontend
+ * Browser Post API status endpoint - we're using Browser Post, not Hosted Checkout
  */
-router.get('/api/epx/checkout-config', async (req: Request, res: Response) => {
+router.get('/api/epx/browser-post-status', async (req: Request, res: Response) => {
   try {
-    const epxService = getEPXService();
-    const config = epxService.getHostedCheckoutConfig();
+    if (!epxServiceInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'EPX Browser Post API not initialized',
+        method: 'browser-post'
+      });
+    }
 
     res.json({
       success: true,
-      config
+      method: 'browser-post',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      status: 'ready'
     });
   } catch (error: any) {
-    console.error('[EPX] Checkout config error:', error);
+    console.error('[EPX] Browser Post status error:', error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to get checkout configuration'
+      error: error.message || 'Failed to get Browser Post status'
     });
   }
 });
