@@ -2230,11 +2230,11 @@ export async function registerRoutes(app: any) {
     next();
   };
 
-  // Use the router FIRST to ensure API routes are registered
-  app.use(router);
-
-  // Register EPX payment routes
+  // Register EPX payment routes FIRST (highest priority)
   app.use(epxRoutes);
+
+  // Use the router for general API routes
+  app.use(router);
 
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
