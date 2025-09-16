@@ -1,0 +1,69 @@
+getmydpcenrollment-production.up.railway.app/api/agent/enrollments:1  Failed to load resource: the server responded with a status of 404 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/agent/stats:1  Failed to load resource: the server responded with a status of 403 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/agent/commission-stats:1  Failed to load resource: the server responded with a status of 404 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/agent/commissions?startDate=2025-08-15&endDate=2025-09-15:1  Failed to load resource: the server responded with a status of 403 ()Understand this error
+index-D2tyqRi3.js:48 [apiRequest:scrvbpc89] Request failed Object
+St @ index-D2tyqRi3.js:48Understand this error
+index-D2tyqRi3.js:48 [apiRequest:scrvbpc89] Request failed Object
+St @ index-D2tyqRi3.js:48Understand this error
+2index-D2tyqRi3.js:684 [ErrorBoundary] Error caught: Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at nr (index-D2tyqRi3.js:38:17967)
+    at Object.Fx [as useMemo] (index-D2tyqRi3.js:38:21671)
+    at ot.useMemo (index-D2tyqRi3.js:9:6412)
+    at ew (index-D2tyqRi3.js:595:77220)
+    at Oh (index-D2tyqRi3.js:38:17372)
+    at Bh (index-D2tyqRi3.js:40:3158)
+    at Ay (index-D2tyqRi3.js:40:45406)
+    at Cy (index-D2tyqRi3.js:40:40234)
+    at sk (index-D2tyqRi3.js:40:40162)
+    at Vc (index-D2tyqRi3.js:40:40015)
+getDerivedStateFromError @ index-D2tyqRi3.js:684Understand this error
+index-D2tyqRi3.js:40 Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at nr (index-D2tyqRi3.js:38:17967)
+    at Object.Fx [as useMemo] (index-D2tyqRi3.js:38:21671)
+    at ot.useMemo (index-D2tyqRi3.js:9:6412)
+    at ew (index-D2tyqRi3.js:595:77220)
+    at Oh (index-D2tyqRi3.js:38:17372)
+    at Bh (index-D2tyqRi3.js:40:3158)
+    at Ay (index-D2tyqRi3.js:40:45406)
+    at Cy (index-D2tyqRi3.js:40:40234)
+    at sk (index-D2tyqRi3.js:40:40162)
+    at Vc (index-D2tyqRi3.js:40:40015)
+Vh @ index-D2tyqRi3.js:40Understand this error
+index-D2tyqRi3.js:684 [ErrorBoundary] Component error details: Object
+componentDidCatch @ index-D2tyqRi3.js:684Understand this error
+index-D2tyqRi3.js:684 Production error: Object
+componentDidCatch @ index-D2tyqRi3.js:684Understand this error
+index-D2tyqRi3.js:684 [ErrorBoundary] Error caught: TypeError: t.unsubscribe is not a function
+    at index-D2tyqRi3.js:684:41786
+    at Yh (index-D2tyqRi3.js:40:22558)
+    at Zo (index-D2tyqRi3.js:40:24309)
+    at ji (index-D2tyqRi3.js:40:42175)
+    at nk (index-D2tyqRi3.js:40:41703)
+    at ba (index-D2tyqRi3.js:40:40729)
+    at Sy (index-D2tyqRi3.js:40:37269)
+    at Cn (index-D2tyqRi3.js:38:3274)
+    at index-D2tyqRi3.js:40:34621
+getDerivedStateFromError @ index-D2tyqRi3.js:684Understand this error
+index-D2tyqRi3.js:40 TypeError: t.unsubscribe is not a function
+    at index-D2tyqRi3.js:684:41786
+    at Yh (index-D2tyqRi3.js:40:22558)
+    at Zo (index-D2tyqRi3.js:40:24309)
+    at ji (index-D2tyqRi3.js:40:42175)
+    at nk (index-D2tyqRi3.js:40:41703)
+    at ba (index-D2tyqRi3.js:40:40729)
+    at Sy (index-D2tyqRi3.js:40:37269)
+    at Cn (index-D2tyqRi3.js:38:3274)
+    at index-D2tyqRi3.js:40:34621
+Vh @ index-D2tyqRi3.js:40Understand this error
+index-D2tyqRi3.js:684 [ErrorBoundary] Component error details: Object
+componentDidCatch @ index-D2tyqRi3.js:684Understand this error
+index-D2tyqRi3.js:684 Production error: Object
+componentDidCatch @ index-D2tyqRi3.js:684Understand this error
+getmydpcenrollment-production.up.railway.app/api/agent/enrollments:1  Failed to load resource: the server responded with a status of 404 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/agent/stats:1  Failed to load resource: the server responded with a status of 403 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/user:1  Failed to load resource: the server responded with a status of 404 ()Understand this error
+getmydpcenrollment-production.up.railway.app/api/registration:1  Failed to load resource: the server responded with a status of 400 ()Understand this error
+index-D2tyqRi3.js:48 [apiRequest:x79sod11q] Request failed Object
+St @ index-D2tyqRi3.js:48Understand this error
+index-D2tyqRi3.js:48 [apiRequest:x79sod11q] Request failed Object
