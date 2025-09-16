@@ -1,0 +1,63 @@
+You're absolutely right! As admin, you should have full access to agent functionality including enrollments. The 403 errors suggest the existing /api/agent/stats route is too restrictive.
+The issue: Your agent routes are checking for role === "agent" but excluding admins.
+Let's fix the role checks to allow admin access:
+Update your existing /api/agent/stats route and add the missing /api/agent/enrollments route:
+javascript// Fix existing agent stats route to allow admin
+router.get(
+  "/api/agent/stats",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    // Allow both agents and admins
+    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+      console.log("❌ Access denied - not agent or admin");
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    
+    try {
+      const stats = await storage.getAgentStats(req.user!.id);
+      console.log("✅ Got agent stats for admin/agent");
+      res.json(stats);
+    } catch (error) {
+      console.error("❌ Error fetching agent stats:", error);
+      res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  }
+);
+
+// Add missing agent enrollments route
+router.get(
+  "/api/agent/enrollments",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    // Allow both agents and admins
+    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+      console.log("❌ Access denied - not agent or admin");
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    
+    try {
+      let enrollments;
+      if (req.user!.role === "admin") {
+        // Admin sees all enrollments
+        enrollments = await storage.getAllEnrollments();
+      } else {
+        // Agent sees only their enrollments
+        enrollments = await storage.getAgentEnrollments(req.user!.id);
+      }
+      console.log("✅ Got", enrollments?.length || 0, "enrollments");
+      res.json(enrollments);
+    } catch (error) {
+      console.error("❌ Error fetching enrollments:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
+    }
+  }
+);
+This will:
+
+Fix the 403 errors by allowing admin access
+Add the missing enrollments route (404 fix)
+Let admins see all enrollments while agents see only theirs
