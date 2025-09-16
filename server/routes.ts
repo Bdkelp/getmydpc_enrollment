@@ -2258,6 +2258,9 @@ export async function registerRoutes(app: any) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
     }
+
+    let supabaseUserId = null; // Track for cleanup if needed
+    
     try {
       console.log("✅ Step 1: Starting user creation...");
       console.log("[Registration] Registration attempt:", req.body?.email);
@@ -2336,6 +2339,22 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      // Check if user already exists in our database first
+      console.log("✅ Step 3.5: Checking for existing user...");
+      try {
+        const existingUser = await storage.getUserByEmail(email.trim().toLowerCase());
+        if (existingUser) {
+          console.log("[Registration] User already exists:", existingUser.id);
+          return res.status(400).json({
+            error: "User already exists with this email",
+            existingUserId: existingUser.id
+          });
+        }
+      } catch (checkError) {
+        console.warn("[Registration] Error checking existing user:", checkError.message);
+        // Continue with registration attempt
+      }
+
       // Generate a strong password by default to avoid Supabase validation issues
       let finalPassword = password;
 
@@ -2403,39 +2422,92 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      // Store Supabase user ID for potential cleanup
+      supabaseUserId = data.user.id;
+
       console.log("✅ Step 7: Before database user creation...");
+      console.log("[Registration] Creating user with ID:", data.user.id);
       console.log("[Registration] Creating user with email:", data.user.email);
+      console.log("[Registration] User ID type:", typeof data.user.id);
+      console.log("[Registration] User ID length:", data.user.id?.length);
 
-      // Create user in our database with full enrollment data
-      const user = await storage.createUser({
-        id: data.user.id,
-        email: data.user.email!, // Use the email from Supabase to ensure consistency
-        firstName: firstName || "User",
-        lastName: lastName || "",
-        middleName: middleName || "",
-        phone: phone || "",
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        gender: gender || null,
-        ssn: ssn || null,
-        address: address || "",
-        address2: address2 || "",
-        city: city || "",
-        state: state || "",
-        zipCode: zipCode || "",
-        employerName: employerName || "",
-        dateOfHire: dateOfHire ? new Date(dateOfHire) : null,
-        memberType: memberType || "member-only",
-        planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
-        emailVerified: false,
-        role: "member",
-        isActive: true,
-        approvalStatus: "approved", // Auto-approve DPC enrollments
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Verify the Supabase user ID is valid
+      if (!data.user.id || typeof data.user.id !== 'string') {
+        throw new Error("Invalid user ID from Supabase authentication");
+      }
 
-      console.log("✅ Step 6: User created in database successfully");
-      console.log("[Registration] User ID:", user.id);
+      // Create user in our database with retry logic for ID conflicts
+      let user;
+      let retryCount = 0;
+      const maxRetries = 3;
+
+      while (retryCount < maxRetries) {
+        try {
+          console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
+          console.log("[Registration] Using Supabase ID:", data.user.id);
+          
+          // Create user in our database with full enrollment data
+          user = await storage.createUser({
+            id: data.user.id, // Use the Supabase UUID directly
+            email: data.user.email!, // Use the email from Supabase to ensure consistency
+            firstName: firstName || "User",
+            lastName: lastName || "",
+            middleName: middleName || "",
+            phone: phone || "",
+            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+            gender: gender || null,
+            ssn: ssn || null,
+            address: address || "",
+            address2: address2 || "",
+            city: city || "",
+            state: state || "",
+            zipCode: zipCode || "",
+            employerName: employerName || "",
+            dateOfHire: dateOfHire ? new Date(dateOfHire) : null,
+            memberType: memberType || "member-only",
+            planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
+            emailVerified: false,
+            role: "member",
+            isActive: true,
+            approvalStatus: "approved", // Auto-approve DPC enrollments
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          
+          console.log("✅ Step 8: User created in database successfully");
+          console.log("[Registration] User ID:", user.id);
+          break; // Success, exit retry loop
+          
+        } catch (dbError: any) {
+          retryCount++;
+          console.error(`❌ Database error attempt ${retryCount}/${maxRetries}:`, dbError.message);
+          
+          if (dbError.message && dbError.message.includes('duplicate key')) {
+            console.error("❌ DUPLICATE KEY ERROR - User ID conflict");
+            console.error("❌ Conflicting ID:", data.user.id);
+            
+            if (retryCount < maxRetries) {
+              console.log("🔄 Retrying user creation...");
+              // Wait a moment before retry
+              await new Promise(resolve => setTimeout(resolve, 100));
+            } else {
+              console.error("❌ Max retries reached for user creation");
+              throw new Error(`Failed to create user after ${maxRetries} attempts: ${dbError.message}`);
+            }
+          } else {
+            // Non-duplicate key error, don't retry
+            console.error("❌ Non-recoverable database error:", dbError);
+            throw dbError;
+          }
+        }
+      }
+
+      if (!user) {
+        throw new Error("Failed to create user in database after retries");
+      }
+
+      console.log("✅ Step 9: User creation completed successfully");
+      console.log("[Registration] Final user email:", user.email);
 
       // Create subscription if plan is selected
       if (planId && totalMonthlyPrice) {
@@ -2507,10 +2579,46 @@ export async function registerRoutes(app: any) {
       console.error("❌ Error details:", error);
       console.error("❌ Stack trace:", error.stack);
 
-      res.status(500).json({
-        error: "Registration failed",
+      // Clean up Supabase user if database creation failed
+      if (supabaseUserId && error.message && (
+        error.message.includes('duplicate key') || 
+        error.message.includes('constraint') ||
+        error.message.includes('users_pkey')
+      )) {
+        console.log("🧹 Cleaning up Supabase user due to database error...");
+        try {
+          // Note: In production, you might want to keep the Supabase user and handle this differently
+          const { error: deleteError } = await supabase.auth.admin.deleteUser(supabaseUserId);
+          if (deleteError) {
+            console.error("❌ Failed to cleanup Supabase user:", deleteError.message);
+          } else {
+            console.log("✅ Cleaned up Supabase user:", supabaseUserId);
+          }
+        } catch (cleanupError) {
+          console.error("❌ Error during cleanup:", cleanupError);
+        }
+      }
+
+      // Provide specific error messages based on error type
+      let errorMessage = "Registration failed";
+      let statusCode = 500;
+
+      if (error.message && error.message.includes('duplicate key')) {
+        errorMessage = "Account with this information already exists";
+        statusCode = 409; // Conflict
+      } else if (error.message && error.message.includes('constraint')) {
+        errorMessage = "Invalid data provided for registration";
+        statusCode = 400; // Bad Request
+      } else if (error.message && error.message.includes('users_pkey')) {
+        errorMessage = "User ID conflict - please try again";
+        statusCode = 409; // Conflict
+      }
+
+      res.status(statusCode).json({
+        error: errorMessage,
         message: error.message,
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error",
+        retryable: statusCode === 409 // Suggest retry for conflicts
       });
     }
   });
