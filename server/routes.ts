@@ -2124,24 +2124,59 @@ export async function registerRoutes(app: any) {
   app.post("/api/registration", async (req: any, res: any) => {
     try {
       console.log("[Registration] Registration attempt:", req.body?.email);
+      console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
 
       const {
         email,
         password,
         firstName,
         lastName,
+        middleName,
         phone,
+        dateOfBirth,
+        gender,
+        ssn,
+        address,
+        address2,
+        city,
+        state,
+        zipCode,
+        employerName,
+        dateOfHire,
+        memberType,
+        planStartDate,
+        planId,
+        coverageType,
+        addRxValet,
+        totalMonthlyPrice,
+        familyMembers,
         termsAccepted,
         privacyAccepted,
+        privacyNoticeAcknowledged,
         smsConsent,
+        communicationsConsent,
         faqDownloaded
       } = req.body;
 
-      // Basic validation
-      if (!email || !password || !firstName || !lastName) {
+      // Basic validation with better error details
+      const missingFields = [];
+      if (!email) missingFields.push("email");
+      if (!password) missingFields.push("password");
+      if (!firstName) missingFields.push("firstName");
+      if (!lastName) missingFields.push("lastName");
+
+      if (missingFields.length > 0) {
+        console.log("[Registration] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["email", "password", "firstName", "lastName"]
+          required: ["email", "password", "firstName", "lastName"],
+          missing: missingFields,
+          received: {
+            email: !!email,
+            password: !!password,
+            firstName: !!firstName,
+            lastName: !!lastName
+          }
         });
       }
 
@@ -2171,26 +2206,85 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      // Create user in our database
+      // Create user in our database with full enrollment data
       const user = await storage.createUser({
         id: data.user.id,
         email: data.user.email!,
         firstName: firstName || "User",
         lastName: lastName || "",
+        middleName: middleName || "",
         phone: phone || "",
+        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+        gender: gender || null,
+        ssn: ssn || null,
+        address: address || "",
+        address2: address2 || "",
+        city: city || "",
+        state: state || "",
+        zipCode: zipCode || "",
+        employerName: employerName || "",
+        dateOfHire: dateOfHire ? new Date(dateOfHire) : null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
         emailVerified: false,
         role: "member",
         isActive: true,
-        approvalStatus: "pending",
+        approvalStatus: "approved", // Auto-approve DPC enrollments
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-      console.log("[Registration] User created successfully:", user.email);
+      // Create subscription if plan is selected
+      if (planId && totalMonthlyPrice) {
+        try {
+          const subscription = await storage.createSubscription({
+            userId: user.id,
+            planId: parseInt(planId),
+            status: "pending_payment",
+            amount: totalMonthlyPrice,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          console.log("[Registration] Subscription created:", subscription.id);
+        } catch (subError) {
+          console.error("[Registration] Error creating subscription:", subError);
+          // Continue with registration even if subscription fails
+        }
+      }
+
+      // Add family members if provided
+      if (familyMembers && Array.isArray(familyMembers)) {
+        for (const familyMember of familyMembers) {
+          if (familyMember.firstName && familyMember.lastName) {
+            try {
+              await storage.addFamilyMember({
+                primaryUserId: user.id,
+                firstName: familyMember.firstName,
+                lastName: familyMember.lastName,
+                middleName: familyMember.middleName || "",
+                dateOfBirth: familyMember.dateOfBirth ? new Date(familyMember.dateOfBirth) : null,
+                gender: familyMember.gender || null,
+                relationship: familyMember.relationship || "family",
+                phone: familyMember.phone || "",
+                ssn: familyMember.ssn || "",
+                createdAt: new Date()
+              });
+              console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
+            } catch (familyError) {
+              console.error("[Registration] Error adding family member:", familyError);
+              // Continue with other family members
+            }
+          }
+        }
+      }
+
+      console.log("[Registration] Registration completed successfully:", user.email);
 
       res.json({
         success: true,
-        message: "Registration successful. Please check your email to verify your account.",
+        message: "Registration successful. Proceeding to payment...",
         user: {
           id: user.id,
           email: user.email,
@@ -2199,6 +2293,12 @@ export async function registerRoutes(app: any) {
           role: user.role,
           approvalStatus: user.approvalStatus,
         },
+        enrollment: {
+          planId: planId,
+          coverageType: coverageType,
+          totalMonthlyPrice: totalMonthlyPrice,
+          addRxValet: addRxValet
+        }
       });
     } catch (error: any) {
       console.error("[Registration] Error:", error);

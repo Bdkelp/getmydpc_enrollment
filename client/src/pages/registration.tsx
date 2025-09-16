@@ -145,13 +145,37 @@ export default function Registration() {
         parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
       const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% processing fee
       
+      // Ensure all required fields are present
       const submissionData = {
+        // Required backend fields
+        email: data.email,
+        password: "TempPassword123!", // Temporary password for DPC enrollment
+        firstName: data.firstName,
+        lastName: data.lastName,
+        phone: data.phone,
+        
+        // Additional enrollment data
         ...data,
         coverageType,
         addRxValet,
         totalMonthlyPrice: parseFloat(totalWithFees),
-        familyMembers: familyMembers
+        familyMembers: familyMembers,
+        
+        // Consent flags
+        termsAccepted: data.termsAccepted,
+        privacyAccepted: data.privacyNoticeAcknowledged,
+        smsConsent: data.communicationsConsent,
+        faqDownloaded: data.faqDownloaded
       };
+      
+      console.log('Submitting registration data:', {
+        email: submissionData.email,
+        firstName: submissionData.firstName,
+        lastName: submissionData.lastName,
+        phone: submissionData.phone,
+        hasPassword: !!submissionData.password
+      });
+      
       await apiRequest("/api/registration", {
         method: "POST",
         body: JSON.stringify(submissionData)
