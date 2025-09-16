@@ -158,73 +158,114 @@ export class EPXPaymentService {
       console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
       console.log('[EPX] TAC payload:', { ...payload, MAC: '***MASKED***' });
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout for Replit environment
+      // Retry logic for network issues
+      const maxRetries = 3;
+      const baseTimeout = 30000; // 30 second timeout
+      let lastError: any;
 
-      const response = await fetch(this.keyExchangeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'DPC-EPX-Integration/1.0'
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      }).catch((fetchError: any) => {
-        // Handle network errors specifically
-        if (fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
-          console.error('[EPX] Network timeout - EPX service may be unavailable from this environment');
-          throw new Error('EPX_NETWORK_TIMEOUT');
-        }
-        throw fetchError;
-      });
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        console.log(`[EPX] TAC generation attempt ${attempt}/${maxRetries}`);
+        
+        try {
+          const controller = new AbortController();
+          const timeout = baseTimeout * attempt; // Increase timeout with each retry
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      clearTimeout(timeoutId);
+          const response = await fetch(this.keyExchangeUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'User-Agent': 'DPC-EPX-Integration/1.0',
+              'Connection': 'keep-alive'
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          }).catch((fetchError: any) => {
+            // Handle network errors specifically
+            if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+              console.error(`[EPX] Network timeout on attempt ${attempt} - EPX service may be unavailable`);
+              throw new Error('EPX_NETWORK_TIMEOUT');
+            }
+            throw fetchError;
+          });
+
+          clearTimeout(timeoutId);
+          
+          // If we get here, the request succeeded
+          console.log(`[EPX] TAC request succeeded on attempt ${attempt}`);
+          break;
 
       console.log('[EPX] TAC response status:', response.status);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[EPX] TAC request failed:', response.status, errorText);
-        throw new Error(`TAC request failed: ${response.status} ${errorText}`);
-      }
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[EPX] TAC request failed on attempt ${attempt}:`, response.status, errorText);
+            
+            // Don't retry on 4xx errors (client errors)
+            if (response.status >= 400 && response.status < 500) {
+              throw new Error(`TAC request failed: ${response.status} ${errorText}`);
+            }
+            
+            // Retry on 5xx errors (server errors)
+            lastError = new Error(`TAC request failed: ${response.status} ${errorText}`);
+            if (attempt === maxRetries) {
+              throw lastError;
+            }
+            continue;
+          }
 
-      const data = await response.json();
-      console.log('[EPX] TAC response data:', data);
+          const data = await response.json();
+          console.log('[EPX] TAC response data:', data);
 
-      if (data.TAC) {
-        console.log('[EPX] TAC generated successfully');
-        return {
-          success: true,
-          tac: data.TAC
-        };
-      } else {
-        console.error('[EPX] TAC generation failed:', data);
-        return {
-          success: false,
-          error: data.error || 'Failed to generate TAC'
-        };
+          if (data.TAC) {
+            console.log('[EPX] TAC generated successfully');
+            return {
+              success: true,
+              tac: data.TAC
+            };
+          } else {
+            console.error('[EPX] TAC generation failed:', data);
+            return {
+              success: false,
+              error: data.error || 'Failed to generate TAC'
+            };
+          }
+        } catch (error: any) {
+          lastError = error;
+          
+          if (error.message === 'EPX_NETWORK_TIMEOUT' && attempt < maxRetries) {
+            console.log(`[EPX] Retrying after timeout, attempt ${attempt + 1}/${maxRetries} in 2 seconds...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+          
+          // If it's the last attempt or a non-retryable error, break
+          if (attempt === maxRetries || !error.message.includes('EPX_NETWORK_TIMEOUT')) {
+            break;
+          }
+        }
       }
     } catch (error: any) {
-      console.error('[EPX] TAC generation error:', error);
+      console.error('[EPX] TAC generation error after all retries:', error);
       
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || error.message === 'EPX_NETWORK_TIMEOUT') {
         return {
           success: false,
-          error: 'EPX service timeout - The payment processor is not responding. Please try again later.'
+          error: 'EPX payment service is currently unavailable. This may be due to network connectivity issues. Please try again in a few minutes.'
         };
       }
       
-      if (error.message === 'EPX_NETWORK_TIMEOUT' || error.message.includes('fetch') || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      if (error.message.includes('fetch') || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
         return {
           success: false,
-          error: 'EPX payment service is currently unavailable. This may be due to network restrictions in the development environment. Please contact support if this persists.'
+          error: 'EPX payment service connection failed. Please contact support if this issue persists.'
         };
       }
       
       return {
         success: false,
-        error: error.message || 'TAC generation failed'
+        error: lastError?.message || error.message || 'TAC generation failed'
       };
     }
   }

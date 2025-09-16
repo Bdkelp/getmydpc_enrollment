@@ -64,6 +64,27 @@ try {
   console.log('[EPX Routes] EPX Service initialized successfully');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
   console.log('[EPX Routes] Base URL:', baseUrl);
+  
+  // Test EPX connectivity on startup
+  setTimeout(async () => {
+    try {
+      console.log('[EPX Routes] Testing EPX connectivity...');
+      const testResponse = await epxService.generateTAC({
+        amount: 1.00,
+        tranNbr: 'CONNECTIVITY_TEST_' + Date.now(),
+        customerEmail: 'test@mypremierplans.com',
+        orderDescription: 'Connectivity Test'
+      });
+      
+      if (testResponse.success) {
+        console.log('[EPX Routes] ✅ EPX connectivity test passed');
+      } else {
+        console.warn('[EPX Routes] ⚠️ EPX connectivity test failed:', testResponse.error);
+      }
+    } catch (testError: any) {
+      console.warn('[EPX Routes] ⚠️ EPX connectivity test error:', testError.message);
+    }
+  }, 5000); // Test after 5 seconds to allow server to fully start
 } catch (error: any) {
   epxInitError = error.message || 'Unknown error during EPX initialization';
   console.error('[EPX Routes] Failed to initialize EPX Service:', error);
