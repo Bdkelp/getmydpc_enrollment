@@ -22,6 +22,13 @@ const buildBaseUrl = () => {
     return raw;
   }
 
+  // Check if we're on Railway production domain
+  if (window.location.hostname.includes('railway.app')) {
+    const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
+    console.log('[API Client] Using Railway production API URL:', railwayUrl);
+    return railwayUrl;
+  }
+
   // Dev fallback: same-origin (Replit/local)
   const origin = window.location.origin;
   console.log('[API Client] Using development API URL:', origin);

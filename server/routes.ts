@@ -2431,14 +2431,22 @@ export async function registerRoutes(app: any) {
   // User activity endpoints
   app.post("/api/user/activity", authMiddleware, (req: any, res: any) => {
     try {
-      // Log user activity (could be stored in database if needed)
+      console.log('User activity request:', req.body);
       console.log(
         `[Activity] User ${req.user.email} active at ${new Date().toISOString()}`,
       );
-      res.json({ success: true });
+      
+      res.json({
+        success: true,
+        message: 'Activity logged',
+        data: req.body
+      });
     } catch (error) {
       console.error("[Activity] Error logging activity:", error);
-      res.status(500).json({ error: "Failed to log activity" });
+      res.status(500).json({ 
+        error: "Failed to log activity",
+        details: error.message 
+      });
     }
   });
 
