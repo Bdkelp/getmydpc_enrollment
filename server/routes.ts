@@ -2133,11 +2133,11 @@ export async function registerRoutes(app: any) {
     next();
   };
 
-  // Register Supabase auth routes FIRST (before authMiddleware)
-  app.use(supabaseAuthRoutes);
-
-  // Use the router
+  // Use the router FIRST to ensure API routes are registered
   app.use(router);
+
+  // Register Supabase auth routes (after main routes)
+  app.use(supabaseAuthRoutes);
 
   // Registration endpoint
   app.post("/api/registration", async (req: any, res: any) => {
