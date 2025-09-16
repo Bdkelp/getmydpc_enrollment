@@ -212,8 +212,8 @@ export default function AgentLeads() {
               Add Lead
             </Button>
 
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
+            <Select value={statusFilter} onValueChange={setStatusFilter} name="statusFilter">
+              <SelectTrigger id="statusFilter" className="w-[180px]">
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
@@ -276,8 +276,9 @@ export default function AgentLeads() {
                   <Select
                     value={lead.status}
                     onValueChange={(value) => handleStatusChange(lead.id, value)}
+                    name={`leadStatus_${lead.id}`}
                   >
-                    <SelectTrigger className="w-[140px]">
+                    <SelectTrigger id={`leadStatus_${lead.id}`} className="w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -342,6 +343,8 @@ export default function AgentLeads() {
                 <Label htmlFor="firstName">First Name *</Label>
                 <Input
                   id="firstName"
+                  name="firstName"
+                  autoComplete="given-name"
                   value={newLead.firstName}
                   onChange={(e) => setNewLead({ ...newLead, firstName: e.target.value })}
                   placeholder="John"
@@ -351,6 +354,8 @@ export default function AgentLeads() {
                 <Label htmlFor="lastName">Last Name *</Label>
                 <Input
                   id="lastName"
+                  name="lastName"
+                  autoComplete="family-name"
                   value={newLead.lastName}
                   onChange={(e) => setNewLead({ ...newLead, lastName: e.target.value })}
                   placeholder="Doe"
@@ -362,7 +367,9 @@ export default function AgentLeads() {
               <Label htmlFor="email">Email *</Label>
               <Input
                 id="email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 value={newLead.email}
                 onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
                 placeholder="john@example.com"
@@ -373,7 +380,9 @@ export default function AgentLeads() {
               <Label htmlFor="phone">Phone *</Label>
               <Input
                 id="phone"
+                name="phone"
                 type="tel"
+                autoComplete="tel"
                 value={newLead.phone}
                 onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
                 placeholder="(210) 555-0123"
@@ -384,6 +393,8 @@ export default function AgentLeads() {
               <Label htmlFor="message">Notes</Label>
               <Textarea
                 id="message"
+                name="message"
+                autoComplete="off"
                 value={newLead.message}
                 onChange={(e) => setNewLead({ ...newLead, message: e.target.value })}
                 placeholder="Any additional information about this lead..."
@@ -418,9 +429,9 @@ export default function AgentLeads() {
 
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Activity Type</label>
-              <Select value={activityType} onValueChange={setActivityType}>
-                <SelectTrigger>
+              <Label htmlFor="activityType" className="text-sm font-medium">Activity Type</Label>
+              <Select value={activityType} onValueChange={setActivityType} name="activityType">
+                <SelectTrigger id="activityType">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -433,8 +444,11 @@ export default function AgentLeads() {
             </div>
 
             <div>
-              <label className="text-sm font-medium">Notes</label>
+              <Label htmlFor="activityNotes" className="text-sm font-medium">Notes</Label>
               <Textarea
+                id="activityNotes"
+                name="activityNotes"
+                autoComplete="off"
                 value={activityNotes}
                 onChange={(e) => setActivityNotes(e.target.value)}
                 placeholder="Enter details about this interaction..."

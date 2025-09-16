@@ -228,7 +228,9 @@ export default function AgentCommissions() {
                 <Label htmlFor="startDate">Start Date</Label>
                 <Input
                   id="startDate"
+                  name="startDate"
                   type="date"
+                  autoComplete="off"
                   value={dateFilter.startDate}
                   onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
                 />
@@ -237,7 +239,9 @@ export default function AgentCommissions() {
                 <Label htmlFor="endDate">End Date</Label>
                 <Input
                   id="endDate"
+                  name="endDate"
                   type="date"
+                  autoComplete="off"
                   value={dateFilter.endDate}
                   onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
                 />

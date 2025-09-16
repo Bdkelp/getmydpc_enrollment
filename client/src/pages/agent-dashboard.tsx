@@ -315,16 +315,22 @@ export default function AgentDashboard() {
               <CardTitle>Recent Enrollments</CardTitle>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">From:</label>
+                  <label htmlFor="dashboardStartDate" className="text-sm text-gray-600">From:</label>
                   <input
+                    id="dashboardStartDate"
+                    name="startDate"
                     type="date"
+                    autoComplete="off"
                     value={dateFilter.startDate}
                     onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
                     className="px-3 py-1 border rounded"
                   />
-                  <label className="text-sm text-gray-600">To:</label>
+                  <label htmlFor="dashboardEndDate" className="text-sm text-gray-600">To:</label>
                   <input
+                    id="dashboardEndDate"
+                    name="endDate"
                     type="date"
+                    autoComplete="off"
                     value={dateFilter.endDate}
                     onChange={(e) => setDateFilter({ ...dateFilter, endDate: e.target.value })}
                     className="px-3 py-1 border rounded"
@@ -477,9 +483,9 @@ export default function AgentDashboard() {
               <div className="space-y-3">
                 <h4 className="font-semibold">Record Member Consent</h4>
                 <div>
-                  <label className="text-sm font-medium">Consent Type *</label>
-                  <Select value={consentType} onValueChange={setConsentType}>
-                    <SelectTrigger>
+                  <Label htmlFor="consentType" className="text-sm font-medium">Consent Type *</Label>
+                  <Select value={consentType} onValueChange={setConsentType} name="consentType">
+                    <SelectTrigger id="consentType">
                       <SelectValue placeholder="Select consent type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -492,8 +498,11 @@ export default function AgentDashboard() {
                 </div>
                 
                 <div>
-                  <label className="text-sm font-medium">Consent Notes *</label>
+                  <Label htmlFor="consentNotes" className="text-sm font-medium">Consent Notes *</Label>
                   <Textarea
+                    id="consentNotes"
+                    name="consentNotes"
+                    autoComplete="off"
                     value={consentNotes}
                     onChange={(e) => setConsentNotes(e.target.value)}
                     placeholder="Describe how consent was obtained, what was discussed, and any specific member requests..."
