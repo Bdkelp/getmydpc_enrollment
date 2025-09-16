@@ -1600,11 +1600,50 @@ router.put(
 
 // Agent routes
 router.get(
+  "/api/agent/enrollments",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+      console.log("❌ Access denied - not agent or admin");
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    
+    try {
+      const { startDate, endDate } = req.query;
+      let enrollments;
+      
+      if (req.user!.role === "admin") {
+        // Admin sees all enrollments
+        enrollments = await storage.getAllEnrollments(
+          startDate as string, 
+          endDate as string
+        );
+      } else {
+        // Agent sees only their enrollments
+        enrollments = await storage.getAgentEnrollments(
+          req.user!.id,
+          startDate as string,
+          endDate as string
+        );
+      }
+      
+      console.log("✅ Got", enrollments?.length || 0, "enrollments");
+      res.json(enrollments);
+    } catch (error) {
+      console.error("❌ Error fetching agent enrollments:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
+    }
+  },
+);
+
+router.get(
   "/api/agent/commissions",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
-      return res.status(403).json({ message: "Agent access required" });
+    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -1917,8 +1956,11 @@ router.get(
   "/api/agent/stats",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
-      return res.status(403).json({ message: "Agent access required" });
+    console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+      console.log("❌ Access denied - not agent or admin");
+      return res.status(403).json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -1940,6 +1982,7 @@ router.get(
       // Get active members count
       const activeMembers = enrollments.filter((e) => e.isActive).length;
 
+      console.log("✅ Got agent stats for", req.user!.role);
       res.json({
         totalEnrollments: enrollments.length,
         monthlyEnrollments,
@@ -1947,7 +1990,7 @@ router.get(
         ...commissionStats,
       });
     } catch (error) {
-      console.error("Error fetching agent stats:", error);
+      console.error("❌ Error fetching agent stats:", error);
       res.status(500).json({ message: "Failed to fetch agent stats" });
     }
   },
@@ -2532,8 +2575,11 @@ export async function registerRoutes(app: any) {
   // Fix: /api/agent/commission-stats (404)
   app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
     try {
+      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+      
       if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Agent access required' });
+        console.log("❌ Access denied - not agent or admin");
+        return res.status(403).json({ error: 'Agent or admin access required' });
       }
 
       // Get actual commission stats for the agent
@@ -2551,6 +2597,7 @@ export async function registerRoutes(app: any) {
       const pendingCommissions = commissions.filter(c => c.paymentStatus === 'unpaid');
       const pendingCommission = pendingCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
 
+      console.log("✅ Got commission stats for", req.user.role);
       res.json({
         success: true,
         commissionStats: {
@@ -2563,22 +2610,37 @@ export async function registerRoutes(app: any) {
         }
       });
     } catch (error: any) {
-      console.error('Commission stats error:', error);
+      console.error('❌ Commission stats error:', error);
       res.status(500).json({ error: 'Failed to fetch commission stats' });
     }
   });
 
   // Fix: /api/agent/commissions (403) - permission issue  
-  app.get('/api/agent/commissions', async (req: any, res: any) => {
+  app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
     try {
+      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+      
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        console.log("❌ Access denied - not agent or admin");
+        return res.status(403).json({ error: 'Agent or admin access required' });
+      }
+      
       const { startDate, endDate } = req.query;
+      const commissions = await storage.getAgentCommissions(
+        req.user.id,
+        startDate as string,
+        endDate as string
+      );
+      
+      console.log("✅ Got", commissions?.length || 0, "commissions");
       res.json({
         success: true,
-        commissions: [],
+        commissions: commissions || [],
         dateRange: { startDate, endDate },
-        total: 0
+        total: commissions?.length || 0
       });
     } catch (error: any) {
+      console.error('❌ Agent commissions error:', error);
       res.status(500).json({ error: 'Failed to fetch commissions' });
     }
   });
