@@ -13,6 +13,7 @@ import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
 import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here
 import supabaseAuthRoutes from "./routes/supabase-auth";
+import { nanoid } from "nanoid"; // Import nanoid for generating IDs
 const router = Router();
 
 // Public routes (no authentication required)
@@ -2116,6 +2117,202 @@ export async function registerRoutes(app: any) {
   // Use the router
   app.use(router);
 
+  // Registration endpoint
+  app.post("/api/registration", async (req: any, res: any) => {
+    try {
+      console.log("[Registration] Registration attempt:", req.body?.email);
+
+      const {
+        email,
+        password,
+        firstName,
+        lastName,
+        phone,
+        termsAccepted,
+        privacyAccepted,
+        smsConsent,
+        faqDownloaded
+      } = req.body;
+
+      // Basic validation
+      if (!email || !password || !firstName || !lastName) {
+        return res.status(400).json({
+          error: "Missing required fields",
+          required: ["email", "password", "firstName", "lastName"]
+        });
+      }
+
+      // Use existing registration logic
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            firstName,
+            lastName,
+            phone: phone || "",
+          },
+        },
+      });
+
+      if (error) {
+        console.error("[Registration] Supabase error:", error);
+        return res.status(400).json({
+          error: error.message || "Registration failed"
+        });
+      }
+
+      if (!data.user) {
+        return res.status(400).json({
+          error: "Failed to create user"
+        });
+      }
+
+      // Create user in our database
+      const user = await storage.createUser({
+        id: data.user.id,
+        email: data.user.email!,
+        firstName: firstName || "User",
+        lastName: lastName || "",
+        phone: phone || "",
+        emailVerified: false,
+        role: "member",
+        isActive: true,
+        approvalStatus: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      console.log("[Registration] User created successfully:", user.email);
+
+      res.json({
+        success: true,
+        message: "Registration successful. Please check your email to verify your account.",
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          approvalStatus: user.approvalStatus,
+        },
+      });
+    } catch (error: any) {
+      console.error("[Registration] Error:", error);
+      res.status(500).json({
+        error: "Registration failed",
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+      });
+    }
+  });
+
+  // Agent enrollment endpoint
+  app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {
+    try {
+      console.log("[Agent Enrollment] Enrollment attempt by agent:", req.user?.email);
+
+      const { agentCode, userEmail, planType, memberData } = req.body;
+
+      // Validate agent has permission
+      if (req.user?.role !== "agent" && req.user?.role !== "admin") {
+        return res.status(403).json({
+          error: "Agent or admin access required"
+        });
+      }
+
+      // Basic validation
+      if (!userEmail || !planType) {
+        return res.status(400).json({
+          error: "Missing required fields",
+          required: ["userEmail", "planType"]
+        });
+      }
+
+      // Record enrollment attempt
+      const enrollmentRecord = {
+        agentId: req.user.id,
+        agentEmail: req.user.email,
+        memberEmail: userEmail,
+        planType: planType,
+        enrollmentDate: new Date(),
+        status: "pending"
+      };
+
+      console.log("[Agent Enrollment] Recording enrollment:", enrollmentRecord);
+
+      res.json({
+        success: true,
+        message: "Agent enrollment recorded successfully",
+        data: {
+          enrollmentId: nanoid(),
+          agentCode: req.user.agentNumber || agentCode,
+          userEmail,
+          planType,
+          enrolledBy: req.user.email
+        }
+      });
+
+    } catch (error: any) {
+      console.error("[Agent Enrollment] Error:", error);
+      res.status(500).json({
+        error: "Agent enrollment failed",
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+      });
+    }
+  });
+
+  // Agent lookup endpoint
+  app.get("/api/agent/:agentId", async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      console.log("[Agent Lookup] Looking up agent:", agentId);
+
+      // Try to find agent by ID or agent number
+      let agent;
+      try {
+        agent = await storage.getUser(agentId);
+      } catch (error) {
+        // Try by agent number if direct ID lookup fails
+        agent = await storage.getUserByAgentNumber(agentId);
+      }
+
+      if (!agent) {
+        return res.status(404).json({
+          error: "Agent not found",
+          agentId: agentId
+        });
+      }
+
+      // Only return agent data if they are actually an agent
+      if (agent.role !== "agent" && agent.role !== "admin") {
+        return res.status(404).json({
+          error: "Agent not found",
+          agentId: agentId
+        });
+      }
+
+      res.json({
+        success: true,
+        agent: {
+          id: agent.id,
+          agentNumber: agent.agentNumber,
+          firstName: agent.firstName,
+          lastName: agent.lastName,
+          email: agent.email,
+          isActive: agent.isActive,
+          role: agent.role
+        }
+      });
+
+    } catch (error: any) {
+      console.error("[Agent Lookup] Error:", error);
+      res.status(500).json({
+        error: "Agent lookup failed",
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+      });
+    }
+  });
+
   // Mock payment endpoint for testing
   app.post("/api/mock-payment", authMiddleware, async (req: any, res: any) => {
     try {
@@ -2402,6 +2599,8 @@ export async function registerRoutes(app: any) {
   app.listen(5000, "0.0.0.0", () => {
     console.log("Server running on port 5000");
     console.log("Environment:", process.env.NODE_ENV);
-    console.log("EPX Service configured:", epxService ? "Browser Post ready" : "Not configured");
+    // Check if epxService is defined before logging its status
+    const epxServiceExists = typeof epxService !== 'undefined';
+    console.log("EPX Service configured:", epxServiceExists ? "Browser Post ready" : "Not configured");
   });
 }
