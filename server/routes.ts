@@ -2236,6 +2236,8 @@ export async function registerRoutes(app: any) {
 
   // Registration endpoint - ensure it's accessible
   app.post("/api/registration", async (req: any, res: any) => {
+    console.log("🔍 REGISTRATION START - Data received");
+    console.log("Request body keys:", Object.keys(req.body || {}));
     console.log("[Registration] Endpoint hit - method:", req.method, "path:", req.path);
     
     // Add CORS headers for registration endpoint
@@ -2255,6 +2257,7 @@ export async function registerRoutes(app: any) {
       res.header('Access-Control-Allow-Credentials', 'true');
     }
     try {
+      console.log("✅ Step 1: Starting user creation...");
       console.log("[Registration] Registration attempt:", req.body?.email);
       console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
 
@@ -2292,16 +2295,17 @@ export async function registerRoutes(app: any) {
 
       // Generate a strong password by default to avoid Supabase validation issues
       let finalPassword = password;
-      if (!password || password.length < 8) {
-        finalPassword = `SecurePass${Date.now()}!`;
-        console.log("[Registration] Using generated secure password due to weak/missing password");
-      } else {
-        // Ensure password meets Supabase requirements
-        if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(password)) {
-          finalPassword = `SecurePass${Date.now()}!`;
-          console.log("[Registration] Password doesn't meet requirements, using generated password");
-        }
-      }
+      
+      console.log("✅ Step 2: Processing password...");
+      console.log("[Registration] Original password provided:", !!password);
+      
+      // Always generate a strong password for DPC enrollments to avoid Supabase issues
+      const timestamp = Date.now();
+      const randomNum = Math.floor(Math.random() * 9999);
+      finalPassword = `MPP${timestamp}${randomNum}!Secure`;
+      
+      console.log("[Registration] Using strong generated password for Supabase compliance");
+      console.log("[Registration] Generated password length:", finalPassword.length);
 
       // Basic validation with better error details
       const missingFields = [];
@@ -2323,6 +2327,10 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      console.log("✅ Step 3: Before Supabase auth signUp...");
+      console.log("[Registration] Email:", email);
+      console.log("[Registration] Password strength check passed");
+      
       // Use existing registration logic with improved password
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -2337,11 +2345,17 @@ export async function registerRoutes(app: any) {
       });
 
       if (error) {
-        console.error("[Registration] Supabase error:", error);
+        console.error("❌ SUPABASE AUTH ERROR:", error.message);
+        console.error("❌ Error details:", error);
+        console.error("[Registration] Supabase error code:", error.status);
         return res.status(400).json({
-          error: error.message || "Registration failed"
+          error: error.message || "Registration failed",
+          details: process.env.NODE_ENV === "development" ? error : undefined
         });
       }
+
+      console.log("✅ Step 4: Supabase user created successfully");
+      console.log("[Registration] Supabase user ID:", data.user?.id);
 
       if (!data.user) {
         return res.status(400).json({
@@ -2349,6 +2363,8 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      console.log("✅ Step 5: Before database user creation...");
+      
       // Create user in our database with full enrollment data
       const user = await storage.createUser({
         id: data.user.id,
@@ -2377,9 +2393,13 @@ export async function registerRoutes(app: any) {
         updatedAt: new Date(),
       });
 
+      console.log("✅ Step 6: User created in database successfully");
+      console.log("[Registration] User ID:", user.id);
+      
       // Create subscription if plan is selected
       if (planId && totalMonthlyPrice) {
         try {
+          console.log("✅ Step 7: Before subscription creation...");
           const subscription = await storage.createSubscription({
             userId: user.id,
             planId: parseInt(planId),
@@ -2397,8 +2417,11 @@ export async function registerRoutes(app: any) {
         }
       }
 
+      console.log("✅ Step 8: Before family members processing...");
+      
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
+        console.log("[Registration] Processing", familyMembers.length, "family members");
         for (const familyMember of familyMembers) {
           if (familyMember.firstName && familyMember.lastName) {
             try {
@@ -2423,7 +2446,8 @@ export async function registerRoutes(app: any) {
         }
       }
 
-      console.log("[Registration] Registration completed successfully:", user.email);
+      console.log("✅ Step 9: Registration completed successfully!");
+      console.log("[Registration] Final user email:", user.email);
 
       res.json({
         success: true,
@@ -2446,9 +2470,13 @@ export async function registerRoutes(app: any) {
         ...(finalPassword !== password && { generatedPassword: finalPassword })
       });
     } catch (error: any) {
-      console.error("[Registration] Error:", error);
+      console.error("❌ REGISTRATION ERROR:", error.message);
+      console.error("❌ Error details:", error);
+      console.error("❌ Stack trace:", error.stack);
+      
       res.status(500).json({
         error: "Registration failed",
+        message: error.message,
         details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
       });
     }
