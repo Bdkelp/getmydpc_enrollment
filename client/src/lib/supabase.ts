@@ -20,39 +20,30 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Create profile images bucket if it doesn't exist
-export async function ensureProfileImagesBucket() {
+// Check if profile images bucket exists (only when explicitly called)
+export async function checkProfileImagesBucket() {
   try {
-    // Skip bucket operations entirely in development or if no session
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      console.log('No active session, skipping bucket setup');
-      return;
-    }
-
-    // Only try to list buckets, don't create them automatically
     const { data: buckets, error: listError } = await supabase.storage.listBuckets();
 
     if (listError) {
       console.warn('Storage access limited:', listError.message);
-      return;
+      return { exists: false, error: listError };
     }
 
     const bucketExists = buckets?.some(bucket => bucket.name === 'profile-images');
     
     if (bucketExists) {
       console.log('Profile-images bucket exists and accessible');
+      return { exists: true, error: null };
     } else {
       console.warn('Profile-images bucket not found - profile uploads may not work');
+      return { exists: false, error: null };
     }
   } catch (error) {
-    console.warn('Storage check failed (this is normal in development):', error);
-    // Don't throw - this is not critical for app functionality
+    console.warn('Storage check failed:', error);
+    return { exists: false, error };
   }
 }
-
-// Don't initialize storage automatically on app start
-// ensureProfileImagesBucket();
 
 // Auth helper functions
 export const signIn = async (email: string, password: string) => {
