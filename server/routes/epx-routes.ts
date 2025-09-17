@@ -57,7 +57,7 @@ try {
   if (!epxConfig.mac) {
     throw new Error('EPX_MAC environment variable is required for payment processing');
   }
-  
+
   if (!epxConfig.custNbr || !epxConfig.merchNbr) {
     throw new Error('EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing');
   }
@@ -72,7 +72,7 @@ try {
   console.log('[EPX Routes] TAC Endpoint:', 'https://keyexch.epxuap.com');
   console.log('[EPX Routes] Payment Endpoint:', 'https://services.epxuap.com/browserpost/');
   console.log('[EPX Routes] Request Format:', 'Testing both form-encoded and JSON formats');
-  
+
   // Test EPX connectivity on startup
   setTimeout(async () => {
     try {
@@ -83,7 +83,7 @@ try {
         customerEmail: 'test@mypremierplans.com',
         orderDescription: 'Connectivity Test'
       });
-      
+
       if (testResponse.success) {
         console.log('[EPX Routes] ✅ EPX connectivity test passed');
       } else {
@@ -154,7 +154,7 @@ router.get('/api/epx/browser-post-status', async (req: Request, res: Response) =
  */
 router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
   const startTime = Date.now();
-  
+
   try {
     console.log('[EPX Create Payment] === REQUEST START ===');
     console.log('[EPX Create Payment] Headers:', JSON.stringify({
@@ -162,7 +162,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       'authorization': req.headers.authorization ? 'Bearer ***' : 'none',
       'user-agent': req.headers['user-agent']
     }, null, 2));
-    
+
     console.log('[EPX Create Payment] Body:', JSON.stringify(req.body, null, 2));
 
     // Check if EPX service is initialized
@@ -311,14 +311,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
           })
         }
       };
-      
+
       console.log('[EPX Create Payment] Creating payment record with data:', {
         ...paymentData,
         metadata: { ...paymentData.metadata, tac: '***MASKED***', requestBody: '***MASKED***' }
       });
 
       paymentRecord = await storage.createPayment(paymentData);
-      
+
       console.log('[EPX Create Payment] ✅ Payment record created successfully:', {
         paymentId: paymentRecord?.id,
         transactionId: tranNbr,
@@ -335,7 +335,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
         amount: sanitizedAmount,
         timestamp: new Date().toISOString()
       });
-      
+
       // Force create a minimal payment record for audit trail
       try {
         paymentRecord = await storage.createPayment({
@@ -394,9 +394,9 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
 
     // Get payment form data
     const formData = epxService.getPaymentFormData(
-      tacResponse.tac, 
-      sanitizedAmount, 
-      tranNbr, 
+      tacResponse.tac,
+      sanitizedAmount,
+      tranNbr,
       paymentMethod || 'card'
     );
 
@@ -432,6 +432,19 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     }
     if (error.syscall) {
       console.error(`[EPX Create Payment] Error syscall: ${error.syscall}`);
+    }
+
+    // Check if it's a TAC generation error
+    if (error.message.includes('TAC') || error.message.includes('EPX_MAC')) {
+      return res.status(500).json({
+        success: false,
+        error: 'TAC generation failed',
+        details: 'Unable to generate Transaction Authorization Code. Please check your EPX MAC key and configuration.',
+        suggestion: 'Ensure the EPX_MAC environment variable is correctly set and is a valid 32-character key.',
+        processingTime,
+        errorType: error.name,
+        errorCode: error.code || 'TAC_GENERATION_ERROR'
+      });
     }
 
     res.status(500).json({
@@ -471,7 +484,7 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
     });
 
     const result = epxService.processWebhook(req.body);
-    
+
     console.log('[EPX Webhook] Webhook processing result:', {
       isApproved: result.isApproved,
       transactionId: result.transactionId,

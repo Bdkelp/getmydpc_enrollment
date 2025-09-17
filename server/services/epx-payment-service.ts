@@ -18,6 +18,7 @@ export interface EPXConfig {
   responseUrl: string;
   cancelUrl?: string;
   webhookSecret?: string;
+  tacEndpoint?: string; // Added for TAC generation endpoint
 }
 
 export interface TACRequest {
@@ -38,6 +39,7 @@ export interface TACResponse {
   success: boolean;
   tac?: string;
   error?: string;
+  details?: string;
 }
 
 export interface EPXPaymentForm {
@@ -99,6 +101,11 @@ export class EPXPaymentService {
       this.customPayApiUrl = 'https://epi.epxuap.com';
     }
 
+    // Ensure tacEndpoint is set for sandbox if not provided, pointing to keyExchangeUrl
+    if (config.environment === 'sandbox' && !config.tacEndpoint) {
+      config.tacEndpoint = this.keyExchangeUrl;
+    }
+
     console.log('[EPX Service] Initialized with config:', {
       custNbr: this.config.custNbr,
       merchNbr: this.config.merchNbr,
@@ -106,7 +113,8 @@ export class EPXPaymentService {
       terminalNbr: this.config.terminalNbr,
       environment: this.config.environment,
       redirectUrl: this.config.redirectUrl,
-      hasMAC: !!this.config.mac
+      hasMAC: !!this.config.mac,
+      tacEndpoint: this.config.tacEndpoint
     });
   }
 
@@ -119,6 +127,9 @@ export class EPXPaymentService {
 
       if (!this.config.mac) {
         throw new Error('MAC value not configured for Browser Post API');
+      }
+      if (!this.config.tacEndpoint) {
+        throw new Error('TAC Endpoint not configured');
       }
 
       const payload: any = {
@@ -154,7 +165,7 @@ export class EPXPaymentService {
         payload.TRAN_CODE = 'CCE1';  // Card Ecommerce Sale
       }
 
-      console.log('[EPX] Sending TAC request to:', this.keyExchangeUrl);
+      console.log('[EPX] Sending TAC request to:', this.config.tacEndpoint);
       console.log('[EPX] TAC payload structure check:', {
         hasMAC: !!payload.MAC,
         macLength: payload.MAC?.length,
@@ -214,7 +225,7 @@ export class EPXPaymentService {
 
           console.log(`[EPX] Request ${attempt} Content-Type:`, requestOptions.headers['Content-Type']);
 
-          response = await fetch(this.keyExchangeUrl, requestOptions).catch((fetchError: any) => {
+          response = await fetch(this.config.tacEndpoint, requestOptions).catch((fetchError: any) => {
             // Handle network errors specifically
             if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
               console.error(`[EPX] Network timeout on attempt ${attempt} - EPX service may be unavailable`);

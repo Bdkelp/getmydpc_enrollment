@@ -154,6 +154,22 @@ app.use((req, res, next) => {
       // Initialize weekly recap service
       WeeklyRecapService.scheduleWeeklyRecap();
 
+      // Validate EPX configuration
+      try {
+        console.log('[Server] Validating EPX configuration...');
+        const epxEnvVars = {
+          EPX_CUST_NBR: process.env.EPX_CUST_NBR,
+          EPX_MERCH_NBR: process.env.EPX_MERCH_NBR,
+          EPX_DBA_NBR: process.env.EPX_DBA_NBR,
+          EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR,
+          EPX_MAC_KEY: process.env.EPX_MAC_KEY ? '***SET***' : 'NOT SET',
+          BASE_URL: process.env.BASE_URL
+        };
+        console.log('[Server] EPX Environment Variables:', epxEnvVars);
+      } catch (error) {
+        console.warn('[Server] EPX configuration check failed:', error.message);
+      }
+
       return server;
     },
   );
