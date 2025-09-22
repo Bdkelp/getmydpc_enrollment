@@ -2875,6 +2875,181 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Fix: Missing admin endpoints for user management tabs
+  app.get('/api/admin/pending-users', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const users = await storage.getAllUsers();
+      const pendingUsers = users.users?.filter((user: any) => user.approvalStatus === 'pending') || [];
+      res.json(pendingUsers);
+    } catch (error: any) {
+      console.error('Error fetching pending users:', error);
+      res.status(500).json({ error: 'Failed to fetch pending users' });
+    }
+  });
+
+  app.get('/api/admin/login-sessions', authMiddleware, async (req: any, res: any) => {
+    try {
+      console.log("🔍 LOGIN SESSIONS ROUTE HIT");
+      console.log("User:", req.user?.email);
+      console.log("Role:", req.user?.role);
+
+      if (req.user?.role !== 'admin') {
+        console.log("❌ Access denied - not admin");
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { limit = "50" } = req.query;
+      const loginSessions = await storage.getAllLoginSessions(parseInt(limit as string));
+      console.log("✅ Got", loginSessions?.length || 0, "login sessions");
+      res.json(loginSessions);
+    } catch (error: any) {
+      console.error("❌ Error fetching login sessions:", error);
+      res.status(500).json({ error: 'Failed to fetch login sessions' });
+    }
+  });
+
+  app.put('/api/admin/users/:userId/role', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+      const { role } = req.body;
+
+      if (!["member", "agent", "admin"].includes(role)) {
+        return res.status(400).json({
+          error: "Invalid role. Must be 'member', 'agent', or 'admin'"
+        });
+      }
+
+      const updatedUser = await storage.updateUser(userId, {
+        role,
+        updatedAt: new Date(),
+      });
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error updating user role:", error);
+      res.status(500).json({ error: "Failed to update user role" });
+    }
+  });
+
+  app.put('/api/admin/users/:userId/agent-number', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+      const { agentNumber } = req.body;
+
+      // Get user to validate they can have an agent number
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Only agents and admins should have agent numbers
+      if (user.role !== 'agent' && user.role !== 'admin') {
+        return res.status(400).json({
+          error: 'Only agents and admins can be assigned agent numbers'
+        });
+      }
+
+      // Check for duplicate agent numbers if provided
+      if (agentNumber && agentNumber.trim() !== '') {
+        const existingUser = await storage.getUserByAgentNumber(agentNumber.trim());
+        if (existingUser && existingUser.id !== userId) {
+          return res.status(400).json({
+            error: 'Agent number already in use'
+          });
+        }
+      }
+
+      const result = await storage.updateUser(userId, {
+        agentNumber: agentNumber?.trim() || null,
+        updatedAt: new Date(),
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error updating agent number:", error);
+      res.status(500).json({ error: "Failed to update agent number" });
+    }
+  });
+
+  app.put('/api/admin/users/:userId/suspend', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+      const { reason } = req.body;
+
+      const updatedUser = await storage.updateUser(userId, {
+        isActive: false,
+        approvalStatus: 'suspended',
+        rejectionReason: reason || 'Account suspended by administrator',
+        updatedAt: new Date(),
+      });
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error suspending user:", error);
+      res.status(500).json({ error: "Failed to suspend user" });
+    }
+  });
+
+  app.put('/api/admin/users/:userId/reactivate', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+
+      const updatedUser = await storage.updateUser(userId, {
+        isActive: true,
+        approvalStatus: 'approved',
+        approvedAt: new Date(),
+        approvedBy: req.user.id,
+        rejectionReason: null,
+        updatedAt: new Date(),
+      });
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error reactivating user:", error);
+      res.status(500).json({ error: "Failed to reactivate user" });
+    }
+  });
+
+  app.post('/api/admin/approve-user/:userId', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+      const updatedUser = await storage.updateUser(userId, {
+        approvalStatus: 'approved',
+        approvedAt: new Date(),
+        approvedBy: req.user.id,
+        updatedAt: new Date(),
+      });
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error approving user:", error);
+      res.status(500).json({ error: "Failed to approve user" });
+    }
+  });
+
   // Fix: /api/user (404) - basic user endpoint
   app.get('/api/user', async (req: any, res: any) => {
     try {
