@@ -7,6 +7,19 @@ import { supabase } from '../lib/supabaseClient';
 const router = Router();
 
 /**
+ * Simple test endpoint to verify debug routing is working
+ */
+router.get('/api/debug/test', async (req: Request, res: Response) => {
+  console.log('[Debug Test] Endpoint accessed');
+  res.json({
+    success: true,
+    message: 'Debug routing is working',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+/**
  * Debug endpoint to check recent payment activity
  */
 router.get('/api/debug/payments', async (req: Request, res: Response) => {

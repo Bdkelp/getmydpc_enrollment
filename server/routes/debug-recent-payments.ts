@@ -1,54 +1,56 @@
-
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
 
 const router = Router();
 
 /**
- * Debug endpoint to check recent payment attempts
+ * Debug endpoint to check recent payments for specific users
  */
-router.get('/api/debug/recent-payments', async (req, res) => {
+router.get('/api/debug/recent-payments', async (req: Request, res: Response) => {
   try {
-    console.log('[Debug Recent Payments] Starting payment search...');
+    console.log('[Debug Recent Payments] Checking recent payment activity for target users...');
 
-    // Use Supabase instead of direct Neon queries for consistency
-    // Check recent payments from database
-    const { data: recentPayments, error: paymentsError } = await supabase
+    // Target users to check for payment activity
+    const targetUsernames = ['chesty', 'ben', 'rusty'];
+
+    // Get recent payments from last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    // Get all payments from the last 7 days
+    const { data: recentPayments, error: recentError } = await supabase
       .from('payments')
-      .select(`
-        *,
-        users!inner(first_name, last_name, email)
-      `)
-      .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    if (paymentsError) {
-      console.error('[Debug Recent Payments] Payments query error:', paymentsError);
-    }
-
-    // Check for specific users (chesty, ben, rusty)
-    const { data: allUsers, error: usersError } = await supabase
-      .from('users')
-      .select(`
-        id,
-        first_name,
-        last_name,
-        email,
-        created_at
-      `)
-      .or(`first_name.ilike.%chesty%,first_name.ilike.%ben%,first_name.ilike.%rusty%,last_name.ilike.%chesty%,last_name.ilike.%ben%,last_name.ilike.%rusty%,email.ilike.%chesty%,email.ilike.%ben%,email.ilike.%rusty%`)
+      .select('*')
+      .gte('created_at', sevenDaysAgo.toISOString())
       .order('created_at', { ascending: false });
 
-    if (usersError) {
-      console.error('[Debug Recent Payments] Users query error:', usersError);
+    if (recentError) {
+      console.error('[Debug Recent Payments] Error fetching recent payments:', recentError);
+      throw recentError;
     }
+
+    // Look for target users by their usernames/emails
+    const targetUsers = [];
+    for (const username of targetUsernames) {
+      // Try to find by email first (assuming username is email-like)
+      const { data: userByEmail, error: emailError } = await supabase
+        .from('users')
+        .select('*')
+        .or(`email.ilike.%${username}%,first_name.ilike.%${username}%,last_name.ilike.%${username}%`)
+        .limit(5);
+
+      if (!emailError && userByEmail && userByEmail.length > 0) {
+        targetUsers.push(...userByEmail);
+      }
+    }
+
+    console.log('[Debug Recent Payments] Found target users:', targetUsers.length);
 
     // Get payments for target users
     let targetUserPayments: any[] = [];
-    if (allUsers && allUsers.length > 0) {
-      const userIds = allUsers.map(u => u.id);
+    if (targetUsers && targetUsers.length > 0) {
+      const userIds = targetUsers.map(u => u.id);
       const { data: userPayments, error: userPaymentsError } = await supabase
         .from('payments')
         .select('*')
@@ -81,51 +83,64 @@ router.get('/api/debug/recent-payments', async (req, res) => {
 
     console.log('[Debug Recent Payments] Search completed:', {
       recentPayments: recentPayments?.length || 0,
-      targetUsers: allUsers?.length || 0,
+      targetUsers: targetUsers?.length || 0,
       targetUserPayments: targetUserPayments.length,
       sandboxTransactions: sandboxTransactions.length
     });
 
-    const result = {
+    res.json({
       success: true,
-      timestamp: new Date().toISOString(),
       summary: {
-        totalRecentPayments: recentPayments?.length || 0,
-        targetUsersFound: allUsers?.length || 0,
+        searchedUsernames: targetUsernames,
+        searchPeriod: '7 days',
+        recentPaymentsCount: recentPayments?.length || 0,
+        targetUsersFound: targetUsers?.length || 0,
         targetUserPayments: targetUserPayments.length,
-        recentEPXTransactions: sandboxTransactions.length,
-        queryErrors: {
-          payments: !!paymentsError,
-          users: !!usersError,
-          epx: !!epxError
-        }
+        sandboxTransactionsLast24h: sandboxTransactions.length
       },
-      recentPayments: recentPayments || [],
-      targetUsers: (allUsers || []).map(user => ({
-        ...user,
-        payments: targetUserPayments.filter(p => p.user_id === user.id)
-      })),
-      epxTransactions: sandboxTransactions,
-      searchCriteria: {
-        timeframe: 'Last 7 days',
-        targetNames: ['chesty', 'ben', 'rusty'],
-        environment: 'sandbox'
+      data: {
+        targetUsers: targetUsers.map(u => ({
+          id: u.id,
+          name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+          email: u.email,
+          created_at: u.created_at
+        })),
+        targetUserPayments: targetUserPayments.map(p => ({
+          id: p.id,
+          user_id: p.user_id,
+          amount: p.amount,
+          status: p.status,
+          transaction_id: p.transaction_id,
+          created_at: p.created_at,
+          environment: p.metadata?.environment
+        })),
+        recentPayments: (recentPayments || []).slice(0, 10).map(p => ({
+          id: p.id,
+          user_id: p.user_id,
+          amount: p.amount,
+          status: p.status,
+          transaction_id: p.transaction_id,
+          created_at: p.created_at,
+          environment: p.metadata?.environment
+        })),
+        sandboxTransactions: sandboxTransactions.slice(0, 10)
       },
-      errors: {
-        payments: paymentsError?.message || null,
-        users: usersError?.message || null,
-        epx: epxError?.message || null
+      debug: {
+        note: 'If no payments appear for target users, they may not have completed the payment flow',
+        possibleIssues: [
+          'Payment form submission failed before reaching database',
+          'EPX webhook not received or processed',
+          'Transaction ID mismatch between creation and webhook',
+          'Users cancelled payment before completion'
+        ]
       }
-    };
-
-    res.json(result);
+    });
 
   } catch (error: any) {
-    console.error('[Debug Recent Payments] Unexpected error:', error);
+    console.error('[Debug Recent Payments] Error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      details: 'Failed to retrieve payment data',
       stack: error.stack
     });
   }
@@ -134,7 +149,7 @@ router.get('/api/debug/recent-payments', async (req, res) => {
 /**
  * Simple test endpoint to verify routing is working
  */
-router.get('/api/debug/test', async (req, res) => {
+router.get('/api/debug/test', async (req: Request, res: Response) => {
   try {
     console.log('[Debug Test] Endpoint accessed');
     res.json({
