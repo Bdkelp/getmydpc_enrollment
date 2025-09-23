@@ -646,14 +646,12 @@ export class EPXPaymentService {
 let epxService: EPXPaymentService | null = null;
 
 export function initializeEPXService(config: EPXConfig): EPXPaymentService {
-  return;
   epxService = new EPXPaymentService(config);
   return epxService;
 }
 
 export function getEPXService(): EPXPaymentService {
   if (!epxService) {
-    return;
     throw new Error(
       "EPX Service not initialized. Call initializeEPXService first.",
     );
