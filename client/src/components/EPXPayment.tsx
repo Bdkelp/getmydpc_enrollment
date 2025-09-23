@@ -105,7 +105,7 @@ export function EPXPayment({
       form.action = data.formData.actionUrl;
       form.target = '_self'; // Navigate in same window
 
-      // Add all form fields
+      // Add all form fields with exact EPX field names
       const fields: any = {
         'TAC': data.formData.tac,
         'TRAN_CODE': data.formData.tranCode,
@@ -119,7 +119,7 @@ export function EPXPayment({
         'RECEIPT': data.formData.receipt
       };
 
-      // Add ACH fields if using ACH
+      // Add ACH fields if using ACH with correct EPX field names
       if (paymentMethod === 'ach') {
         fields['PAYMENT_TYPE'] = 'ACH';
         fields['ACH_ROUTING_NBR'] = achData.routingNumber;

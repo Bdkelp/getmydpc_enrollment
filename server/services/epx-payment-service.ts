@@ -381,13 +381,13 @@ export class EPXPaymentService {
       tac: tac,
       tranCode: paymentMethod === 'ach' ? 'ACE1' : 'CCE1',  // ACH or Card Ecommerce Sale
       tranGroup: 'SALE',
-      amount: amount,
+      amount: parseFloat(amount.toString()), // Ensure proper number format
       tranNbr: tranNbr,
       redirectUrl: this.config.redirectUrl,
       responseUrl: this.config.responseUrl,
-      redirectEcho: 'V',
-      responseEcho: 'V',
-      receipt: 'Y',
+      redirectEcho: 'V', // Verbose response
+      responseEcho: 'V', // Verbose response  
+      receipt: 'Y', // Request receipt
       cancelUrl: this.config.cancelUrl
     };
   }

@@ -150,6 +150,70 @@ router.get('/api/epx/browser-post-status', async (req: Request, res: Response) =
 });
 
 /**
+ * Debug endpoint to validate form data structure
+ */
+router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
+  try {
+    if (!epxServiceInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'EPX Service not initialized'
+      });
+    }
+
+    const epxService = getEPXService();
+    
+    // Generate a test TAC
+    const testTacResponse = await epxService.generateTAC({
+      amount: 1.00,
+      tranNbr: 'DEBUG_FORM_' + Date.now(),
+      customerEmail: 'debug@test.com',
+      orderDescription: 'Form Debug Test'
+    });
+
+    if (!testTacResponse.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate test TAC',
+        details: testTacResponse.error
+      });
+    }
+
+    // Generate form data
+    const formData = epxService.getPaymentFormData(
+      testTacResponse.tac!,
+      1.00,
+      'DEBUG_FORM_' + Date.now(),
+      'card'
+    );
+
+    res.json({
+      success: true,
+      formData: {
+        ...formData,
+        tac: '***MASKED***' // Don't expose real TAC in debug
+      },
+      tacGenerated: true,
+      allRequiredFields: {
+        TAC: !!formData.tac,
+        TRAN_CODE: !!formData.tranCode,
+        TRAN_GROUP: !!formData.tranGroup,
+        AMOUNT: !!formData.amount,
+        TRAN_NBR: !!formData.tranNbr,
+        REDIRECT_URL: !!formData.redirectUrl,
+        RESPONSE_URL: !!formData.responseUrl
+      }
+    });
+  } catch (error: any) {
+    console.error('[EPX] Debug form data error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Debug form data failed'
+    });
+  }
+});
+
+/**
  * Create payment session for Browser Post API
  */
 router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
@@ -399,6 +463,19 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       tranNbr,
       paymentMethod || 'card'
     );
+
+    console.log('[EPX Create Payment] Generated form data:', {
+      actionUrl: formData.actionUrl,
+      hasTAC: !!formData.tac,
+      tacLength: formData.tac?.length,
+      tranCode: formData.tranCode,
+      tranGroup: formData.tranGroup,
+      amount: formData.amount,
+      tranNbr: formData.tranNbr,
+      redirectUrl: formData.redirectUrl?.substring(0, 50) + '...',
+      responseUrl: formData.responseUrl?.substring(0, 50) + '...',
+      paymentMethod: paymentMethod || 'card'
+    });
 
     const processingTime = Date.now() - startTime;
     console.log(`[EPX Create Payment] SUCCESS - Processing time: ${processingTime}ms`);
