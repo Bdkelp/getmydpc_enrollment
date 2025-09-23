@@ -55,14 +55,12 @@ try {
 
   // Validate critical configuration
   if (!epxConfig.mac) {
-    throw new Error('EPX_MAC environment variable is required for payment processing');
+    throw new Error('EPX_MAC_KEY environment variable is required for payment processing');
   }
 
   if (!epxConfig.custNbr || !epxConfig.merchNbr) {
     throw new Error('EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing');
   }
-
-  // EPX configuration validation will be done at request time, not at module load
 
   initializeEPXService(epxConfig);
   const epxService = getEPXService();
