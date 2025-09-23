@@ -6,6 +6,8 @@ import { initializeEPXService } from "./services/epx-payment-service";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import epxRoutes from "./routes/epx-routes";
 import adminLogsRoutes from "./routes/admin-logs";
+import debugPaymentsRoutes from './routes/debug-payments';
+import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
 
 const app = express();
@@ -116,6 +118,8 @@ app.use((req, res, next) => {
   // EPX routes already have /api prefix
   app.use(epxRoutes);
   app.use(adminLogsRoutes);
+  app.use(debugPaymentsRoutes);
+  app.use(debugRecentPaymentsRoutes);
   app.use(devUtilitiesRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
