@@ -184,13 +184,24 @@ export class EPXPaymentService {
         fieldsCount: Object.keys(payload).length,
       });
 
-      // Convert to form data format - EPX may expect form-encoded data instead of JSON
+      // Convert to form data format - EPX expects form-encoded data
       const formData = new URLSearchParams();
       Object.entries(payload).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
           formData.append(key, value.toString());
         }
       });
+
+      // Ensure required fields are present
+      const requiredFields = ['MAC', 'CUST_NBR', 'MERCH_NBR', 'DBA_NBR', 'TERMINAL_NBR', 'AMOUNT', 'TRAN_NBR', 'TRAN_CODE'];
+      const missingFields = requiredFields.filter(field => !payload[field]);
+      if (missingFields.length > 0) {
+        console.error("[EPX] Missing required fields:", missingFields);
+        return {
+          success: false,
+          error: `Missing required fields: ${missingFields.join(', ')}`,
+        };
+      }
 
       console.log(
         "[EPX] Form data string:",
@@ -211,24 +222,16 @@ export class EPXPaymentService {
           const timeout = baseTimeout * attempt; // Increase timeout with each retry
           const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-          // Try both JSON and form-encoded formats
+          // EPX requires form-encoded data only
           const requestOptions = {
             method: "POST",
-            headers:
-              attempt <= 2
-                ? {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    Accept: "application/json, text/plain, */*",
-                    "User-Agent": "DPC-EPX-Integration/1.0",
-                    Connection: "keep-alive",
-                  }
-                : {
-                    "Content-Type": "application/json",
-                    Accept: "application/json",
-                    "User-Agent": "DPC-EPX-Integration/1.0",
-                    Connection: "keep-alive",
-                  },
-            body: attempt <= 2 ? formData.toString() : JSON.stringify(payload),
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "User-Agent": "Mozilla/5.0 (compatible; EPX-Integration/1.0)",
+              "Cache-Control": "no-cache",
+            },
+            body: formData.toString(),
             signal: controller.signal,
           };
 

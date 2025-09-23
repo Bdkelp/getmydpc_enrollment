@@ -62,6 +62,24 @@ try {
     throw new Error('EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing');
   }
 
+  // Validate EPX configuration
+  if (!process.env.EPX_MAC_KEY) {
+    console.error('[EPX Routes] EPX_MAC_KEY not found in environment variables');
+    return res.status(500).json({
+      success: false,
+      error: 'EPX payment service not configured'
+    });
+  }
+
+  // Validate MAC key format (should be 32 characters for sandbox)
+  if (process.env.EPX_MAC_KEY.length !== 32) {
+    console.error('[EPX Routes] Invalid MAC key length:', process.env.EPX_MAC_KEY.length);
+    return res.status(500).json({
+      success: false,
+      error: 'Invalid EPX MAC key format'
+    });
+  }
+
   initializeEPXService(epxConfig);
   const epxService = getEPXService();
   epxServiceInitialized = true;
@@ -162,7 +180,7 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
     }
 
     const epxService = getEPXService();
-    
+
     // Generate a test TAC
     const testTacResponse = await epxService.generateTAC({
       amount: 1.00,
