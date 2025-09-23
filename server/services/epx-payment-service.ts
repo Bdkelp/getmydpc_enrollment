@@ -647,11 +647,13 @@ let epxService: EPXPaymentService | null = null;
 
 export function initializeEPXService(config: EPXConfig): EPXPaymentService {
   epxService = new EPXPaymentService(config);
+  console.log("We Made It 1);
   return epxService;
 }
 
 export function getEPXService(): EPXPaymentService {
   if (!epxService) {
+     console.log("We Made It 2);
     throw new Error(
       "EPX Service not initialized. Call initializeEPXService first.",
     );
