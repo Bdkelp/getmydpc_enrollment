@@ -286,17 +286,30 @@ export class EPXPaymentService {
             continue;
           }
 
-          // Try to parse response as JSON first, then as text
+          // Parse response - EPX returns XML format
           let data;
           const responseText = await response.text();
           console.log('[EPX] Raw response:', responseText);
 
+          // Try to parse as JSON first, then handle XML
           try {
             data = JSON.parse(responseText);
             console.log('[EPX] Parsed JSON response:', data);
           } catch (parseError) {
-            console.log('[EPX] Response is not JSON, treating as text:', responseText);
-            data = { rawResponse: responseText };
+            console.log('[EPX] Response is not JSON, parsing as XML:', responseText);
+            
+            // Parse XML response to extract TAC
+            const tacMatch = responseText.match(/<FIELD KEY="TAC">([^<]+)<\/FIELD>/);
+            if (tacMatch && tacMatch[1]) {
+              console.log('[EPX] TAC extracted from XML response');
+              data = { TAC: tacMatch[1] };
+            } else {
+              // Check for error messages in XML
+              const errorMatch = responseText.match(/<FIELD KEY="ERROR">([^<]+)<\/FIELD>/);
+              const errorMsg = errorMatch ? errorMatch[1] : 'Failed to parse XML response';
+              console.error('[EPX] XML parsing failed:', errorMsg);
+              data = { error: errorMsg, rawResponse: responseText };
+            }
           }
 
           if (data.TAC) {
