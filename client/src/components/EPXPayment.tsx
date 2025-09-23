@@ -67,7 +67,7 @@ export function EPXPayment({
     try {
       // Get current Supabase session for auth token
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
+
       if (sessionError || !session?.access_token) {
         console.error('[EPX Payment] No auth session available:', sessionError);
         setError('Authentication required. Please sign in again.');
