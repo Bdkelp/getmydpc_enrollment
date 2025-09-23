@@ -245,23 +245,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    // Validate EPX configuration at request time
-    if (!process.env.EPX_MAC_KEY) {
-      console.error('[EPX Create Payment] EPX_MAC_KEY not found in environment variables');
-      return res.status(500).json({
-        success: false,
-        error: 'EPX payment service not configured'
-      });
-    }
-
-    // Validate MAC key format (should be 32 characters for sandbox)
-    if (process.env.EPX_MAC_KEY.length !== 32) {
-      console.error('[EPX Create Payment] Invalid MAC key length:', process.env.EPX_MAC_KEY.length);
-      return res.status(500).json({
-        success: false,
-        error: 'Invalid EPX MAC key format'
-      });
-    }
+    // EPX configuration will be validated at request time, not at module load
 
     // Validate EPX service initialization
     let epxService;
