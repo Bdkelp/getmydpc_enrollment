@@ -150,6 +150,32 @@ router.get('/api/epx/browser-post-status', async (req: Request, res: Response) =
 });
 
 /**
+ * Test endpoint for payment success redirect
+ */
+router.get('/payment/success', async (req: Request, res: Response) => {
+  console.log('[EPX] Payment success redirect received');
+  console.log('[EPX] Query parameters:', req.query);
+  
+  const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.query;
+  
+  if (AUTH_RESP === 'APPROVAL') {
+    res.redirect(`/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`);
+  } else {
+    res.redirect(`/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`);
+  }
+});
+
+/**
+ * Test endpoint for payment cancel redirect
+ */
+router.get('/payment/cancel', async (req: Request, res: Response) => {
+  console.log('[EPX] Payment cancel redirect received');
+  console.log('[EPX] Query parameters:', req.query);
+  
+  res.redirect('/payment-cancel');
+});
+
+/**
  * Debug endpoint to validate form data structure
  */
 router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
@@ -543,7 +569,12 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
  */
 router.post('/api/epx/webhook', async (req: Request, res: Response) => {
   try {
-    console.log('[EPX Webhook] Received payment result');
+    console.log('[EPX Webhook] === WEBHOOK RECEIVED ===');
+    console.log('[EPX Webhook] Request method:', req.method);
+    console.log('[EPX Webhook] Request headers:', JSON.stringify(req.headers, null, 2));
+    console.log('[EPX Webhook] Request body:', JSON.stringify(req.body, null, 2));
+    console.log('[EPX Webhook] Request query:', JSON.stringify(req.query, null, 2));
+    
     const epxService = getEPXService();
 
     // Validate webhook signature if configured
@@ -676,6 +707,92 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[EPX Webhook] Error processing webhook:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+/**
+ * Handle EPX webhook/response URL via GET (EPX may send results via GET)
+ */
+router.get('/api/epx/webhook', async (req: Request, res: Response) => {
+  try {
+    console.log('[EPX Webhook GET] === WEBHOOK GET RECEIVED ===');
+    console.log('[EPX Webhook GET] Query parameters:', JSON.stringify(req.query, null, 2));
+    
+    const epxService = getEPXService();
+
+    // Process the webhook payload from query parameters
+    const result = epxService.processWebhook(req.query);
+
+    console.log('[EPX Webhook GET] Webhook processing result:', {
+      isApproved: result.isApproved,
+      transactionId: result.transactionId,
+      authCode: result.authCode,
+      error: result.error,
+      timestamp: new Date().toISOString()
+    });
+
+    if (result.transactionId) {
+      // Update payment status in database
+      console.log('[EPX Webhook GET] Looking up payment by transaction ID:', result.transactionId);
+      const payment = await storage.getPaymentByTransactionId(result.transactionId);
+
+      if (payment) {
+        console.log('[EPX Webhook GET] Found payment record:', {
+          paymentId: payment.id,
+          currentStatus: payment.status,
+          amount: payment.amount,
+          userId: payment.userId
+        });
+
+        // Update payment with comprehensive logging
+        const updateResult = await storage.updatePayment(payment.id, {
+          status: result.isApproved ? 'completed' : 'failed',
+          authorizationCode: result.authCode,
+          metadata: {
+            ...payment.metadata,
+            bricToken: result.bricToken,
+            authAmount: result.amount,
+            error: result.error,
+            webhookProcessedAt: new Date().toISOString(),
+            epxResponse: req.query
+          }
+        });
+
+        console.log('[EPX Webhook GET] Payment update result:', updateResult);
+
+        // Log transaction
+        console.log(`[EPX Transaction Log] Payment ${result.isApproved ? 'APPROVED' : 'DECLINED'}:`, {
+          transactionId: result.transactionId,
+          paymentId: payment.id,
+          status: result.isApproved ? 'completed' : 'failed',
+          amount: result.amount,
+          authCode: result.authCode,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          timestamp: new Date().toISOString()
+        });
+
+        // If approved, update subscription status
+        if (result.isApproved && payment.subscriptionId) {
+          await storage.updateSubscription(payment.subscriptionId, {
+            status: 'active',
+            lastPaymentDate: new Date()
+          });
+        }
+      } else {
+        console.error('[EPX Webhook GET] ❌ PAYMENT NOT FOUND:', {
+          transactionId: result.transactionId,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          webhookData: req.query,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    // Acknowledge receipt
+    res.status(200).json({ received: true, processed: true });
+  } catch (error: any) {
+    console.error('[EPX Webhook GET] Error processing webhook:', error);
+    res.status(200).json({ received: true, error: error.message }); // Still return 200 to EPX
   }
 });
 

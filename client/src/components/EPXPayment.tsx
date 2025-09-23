@@ -100,6 +100,8 @@ export function EPXPayment({
       }
 
       // Create and submit the form to EPX
+      console.log('[EPX Payment] Creating form for submission to:', data.formData.actionUrl);
+      
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = data.formData.actionUrl;
@@ -140,9 +142,20 @@ export function EPXPayment({
         form.appendChild(input);
       });
 
+      console.log('[EPX Payment] Form fields being submitted:', {
+        actionUrl: form.action,
+        method: form.method,
+        fieldsCount: Object.keys(fields).length,
+        fields: { ...fields, TAC: '***MASKED***' } // Mask sensitive data
+      });
+
       // Append form to body and submit
       document.body.appendChild(form);
+      console.log('[EPX Payment] Submitting form to EPX...');
       form.submit();
+
+      // Form submission will navigate to EPX, so this code won't execute
+      console.log('[EPX Payment] Form submitted - redirecting to EPX payment page');
 
       // Form will redirect to EPX, so we don't need to clean up here
     } catch (err: any) {
