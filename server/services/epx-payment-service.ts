@@ -3,17 +3,17 @@
  * Browser Post API Integration with North.com EPX
  */
 
-import crypto from 'crypto';
+import crypto from "crypto";
 
 export interface EPXConfig {
-  mac: string;          // MAC key for Browser Post API (from Key Exchange)
-  epiId?: string;       // For Custom Pay API (refunds/voids)
-  epiKey?: string;      // For Custom Pay API signature
-  custNbr: string;      // Customer Number
-  merchNbr: string;     // Merchant Number
-  dbaNbr: string;       // DBA Number
-  terminalNbr: string;  // Terminal Number
-  environment: 'sandbox' | 'production';
+  mac: string; // MAC key for Browser Post API (from Key Exchange)
+  epiId?: string; // For Custom Pay API (refunds/voids)
+  epiKey?: string; // For Custom Pay API signature
+  custNbr: string; // Customer Number
+  merchNbr: string; // Merchant Number
+  dbaNbr: string; // DBA Number
+  terminalNbr: string; // Terminal Number
+  environment: "sandbox" | "production";
   redirectUrl: string;
   responseUrl: string;
   cancelUrl?: string;
@@ -28,10 +28,10 @@ export interface TACRequest {
   customerEmail?: string;
   invoiceNumber?: string;
   orderDescription?: string;
-  paymentMethod?: 'card' | 'ach';
+  paymentMethod?: "card" | "ach";
   achRoutingNumber?: string;
   achAccountNumber?: string;
-  achAccountType?: 'checking' | 'savings';
+  achAccountType?: "checking" | "savings";
   achAccountName?: string;
 }
 
@@ -65,7 +65,7 @@ export interface EPXPaymentForm {
 export interface EPXWebhookPayload {
   AUTH_RESP: string;
   AUTH_CODE?: string;
-  AUTH_GUID?: string;  // BRIC token for future operations
+  AUTH_GUID?: string; // BRIC token for future operations
   AUTH_AMOUNT?: string;
   AUTH_AMOUNT_REQUESTED?: string;
   AUTH_CARD_TYPE?: string;
@@ -90,23 +90,23 @@ export class EPXPaymentService {
     this.config = config;
 
     // Set URLs based on environment
-    if (config.environment === 'production') {
-      this.apiUrl = 'https://services.epxuap.com/browserpost/';
-      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
-      this.customPayApiUrl = 'https://epi.epxuap.com';
+    if (config.environment === "production") {
+      this.apiUrl = "https://services.epxuap.com/browserpost/";
+      this.keyExchangeUrl = "https://keyexch.epxuap.com";
+      this.customPayApiUrl = "https://epi.epxuap.com";
     } else {
       // Sandbox URLs - using alternative endpoints for better connectivity
-      this.apiUrl = 'https://services.epxuap.com/browserpost/';
-      this.keyExchangeUrl = 'https://keyexch.epxuap.com';
-      this.customPayApiUrl = 'https://epi.epxuap.com';
+      this.apiUrl = "https://services.epxuap.com/browserpost/";
+      this.keyExchangeUrl = "https://keyexch.epxuap.com";
+      this.customPayApiUrl = "https://epi.epxuap.com";
     }
 
     // Ensure tacEndpoint is set for sandbox if not provided, pointing to keyExchangeUrl
-    if (config.environment === 'sandbox' && !config.tacEndpoint) {
+    if (config.environment === "sandbox" && !config.tacEndpoint) {
       config.tacEndpoint = this.keyExchangeUrl;
     }
 
-    console.log('[EPX Service] Initialized with config:', {
+    console.log("[EPX Service] Initialized with config:", {
       custNbr: this.config.custNbr,
       merchNbr: this.config.merchNbr,
       dbaNbr: this.config.dbaNbr,
@@ -114,7 +114,7 @@ export class EPXPaymentService {
       environment: this.config.environment,
       redirectUrl: this.config.redirectUrl,
       hasMAC: !!this.config.mac,
-      tacEndpoint: this.config.tacEndpoint
+      tacEndpoint: this.config.tacEndpoint,
     });
   }
 
@@ -123,13 +123,13 @@ export class EPXPaymentService {
    */
   async generateTAC(request: TACRequest): Promise<TACResponse> {
     try {
-      console.log('[EPX] Generating TAC for transaction');
+      console.log("[EPX] Generating TAC for transaction");
 
       if (!this.config.mac) {
-        throw new Error('MAC value not configured for Browser Post API');
+        throw new Error("MAC value not configured for Browser Post API");
       }
       if (!this.config.tacEndpoint) {
-        throw new Error('TAC Endpoint not configured');
+        throw new Error("TAC Endpoint not configured");
       }
 
       const payload: any = {
@@ -140,33 +140,36 @@ export class EPXPaymentService {
         TERMINAL_NBR: this.config.terminalNbr,
         AMOUNT: request.amount.toFixed(2),
         TRAN_NBR: request.tranNbr,
-        TRAN_GROUP: request.tranGroup || 'SALE',
+        TRAN_GROUP: request.tranGroup || "SALE",
         REDIRECT_URL: this.config.redirectUrl,
         RESPONSE_URL: this.config.responseUrl,
         CANCEL_URL: this.config.cancelUrl,
-        REDIRECT_ECHO: 'V',  // Verbose response
-        RESPONSE_ECHO: 'V',   // Verbose response
-        RECEIPT: 'Y',
+        REDIRECT_ECHO: "V", // Verbose response
+        RESPONSE_ECHO: "V", // Verbose response
+        RECEIPT: "Y",
         // Optional fields
         ...(request.customerEmail && { EMAIL: request.customerEmail }),
         ...(request.invoiceNumber && { INVOICE_NBR: request.invoiceNumber }),
-        ...(request.orderDescription && { DESCRIPTION: request.orderDescription })
+        ...(request.orderDescription && {
+          DESCRIPTION: request.orderDescription,
+        }),
       };
 
       // Add ACH-specific fields if payment method is ACH
-      if (request.paymentMethod === 'ach') {
-        payload.PAYMENT_TYPE = 'ACH';
+      if (request.paymentMethod === "ach") {
+        payload.PAYMENT_TYPE = "ACH";
         payload.ACH_ROUTING_NBR = request.achRoutingNumber;
         payload.ACH_ACCOUNT_NBR = request.achAccountNumber;
-        payload.ACH_ACCOUNT_TYPE = request.achAccountType?.toUpperCase() || 'CHECKING';
+        payload.ACH_ACCOUNT_TYPE =
+          request.achAccountType?.toUpperCase() || "CHECKING";
         payload.ACH_ACCOUNT_NAME = request.achAccountName;
-        payload.TRAN_CODE = 'ACE1';  // ACH Ecommerce Sale
+        payload.TRAN_CODE = "ACE1"; // ACH Ecommerce Sale
       } else {
-        payload.TRAN_CODE = 'CCE1';  // Card Ecommerce Sale
+        payload.TRAN_CODE = "CCE1"; // Card Ecommerce Sale
       }
 
-      console.log('[EPX] Sending TAC request to:', this.config.tacEndpoint);
-      console.log('[EPX] TAC payload structure check:', {
+      console.log("[EPX] Sending TAC request to:", this.config.tacEndpoint);
+      console.log("[EPX] TAC payload structure check:", {
         hasMAC: !!payload.MAC,
         macLength: payload.MAC?.length,
         custNbr: payload.CUST_NBR,
@@ -178,7 +181,7 @@ export class EPXPaymentService {
         tranCode: payload.TRAN_CODE,
         redirectUrl: payload.REDIRECT_URL,
         responseUrl: payload.RESPONSE_URL,
-        fieldsCount: Object.keys(payload).length
+        fieldsCount: Object.keys(payload).length,
       });
 
       // Convert to form data format - EPX may expect form-encoded data instead of JSON
@@ -189,7 +192,10 @@ export class EPXPaymentService {
         }
       });
 
-      console.log('[EPX] Form data string:', formData.toString().replace(/MAC=[^&]*/g, 'MAC=***MASKED***'));
+      console.log(
+        "[EPX] Form data string:",
+        formData.toString().replace(/MAC=[^&]*/g, "MAC=***MASKED***"),
+      );
 
       // Retry logic for network issues
       const maxRetries = 3;
@@ -207,38 +213,52 @@ export class EPXPaymentService {
 
           // Try both JSON and form-encoded formats
           const requestOptions = {
-            method: 'POST',
-            headers: attempt <= 2 ? {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              'Accept': 'application/json, text/plain, */*',
-              'User-Agent': 'DPC-EPX-Integration/1.0',
-              'Connection': 'keep-alive'
-            } : {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'User-Agent': 'DPC-EPX-Integration/1.0',
-              'Connection': 'keep-alive'
-            },
+            method: "POST",
+            headers:
+              attempt <= 2
+                ? {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    Accept: "application/json, text/plain, */*",
+                    "User-Agent": "DPC-EPX-Integration/1.0",
+                    Connection: "keep-alive",
+                  }
+                : {
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                    "User-Agent": "DPC-EPX-Integration/1.0",
+                    Connection: "keep-alive",
+                  },
             body: attempt <= 2 ? formData.toString() : JSON.stringify(payload),
-            signal: controller.signal
+            signal: controller.signal,
           };
 
-          console.log(`[EPX] Request ${attempt} Content-Type:`, requestOptions.headers['Content-Type']);
+          console.log(
+            `[EPX] Request ${attempt} Content-Type:`,
+            requestOptions.headers["Content-Type"],
+          );
 
-          response = await fetch(this.config.tacEndpoint, requestOptions).catch((fetchError: any) => {
-            // Handle network errors specifically
-            if (fetchError.name === 'AbortError' || fetchError.code === 'UND_ERR_CONNECT_TIMEOUT' || fetchError.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
-              console.error(`[EPX] Network timeout on attempt ${attempt} - EPX service may be unavailable`);
-              throw new Error('EPX_NETWORK_TIMEOUT');
-            }
-            throw fetchError;
-          });
+          response = await fetch(this.config.tacEndpoint, requestOptions).catch(
+            (fetchError: any) => {
+              // Handle network errors specifically
+              if (
+                fetchError.name === "AbortError" ||
+                fetchError.code === "UND_ERR_CONNECT_TIMEOUT" ||
+                fetchError.cause?.code === "UND_ERR_CONNECT_TIMEOUT"
+              ) {
+                console.error(
+                  `[EPX] Network timeout on attempt ${attempt} - EPX service may be unavailable`,
+                );
+                throw new Error("EPX_NETWORK_TIMEOUT");
+              }
+              throw fetchError;
+            },
+          );
 
           clearTimeout(timeoutId);
 
           // If we get here, the request succeeded
           console.log(`[EPX] TAC request succeeded on attempt ${attempt}`);
-          console.log('[EPX] TAC response status:', response.status);
+          console.log("[EPX] TAC response status:", response.status);
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -247,40 +267,46 @@ export class EPXPaymentService {
               statusText: response.statusText,
               headers: Object.fromEntries(response.headers.entries()),
               body: errorText,
-              contentType: requestOptions.headers['Content-Type']
+              contentType: requestOptions.headers["Content-Type"],
             });
 
             // For 400 errors, provide specific guidance
             if (response.status === 400) {
-              console.error('[EPX] 400 Bad Request - Common causes:', {
+              console.error("[EPX] 400 Bad Request - Common causes:", {
                 possibleIssues: [
-                  'Invalid MAC key format or value',
-                  'Incorrect merchant/terminal numbers for sandbox',
-                  'Missing required fields',
-                  'Incorrect data format (amount, dates, etc.)',
-                  'Wrong Content-Type header',
-                  'Field length violations'
+                  "Invalid MAC key format or value",
+                  "Incorrect merchant/terminal numbers for sandbox",
+                  "Missing required fields",
+                  "Incorrect data format (amount, dates, etc.)",
+                  "Wrong Content-Type header",
+                  "Field length violations",
                 ],
-                sentData: { ...payload, MAC: '***MASKED***' }
+                sentData: { ...payload, MAC: "***MASKED***" },
               });
             }
 
             // Don't retry on 4xx errors (client errors) unless it's attempt 1 with form data
-            if (response.status >= 400 && response.status < 500 && attempt > 1) {
+            if (
+              response.status >= 400 &&
+              response.status < 500 &&
+              attempt > 1
+            ) {
               return {
                 success: false,
                 error: `TAC request failed: ${response.status} ${errorText}`,
-                details: `Request format may be incorrect. Status: ${response.status}`
+                details: `Request format may be incorrect. Status: ${response.status}`,
               };
             }
 
             // Retry on 5xx errors (server errors) or first 400 attempt
-            lastError = new Error(`TAC request failed: ${response.status} ${errorText}`);
+            lastError = new Error(
+              `TAC request failed: ${response.status} ${errorText}`,
+            );
             if (attempt === maxRetries) {
               return {
                 success: false,
                 error: lastError.message,
-                details: 'All retry attempts failed'
+                details: "All retry attempts failed",
               };
             }
             continue;
@@ -289,85 +315,110 @@ export class EPXPaymentService {
           // Parse response - EPX returns XML format
           let data;
           const responseText = await response.text();
-          console.log('[EPX] Raw response:', responseText);
+          console.log("[EPX] Raw response:", responseText);
 
           // Try to parse as JSON first, then handle XML
           try {
             data = JSON.parse(responseText);
-            console.log('[EPX] Parsed JSON response:', data);
+            console.log("[EPX] Parsed JSON response:", data);
           } catch (parseError) {
-            console.log('[EPX] Response is not JSON, parsing as XML:', responseText);
-            
+            console.log(
+              "[EPX] Response is not JSON, parsing as XML:",
+              responseText,
+            );
+
             // Parse XML response to extract TAC
-            const tacMatch = responseText.match(/<FIELD KEY="TAC">([^<]+)<\/FIELD>/);
+            const tacMatch = responseText.match(
+              /<FIELD KEY="TAC">([^<]+)<\/FIELD>/,
+            );
             if (tacMatch && tacMatch[1]) {
-              console.log('[EPX] TAC extracted from XML response');
+              console.log("[EPX] TAC extracted from XML response");
               data = { TAC: tacMatch[1] };
             } else {
               // Check for error messages in XML
-              const errorMatch = responseText.match(/<FIELD KEY="ERROR">([^<]+)<\/FIELD>/);
-              const errorMsg = errorMatch ? errorMatch[1] : 'Failed to parse XML response';
-              console.error('[EPX] XML parsing failed:', errorMsg);
+              const errorMatch = responseText.match(
+                /<FIELD KEY="ERROR">([^<]+)<\/FIELD>/,
+              );
+              const errorMsg = errorMatch
+                ? errorMatch[1]
+                : "Failed to parse XML response";
+              console.error("[EPX] XML parsing failed:", errorMsg);
               data = { error: errorMsg, rawResponse: responseText };
             }
           }
 
           if (data.TAC) {
-            console.log('[EPX] TAC generated successfully');
+            console.log("[EPX] TAC generated successfully");
             return {
               success: true,
-              tac: data.TAC
+              tac: data.TAC,
             };
           } else {
-            console.error('[EPX] TAC generation failed:', data);
+            console.error("[EPX] TAC generation failed:", data);
             return {
               success: false,
-              error: data.error || 'Failed to generate TAC'
+              error: data.error || "Failed to generate TAC",
             };
           }
         } catch (error: any) {
           lastError = error;
 
-          if (error.message === 'EPX_NETWORK_TIMEOUT' && attempt < maxRetries) {
-            console.log(`[EPX] Retrying after timeout, attempt ${attempt + 1}/${maxRetries} in 2 seconds...`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
+          if (error.message === "EPX_NETWORK_TIMEOUT" && attempt < maxRetries) {
+            console.log(
+              `[EPX] Retrying after timeout, attempt ${attempt + 1}/${maxRetries} in 2 seconds...`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 2000));
             continue;
           }
 
           // If it's the last attempt or a non-retryable error, break
-          if (attempt === maxRetries || !error.message.includes('EPX_NETWORK_TIMEOUT')) {
+          if (
+            attempt === maxRetries ||
+            !error.message.includes("EPX_NETWORK_TIMEOUT")
+          ) {
             break;
           }
         }
       }
 
       // If we get here, all retries failed - ensure we return a proper response object
-      console.error('[EPX] All TAC generation attempts failed:', lastError?.message);
+      console.error(
+        "[EPX] All TAC generation attempts failed:",
+        lastError?.message,
+      );
       return {
         success: false,
-        error: lastError?.message || 'EPX service timeout after all retries',
-        details: 'All connection attempts to EPX service failed'
+        error: lastError?.message || "EPX service timeout after all retries",
+        details: "All connection attempts to EPX service failed",
       };
     } catch (error: any) {
-      console.error('[EPX] TAC generation error after all retries:', error);
+      console.error("[EPX] TAC generation error after all retries:", error);
 
-      if (error.name === 'AbortError' || error.message === 'EPX_NETWORK_TIMEOUT') {
+      if (
+        error.name === "AbortError" ||
+        error.message === "EPX_NETWORK_TIMEOUT"
+      ) {
         return {
           success: false,
-          error: 'EPX payment service is currently unavailable. This may be due to network connectivity issues. Please try again in a few minutes.'
+          error:
+            "EPX payment service is currently unavailable. This may be due to network connectivity issues. Please try again in a few minutes.",
         };
       }
 
-      if (error.message.includes('fetch') || error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      if (
+        error.message.includes("fetch") ||
+        error.cause?.code === "UND_ERR_CONNECT_TIMEOUT"
+      ) {
         return {
           success: false,
-          error: 'EPX payment service connection failed. Please contact support if this issue persists.'
+          error:
+            "EPX payment service connection failed. Please contact support if this issue persists.",
         };
       }
 
       return {
         success: false,
-        error: lastError?.message || error.message || 'TAC generation failed'
+        error: lastError?.message || error.message || "TAC generation failed",
       };
     }
   }
@@ -375,20 +426,25 @@ export class EPXPaymentService {
   /**
    * Get payment form data for Browser Post API
    */
-  getPaymentFormData(tac: string, amount: number, tranNbr: string, paymentMethod: 'card' | 'ach' = 'card'): EPXPaymentForm {
+  getPaymentFormData(
+    tac: string,
+    amount: number,
+    tranNbr: string,
+    paymentMethod: "card" | "ach" = "card",
+  ): EPXPaymentForm {
     return {
       actionUrl: this.apiUrl,
       tac: tac,
-      tranCode: paymentMethod === 'ach' ? 'ACE1' : 'CCE1',  // ACH or Card Ecommerce Sale
-      tranGroup: 'SALE',
+      tranCode: paymentMethod === "ach" ? "ACE1" : "CCE1", // ACH or Card Ecommerce Sale
+      tranGroup: "SALE",
       amount: parseFloat(amount.toString()), // Ensure proper number format
       tranNbr: tranNbr,
       redirectUrl: this.config.redirectUrl,
       responseUrl: this.config.responseUrl,
-      redirectEcho: 'V', // Verbose response
-      responseEcho: 'V', // Verbose response  
-      receipt: 'Y', // Request receipt
-      cancelUrl: this.config.cancelUrl
+      redirectEcho: "V", // Verbose response
+      responseEcho: "V", // Verbose response
+      receipt: "Y", // Request receipt
+      cancelUrl: this.config.cancelUrl,
     };
   }
 
@@ -397,13 +453,13 @@ export class EPXPaymentService {
    */
   getBrowserPostStatus() {
     return {
-      method: 'browser-post',
+      method: "browser-post",
       ready: !!this.config.mac,
       environment: this.config.environment,
       endpoints: {
         tac: this.keyExchangeUrl,
-        payment: this.apiUrl
-      }
+        payment: this.apiUrl,
+      },
     };
   }
 
@@ -418,25 +474,30 @@ export class EPXPaymentService {
     amount?: number;
     error?: string;
   } {
-    console.log('[EPX] Processing webhook:', {
+    console.log("[EPX] Processing webhook:", {
       AUTH_RESP: payload.AUTH_RESP,
-      TRAN_NBR: payload.TRAN_NBR
+      TRAN_NBR: payload.TRAN_NBR,
     });
 
-    const isApproved = payload.AUTH_RESP === 'APPROVAL';
+    const isApproved = payload.AUTH_RESP === "APPROVAL";
 
     if (isApproved) {
       return {
         isApproved: true,
         transactionId: payload.TRAN_NBR,
         authCode: payload.AUTH_CODE,
-        bricToken: payload.AUTH_GUID,  // Store this for refunds/voids
-        amount: payload.AUTH_AMOUNT ? parseFloat(payload.AUTH_AMOUNT) : undefined
+        bricToken: payload.AUTH_GUID, // Store this for refunds/voids
+        amount: payload.AUTH_AMOUNT
+          ? parseFloat(payload.AUTH_AMOUNT)
+          : undefined,
       };
     } else {
       return {
         isApproved: false,
-        error: payload.NETWORK_RESPONSE || payload.AUTH_RESP || 'Transaction declined'
+        error:
+          payload.NETWORK_RESPONSE ||
+          payload.AUTH_RESP ||
+          "Transaction declined",
       };
     }
   }
@@ -446,8 +507,8 @@ export class EPXPaymentService {
    */
   validateWebhookSignature(payload: any, signature?: string): boolean {
     if (!this.config.webhookSecret) {
-      console.warn('[EPX] Webhook secret not configured, skipping validation');
-      return true;  // Allow for development
+      console.warn("[EPX] Webhook secret not configured, skipping validation");
+      return true; // Allow for development
     }
 
     // TODO: Implement actual signature validation based on EPX documentation
@@ -458,55 +519,59 @@ export class EPXPaymentService {
   /**
    * Refund transaction using BRIC token and Custom Pay API
    */
-  async refundTransaction(bricToken: string, amount: number, transactionId?: number): Promise<{
+  async refundTransaction(
+    bricToken: string,
+    amount: number,
+    transactionId?: number,
+  ): Promise<{
     success: boolean;
     refundId?: string;
     error?: string;
   }> {
     try {
-      console.log('[EPX] Processing refund via Custom Pay API');
+      console.log("[EPX] Processing refund via Custom Pay API");
 
       if (!this.config.epiId || !this.config.epiKey) {
-        throw new Error('EPI credentials not configured for Custom Pay API');
+        throw new Error("EPI credentials not configured for Custom Pay API");
       }
 
       const endpoint = `/refund/${bricToken}`;
       const payload = {
         amount: amount,
-        transaction: transactionId || Date.now()  // Use provided transaction ID or timestamp
+        transaction: transactionId || Date.now(), // Use provided transaction ID or timestamp
       };
 
       // Generate EPI-Signature
       const signature = this.generateEPISignature(endpoint, payload);
 
       const response = await fetch(`${this.customPayApiUrl}${endpoint}`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'EPI-Id': this.config.epiId,
-          'EPI-Signature': signature
+          "Content-Type": "application/json",
+          "EPI-Id": this.config.epiId,
+          "EPI-Signature": signature,
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
 
-      if (data.data && data.data.response === '00') {
+      if (data.data && data.data.response === "00") {
         return {
           success: true,
-          refundId: data.data.authorization
+          refundId: data.data.authorization,
         };
       } else {
         return {
           success: false,
-          error: data.errors || data.data?.text || 'Refund failed'
+          error: data.errors || data.data?.text || "Refund failed",
         };
       }
     } catch (error: any) {
-      console.error('[EPX] Refund error:', error);
+      console.error("[EPX] Refund error:", error);
       return {
         success: false,
-        error: error.message || 'Refund processing failed'
+        error: error.message || "Refund processing failed",
       };
     }
   }
@@ -519,42 +584,42 @@ export class EPXPaymentService {
     error?: string;
   }> {
     try {
-      console.log('[EPX] Processing void via Custom Pay API');
+      console.log("[EPX] Processing void via Custom Pay API");
 
       if (!this.config.epiId || !this.config.epiKey) {
-        throw new Error('EPI credentials not configured for Custom Pay API');
+        throw new Error("EPI credentials not configured for Custom Pay API");
       }
 
       const endpoint = `/void/${bricToken}`;
       const signature = this.generateEPISignature(endpoint, {});
 
       const response = await fetch(`${this.customPayApiUrl}${endpoint}`, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
-          'EPI-Id': this.config.epiId,
-          'EPI-Signature': signature,
-          'bric': bricToken
-        }
+          "Content-Type": "application/json",
+          "EPI-Id": this.config.epiId,
+          "EPI-Signature": signature,
+          bric: bricToken,
+        },
       });
 
       const data = await response.json();
 
-      if (data.data && data.data.response === '00') {
+      if (data.data && data.data.response === "00") {
         return {
-          success: true
+          success: true,
         };
       } else {
         return {
           success: false,
-          error: data.errors || data.data?.text || 'Void failed'
+          error: data.errors || data.data?.text || "Void failed",
         };
       }
     } catch (error: any) {
-      console.error('[EPX] Void error:', error);
+      console.error("[EPX] Void error:", error);
       return {
         success: false,
-        error: error.message || 'Void processing failed'
+        error: error.message || "Void processing failed",
       };
     }
   }
@@ -564,14 +629,14 @@ export class EPXPaymentService {
    */
   private generateEPISignature(endpoint: string, payload: any): string {
     if (!this.config.epiKey) {
-      throw new Error('EPI Key not configured');
+      throw new Error("EPI Key not configured");
     }
 
     const message = endpoint + JSON.stringify(payload);
     const signature = crypto
-      .createHmac('sha256', this.config.epiKey)
+      .createHmac("sha256", this.config.epiKey)
       .update(message)
-      .digest('hex');
+      .digest("hex");
 
     return signature;
   }
@@ -581,13 +646,17 @@ export class EPXPaymentService {
 let epxService: EPXPaymentService | null = null;
 
 export function initializeEPXService(config: EPXConfig): EPXPaymentService {
+  return;
   epxService = new EPXPaymentService(config);
   return epxService;
 }
 
 export function getEPXService(): EPXPaymentService {
   if (!epxService) {
-    throw new Error('EPX Service not initialized. Call initializeEPXService first.');
+    return;
+    throw new Error(
+      "EPX Service not initialized. Call initializeEPXService first.",
+    );
   }
   return epxService;
 }
