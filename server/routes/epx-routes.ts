@@ -17,12 +17,14 @@ let epxServiceInitialized = false;
 let epxInitError: string | null = null;
 
 try {
-  // Get the base URL from environment
-  const baseUrl = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.REPLIT_DOMAINS
-      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-      : 'http://localhost:5000';
+  // Get the base URL from environment - prioritize production domain
+  const baseUrl = process.env.NODE_ENV === 'production' 
+    ? 'https://enrollment.getmydpc.com'
+    : process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : process.env.REPLIT_DOMAINS
+        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
+        : 'http://localhost:5000';
 
   // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
