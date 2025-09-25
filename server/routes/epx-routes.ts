@@ -27,7 +27,7 @@ try {
   // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
     // MAC key is required for Browser Post API TAC generation
-    mac: process.env.EPX_MAC_KEY || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
+    mac: process.env.EPX_MAC || process.env.EPX_MAC_KEY || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
     // EPI credentials for Custom Pay API (refunds/voids)
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,

@@ -66,8 +66,8 @@ app.use(
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
+  res.json({
+    status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -75,8 +75,8 @@ app.get("/health", (req, res) => {
 
 // API health check
 app.get("/api/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
+  res.json({
+    status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -161,15 +161,16 @@ app.use((req, res, next) => {
       // Validate EPX configuration
       try {
         console.log('[Server] Validating EPX configuration...');
-        const epxEnvVars = {
-          EPX_CUST_NBR: process.env.EPX_CUST_NBR,
-          EPX_MERCH_NBR: process.env.EPX_MERCH_NBR,
-          EPX_DBA_NBR: process.env.EPX_DBA_NBR,
-          EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR,
-          EPX_MAC_KEY: process.env.EPX_MAC_KEY ? '***SET***' : 'NOT SET',
-          BASE_URL: process.env.BASE_URL
-        };
-        console.log('[Server] EPX Environment Variables:', epxEnvVars);
+        console.log('[Server] EPX Environment Variables:', {
+            EPX_CUST_NBR: process.env.EPX_CUST_NBR || 'NOT SET',
+            EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || 'NOT SET',
+            EPX_DBA_NBR: process.env.EPX_DBA_NBR || 'NOT SET',
+            EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT SET',
+            EPX_MAC: process.env.EPX_MAC ? 'SET' : 'NOT SET',
+            EPX_MAC_KEY: process.env.EPX_MAC_KEY ? 'SET' : 'NOT SET',
+            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET',
+            BASE_URL: process.env.REPLIT_DEV_DOMAIN
+          });
       } catch (error) {
         console.warn('[Server] EPX configuration check failed:', error.message);
       }

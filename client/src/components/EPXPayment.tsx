@@ -99,6 +99,19 @@ export function EPXPayment({
         throw new Error(data.error || 'Failed to create payment session');
       }
 
+      // Log the complete transaction POST details BEFORE form creation
+      console.log('[EPX Payment] === RAW TRANSACTION POST ===');
+      console.log('[EPX Payment] URL:', data.formData.actionUrl);
+      console.log('[EPX Payment] Method: POST');
+      console.log('[EPX Payment] Transaction Data:', {
+        amount: data.formData.amount,
+        tranNbr: data.formData.tranNbr,
+        tranCode: data.formData.tranCode,
+        paymentMethod,
+        hasAchData: paymentMethod === 'ach' ? !!achData.routingNumber : false
+      });
+      console.log('[EPX Payment] === END TRANSACTION POST ===');
+
       // Create and submit the form to EPX
       console.log('[EPX Payment] Creating form for submission to:', data.formData.actionUrl);
       
@@ -161,10 +174,12 @@ export function EPXPayment({
       // Append form to body and submit
       document.body.appendChild(form);
       console.log('[EPX Payment] Submitting form to EPX...');
-      form.submit();
-
-      // Form submission will navigate to EPX, so this code won't execute
-      console.log('[EPX Payment] Form submitted - redirecting to EPX payment page');
+      
+      // Add a small delay to ensure logging completes before redirect
+      setTimeout(() => {
+        console.log('[EPX Payment] Form submission initiated - redirecting to EPX payment page');
+        form.submit();
+      }, 100);
 
       // Form will redirect to EPX, so we don't need to clean up here
     } catch (err: any) {
