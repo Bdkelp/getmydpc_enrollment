@@ -451,7 +451,7 @@ export class EPXPaymentService {
     tranNbr: string,
     paymentMethod: "card" | "ach" = "card",
   ): EPXPaymentForm {
-    return {
+    const formData = {
       actionUrl: this.apiUrl,
       tac: tac,
       tranCode: paymentMethod === "ach" ? "ACE1" : "CCE1", // ACH or Card Ecommerce Sale
@@ -465,6 +465,16 @@ export class EPXPaymentService {
       receipt: "Y", // Request receipt
       cancelUrl: this.config.cancelUrl,
     };
+
+    console.log('[EPX Service] Payment form redirect URLs:', {
+      redirectUrl: formData.redirectUrl,
+      responseUrl: formData.responseUrl,
+      cancelUrl: formData.cancelUrl,
+      actionUrl: formData.actionUrl,
+      tranNbr: formData.tranNbr
+    });
+
+    return formData;
   }
 
   /**

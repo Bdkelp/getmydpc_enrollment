@@ -37,10 +37,10 @@ try {
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
-    // Browser Post API URLs
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/payment/success`,
+    // Browser Post API URLs - Use /api/epx/redirect for proper handling
+    redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/api/epx/redirect`,
     responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
-    cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/payment/cancel`,
+    cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/api/epx/redirect?status=cancelled`,
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   };
 
@@ -150,29 +150,67 @@ router.get('/api/epx/browser-post-status', async (req: Request, res: Response) =
 });
 
 /**
- * Test endpoint for payment success redirect
+ * Test EPX redirect URL configuration
  */
-router.get('/payment/success', async (req: Request, res: Response) => {
-  console.log('[EPX] Payment success redirect received');
-  console.log('[EPX] Query parameters:', req.query);
-  
-  const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.query;
-  
-  if (AUTH_RESP === 'APPROVAL') {
-    res.redirect(`/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`);
-  } else {
-    res.redirect(`/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`);
+router.get('/api/epx/test-redirect-config', async (req: Request, res: Response) => {
+  try {
+    if (!epxServiceInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'EPX Service not initialized'
+      });
+    }
+
+    const redirectConfig = {
+      baseUrl: baseUrl,
+      redirectUrl: `${baseUrl}/api/epx/redirect`,
+      responseUrl: `${baseUrl}/api/epx/webhook`,
+      cancelUrl: `${baseUrl}/api/epx/redirect?status=cancelled`,
+      frontendRedirects: {
+        success: `${baseUrl}/payment-success`,
+        failed: `${baseUrl}/payment-failed`,
+        cancel: `${baseUrl}/payment-cancel`
+      }
+    };
+
+    console.log('[EPX Test] Current redirect configuration:', redirectConfig);
+
+    res.json({
+      success: true,
+      config: redirectConfig,
+      note: 'These are the URLs EPX will use for redirects after payment processing'
+    });
+  } catch (error: any) {
+    console.error('[EPX Test] Error checking redirect config:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
 /**
- * Test endpoint for payment cancel redirect
+ * Test endpoint for payment success redirect (legacy)
+ */
+router.get('/payment/success', async (req: Request, res: Response) => {
+  console.log('[EPX] Legacy payment success redirect received');
+  console.log('[EPX] Query parameters:', req.query);
+  console.log('[EPX] This endpoint should not be used - redirecting to API handler');
+  
+  // Redirect to proper API handler
+  const queryString = new URLSearchParams(req.query as any).toString();
+  res.redirect(`/api/epx/redirect?${queryString}`);
+});
+
+/**
+ * Test endpoint for payment cancel redirect (legacy)
  */
 router.get('/payment/cancel', async (req: Request, res: Response) => {
-  console.log('[EPX] Payment cancel redirect received');
+  console.log('[EPX] Legacy payment cancel redirect received');
   console.log('[EPX] Query parameters:', req.query);
+  console.log('[EPX] This endpoint should not be used - redirecting to API handler');
   
-  res.redirect('/payment-cancel');
+  res.redirect('/api/epx/redirect?status=cancelled');
 });
 
 /**
@@ -801,22 +839,97 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
  */
 router.get('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
-    console.log('[EPX Redirect] User returned from payment');
+    console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
+    console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
+    console.log('[EPX Redirect] Full URL:', req.url);
 
-    // Parse response parameters
-    const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.query;
+    // Parse response parameters from EPX
+    const { 
+      AUTH_RESP, 
+      AUTH_CODE, 
+      TRAN_NBR, 
+      AUTH_AMOUNT, 
+      AUTH_GUID,
+      TRAN_TYPE,
+      BP_RESP_CODE,
+      NETWORK_RESPONSE,
+      status // For cancelled payments
+    } = req.query;
+
+    // Handle cancelled payments
+    if (status === 'cancelled') {
+      console.log('[EPX Redirect] Payment was cancelled by user');
+      return res.redirect(`${baseUrl.replace(/^https?:\/\/[^\/]+/, '')}/payment-cancel`);
+    }
 
     const isApproved = AUTH_RESP === 'APPROVAL';
 
-    // Redirect to appropriate frontend page
+    console.log('[EPX Redirect] Payment result:', {
+      isApproved,
+      authResponse: AUTH_RESP,
+      transactionId: TRAN_NBR,
+      amount: AUTH_AMOUNT,
+      authCode: AUTH_CODE,
+      timestamp: new Date().toISOString()
+    });
+
+    // Update payment in database if we have transaction info
+    if (TRAN_NBR) {
+      try {
+        const epxService = getEPXService();
+        const result = epxService.processWebhook(req.query);
+
+        const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
+        
+        if (payment) {
+          console.log('[EPX Redirect] Updating payment record:', payment.id);
+          
+          await storage.updatePayment(payment.id, {
+            status: result.isApproved ? 'completed' : 'failed',
+            authorizationCode: result.authCode,
+            metadata: {
+              ...payment.metadata,
+              bricToken: result.bricToken,
+              authAmount: result.amount,
+              error: result.error,
+              redirectProcessedAt: new Date().toISOString(),
+              epxRedirectResponse: req.query
+            }
+          });
+
+          // If approved, update subscription status
+          if (result.isApproved && payment.subscriptionId) {
+            await storage.updateSubscription(payment.subscriptionId, {
+              status: 'active',
+              lastPaymentDate: new Date()
+            });
+            console.log('[EPX Redirect] Subscription activated:', payment.subscriptionId);
+          }
+        } else {
+          console.warn('[EPX Redirect] Payment record not found for transaction:', TRAN_NBR);
+        }
+      } catch (dbError: any) {
+        console.error('[EPX Redirect] Database update error:', dbError);
+        // Continue with redirect even if DB update fails
+      }
+    }
+
+    // Redirect to appropriate frontend page with proper base URL handling
+    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
+    
     if (isApproved) {
-      res.redirect(`/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}`);
+      const redirectUrl = `${redirectBase}/payment-success?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
+      console.log('[EPX Redirect] Redirecting to success page:', redirectUrl);
+      res.redirect(redirectUrl);
     } else {
-      res.redirect(`/payment/failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`);
+      const redirectUrl = `${redirectBase}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
+      console.log('[EPX Redirect] Redirecting to failure page:', redirectUrl);
+      res.redirect(redirectUrl);
     }
   } catch (error: any) {
     console.error('[EPX Redirect] Error handling redirect:', error);
-    res.redirect('/payment/error');
+    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
+    res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
   }
 });
 
