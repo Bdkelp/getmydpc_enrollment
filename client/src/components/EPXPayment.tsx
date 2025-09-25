@@ -149,6 +149,15 @@ export function EPXPayment({
         fields: { ...fields, TAC: '***MASKED***' } // Mask sensitive data
       });
 
+      // Log the complete transaction POST details
+      console.log('[EPX Payment] === RAW TRANSACTION POST ===');
+      console.log('[EPX Payment] URL:', form.action);
+      console.log('[EPX Payment] Method:', form.method);
+      console.log('[EPX Payment] Form Data:', Object.entries(fields).map(([key, value]) => 
+        `${key}=${key === 'TAC' ? '***MASKED***' : value}`
+      ).join('&'));
+      console.log('[EPX Payment] === END TRANSACTION POST ===');
+
       // Append form to body and submit
       document.body.appendChild(form);
       console.log('[EPX Payment] Submitting form to EPX...');

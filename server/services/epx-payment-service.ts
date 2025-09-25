@@ -240,6 +240,14 @@ export class EPXPaymentService {
             requestOptions.headers["Content-Type"],
           );
 
+          // Log the full request details
+          console.log(`[EPX] === RAW KEY EXCHANGE REQUEST ${attempt} ===`);
+          console.log(`[EPX] URL: ${this.config.tacEndpoint}`);
+          console.log(`[EPX] Method: POST`);
+          console.log(`[EPX] Headers:`, JSON.stringify(requestOptions.headers, null, 2));
+          console.log(`[EPX] Body (form-encoded):`, formData.toString().replace(/MAC=[^&]*/g, "MAC=***MASKED***"));
+          console.log(`[EPX] === END REQUEST ===`);
+
           response = await fetch(this.config.tacEndpoint, requestOptions).catch(
             (fetchError: any) => {
               // Handle network errors specifically
@@ -318,6 +326,14 @@ export class EPXPaymentService {
           // Parse response - EPX returns XML format
           let data;
           const responseText = await response.text();
+          
+          // Log the full response details
+          console.log(`[EPX] === RAW KEY EXCHANGE RESPONSE ${attempt} ===`);
+          console.log(`[EPX] Status: ${response.status} ${response.statusText}`);
+          console.log(`[EPX] Headers:`, JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+          console.log(`[EPX] Body:`, responseText);
+          console.log(`[EPX] === END RESPONSE ===`);
+          
           console.log("[EPX] Raw response:", responseText);
 
           // Try to parse as JSON first, then handle XML
