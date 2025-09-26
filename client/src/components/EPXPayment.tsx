@@ -120,17 +120,21 @@ export function EPXPayment({
       form.action = data.formData.actionUrl;
       form.target = '_self'; // Navigate in same window
 
-      // Add all form fields with exact EPX field names
+      // Add all form fields with exact EPX field names per EPX requirements
       const fields: any = {
         'TAC': data.formData.tac,
+        'CUST_NBR': data.formData.custNbr,
+        'MERCH_NBR': data.formData.merchNbr,
+        'DBA_NBR': data.formData.dbaNbr,
+        'TERMINAL_NBR': data.formData.terminalNbr,
         'TRAN_CODE': data.formData.tranCode,
         'TRAN_GROUP': data.formData.tranGroup,
         'AMOUNT': data.formData.amount.toFixed(2),
         'TRAN_NBR': data.formData.tranNbr,
         'REDIRECT_URL': data.formData.redirectUrl,
-        'RESPONSE_URL': data.formData.responseUrl,
         'REDIRECT_ECHO': data.formData.redirectEcho,
-        'RESPONSE_ECHO': data.formData.responseEcho,
+        'INDUSTRY_TYPE': data.formData.industryType,
+        'BATCH_ID': data.formData.batchId,
         'RECEIPT': data.formData.receipt
       };
 
@@ -147,9 +151,7 @@ export function EPXPayment({
         fields['CANCEL_URL'] = data.formData.cancelUrl;
       }
 
-      // Add additional fields required by EPX Browser Post
-      fields['INDUSTRY_TYPE'] = data.formData.industryType; // e.g., 'RETAIL'
-      fields['BATCH_ID'] = data.formData.batchId; // e.g., '1'
+      // Additional fields are now included in the main fields object above
 
       // Add AVS information if available
       if (data.formData.zipCode) {

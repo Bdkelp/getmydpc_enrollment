@@ -45,18 +45,25 @@ export interface TACResponse {
 export interface EPXPaymentForm {
   actionUrl: string;
   tac: string;
-  // 4-part merchant key
+  // 4-part merchant key (required for Browser Post transaction)
   custNbr: string;
   merchNbr: string;
   dbaNbr: string;
   terminalNbr: string;
   // Transaction details
   tranCode: string;
+  tranGroup: string;
   amount: number;
   tranNbr: string;
+  // URLs
+  redirectUrl: string;
+  responseUrl: string;
+  redirectEcho: string;
+  responseEcho: string;
   // Required fields
   industryType: string;
   batchId: string;
+  receipt: string;
   // AVS information
   zipCode?: string;
   address?: string;
@@ -138,18 +145,18 @@ export class EPXPaymentService {
         throw new Error("TAC Endpoint not configured");
       }
 
-      // KeyExchange payload - only include fields required for TAC generation
+      // KeyExchange payload - only include fields required for TAC generation per EPX feedback
       const payload: any = {
         MAC: this.config.mac,
         AMOUNT: request.amount.toFixed(2),
-        TRAN_NBR: `MPP${Date.now()}`, // Use proper transaction number format
+        TRAN_NBR: request.tranNbr, // Use the provided transaction number
         TRAN_GROUP: request.tranGroup || "SALE",
         REDIRECT_URL: this.config.redirectUrl,
         REDIRECT_ECHO: "V", // Verbose response
       };
 
-      // Remove fields that should NOT be in keyExchange according to EPX feedback:
-      // - CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR (these go in Browser Post request)
+      // EPX feedback: These fields should NOT be in keyExchange, they belong in Browser Post request:
+      // - CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR (go in Browser Post transaction request)
       // - RESPONSE_URL (not stored on EPX side)
       // - CANCEL_URL (not valid for Browser Post API)
       // - TRAN_CODE (only for Browser Post request)
@@ -181,14 +188,14 @@ export class EPXPaymentService {
         }
       });
 
-      // Ensure required fields are present
-      const requiredFields = ['MAC', 'CUST_NBR', 'MERCH_NBR', 'DBA_NBR', 'TERMINAL_NBR', 'AMOUNT', 'TRAN_NBR', 'TRAN_CODE'];
+      // Ensure required fields are present for keyExchange (not Browser Post)
+      const requiredFields = ['MAC', 'AMOUNT', 'TRAN_NBR', 'REDIRECT_URL'];
       const missingFields = requiredFields.filter(field => !payload[field]);
       if (missingFields.length > 0) {
-        console.error("[EPX] Missing required fields:", missingFields);
+        console.error("[EPX] Missing required fields for keyExchange:", missingFields);
         return {
           success: false,
-          error: `Missing required fields: ${missingFields.join(', ')}`,
+          error: `Missing required fields for keyExchange: ${missingFields.join(', ')}`,
         };
       }
 
@@ -443,23 +450,30 @@ export class EPXPaymentService {
       address?: string;
       zipCode?: string;
     }
-  ): EPXPaymentForm {
-    // Browser Post transaction request - include required 4-part key and proper fields
+  ): EPXPaymentForm & { [key: string]: any } {
+    // Browser Post transaction request - include ALL required fields per EPX feedback
     const formData = {
       actionUrl: this.apiUrl,
       tac: tac,
-      // 4-part key required for Browser Post
+      // 4-part merchant key (required for Browser Post transaction)
       custNbr: this.config.custNbr,
       merchNbr: this.config.merchNbr,
       dbaNbr: this.config.dbaNbr,
       terminalNbr: this.config.terminalNbr,
       // Transaction details
       tranCode: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
+      tranGroup: "SALE", // Transaction group
       amount: parseFloat(amount.toString()),
       tranNbr: tranNbr,
+      // URLs
+      redirectUrl: this.config.redirectUrl,
+      responseUrl: this.config.responseUrl, // For internal tracking
+      redirectEcho: "V", // Verbose response
+      responseEcho: "V", // Verbose response
       // Required fields
       industryType: "ECOM", // Ecommerce industry type
       batchId: Date.now().toString(), // Generate batch ID
+      receipt: "Y", // Enable receipt
       // AVS information for better interchange rates
       zipCode: customerData?.zipCode || "",
       address: customerData?.address || "",
@@ -469,9 +483,12 @@ export class EPXPaymentService {
       actionUrl: formData.actionUrl,
       hasTAC: !!formData.tac,
       tranCode: formData.tranCode,
+      tranGroup: formData.tranGroup,
       industryType: formData.industryType,
       custNbr: formData.custNbr,
       merchNbr: formData.merchNbr,
+      dbaNbr: formData.dbaNbr,
+      terminalNbr: formData.terminalNbr,
       hasAVS: !!(formData.zipCode || formData.address)
     });
 
