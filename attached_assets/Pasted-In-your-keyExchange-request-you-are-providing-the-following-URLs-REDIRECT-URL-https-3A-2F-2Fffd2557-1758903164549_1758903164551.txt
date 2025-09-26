@@ -1,0 +1,39 @@
+In your keyExchange request you are providing the following URLs: REDIRECT_URL=https%3A%2F%2Fffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev%2Fpayment%2Fsuccess&RESPONSE_URL=https%3A%2F%2Fffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev%2Fapi%2Fepx%2Fwebhook&CANCEL_URL=https%3A%2F%2Fffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev%2Fpayment%2Fcancel
+
+after URL decode they look like:
+
+https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev/payment/success
+https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev/api/epx/webhook
+https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev/payment/cancel
+
+This is completely different from what you have provided below:
+
+Redirect URL:
+https://enrollment.getmydpc.com/api/epx/redirect
+Response URL:
+https://enrollment.getmydpc.com/api/epx/webhook
+Cancel URL:
+https://enrollment.getmydpc.com/api/epx/redirect?status=cancelled
+
+Please note that CANCEL_URL is not a valid field for the Browser Post API and the RESPONSE_URL is not stored on the EPX side. The only URL we need to store is the REDIRECT_URL. Please advise which is the correct REDIRECT_URL so we can make the update on our end.  
+
+Please see additional feedback below:
+
+keyExchange
+TRAN_CODE=CCE1 This field should not be included with the keyExchange, only TRAN_GROUP
+TRAN_NBR=CONNECTIVITY_TEST_1758804638132 - This is not a valid value for the TRAN_NBR field, please refer to the EPX Data Dictionary document for additional details.  
+CUST_NBR=9001&MERCH_NBR=900300&DBA_NBR=2&TERMINAL_NBR=72& - Remove from keyExchange request, need to be part of browser post transaction request
+RECEIPT Not a browser post field, used for PayPage
+EMAIL not an EPX field
+DESCRIPTION not an EPX field
+
+Browser Post transaction request
+Missing 4-part key(CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR)
+RECEIPT Not a browser post field, used for PayPage
+REDIRECT_URL , RESPONSE_URL, REDIRECT_ECHO Only need to be part of keyExchange
+TRAN_CODE=CCE1 Not a valid TRAN_CODE please refer to EPX data dictionary for correct values
+Missing INDUSTRY_TYPE field
+Missing BATCH_ID field
+TRAN_GROUP Should only be included in keyExchange request
+Ecommerce transactions require the AVS information (ADDRESS and/or ZIP_CODE) to be sent in order help qualify for the best possible interchange rate. A minimum of ZIP_CODE should be included.  
+Thanks,
