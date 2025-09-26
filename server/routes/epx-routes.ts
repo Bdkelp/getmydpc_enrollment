@@ -17,14 +17,8 @@ let epxServiceInitialized = false;
 let epxInitError: string | null = null;
 
 try {
-  // FORCE production domain for EPX - no more Replit URLs in keyExchange
-  const baseUrl = process.env.FORCE_PRODUCTION_URLS === 'true' || process.env.NODE_ENV === 'production'
-    ? 'https://enrollment.getmydpc.com'  // Always use production domain for EPX
-    : process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : process.env.REPLIT_DOMAINS
-        ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-        : 'http://localhost:5000';
+  // ALWAYS use production domain for EPX - never send Replit URLs to EPX
+  const baseUrl = 'https://enrollment.getmydpc.com';
 
   // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
