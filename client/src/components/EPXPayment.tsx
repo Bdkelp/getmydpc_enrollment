@@ -114,7 +114,7 @@ export function EPXPayment({
 
       // Create and submit the form to EPX
       console.log('[EPX Payment] Creating form for submission to:', data.formData.actionUrl);
-      
+
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = data.formData.actionUrl;
@@ -147,6 +147,18 @@ export function EPXPayment({
         fields['CANCEL_URL'] = data.formData.cancelUrl;
       }
 
+      // Add additional fields required by EPX Browser Post
+      fields['INDUSTRY_TYPE'] = data.formData.industryType; // e.g., 'RETAIL'
+      fields['BATCH_ID'] = data.formData.batchId; // e.g., '1'
+
+      // Add AVS information if available
+      if (data.formData.zipCode) {
+        fields['ZIP_CODE'] = data.formData.zipCode;
+      }
+      if (data.formData.address) {
+        fields['ADDRESS'] = data.formData.address;
+      }
+
       Object.entries(fields).forEach(([key, value]) => {
         const input = document.createElement('input');
         input.type = 'hidden';
@@ -174,7 +186,7 @@ export function EPXPayment({
       // Append form to body and submit
       document.body.appendChild(form);
       console.log('[EPX Payment] Submitting form to EPX...');
-      
+
       // Add a small delay to ensure logging completes before redirect
       setTimeout(() => {
         console.log('[EPX Payment] Form submission initiated - redirecting to EPX payment page');

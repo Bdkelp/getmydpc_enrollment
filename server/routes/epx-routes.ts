@@ -39,10 +39,10 @@ try {
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
-    // Browser Post API URLs - Use /api/epx/redirect for proper handling
+    // Browser Post API URLs - Only REDIRECT_URL is stored on EPX side
     redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/api/epx/redirect`,
-    responseUrl: process.env.EPX_RESPONSE_URL || `${baseUrl}/api/epx/webhook`,
-    cancelUrl: process.env.EPX_CANCEL_URL || `${baseUrl}/api/epx/redirect?status=cancelled`,
+    responseUrl: `${baseUrl}/api/epx/webhook`, // For internal use only, not sent to EPX
+    cancelUrl: `${baseUrl}/api/epx/redirect?status=cancelled`, // For internal use only
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   };
 
@@ -524,12 +524,17 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       // Don't fail the payment creation for logging errors
     }
 
-    // Get payment form data
+    // Get payment form data with customer data for AVS
     const formData = epxService.getPaymentFormData(
       tacResponse.tac,
       sanitizedAmount,
       tranNbr,
-      paymentMethod || 'card'
+      paymentMethod || 'card',
+      {
+        // Include AVS data if available from request body
+        zipCode: req.body.zipCode,
+        address: req.body.address
+      }
     );
 
     console.log('[EPX Create Payment] Generated form data:', {

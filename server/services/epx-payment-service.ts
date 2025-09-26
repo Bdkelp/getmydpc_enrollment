@@ -45,16 +45,22 @@ export interface TACResponse {
 export interface EPXPaymentForm {
   actionUrl: string;
   tac: string;
+  // 4-part merchant key
+  custNbr: string;
+  merchNbr: string;
+  dbaNbr: string;
+  terminalNbr: string;
+  // Transaction details
   tranCode: string;
-  tranGroup: string;
   amount: number;
   tranNbr: string;
-  redirectUrl: string;
-  responseUrl: string;
-  redirectEcho: string;
-  responseEcho: string;
-  receipt: string;
-  cancelUrl?: string;
+  // Required fields
+  industryType: string;
+  batchId: string;
+  // AVS information
+  zipCode?: string;
+  address?: string;
+  // ACH specific fields
   paymentType?: string;
   achRoutingNumber?: string;
   achAccountNumber?: string;
@@ -132,41 +138,24 @@ export class EPXPaymentService {
         throw new Error("TAC Endpoint not configured");
       }
 
+      // KeyExchange payload - only include fields required for TAC generation
       const payload: any = {
         MAC: this.config.mac,
-        CUST_NBR: this.config.custNbr,
-        MERCH_NBR: this.config.merchNbr,
-        DBA_NBR: this.config.dbaNbr,
-        TERMINAL_NBR: this.config.terminalNbr,
         AMOUNT: request.amount.toFixed(2),
-        TRAN_NBR: request.tranNbr,
+        TRAN_NBR: `MPP${Date.now()}`, // Use proper transaction number format
         TRAN_GROUP: request.tranGroup || "SALE",
         REDIRECT_URL: this.config.redirectUrl,
-        RESPONSE_URL: this.config.responseUrl,
-        CANCEL_URL: this.config.cancelUrl,
         REDIRECT_ECHO: "V", // Verbose response
-        RESPONSE_ECHO: "V", // Verbose response
-        RECEIPT: "Y",
-        // Optional fields
-        ...(request.customerEmail && { EMAIL: request.customerEmail }),
-        ...(request.invoiceNumber && { INVOICE_NBR: request.invoiceNumber }),
-        ...(request.orderDescription && {
-          DESCRIPTION: request.orderDescription,
-        }),
       };
 
-      // Add ACH-specific fields if payment method is ACH
-      if (request.paymentMethod === "ach") {
-        payload.PAYMENT_TYPE = "ACH";
-        payload.ACH_ROUTING_NBR = request.achRoutingNumber;
-        payload.ACH_ACCOUNT_NBR = request.achAccountNumber;
-        payload.ACH_ACCOUNT_TYPE =
-          request.achAccountType?.toUpperCase() || "CHECKING";
-        payload.ACH_ACCOUNT_NAME = request.achAccountName;
-        payload.TRAN_CODE = "ACE1"; // ACH Ecommerce Sale
-      } else {
-        payload.TRAN_CODE = "CCE1"; // Card Ecommerce Sale
-      }
+      // Remove fields that should NOT be in keyExchange according to EPX feedback:
+      // - CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR (these go in Browser Post request)
+      // - RESPONSE_URL (not stored on EPX side)
+      // - CANCEL_URL (not valid for Browser Post API)
+      // - TRAN_CODE (only for Browser Post request)
+      // - RECEIPT (for PayPage only)
+      // - EMAIL (not an EPX field)
+      // - DESCRIPTION (not an EPX field)
 
       console.log("[EPX] Sending TAC request to:", this.config.tacEndpoint);
       console.log("[EPX] TAC payload structure check:", {
@@ -450,28 +439,40 @@ export class EPXPaymentService {
     amount: number,
     tranNbr: string,
     paymentMethod: "card" | "ach" = "card",
+    customerData?: {
+      address?: string;
+      zipCode?: string;
+    }
   ): EPXPaymentForm {
+    // Browser Post transaction request - include required 4-part key and proper fields
     const formData = {
       actionUrl: this.apiUrl,
       tac: tac,
-      tranCode: paymentMethod === "ach" ? "ACE1" : "CCE1", // ACH or Card Ecommerce Sale
-      tranGroup: "SALE",
-      amount: parseFloat(amount.toString()), // Ensure proper number format
+      // 4-part key required for Browser Post
+      custNbr: this.config.custNbr,
+      merchNbr: this.config.merchNbr,
+      dbaNbr: this.config.dbaNbr,
+      terminalNbr: this.config.terminalNbr,
+      // Transaction details
+      tranCode: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
+      amount: parseFloat(amount.toString()),
       tranNbr: tranNbr,
-      redirectUrl: this.config.redirectUrl,
-      responseUrl: this.config.responseUrl,
-      redirectEcho: "V", // Verbose response
-      responseEcho: "V", // Verbose response
-      receipt: "Y", // Request receipt
-      cancelUrl: this.config.cancelUrl,
+      // Required fields
+      industryType: "ECOM", // Ecommerce industry type
+      batchId: Date.now().toString(), // Generate batch ID
+      // AVS information for better interchange rates
+      zipCode: customerData?.zipCode || "",
+      address: customerData?.address || "",
     };
 
-    console.log('[EPX Service] Payment form redirect URLs:', {
-      redirectUrl: formData.redirectUrl,
-      responseUrl: formData.responseUrl,
-      cancelUrl: formData.cancelUrl,
+    console.log('[EPX Service] Browser Post form data:', {
       actionUrl: formData.actionUrl,
-      tranNbr: formData.tranNbr
+      hasTAC: !!formData.tac,
+      tranCode: formData.tranCode,
+      industryType: formData.industryType,
+      custNbr: formData.custNbr,
+      merchNbr: formData.merchNbr,
+      hasAVS: !!(formData.zipCode || formData.address)
     });
 
     return formData;
