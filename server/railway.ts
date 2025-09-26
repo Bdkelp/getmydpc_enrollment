@@ -9,15 +9,11 @@ const PORT = process.env.PORT || 3000;
 // Set trust proxy for Railway
 app.set('trust proxy', 1);
 
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // ✅ Comprehensive CORS configuration for Railway backend
 app.use(cors({
   origin: [
     'https://enrollment.getmydpc.com',
-    'https://getmydpc-enrollment.vercel.app', 
+    'https://getmydpc-enrollment.vercel.app',
     'https://getmydpc.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',
@@ -31,8 +27,8 @@ app.use(cors({
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     service: 'Railway Backend'
   });
@@ -43,177 +39,11 @@ app.use(epxRoutes);
 
 (async () => {
   await registerRoutes(app);
-  
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Railway server running on port ${PORT}`);
     console.log(`✅ Environment: ${process.env.NODE_ENV}`);
     console.log(`✅ CORS enabled for enrollment.getmydpc.com`);
     console.log(`✅ EPX endpoints available`);
   });
-})();nd
-const corsOptions = {
-  origin: [
-    'https://enrollment.getmydpc.com',                    // Production Vercel domain
-    'https://shimmering-nourishment.up.railway.app',     // Railway backend domain
-    'http://localhost:3000',                             // Local React dev server
-    'http://localhost:5173',                             // Vite dev server
-    'http://localhost:5000',                             // Replit dev server
-    'https://localhost:3000',                            // HTTPS localhost
-    'https://localhost:5173',                            // HTTPS localhost
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev', // Current Replit domain
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-  allowedHeaders: [
-    'Origin',
-    'X-Requested-With',
-    'Content-Type',
-    'Accept',
-    'Authorization',
-    'Cache-Control',
-    'X-File-Name'
-  ],
-  exposedHeaders: ['Set-Cookie'],
-  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
-};
-
-app.use(cors(corsOptions));
-
-// Handle preflight requests explicitly for all routes
-app.options('*', (req, res) => {
-  const origin = req.headers.origin;
-  console.log(`[CORS Preflight] ${req.method} ${req.path} from origin: ${origin}`);
-
-  // Check if origin is allowed
-  if (corsOptions.origin.includes(origin as string)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-    res.header('Access-Control-Allow-Headers', 'Origin,X-Requested-With,Content-Type,Accept,Authorization,Cache-Control,X-File-Name');
-    res.header('Access-Control-Max-Age', '86400');
-    console.log(`[CORS] Preflight approved for origin: ${origin}`);
-  } else {
-    console.log(`[CORS] Preflight blocked for origin: ${origin}`);
-  }
-
-  res.status(200).end();
-});
-
-app.use(express.json());
-
-// Add explicit CORS headers to all responses
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
-  ];
-
-  // Also check regex patterns for dynamic domains
-  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
-  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
-
-  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
-  next();
-});
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'production',
-    platform: 'railway'
-  });
-});
-
-// CORS test endpoint to verify CORS is working
-app.get('/api/test-cors', (req, res) => {
-  console.log('[CORS Test] /api/test-cors endpoint hit');
-  res.json({
-    message: 'CORS is working!',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString(),
-    platform: 'railway'
-  });
-});
-
-// Additional CORS test endpoint (alternative naming)
-app.get('/api/cors-test', (req, res) => {
-  console.log('[CORS Test] /api/cors-test endpoint hit');
-  res.json({
-    message: 'CORS test successful!',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString(),
-    platform: 'railway',
-    status: 'ok'
-  });
-});
-
-// Root CORS test (fallback)
-app.get('/cors-test', (req, res) => {
-  console.log('[CORS Test] /cors-test endpoint hit');
-  res.json({
-    message: 'Root CORS test successful!',
-    origin: req.headers.origin,
-    timestamp: new Date().toISOString(),
-    platform: 'railway',
-    status: 'ok'
-  });
-});
-
-// CORS debug endpoint
-app.get('/api/debug/cors', (req, res) => {
-  const origin = req.headers.origin;
-  const userAgent = req.headers['user-agent'];
-
-  console.log(`[CORS Debug] Request from origin: ${origin}`);
-
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    requestOrigin: origin,
-    userAgent: userAgent,
-    platform: 'railway',
-    corsHeaders: {
-      'access-control-allow-origin': res.getHeader('access-control-allow-origin'),
-      'access-control-allow-credentials': res.getHeader('access-control-allow-credentials'),
-      'access-control-allow-methods': res.getHeader('access-control-allow-methods'),
-      'access-control-allow-headers': res.getHeader('access-control-allow-headers')
-    },
-    environment: process.env.NODE_ENV || 'production'
-  });
-});
-
-// Register all API routes
-registerRoutes(app);
-
-// Log all registered routes for debugging
-app._router.stack.forEach((middleware) => {
-  if (middleware.route) {
-    console.log(`[Route] ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
-  }
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`[Railway] Server running on port ${PORT}`);
-  console.log(`[Railway] Available endpoints:`);
-  console.log(`  - GET /health`);
-  console.log(`  - GET /api/test-cors`);
-  console.log(`  - GET /api/cors-test`);
-  console.log(`  - GET /cors-test`);
-  console.log(`  - GET /api/debug/cors`);
-});
-
-export default app;
+})();

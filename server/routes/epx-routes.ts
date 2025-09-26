@@ -844,6 +844,9 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
 
+    // Define baseUrl in the handler scope
+    const baseUrl = 'https://enrollment.getmydpc.com';
+
     // Parse response parameters from EPX
     const { 
       AUTH_RESP, 
@@ -929,6 +932,8 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     console.error('[EPX Redirect] Error handling redirect:', error);
+    // Define baseUrl for error handling as well
+    const baseUrl = 'https://enrollment.getmydpc.com';
     const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
     res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
   }
