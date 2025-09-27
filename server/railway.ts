@@ -40,19 +40,51 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Register EPX routes first
-app.use(epxRoutes);
+// EPX health check specifically
+app.get('/api/epx/health-check', (req, res) => {
+  console.log('[Railway] EPX health check called');
+  res.json({
+    status: 'ok',
+    service: 'EPX Payment Service',
+    environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      redirect: '/api/epx/redirect',
+      webhook: '/api/epx/webhook', 
+      createPayment: '/api/epx/create-payment'
+    }
+  });
+});
 
-// Register all other routes
+// Register all other routes first
 (async () => {
   try {
     await registerRoutes(app);
+    
+    // Register EPX routes after other routes are loaded
+    app.use('/', epxRoutes);
+    
+    // Add route debugging
+    console.log('✅ Registered routes:');
+    app._router.stack.forEach((middleware, index) => {
+      if (middleware.route) {
+        console.log(`  ${middleware.route.stack[0].method.toUpperCase()} ${middleware.route.path}`);
+      } else if (middleware.name === 'router') {
+        middleware.handle.stack.forEach((handler) => {
+          if (handler.route) {
+            console.log(`  ${handler.route.stack[0].method.toUpperCase()} ${handler.route.path}`);
+          }
+        });
+      }
+    });
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Railway server running on port ${PORT}`);
       console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`✅ CORS enabled for enrollment.getmydpc.com`);
-      console.log(`✅ EPX endpoints available`);
+      console.log(`✅ EPX endpoints available at /api/epx/*`);
+      console.log(`✅ EPX redirect endpoint: /api/epx/redirect`);
+      console.log(`✅ EPX webhook endpoint: /api/epx/webhook`);
     });
   } catch (error) {
     console.error('❌ Failed to start Railway server:', error);

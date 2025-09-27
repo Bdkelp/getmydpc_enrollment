@@ -2263,7 +2263,7 @@ export async function registerRoutes(app: any) {
     }
 
     let supabaseUserId = null; // Track for cleanup if needed
-    
+
     try {
       console.log("✅ Step 1: Starting user creation...");
       console.log("[Registration] Registration attempt:", req.body?.email);
@@ -2332,7 +2332,7 @@ export async function registerRoutes(app: any) {
       const isValidEmail = emailRegex.test(email);
       console.log("[Registration] Email regex test result:", isValidEmail);
       console.log("[Registration] Email regex pattern:", emailRegex.toString());
-      
+
       if (!isValidEmail) {
         console.error("[Registration] Email validation failed for:", email);
         return res.status(400).json({
@@ -2399,14 +2399,14 @@ export async function registerRoutes(app: any) {
         console.error("❌ Error details:", JSON.stringify(error, null, 2));
         console.error("[Registration] Supabase error code:", error.status);
         console.error("[Registration] Error source:", error.name || 'Unknown');
-        
+
         // Check if it's an email validation error from Supabase
         if (error.message && error.message.toLowerCase().includes('invalid')) {
           console.error("❌ EMAIL VALIDATION ERROR FROM SUPABASE");
           console.error("❌ Original email:", email);
           console.error("❌ Processed email:", email.trim().toLowerCase());
         }
-        
+
         return res.status(400).json({
           error: error.message || "Registration failed",
           source: "Supabase Auth",
@@ -2448,7 +2448,7 @@ export async function registerRoutes(app: any) {
         try {
           console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
           console.log("[Registration] Using Supabase ID:", data.user.id);
-          
+
           // Create user in our database with full enrollment data
           user = await storage.createUser({
             id: data.user.id, // Use the Supabase UUID directly
@@ -2476,19 +2476,19 @@ export async function registerRoutes(app: any) {
             createdAt: new Date(),
             updatedAt: new Date(),
           });
-          
+
           console.log("✅ Step 8: User created in database successfully");
           console.log("[Registration] User ID:", user.id);
           break; // Success, exit retry loop
-          
+
         } catch (dbError: any) {
           retryCount++;
           console.error(`❌ Database error attempt ${retryCount}/${maxRetries}:`, dbError.message);
-          
+
           if (dbError.message && dbError.message.includes('duplicate key')) {
             console.error("❌ DUPLICATE KEY ERROR - User ID conflict");
             console.error("❌ Conflicting ID:", data.user.id);
-            
+
             if (retryCount < maxRetries) {
               console.log("🔄 Retrying user creation...");
               // Wait a moment before retry

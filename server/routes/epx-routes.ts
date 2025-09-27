@@ -836,6 +836,24 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
 });
 
 /**
+ * Test endpoint to verify EPX routes are working
+ */
+router.get('/api/epx/test', (req: Request, res: Response) => {
+  console.log('[EPX Test] Test endpoint called');
+  res.json({
+    success: true,
+    message: 'EPX routes are working',
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      'GET /api/epx/health',
+      'GET /api/epx/redirect',
+      'POST /api/epx/webhook',
+      'POST /api/epx/create-payment'
+    ]
+  });
+});
+
+/**
  * Handle payment redirect (user returns from EPX)
  */
 router.get('/api/epx/redirect', async (req: Request, res: Response) => {
@@ -1078,5 +1096,18 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
     });
   }
 });
+
+// Log available routes when module loads
+console.log('[EPX Routes] Registering EPX endpoints:');
+console.log('[EPX Routes] - GET /api/epx/health');
+console.log('[EPX Routes] - GET /api/epx/browser-post-status');
+console.log('[EPX Routes] - GET /api/epx/test-redirect-config');
+console.log('[EPX Routes] - GET /api/epx/debug-form-data');
+console.log('[EPX Routes] - POST /api/epx/create-payment');
+console.log('[EPX Routes] - POST /api/epx/webhook');
+console.log('[EPX Routes] - GET /api/epx/webhook');
+console.log('[EPX Routes] - GET /api/epx/redirect');
+console.log('[EPX Routes] - POST /api/epx/refund');
+console.log('[EPX Routes] - POST /api/epx/void');
 
 export default router;
