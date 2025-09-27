@@ -12,6 +12,20 @@ import devUtilitiesRoutes from "./routes/dev-utilities";
 
 const app = express();
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit in development
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit in development
+});
+
 // Set trust proxy for proper IP handling
 app.set("trust proxy", true);
 
@@ -181,7 +195,7 @@ app.use((req, res, next) => {
             BASE_URL: process.env.REPLIT_DEV_DOMAIN
           });
       } catch (error) {
-        console.warn('[Server] EPX configuration check failed:', error.message);
+        console.warn('[Server] EPX configuration check failed:', error?.message || 'Unknown error');
       }
 
       return server;
