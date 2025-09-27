@@ -958,6 +958,21 @@ router.get('/api/epx/debug-transaction-flow', async (req: Request, res: Response
 });
 
 /**
+ * Test the redirect endpoint directly
+ */
+router.get('/api/epx/test-redirect', (req: Request, res: Response) => {
+  console.log('[EPX Test Redirect] Direct test of redirect endpoint');
+  console.log('[EPX Test Redirect] Query params:', req.query);
+  
+  res.json({
+    success: true,
+    message: 'Redirect endpoint is accessible',
+    query: req.query,
+    note: 'This confirms the route is registered and working'
+  });
+});
+
+/**
  * Test endpoint to verify EPX routes are working
  */
 router.get('/api/epx/test', (req: Request, res: Response) => {
@@ -1232,6 +1247,36 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
       error: error.message || 'Void failed'
     });
   }
+});
+
+/**
+ * Catch-all debug handler for EPX routes to diagnose redirect issues
+ */
+router.all('/api/epx/*', (req: Request, res: Response, next: NextFunction) => {
+  console.log('[EPX] Catch-all hit:', req.method, req.url);
+  console.log('[EPX] Path:', req.path);
+  console.log('[EPX] Params:', req.params);
+  console.log('[EPX] Query:', req.query);
+  console.log('[EPX] Body:', req.body);
+  
+  // If it's the redirect endpoint, let it pass through to the specific handler
+  if (req.path === '/api/epx/redirect' && req.method === 'GET') {
+    console.log('[EPX] Redirect route - passing to specific handler');
+    next();
+    return;
+  }
+  
+  // For other unmatched routes, provide debug info
+  console.log('[EPX] Route not specifically matched, available routes:');
+  console.log('[EPX] - GET /api/epx/redirect (the one EPX should call)');
+  
+  res.json({ 
+    received: true, 
+    method: req.method, 
+    url: req.url,
+    path: req.path,
+    note: 'EPX route debugging - this endpoint caught an unmatched route'
+  });
 });
 
 // Log available routes when module loads
