@@ -166,20 +166,15 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = 5000;
-  server.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-      console.log(`Server running on port ${port}`);
-      console.log(`Environment: ${process.env.NODE_ENV}`);
-      console.log(`EPX Service configured: Browser Post ready`);
+  const serverInstance = server.listen(port, "0.0.0.0", () => {
+    log(`serving on port ${port}`);
+    console.log(`Server running on port ${port}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log(`Host: 0.0.0.0:${port}`);
+    console.log(`EPX Service configured: Browser Post ready`);
 
-      // Initialize weekly recap service
-      WeeklyRecapService.scheduleWeeklyRecap();
+    // Initialize weekly recap service
+    WeeklyRecapService.scheduleWeeklyRecap();
 
       // Validate EPX configuration
       try {
@@ -198,7 +193,7 @@ app.use((req, res, next) => {
         console.warn('[Server] EPX configuration check failed:', error?.message || 'Unknown error');
       }
 
-      return server;
+      return serverInstance;
     },
   );
 })();
