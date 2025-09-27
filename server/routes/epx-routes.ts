@@ -192,7 +192,7 @@ router.get('/payment/success', async (req: Request, res: Response) => {
   console.log('[EPX] Legacy payment success redirect received');
   console.log('[EPX] Query parameters:', req.query);
   console.log('[EPX] This endpoint should not be used - redirecting to API handler');
-  
+
   // Redirect to proper API handler
   const queryString = new URLSearchParams(req.query as any).toString();
   res.redirect(`/api/epx/redirect?${queryString}`);
@@ -205,7 +205,7 @@ router.get('/payment/cancel', async (req: Request, res: Response) => {
   console.log('[EPX] Legacy payment cancel redirect received');
   console.log('[EPX] Query parameters:', req.query);
   console.log('[EPX] This endpoint should not be used - redirecting to API handler');
-  
+
   res.redirect('/api/epx/redirect?status=cancelled');
 });
 
@@ -531,6 +531,37 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       }
     );
 
+    // === RAW TRANSACTION POST DEBUG DATA ===
+    console.log('[EPX] === RAW TRANSACTION POST DATA FOR DEV TEAM ===');
+    console.log('[EPX] URL:', formData.actionUrl);
+    console.log('[EPX] Method: POST');
+    console.log('[EPX] Headers: {');
+    console.log('[EPX]   "Content-Type": "application/x-www-form-urlencoded",');
+    console.log('[EPX]   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",');
+    console.log('[EPX]   "User-Agent": "Mozilla/5.0 (compatible; EPX-Integration/1.0)",');
+    console.log('[EPX]   "Cache-Control": "no-cache"');
+    console.log('[EPX] }');
+
+    // Create form-encoded body for logging (mask sensitive data)
+    const debugFormData = new URLSearchParams();
+    Object.entries(formData).forEach(([key, value]) => {
+      if (key === 'tac') {
+        debugFormData.append(key, '***TAC_MASKED***');
+      } else if (value !== undefined && value !== null && key !== 'actionUrl') {
+        debugFormData.append(key.toUpperCase(), value.toString());
+      }
+    });
+
+    console.log('[EPX] Body (form-encoded):', debugFormData.toString());
+    console.log('[EPX] === END TRANSACTION POST DATA ===');
+
+    // Additional debugging for redirect URL validation
+    console.log('[EPX] === REDIRECT URL VALIDATION ===');
+    console.log('[EPX] Configured redirect URL:', formData.redirectUrl);
+    console.log('[EPX] Expected EPX redirect to:', `${formData.redirectUrl}?AUTH_RESP=...`);
+    console.log('[EPX] Redirect endpoint should be accessible at: GET /api/epx/redirect');
+    console.log('[EPX] === END REDIRECT URL VALIDATION ===');
+
     console.log('[EPX Create Payment] Generated form data:', {
       actionUrl: formData.actionUrl,
       hasTAC: !!formData.tac,
@@ -613,7 +644,7 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
     console.log('[EPX Webhook] Request headers:', JSON.stringify(req.headers, null, 2));
     console.log('[EPX Webhook] Request body:', JSON.stringify(req.body, null, 2));
     console.log('[EPX Webhook] Request query:', JSON.stringify(req.query, null, 2));
-    
+
     // === RAW EPX WEBHOOK DATA FOR DEV TEAM ===
     console.log('[EPX] === RAW EPX WEBHOOK DATA FOR DEV TEAM ===');
     console.log('[EPX] Webhook URL: /api/epx/webhook');
@@ -624,7 +655,7 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
     console.log('[EPX] Content-Type:', req.headers['content-type']);
     console.log('[EPX] Timestamp:', new Date().toISOString());
     console.log('[EPX] === END EPX WEBHOOK DATA ===');
-    
+
     const epxService = getEPXService();
 
     // Validate webhook signature if configured
@@ -767,7 +798,7 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Webhook GET] === WEBHOOK GET RECEIVED ===');
     console.log('[EPX Webhook GET] Query parameters:', JSON.stringify(req.query, null, 2));
-    
+
     const epxService = getEPXService();
 
     // Process the webhook payload from query parameters
@@ -852,9 +883,9 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
 router.get('/api/epx/debug-transaction-flow', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Debug] Transaction flow debug endpoint called');
-    
+
     const epxService = getEPXService();
-    
+
     // Generate a debug TAC
     const debugTacResponse = await epxService.generateTAC({
       amount: 1.00,
@@ -1007,10 +1038,10 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
         const result = epxService.processWebhook(req.query);
 
         const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
-        
+
         if (payment) {
           console.log('[EPX Redirect] Updating payment record:', payment.id);
-          
+
           await storage.updatePayment(payment.id, {
             status: result.isApproved ? 'completed' : 'failed',
             authorizationCode: result.authCode,
@@ -1043,7 +1074,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
 
     // Redirect to appropriate frontend page with proper base URL handling
     const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
-    
+
     if (isApproved) {
       // Redirect to confirmation page instead of payment-success
       const redirectUrl = `${redirectBase}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
