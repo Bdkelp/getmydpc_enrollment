@@ -1,7 +1,30 @@
+
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "server/index.ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "client/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/server/index.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/client/dist/$1"
+    }
+  ],
   "env": {
-    "VITE_API_URL": "https://getmydpcenrollment-production.up.railway.app"
-  },
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+    "NODE_ENV": "production"
+  }
 }

@@ -1,7 +1,7 @@
-// API Client for split deployment (Frontend: Vercel, Backend: Railway)
+// API Client for unified deployment
 
 const buildBaseUrl = () => {
-  // For Replit deployment, always use same-origin (unified frontend + backend)
+  // Always use same-origin for unified deployment
   const origin = window.location.origin;
   console.log('[API Client] Using unified deployment API URL:', origin);
   return origin;
