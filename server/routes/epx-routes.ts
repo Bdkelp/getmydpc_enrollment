@@ -614,6 +614,17 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
     console.log('[EPX Webhook] Request body:', JSON.stringify(req.body, null, 2));
     console.log('[EPX Webhook] Request query:', JSON.stringify(req.query, null, 2));
     
+    // === RAW EPX WEBHOOK DATA FOR DEV TEAM ===
+    console.log('[EPX] === RAW EPX WEBHOOK DATA FOR DEV TEAM ===');
+    console.log('[EPX] Webhook URL: /api/epx/webhook');
+    console.log('[EPX] Method:', req.method);
+    console.log('[EPX] Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('[EPX] Body:', JSON.stringify(req.body, null, 2));
+    console.log('[EPX] Query:', JSON.stringify(req.query, null, 2));
+    console.log('[EPX] Content-Type:', req.headers['content-type']);
+    console.log('[EPX] Timestamp:', new Date().toISOString());
+    console.log('[EPX] === END EPX WEBHOOK DATA ===');
+    
     const epxService = getEPXService();
 
     // Validate webhook signature if configured
@@ -836,6 +847,86 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
 });
 
 /**
+ * Transaction debug endpoint - captures all EPX transaction flow data
+ */
+router.get('/api/epx/debug-transaction-flow', async (req: Request, res: Response) => {
+  try {
+    console.log('[EPX Debug] Transaction flow debug endpoint called');
+    
+    const epxService = getEPXService();
+    
+    // Generate a debug TAC
+    const debugTacResponse = await epxService.generateTAC({
+      amount: 1.00,
+      tranNbr: 'DEBUG_FLOW_' + Date.now(),
+      customerEmail: 'debug@getmydpc.com',
+      orderDescription: 'Debug Transaction Flow Test'
+    });
+
+    // Get form data that would be POSTed to EPX
+    let formData = null;
+    if (debugTacResponse.success && debugTacResponse.tac) {
+      formData = epxService.getPaymentFormData(
+        debugTacResponse.tac,
+        1.00,
+        'DEBUG_FLOW_' + Date.now(),
+        'card'
+      );
+    }
+
+    // Provide complete data for dev team
+    const debugData = {
+      keyExchangeRequest: {
+        url: 'https://keyexch.epxuap.com',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (compatible; EPX-Integration/1.0)',
+          'Cache-Control': 'no-cache'
+        },
+        body: `MAC=***MASKED***&AMOUNT=1.00&TRAN_NBR=DEBUG_FLOW_${Date.now()}&TRAN_GROUP=SALE&REDIRECT_URL=${encodeURIComponent('https://enrollment.getmydpc.com/api/epx/redirect')}&REDIRECT_ECHO=V`
+      },
+      keyExchangeResponse: debugTacResponse.success ? {
+        status: '200 OK',
+        tac: '***TAC_GENERATED***',
+        success: true
+      } : {
+        status: 'ERROR',
+        error: debugTacResponse.error,
+        success: false
+      },
+      transactionPostData: formData ? {
+        url: formData.actionUrl,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: `TAC=***MASKED***&TRAN_CODE=${formData.tranCode}&TRAN_GROUP=${formData.tranGroup}&AMOUNT=${formData.amount}&TRAN_NBR=${formData.tranNbr}&CUST_NBR=${formData.custNbr}&MERCH_NBR=${formData.merchNbr}&DBA_NBR=${formData.dbaNbr}&TERMINAL_NBR=${formData.terminalNbr}&REDIRECT_URL=${encodeURIComponent(formData.redirectUrl)}&REDIRECT_ECHO=V&INDUSTRY_TYPE=${formData.industryType}&BATCH_ID=${formData.batchId}&RECEIPT=${formData.receipt}`
+      } : null,
+      redirectEndpoint: 'https://enrollment.getmydpc.com/api/epx/redirect',
+      webhookEndpoint: 'https://enrollment.getmydpc.com/api/epx/webhook',
+      timestamp: new Date().toISOString()
+    };
+
+    res.json({
+      success: true,
+      message: 'Transaction flow debug data captured',
+      debugData,
+      note: 'This data can be provided to EPX dev team for debugging'
+    });
+
+  } catch (error: any) {
+    console.error('[EPX Debug] Error generating debug data:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      note: 'Debug data generation failed'
+    });
+  }
+});
+
+/**
  * Test endpoint to verify EPX routes are working
  */
 router.get('/api/epx/test', (req: Request, res: Response) => {
@@ -848,7 +939,8 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
       'GET /api/epx/health',
       'GET /api/epx/redirect',
       'POST /api/epx/webhook',
-      'POST /api/epx/create-payment'
+      'POST /api/epx/create-payment',
+      'GET /api/epx/debug-transaction-flow'
     ]
   });
 });
@@ -864,6 +956,16 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     console.log('[EPX Redirect] Request path:', req.path);
     console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
+
+    // === RAW EPX REDIRECT RESPONSE DATA FOR DEV TEAM ===
+    console.log('[EPX] === RAW EPX REDIRECT RESPONSE DATA FOR DEV TEAM ===');
+    console.log('[EPX] Redirect URL:', req.url);
+    console.log('[EPX] Method:', req.method);
+    console.log('[EPX] Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('[EPX] Query Parameters:', JSON.stringify(req.query, null, 2));
+    console.log('[EPX] Raw Query String:', req.url.split('?')[1] || 'none');
+    console.log('[EPX] Timestamp:', new Date().toISOString());
+    console.log('[EPX] === END EPX REDIRECT RESPONSE DATA ===');
 
     // Define baseUrl in the handler scope
     const baseUrl = 'https://enrollment.getmydpc.com';

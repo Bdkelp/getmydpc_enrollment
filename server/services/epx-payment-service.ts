@@ -492,6 +492,30 @@ export class EPXPaymentService {
       hasAVS: !!(formData.zipCode || formData.address)
     });
 
+    // === RAW TRANSACTION POST DEBUG DATA ===
+    console.log('[EPX] === RAW TRANSACTION POST DATA FOR DEV TEAM ===');
+    console.log('[EPX] URL:', formData.actionUrl);
+    console.log('[EPX] Method: POST');
+    console.log('[EPX] Headers: {');
+    console.log('[EPX]   "Content-Type": "application/x-www-form-urlencoded",');
+    console.log('[EPX]   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",');
+    console.log('[EPX]   "User-Agent": "Mozilla/5.0 (compatible; EPX-Integration/1.0)",');
+    console.log('[EPX]   "Cache-Control": "no-cache"');
+    console.log('[EPX] }');
+    
+    // Create form-encoded body for logging (mask sensitive data)
+    const debugFormData = new URLSearchParams();
+    Object.entries(formData).forEach(([key, value]) => {
+      if (key === 'tac') {
+        debugFormData.append(key, '***TAC_MASKED***');
+      } else if (value !== undefined && value !== null && key !== 'actionUrl') {
+        debugFormData.append(key.toUpperCase(), value.toString());
+      }
+    });
+    
+    console.log('[EPX] Body (form-encoded):', debugFormData.toString());
+    console.log('[EPX] === END TRANSACTION POST DATA ===');
+
     return formData;
   }
 
