@@ -72,6 +72,7 @@ function Router() {
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/pending-approval" component={PendingApproval} />
+      <Route path="/auth-callback" component={AuthCallback} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />
 
