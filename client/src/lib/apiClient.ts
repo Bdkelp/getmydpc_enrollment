@@ -1,37 +1,9 @@
 // API Client for split deployment (Frontend: Vercel, Backend: Railway)
 
 const buildBaseUrl = () => {
-  // Prefer explicit env var in production
-  let raw = import.meta.env.VITE_API_URL as string | undefined;
-
-  // ---- sanitize common copy/paste mistakes ----
-  if (raw) {
-    raw = String(raw)
-      .trim()
-      // remove "VITE_API_URL =" if someone pasted the whole line
-      .replace(/^VITE_API_URL\s*=\s*/i, "")
-      // drop trailing slashes
-      .replace(/\/+$/, "");
-    // add https if missing
-    if (raw && !/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
-  }
-  // ---------------------------------------------
-
-  if (import.meta.env.PROD && raw) {
-    console.log('[API Client] Using production API URL:', raw);
-    return raw;
-  }
-
-  // ALWAYS use Railway backend in production or when VITE_API_URL is not set
-  if (import.meta.env.PROD || !raw) {
-    const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
-    console.log('[API Client] Using Railway production API URL:', railwayUrl);
-    return railwayUrl;
-  }
-
-  // Dev fallback: same-origin (Replit/local)
+  // For Replit deployment, always use same-origin (unified frontend + backend)
   const origin = window.location.origin;
-  console.log('[API Client] Using development API URL:', origin);
+  console.log('[API Client] Using unified deployment API URL:', origin);
   return origin;
 };
 
