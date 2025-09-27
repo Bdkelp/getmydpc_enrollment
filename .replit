@@ -27,3 +27,19 @@ localPort = 45687
 externalPort = 3001
 
 [agent]
+
+[workflows]
+runButton = "Emergency Recovery"
+
+[[workflows.workflow]]
+name = "Emergency Recovery"
+author = 41688777
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm start"

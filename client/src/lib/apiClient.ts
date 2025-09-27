@@ -7,6 +7,19 @@ const buildBaseUrl = () => {
   return origin;
 };
 
+// Fallback URLs for emergency situations
+const FALLBACK_URLS = [
+  'https://enrollment.getmydpc.com',
+  'https://getmydpcenrollment-production.up.railway.app'
+];
+
+let currentFallbackIndex = -1;
+
+const getFallbackUrl = () => {
+  currentFallbackIndex = (currentFallbackIndex + 1) % FALLBACK_URLS.length;
+  return FALLBACK_URLS[currentFallbackIndex];
+};
+
 export const API_BASE_URL = buildBaseUrl();
 
 const join = (base: string, path: string) =>
@@ -23,10 +36,11 @@ const apiClient = {
   },
 
   async post(endpoint: string, data?: any, retryCount = 0) {
-    console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data, retryCount });
+    const baseUrl = retryCount > 1 ? getFallbackUrl() : API_BASE_URL;
+    console.log(`[API] POST ${join(baseUrl, endpoint)}`, { data, retryCount, baseUrl });
     
     try {
-      const res = await fetch(join(API_BASE_URL, endpoint), {
+      const res = await fetch(join(baseUrl, endpoint), {
         method: "POST",
         credentials: "include",
         headers: {
