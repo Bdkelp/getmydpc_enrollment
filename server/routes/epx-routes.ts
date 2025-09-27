@@ -859,6 +859,9 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 router.get('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
+    console.log('[EPX Redirect] Route matched successfully');
+    console.log('[EPX Redirect] Request method:', req.method);
+    console.log('[EPX Redirect] Request path:', req.path);
     console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
 
@@ -940,8 +943,9 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
     
     if (isApproved) {
-      const redirectUrl = `${redirectBase}/payment-success?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
-      console.log('[EPX Redirect] Redirecting to success page:', redirectUrl);
+      // Redirect to confirmation page instead of payment-success
+      const redirectUrl = `${redirectBase}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
+      console.log('[EPX Redirect] Redirecting to confirmation page:', redirectUrl);
       res.redirect(redirectUrl);
     } else {
       const redirectUrl = `${redirectBase}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;

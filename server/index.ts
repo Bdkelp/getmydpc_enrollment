@@ -47,6 +47,15 @@ app.use(
         /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
         "https://getmydpcenrollment-production.up.railway.app",
         "https://enrollment.getmydpc.com",
+
+// Debug middleware to log all routes
+app.use('*', (req, res, next) => {
+  if (req.path.includes('/api/epx/')) {
+    console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
+  }
+  next();
+});
+
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));
 
@@ -113,10 +122,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Register EPX routes FIRST before other routes
+  app.use('/', epxRoutes);
+  
   const server = await registerRoutes(app);
 
-  // EPX routes already have /api prefix
-  app.use(epxRoutes);
   app.use(adminLogsRoutes);
   app.use(debugPaymentsRoutes);
   app.use(debugRecentPaymentsRoutes);
