@@ -47,15 +47,6 @@ app.use(
         /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
         "https://getmydpcenrollment-production.up.railway.app",
         "https://enrollment.getmydpc.com",
-
-// Debug middleware to log all routes
-app.use('*', (req, res, next) => {
-  if (req.path.includes('/api/epx/')) {
-    console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
-  }
-  next();
-});
-
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));
 
@@ -72,6 +63,14 @@ app.use('*', (req, res, next) => {
     optionsSuccessStatus: 200,
   }),
 );
+
+// Debug middleware to log all routes
+app.use('*', (req, res, next) => {
+  if (req.path.includes('/api/epx/')) {
+    console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
+  }
+  next();
+});
 
 // Health check endpoint
 app.get("/health", (req, res) => {
