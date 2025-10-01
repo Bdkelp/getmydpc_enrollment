@@ -88,34 +88,27 @@ export default function Login() {
         );
       }
 
-      // ADD DETAILED RESPONSE LOGGING
+      // Detailed response logging for debugging
       console.log('=== LOGIN RESPONSE DEBUG ===');
-      console.log('ACTUAL RESPONSE DATA:', JSON.stringify(response, null, 2));
-      console.log('Response keys:', Object.keys(response));
-      console.log('Has success?', !!response.success);
-      console.log('Has session?', !!response.session);
-      console.log('Has user?', !!response.user);
-      console.log('Has token?', !!response.token);
-      console.log('Has dbUser?', !!response.dbUser);
+      console.log('Response status:', response?.status || 'unknown');
+      console.log('Response data:', JSON.stringify(response, null, 2));
+      console.log('Response keys:', response ? Object.keys(response) : 'no response');
+      console.log('Has success?', !!response?.success);
+      console.log('Has session?', !!response?.session);
+      console.log('Has user?', !!response?.user);
+      console.log('Has token?', !!response?.token);
       console.log('=== END DEBUG ===');
 
-      // Handle the actual Railway backend response format
-      // Backend returns: {success: true, session: {...}, user: {...}}
-      const isValidResponse = response && (
-        (response.success && response.user) ||  // Railway format: {success: true, user: {...}}
-        (response.user && response.session) ||  // Supabase format: {user: {...}, session: {...}}
-        (response.token && response.user) ||    // JWT format: {token: "...", user: {...}}
-        response.id                             // Direct user object
+      // Validate we got a valid response with user data
+      const isValidResponse = response && response.user && (
+        response.success ||          // Success flag present
+        response.session ||          // Session object present
+        response.token               // Token present
       );
 
-      console.log('Response validation:');
-      console.log('- Has success + user:', !!(response.success && response.user));
-      console.log('- Has user + session:', !!(response.user && response.session));
-      console.log('- Has token + user:', !!(response.token && response.user));
-      console.log('- Is direct user object:', !!response.id);
-      console.log('- Is valid response:', isValidResponse);
+      console.log('Response validation:', isValidResponse);
 
-      if (isValidResponse) {
+      if (isValidResponse && response.user) {
         // Extract user and session data from the response
         const user = response.user || response;  // user object or direct response
         const session = response.session;        // session object if present

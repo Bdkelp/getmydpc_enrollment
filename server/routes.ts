@@ -290,6 +290,7 @@ router.post("/api/auth/login", async (req, res) => {
 
     console.log("[Login] Login successful for user:", user.email);
 
+    // Return format that matches client expectations
     res.json({
       success: true,
       session: {
@@ -305,11 +306,12 @@ router.post("/api/auth/login", async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
-        agentNumber: user.agentNumber, // Include agent number in login response
+        agentNumber: user.agentNumber,
         profileImageUrl: user.profileImageUrl,
         isActive: user.isActive,
         approvalStatus: user.approvalStatus,
       },
+      token: data.session.access_token, // Also include token at root for compatibility
     });
   } catch (error) {
     console.error("Login error:", error);
