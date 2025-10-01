@@ -1,23 +1,38 @@
-// API Client for unified deployment
+// API Client for split deployment (Frontend: Vercel, Backend: Railway)
 
 const buildBaseUrl = () => {
-  // Always use same-origin for unified deployment
+  // Prefer explicit env var in production
+  let raw = import.meta.env.VITE_API_URL as string | undefined;
+
+  // ---- sanitize common copy/paste mistakes ----
+  if (raw) {
+    raw = String(raw)
+      .trim()
+      // remove "VITE_API_URL =" if someone pasted the whole line
+      .replace(/^VITE_API_URL\s*=\s*/i, "")
+      // drop trailing slashes
+      .replace(/\/+$/, "");
+    // add https if missing
+    if (raw && !/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+  }
+  // ---------------------------------------------
+
+  if (import.meta.env.PROD && raw) {
+    console.log('[API Client] Using production API URL:', raw);
+    return raw;
+  }
+
+  // ALWAYS use Railway backend in production or when VITE_API_URL is not set
+  if (import.meta.env.PROD || !raw) {
+    const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
+    console.log('[API Client] Using Railway production API URL:', railwayUrl);
+    return railwayUrl;
+  }
+
+  // Dev fallback: same-origin (Replit/local)
   const origin = window.location.origin;
-  console.log('[API Client] Using unified deployment API URL:', origin);
+  console.log('[API Client] Using development API URL:', origin);
   return origin;
-};
-
-// Fallback URLs for emergency situations
-const FALLBACK_URLS = [
-  'https://enrollment.getmydpc.com',
-  'https://getmydpcenrollment-production.up.railway.app'
-];
-
-let currentFallbackIndex = -1;
-
-const getFallbackUrl = () => {
-  currentFallbackIndex = (currentFallbackIndex + 1) % FALLBACK_URLS.length;
-  return FALLBACK_URLS[currentFallbackIndex];
 };
 
 export const API_BASE_URL = buildBaseUrl();
@@ -36,11 +51,10 @@ const apiClient = {
   },
 
   async post(endpoint: string, data?: any, retryCount = 0) {
-    const baseUrl = retryCount > 1 ? getFallbackUrl() : API_BASE_URL;
-    console.log(`[API] POST ${join(baseUrl, endpoint)}`, { data, retryCount, baseUrl });
+    console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data, retryCount });
     
     try {
-      const res = await fetch(join(baseUrl, endpoint), {
+      const res = await fetch(join(API_BASE_URL, endpoint), {
         method: "POST",
         credentials: "include",
         headers: {

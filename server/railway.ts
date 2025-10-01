@@ -68,13 +68,11 @@ app.get('/api/epx/health-check', (req, res) => {
     console.log('✅ Registered routes:');
     app._router.stack.forEach((middleware, index) => {
       if (middleware.route) {
-        const method = middleware.route.stack[0]?.method || 'UNKNOWN';
-        console.log(`  ${method.toUpperCase()} ${middleware.route.path}`);
-      } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+        console.log(`  ${middleware.route.stack[0].method.toUpperCase()} ${middleware.route.path}`);
+      } else if (middleware.name === 'router') {
         middleware.handle.stack.forEach((handler) => {
           if (handler.route) {
-            const method = handler.route.stack[0]?.method || 'UNKNOWN';
-            console.log(`  ${method.toUpperCase()} ${handler.route.path}`);
+            console.log(`  ${handler.route.stack[0].method.toUpperCase()} ${handler.route.path}`);
           }
         });
       }

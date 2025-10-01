@@ -49,39 +49,6 @@ export default function Login() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check for authentication errors in URL params
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const error = urlParams.get('error');
-    
-    if (error) {
-      let errorMessage = 'Authentication failed';
-      
-      switch (error) {
-        case 'auth_failed':
-          errorMessage = 'Social login failed. Please try again.';
-          break;
-        case 'no_user':
-          errorMessage = 'No user account found. Please contact support.';
-          break;
-        case 'callback_failed':
-          errorMessage = 'Authentication callback failed. Please try again.';
-          break;
-        default:
-          errorMessage = 'Login error occurred. Please try again.';
-      }
-      
-      toast({
-        title: "Login Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
-      
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [toast]);
-
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {

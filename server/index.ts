@@ -12,20 +12,6 @@ import devUtilitiesRoutes from "./routes/dev-utilities";
 
 const app = express();
 
-// Global error handlers to prevent crashes
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-  // Don't exit in development
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit in development
-});
-
 // Set trust proxy for proper IP handling
 app.set("trust proxy", true);
 
@@ -138,12 +124,14 @@ app.use((req, res, next) => {
   // Register EPX routes FIRST before other routes
   app.use('/', epxRoutes);
   
+  // Register all API routes
   const server = await registerRoutes(app);
 
-  app.use(adminLogsRoutes);
-  app.use(debugPaymentsRoutes);
-  app.use(debugRecentPaymentsRoutes);
-  app.use(devUtilitiesRoutes);
+  // Register additional admin/debug routes
+  app.use('/', adminLogsRoutes);
+  app.use('/', debugPaymentsRoutes);
+  app.use('/', debugRecentPaymentsRoutes);
+  app.use('/', devUtilitiesRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -156,7 +144,7 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "development") {
+  if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
@@ -167,14 +155,13 @@ app.use((req, res, next) => {
   // It is the only port that is not firewalled.
   const port = 5000;
   const serverInstance = server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
-    console.log(`Server running on port ${port}`);
-    console.log(`Environment: ${process.env.NODE_ENV}`);
-    console.log(`Host: 0.0.0.0:${port}`);
-    console.log(`EPX Service configured: Browser Post ready`);
+      log(`serving on port ${port}`);
+      console.log(`Server running on port ${port}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
+      console.log(`EPX Service configured: Browser Post ready`);
 
-    // Initialize weekly recap service
-    WeeklyRecapService.scheduleWeeklyRecap();
+      // Initialize weekly recap service
+      WeeklyRecapService.scheduleWeeklyRecap();
 
       // Validate EPX configuration
       try {
@@ -190,7 +177,7 @@ app.use((req, res, next) => {
             BASE_URL: process.env.REPLIT_DEV_DOMAIN
           });
       } catch (error) {
-        console.warn('[Server] EPX configuration check failed:', error?.message || 'Unknown error');
+        console.warn('[Server] EPX configuration check failed:', error.message);
       }
 
       return serverInstance;

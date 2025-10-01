@@ -13,31 +13,9 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: false
-  },
-  db: {
-    schema: 'public'
-  },
-  global: {
-    headers: {
-      'x-connection-retry': 'true'
-    }
-  },
   realtime: {
     params: {
       eventsPerSecond: 10
     }
   }
 });
-
-// Test connection and retry if needed
-supabase.from('plans').select('count', { count: 'exact', head: true })
-  .then(({ error }) => {
-    if (error) {
-      console.warn('[Supabase] Initial connection test failed, retrying...', error.message);
-    } else {
-      console.log('[Supabase] Connection verified');
-    }
-  });
