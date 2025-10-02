@@ -695,7 +695,7 @@ export default function Admin() {
           </CardContent>
         </Card>
 
-        {/* Removed redundant user table - use /admin/users for complete user management */}lect>
+        {/* Removed redundant user table - use /admin/users for complete user management */}
                 </div>
               </div>
             </div>
