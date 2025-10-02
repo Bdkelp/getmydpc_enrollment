@@ -121,11 +121,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Register EPX routes FIRST before other routes
-  app.use('/', epxRoutes);
-  
-  // Register all API routes
+  // Register all API routes FIRST (includes auth endpoints)
   const server = await registerRoutes(app);
+  
+  // Register EPX routes
+  app.use('/', epxRoutes);
 
   // Register additional admin/debug routes
   app.use('/', adminLogsRoutes);

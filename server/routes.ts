@@ -2157,6 +2157,10 @@ import { createServer } from "http";
 export async function registerRoutes(app: any) {
   // Create HTTP server instance
   const server = createServer(app);
+
+  // CRITICAL: Mount the router on the app BEFORE other middleware
+  // This ensures all /api/* routes are accessible
+  app.use(router);
   
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
@@ -2237,14 +2241,11 @@ export async function registerRoutes(app: any) {
     next();
   };
 
-  // Register EPX payment routes FIRST (highest priority)
-  app.use(epxRoutes);
-
-  // Use the router for general API routes
-  app.use(router);
-
-  // Register Supabase auth routes (after main routes)
+  // Register Supabase auth routes
   app.use(supabaseAuthRoutes);
+  
+  // Register EPX payment routes
+  app.use(epxRoutes);
 
   // Registration endpoint - ensure it's accessible
   app.post("/api/registration", async (req: any, res: any) => {
