@@ -767,7 +767,10 @@ export default function AdminUsers() {
 
         {/* Users Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid grid-cols-3 w-full mb-4">
+          <TabsList className="grid grid-cols-4 w-full mb-4">
+            <TabsTrigger value="all">
+              All Users ({filterBySearch(safeUsers).length})
+            </TabsTrigger>
             <TabsTrigger value="members">
               DPC Members ({filterBySearch(members).length})
             </TabsTrigger>
@@ -778,6 +781,31 @@ export default function AdminUsers() {
               Administrators ({filterBySearch(admins).length})
             </TabsTrigger>
           </TabsList>
+
+          {/* All Users Tab */}
+          <TabsContent value="all">
+            <Card>
+              <CardHeader>
+                <CardTitle>All Users</CardTitle>
+                <CardDescription>
+                  Complete user directory across all roles
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <LoadingSpinner />
+                  </div>
+                ) : error ? (
+                  <div className="text-center py-8 text-red-500">
+                    Error loading users: {error.message}
+                  </div>
+                ) : (
+                  <UserTable users={filterBySearch(safeUsers)} showRole={true} showPlan={true} />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Members Tab */}
           <TabsContent value="members">
