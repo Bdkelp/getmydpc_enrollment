@@ -695,34 +695,7 @@ export default function Admin() {
           </CardContent>
         </Card>
 
-        {/* Members Management Table */}
-        <Card className="mt-8">
-          <CardContent className="p-0">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-lg font-semibold text-gray-900">All App Users (Agents & Admins)</h2>
-                <div className="mt-4 sm:mt-0 flex items-center space-x-4">
-                  <div className="relative">
-                    <Input 
-                      id="admin-user-search"
-                      name="userSearch"
-                      placeholder="Search users..." 
-                      className="pl-10 pr-4 py-2"
-                      autoComplete="off"
-                    />
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  </div>
-                  <Select defaultValue="all" name="planFilter">
-                    <SelectTrigger id="admin-plan-filter" className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Plans</SelectItem>
-                      <SelectItem value="individual">Individual</SelectItem>
-                      <SelectItem value="family">Family</SelectItem>
-                      <SelectItem value="group">Group</SelectItem>
-                    </SelectContent>
-                  </Select>
+        {/* Removed redundant user table - use /admin/users for complete user management */}lect>
                 </div>
               </div>
             </div>
