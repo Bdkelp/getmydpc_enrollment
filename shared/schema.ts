@@ -45,7 +45,7 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
-  role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
+  role: varchar("role").default("member"), // member (DPC enrollee - data only, no auth), admin (system administrator), agent (insurance/sales agent)
   agentNumber: varchar("agent_number"), // Agent identifier for production tracking
   isActive: boolean("is_active").default(true),
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended

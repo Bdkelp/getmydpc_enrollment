@@ -1648,7 +1648,7 @@ router.get(
       if (req.user!.role === "admin") {
         // Admin sees all enrollments
         enrollments = await storage.getAllEnrollments(
-          startDate as string, 
+          startDate as string,
           endDate as string
         );
       } else {
@@ -2161,7 +2161,7 @@ export async function registerRoutes(app: any) {
   // CRITICAL: Mount the router on the app BEFORE other middleware
   // This ensures all /api/* routes are accessible
   app.use(router);
-  
+
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
@@ -2243,7 +2243,7 @@ export async function registerRoutes(app: any) {
 
   // Register Supabase auth routes
   app.use(supabaseAuthRoutes);
-  
+
   // Register EPX payment routes
   app.use(epxRoutes);
 
@@ -2457,7 +2457,7 @@ export async function registerRoutes(app: any) {
           console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
           console.log("[Registration] Using Supabase ID:", data.user.id);
 
-          // Create user in our database with full enrollment data
+          // Create member record in our database (members don't authenticate, they're data-only)
           user = await storage.createUser({
             id: data.user.id, // Use the Supabase UUID directly
             email: data.user.email!, // Use the email from Supabase to ensure consistency
@@ -2478,7 +2478,7 @@ export async function registerRoutes(app: any) {
             memberType: memberType || "member-only",
             planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
             emailVerified: false,
-            role: "member",
+            role: "member", // CRITICAL: Members are 'member', NOT 'user'
             isActive: true,
             approvalStatus: "approved", // Auto-approve DPC enrollments
             createdAt: new Date(),
@@ -2592,7 +2592,7 @@ export async function registerRoutes(app: any) {
 
       // Clean up Supabase user if database creation failed
       if (supabaseUserId && error.message && (
-        error.message.includes('duplicate key') || 
+        error.message.includes('duplicate key') ||
         error.message.includes('constraint') ||
         error.message.includes('users_pkey')
       )) {
@@ -2853,7 +2853,7 @@ export async function registerRoutes(app: any) {
     }
   });
 
-  // Fix: /api/agent/commissions (403) - permission issue  
+  // Fix: /api/agent/commissions (403) - permission issue
   app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
     try {
       console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
@@ -3081,7 +3081,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] POST /api/agent/enrollment");
   console.log("[Route] GET /api/agent/:agentId");
   console.log("[Route] GET /api/agent/enrollments");
-  console.log("[Route] GET /api/agent/stats"); 
+  console.log("[Route] GET /api/agent/stats");
   console.log("[Route] GET /api/agent/commission-stats");
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");

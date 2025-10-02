@@ -352,8 +352,8 @@ export default function AdminUsers() {
   const safeUsers = Array.isArray(rawUsers) ? rawUsers : [];
   const safeUsersData = usersData || { users: [], totalCount: 0 };
 
-  // Filter users by role
-  const members = safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user'));
+  // Filter users by role - Members are 'member' ONLY (not 'user')
+  const members = safeUsers.filter((u: UserType) => u && u.role === 'member');
   const agents = safeUsers.filter((u: UserType) => u && u.role === 'agent');
   const admins = safeUsers.filter((u: UserType) => u && u.role === 'admin');
 
@@ -583,13 +583,13 @@ export default function AdminUsers() {
                         Approve
                       </Button>
                     )}
-                    {(user.role === 'member' || user.role === 'user') && (
+                    {user.role === 'member' && (
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setLocation(`/admin/enrollment/${user.id}`)}
                       >
-                        View DPC Details
+                        Manage Member
                       </Button>
                     )}
                     {(user.approvalStatus === 'suspended' || !user.isActive) && user.approvalStatus !== 'pending' ? (
