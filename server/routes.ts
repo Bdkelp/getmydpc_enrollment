@@ -882,6 +882,7 @@ router.get(
   "/api/admin/users",
   authenticateToken,
   async (req: AuthRequest, res) => {
+    // ROLE-BASED ACCESS: Only admins can access this endpoint
     if (req.user!.role !== "admin") {
       console.log(
         "[Admin Users API] Access denied - user role:",
@@ -896,12 +897,12 @@ router.get(
       res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
 
       console.log(
-        "[Admin Users API] Fetching users for admin:",
+        "[Admin Users API] Admin access granted:",
         req.user!.email,
       );
       const filterType = req.query.filter as string;
 
-      // If filter is 'members', only get members (exclude agents/admins)
+      // Admins can see ALL users across the entire system
       const usersResult =
         filterType === "members"
           ? await storage.getMembersOnly()
@@ -963,7 +964,7 @@ router.get(
         users: enhancedUsers,
         totalCount: enhancedUsers.length,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("[Admin Users API] Error fetching users:", error);
       console.error("[Admin Users API] Error stack:", error.stack);
       res.status(500).json({
@@ -2517,7 +2518,7 @@ export async function registerRoutes(app: any) {
         throw new Error("Failed to create user in database after retries");
       }
 
-      console.log("✅ Step 9: User creation completed successfully");
+      console.log("✅ Step 9: Registration completed successfully");
       console.log("[Registration] Final user email:", user.email);
 
       // Create subscription if plan is selected
