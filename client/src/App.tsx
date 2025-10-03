@@ -63,8 +63,6 @@ function Router() {
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
-      <Route path="/payment" component={Payment} />
-      <Route path="/payment/:planId/:userId" component={Payment} />
       <Route path="/payment/success" component={PaymentSuccess} />
       <Route path="/payment/failed" component={PaymentFailed} />
       <Route path="/payment/cancel" component={PaymentCancel} />
@@ -94,6 +92,8 @@ function Router() {
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
               <Route path="/registration" component={Registration} />
+              <Route path="/payment" component={Payment} />
+              <Route path="/payment/:planId/:userId" component={Payment} />
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
               <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
@@ -107,6 +107,8 @@ function Router() {
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
               <Route path="/registration" component={Registration} />
+              <Route path="/payment" component={Payment} />
+              <Route path="/payment/:planId/:userId" component={Payment} />
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
               <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
@@ -140,8 +142,8 @@ function Router() {
 export default function App() {
   // Initialize token refresh handling
   useEffect(() => {
-    const result = setupTokenRefreshHandling();
-    return () => result.data.subscription.unsubscribe();
+    const subscription = setupTokenRefreshHandling();
+    return () => subscription.unsubscribe();
   }, []);
 
   return (

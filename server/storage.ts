@@ -2437,7 +2437,7 @@ export const storage = {
         commissions: allCommissions.length
       });
 
-      // Filter for actual active members only (not admins/agents)
+      // Filter for actual active members only (not agents/admins)
       const actualMembers = allUsers.filter(user =>
         (user.role === 'member' || user.role === 'user') &&
         user.approval_status === 'approved' &&

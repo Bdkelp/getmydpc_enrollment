@@ -25,30 +25,34 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS setup - improved for Replit deployment
+// CORS setup - comprehensive for Railway + Vercel deployment
 app.use(
   cors({
     origin: function (
       origin: string | undefined,
       callback: (err: Error | null, origin?: boolean) => void,
     ) {
-      // Allow requests with no origin (mobile apps, etc.)
+      // Allow requests with no origin (mobile apps, Postman, etc.)
       if (!origin) return callback(null, true);
 
-      // Allow Replit domains and production domain
-      const allowedOrigins: (string | RegExp)[] = [
-        /\.replit\.dev$/,
-        /\.replit\.app$/,
+      // Comprehensive list of allowed origins
+      const allowedOrigins = [
+        // Production domains
+        "https://getmydpcenrollment-production.up.railway.app",
+        "https://enrollment.getmydpc.com",
+        "https://shimmering-nourishment.up.railway.app",
+
+        // Development domains
         /^https:\/\/.*\.replit\.dev$/,
         /^https:\/\/.*\.replit\.app$/,
         /^https:\/\/.*\.vercel\.app$/,
         /^https:\/\/.*\.railway\.app$/,
-        /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
-        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
-        "https://getmydpcenrollment-production.up.railway.app",
-        "https://enrollment.getmydpc.com",
+        /^http:\/\/localhost:\d+$/,
+        /^http:\/\/127\.0\.0\.1:\d+$/,
+
+        // Environment variable URL
         process.env.VITE_PUBLIC_URL,
-      ].filter((item): item is string | RegExp => Boolean(item));
+      ].filter((item) => Boolean(item));
 
       const isAllowed = allowedOrigins.some((pattern) => {
         if (typeof pattern === "string") {
@@ -57,12 +61,55 @@ app.use(
         return pattern.test(origin);
       });
 
-      callback(null, isAllowed);
+      if (isAllowed) {
+        console.log('[CORS] Allowed origin:', origin);
+        callback(null, true);
+      } else {
+        console.log('[CORS] Blocked origin:', origin);
+        callback(null, false);
+      }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'Cache-Control',
+      'X-File-Name',
+      'X-CSRF-Token'
+    ],
+    exposedHeaders: ['Set-Cookie'],
     optionsSuccessStatus: 200,
+    maxAge: 86400, // 24 hours
   }),
 );
+
+// Handle OPTIONS preflight requests for all API routes
+app.options('/api/*', (req, res) => {
+  const origin = req.headers.origin;
+  console.log('[OPTIONS] Preflight request from:', origin);
+
+  // Set CORS headers explicitly
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name,X-CSRF-Token');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  res.status(200).end();
+});
+
+// Debug middleware to log all routes
+app.use('*', (req, res, next) => {
+  if (req.path.includes('/api/epx/')) {
+    console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
+  }
+  next();
+});
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -113,13 +160,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // CRITICAL: Register EPX routes BEFORE any other middleware or routes
-  // This ensures EPX redirect/webhook endpoints are accessible
-  console.log('[Server] Registering EPX routes...');
-  app.use(epxRoutes);
-  console.log('[Server] EPX routes registered successfully');
-  
-  // Register all API routes
+  // Register EPX routes FIRST to prevent route conflicts
+  app.use('/', epxRoutes);
+
+  // Register all other API routes (includes auth endpoints)
   const server = await registerRoutes(app);
 
   // Register additional admin/debug routes
@@ -145,14 +189,13 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  // Port configuration: Railway uses PORT env var, Replit uses 5000
+  const port = parseInt(process.env.PORT || "5000", 10);
   const serverInstance = server.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
       console.log(`Server running on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
+      console.log(`Listening on: 0.0.0.0:${port}`);
       console.log(`EPX Service configured: Browser Post ready`);
 
       // Initialize weekly recap service

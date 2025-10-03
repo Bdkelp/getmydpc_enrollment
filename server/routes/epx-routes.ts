@@ -533,13 +533,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
 
     console.log('[EPX Create Payment] Generated form data:', {
       actionUrl: formData.actionUrl,
-      hasTAC: !!formData.TAC,
-      tacLength: formData.TAC?.length,
-      tranCode: formData.TRAN_CODE,
-      amount: formData.AMOUNT,
-      tranNbr: formData.TRAN_NBR,
-      industryType: formData.INDUSTRY_TYPE,
-      batchId: formData.BATCH_ID,
+      hasTAC: !!formData.tac,
+      tacLength: formData.tac?.length,
+      tranCode: formData.tranCode,
+      tranGroup: formData.tranGroup,
+      amount: formData.amount,
+      tranNbr: formData.tranNbr,
+      redirectUrl: formData.redirectUrl?.substring(0, 50) + '...',
+      responseUrl: formData.responseUrl?.substring(0, 50) + '...',
       paymentMethod: paymentMethod || 'card'
     });
 
@@ -854,21 +855,15 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 
 /**
  * Handle payment redirect (user returns from EPX)
- * EPX may use either GET or POST for Browser Post redirects
  */
-const handleEPXRedirect = async (req: Request, res: Response) => {
+// Handle both GET and POST requests from EPX
+router.all('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
     console.log('[EPX Redirect] Route matched successfully');
     console.log('[EPX Redirect] Request method:', req.method);
     console.log('[EPX Redirect] Request path:', req.path);
-    console.log('[EPX Redirect] Full URL:', req.url);
-    console.log('[EPX Redirect] Headers:', JSON.stringify(req.headers, null, 2));
-    
-    // EPX can send data via query params (GET) or body (POST)
-    const data = req.method === 'POST' ? req.body : req.query;
-    
-    console.log('[EPX Redirect] Data received:', JSON.stringify(data, null, 2));
+    console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
 
     // Define baseUrl in the handler scope
@@ -885,7 +880,7 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
       BP_RESP_CODE,
       NETWORK_RESPONSE,
       status // For cancelled payments
-    } = data;
+    } = req.query;
 
     // Handle cancelled payments
     if (status === 'cancelled') {
@@ -908,7 +903,7 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
     if (TRAN_NBR) {
       try {
         const epxService = getEPXService();
-        const result = epxService.processWebhook(data);
+        const result = epxService.processWebhook(req.query);
 
         const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
         
@@ -924,7 +919,7 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
               authAmount: result.amount,
               error: result.error,
               redirectProcessedAt: new Date().toISOString(),
-              epxRedirectResponse: data
+              epxRedirectResponse: req.query
             }
           });
 
@@ -945,16 +940,14 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
       }
     }
 
-    // Redirect to appropriate frontend page with proper base URL handling
-    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
-    
+    // Redirect to appropriate frontend page - use full URL for external redirects
     if (isApproved) {
-      // Redirect to confirmation page instead of payment-success
-      const redirectUrl = `${redirectBase}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
+      // Redirect to confirmation page with full URL
+      const redirectUrl = `${baseUrl}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
       console.log('[EPX Redirect] Redirecting to confirmation page:', redirectUrl);
       res.redirect(redirectUrl);
     } else {
-      const redirectUrl = `${redirectBase}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
+      const redirectUrl = `${baseUrl}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
       console.log('[EPX Redirect] Redirecting to failure page:', redirectUrl);
       res.redirect(redirectUrl);
     }
@@ -962,15 +955,61 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
     console.error('[EPX Redirect] Error handling redirect:', error);
     // Define baseUrl for error handling as well
     const baseUrl = 'https://enrollment.getmydpc.com';
-    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
-    res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
+    res.redirect(`${baseUrl}/payment-failed?error=redirect_error`);
   }
-};
+});
 
-// Register both GET and POST handlers for the redirect endpoint
-// EPX Browser Post can use either method for redirects
-router.get('/api/epx/redirect', handleEPXRedirect);
-router.post('/api/epx/redirect', handleEPXRedirect);
+/**
+ * Get payment and enrollment details by transaction ID
+ * Used by confirmation page when redirected from EPX
+ */
+router.get('/api/payment/transaction/:transactionId', async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+    console.log('[Payment] Fetching payment by transaction ID:', transactionId);
+    
+    // Get payment record
+    const payment = await storage.getPaymentByTransactionId(transactionId);
+    
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+    
+    // Get associated subscription/enrollment if exists
+    let enrollment = null;
+    if (payment.subscriptionId) {
+      enrollment = await storage.getSubscriptionById(payment.subscriptionId);
+    }
+    
+    // Return payment and enrollment details
+    res.json({
+      success: true,
+      payment: {
+        id: payment.id,
+        amount: payment.amount,
+        status: payment.status,
+        transactionId: payment.transactionId,
+        createdAt: payment.createdAt
+      },
+      enrollment: enrollment ? {
+        memberId: enrollment.memberId || `MPP${payment.userId}`,
+        customerNumber: enrollment.customerNumber || `MPP${new Date().getFullYear()}${String(payment.userId).padStart(6, '0')}`,
+        planId: enrollment.planId || 1,
+        coverageType: enrollment.coverageType || 'individual',
+        rxValet: enrollment.metadata?.rxValet || false,
+        totalPrice: enrollment.price || payment.amount,
+        createdAt: enrollment.createdAt
+      } : null,
+      amount: payment.amount
+    });
+  } catch (error: any) {
+    console.error('[Payment] Error fetching payment by transaction:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch payment details',
+      message: error.message 
+    });
+  }
+});
 
 /**
  * Refund transaction
@@ -1112,36 +1151,6 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
   }
 });
 
-// Catch-all debug route for EPX endpoints (must be last)
-router.all('/api/epx/*', (req: Request, res: Response) => {
-  console.error('[EPX Routes] 404 - Unmatched EPX route:', {
-    method: req.method,
-    path: req.path,
-    url: req.url,
-    originalUrl: req.originalUrl,
-    query: req.query,
-    body: req.body
-  });
-  
-  res.status(404).json({
-    error: 'EPX endpoint not found',
-    method: req.method,
-    path: req.path,
-    availableEndpoints: [
-      'GET /api/epx/health',
-      'GET /api/epx/browser-post-status',
-      'GET /api/epx/test-redirect-config',
-      'POST /api/epx/create-payment',
-      'POST /api/epx/webhook',
-      'GET /api/epx/webhook',
-      'GET /api/epx/redirect',
-      'POST /api/epx/redirect',
-      'POST /api/epx/refund',
-      'POST /api/epx/void'
-    ]
-  });
-});
-
 // Log available routes when module loads
 console.log('[EPX Routes] Registering EPX endpoints:');
 console.log('[EPX Routes] - GET /api/epx/health');
@@ -1152,7 +1161,6 @@ console.log('[EPX Routes] - POST /api/epx/create-payment');
 console.log('[EPX Routes] - POST /api/epx/webhook');
 console.log('[EPX Routes] - GET /api/epx/webhook');
 console.log('[EPX Routes] - GET /api/epx/redirect');
-console.log('[EPX Routes] - POST /api/epx/redirect');
 console.log('[EPX Routes] - POST /api/epx/refund');
 console.log('[EPX Routes] - POST /api/epx/void');
 

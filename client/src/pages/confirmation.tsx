@@ -17,18 +17,96 @@ export default function Confirmation() {
   const [retryCount, setRetryCount] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { toast } = useToast();
+  
+  // Function to fetch enrollment data by transaction ID (for EPX redirects)
+  const fetchEnrollmentByTransaction = async (transactionId: string) => {
+    try {
+      console.log('Fetching enrollment data for transaction:', transactionId);
+      
+      // Fetch payment and enrollment details from backend
+      const response = await apiRequest(`/api/payment/transaction/${transactionId}`, {
+        method: 'GET'
+      });
+      
+      if (response && response.enrollment) {
+        const enrollment = response.enrollment;
+        const today = new Date();
+        const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        
+        setMembershipData({
+          memberId: enrollment.memberId || `MPP${user?.id}`,
+          customerNumber: enrollment.customerNumber || `MPP${new Date().getFullYear()}${String(user?.id).padStart(6, '0')}`,
+          transactionId: transactionId,
+          billingDate: today,
+          nextBillingDate: nextBillingDate,
+          totalPrice: enrollment.totalPrice || response.amount,
+          addRxValet: enrollment.rxValet || false,
+          coverageType: enrollment.coverageType || 'individual',
+          planId: enrollment.planId,
+          enrollmentDate: enrollment.createdAt ? new Date(enrollment.createdAt) : today,
+          epxPayment: true // Mark this as an EPX payment confirmation
+        });
+        
+        toast({
+          title: "Payment Successful!",
+          description: "Your enrollment has been confirmed.",
+        });
+      } else {
+        // If no enrollment found, create basic membership data from payment info
+        const today = new Date();
+        const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        
+        setMembershipData({
+          memberId: `MPP${user?.id}`,
+          customerNumber: `MPP${new Date().getFullYear()}${String(user?.id).padStart(6, '0')}`,
+          transactionId: transactionId,
+          billingDate: today,
+          nextBillingDate: nextBillingDate,
+          totalPrice: response.amount || '0',
+          addRxValet: false,
+          coverageType: 'individual',
+          planId: 1,
+          enrollmentDate: today,
+          epxPayment: true
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching enrollment by transaction:', error);
+      toast({
+        title: "Confirmation Error",
+        description: "Unable to load enrollment details. Please contact support.",
+        variant: "destructive",
+      });
+    }
+  };
 
 
 
   // Get stored enrollment data
   useEffect(() => {
-    // Check for EPX redirect parameters
+    // Check for EPX redirect parameters FIRST
     const urlParams = new URLSearchParams(window.location.search);
     const epxTransaction = urlParams.get('transaction');
     const epxAmount = urlParams.get('amount');
+    const epxStatus = urlParams.get('status');
     
-    if (epxTransaction) {
-      console.log('EPX payment redirect detected:', { transaction: epxTransaction, amount: epxAmount });
+    if (epxTransaction && epxStatus === 'success') {
+      console.log('EPX payment redirect detected - SUCCESS:', { 
+        transaction: epxTransaction, 
+        amount: epxAmount,
+        status: epxStatus 
+      });
+      
+      // Mark that payment was successful through EPX
+      setIsProcessingPayment(false);
+      
+      // For EPX redirects, we need to fetch enrollment data from the backend
+      // using the transaction ID since session storage might be cleared
+      if (user) {
+        // Fetch the enrollment/subscription data based on the transaction
+        fetchEnrollmentByTransaction(epxTransaction);
+        return; // Exit early - we'll handle data differently for EPX
+      }
     }
 
     const planId = sessionStorage.getItem("selectedPlanId");

@@ -44,28 +44,35 @@ export interface TACResponse {
 
 export interface EPXPaymentForm {
   actionUrl: string;
-  TAC: string;
+  tac: string;
   // 4-part merchant key (required for Browser Post transaction)
-  CUST_NBR: string;
-  MERCH_NBR: string;
-  DBA_NBR: string;
-  TERMINAL_NBR: string;
+  custNbr: string;
+  merchNbr: string;
+  dbaNbr: string;
+  terminalNbr: string;
   // Transaction details
-  TRAN_CODE: string;
-  AMOUNT: number;
-  TRAN_NBR: string;
+  tranCode: string;
+  tranGroup: string;
+  amount: number;
+  tranNbr: string;
+  // URLs
+  redirectUrl: string;
+  responseUrl: string;
+  redirectEcho: string;
+  responseEcho: string;
   // Required fields
-  INDUSTRY_TYPE: string;
-  BATCH_ID: string;
+  industryType: string;
+  batchId: string;
+  receipt: string;
   // AVS information
-  ZIP_CODE?: string;
-  ADDRESS?: string;
+  zipCode?: string;
+  address?: string;
   // ACH specific fields
-  PAYMENT_TYPE?: string;
-  ACH_ROUTING_NUMBER?: string;
-  ACH_ACCOUNT_NUMBER?: string;
-  ACH_ACCOUNT_TYPE?: string;
-  ACH_ACCOUNT_NAME?: string;
+  paymentType?: string;
+  achRoutingNumber?: string;
+  achAccountNumber?: string;
+  achAccountType?: string;
+  achAccountName?: string;
 }
 
 export interface EPXWebhookPayload {
@@ -138,8 +145,7 @@ export class EPXPaymentService {
         throw new Error("TAC Endpoint not configured");
       }
 
-      // KeyExchange payload - ONLY include fields required for TAC generation per EPX feedback
-      // EPX Feedback: keyExchange should ONLY have TRAN_GROUP (not TRAN_CODE)
+      // KeyExchange payload - only include fields required for TAC generation per EPX feedback
       const payload: any = {
         MAC: this.config.mac,
         AMOUNT: request.amount.toFixed(2),
@@ -149,11 +155,11 @@ export class EPXPaymentService {
         REDIRECT_ECHO: "V", // Verbose response
       };
 
-      // EPX feedback: These fields should NOT be in keyExchange:
-      // - TRAN_CODE (only TRAN_GROUP for keyExchange)
+      // EPX feedback: These fields should NOT be in keyExchange, they belong in Browser Post request:
       // - CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR (go in Browser Post transaction request)
       // - RESPONSE_URL (not stored on EPX side)
       // - CANCEL_URL (not valid for Browser Post API)
+      // - TRAN_CODE (only for Browser Post request)
       // - RECEIPT (for PayPage only)
       // - EMAIL (not an EPX field)
       // - DESCRIPTION (not an EPX field)
@@ -162,11 +168,15 @@ export class EPXPaymentService {
       console.log("[EPX] TAC payload structure check:", {
         hasMAC: !!payload.MAC,
         macLength: payload.MAC?.length,
+        custNbr: payload.CUST_NBR,
+        merchNbr: payload.MERCH_NBR,
+        dbaNbr: payload.DBA_NBR,
+        terminalNbr: payload.TERMINAL_NBR,
         amount: payload.AMOUNT,
         tranNbr: payload.TRAN_NBR,
-        tranGroup: payload.TRAN_GROUP,
+        tranCode: payload.TRAN_CODE,
         redirectUrl: payload.REDIRECT_URL,
-        redirectEcho: payload.REDIRECT_ECHO,
+        responseUrl: payload.RESPONSE_URL,
         fieldsCount: Object.keys(payload).length,
       });
 
@@ -423,7 +433,7 @@ export class EPXPaymentService {
 
       return {
         success: false,
-        error: error.message || "TAC generation failed",
+        error: lastError?.message || error.message || "TAC generation failed",
       };
     }
   }
@@ -441,44 +451,45 @@ export class EPXPaymentService {
       zipCode?: string;
     }
   ): EPXPaymentForm & { [key: string]: any } {
-    // Browser Post transaction request - include ONLY fields for Browser Post per EPX feedback
-    // EPX Feedback:
-    // - MUST include: 4-part key, TRAN_CODE, INDUSTRY_TYPE, BATCH_ID, AVS info
-    // - MUST NOT include: REDIRECT_URL, RESPONSE_URL, REDIRECT_ECHO (only in keyExchange)
-    // - MUST NOT include: TRAN_GROUP (only in keyExchange)
-    // - MUST NOT include: RECEIPT (for PayPage only, not Browser Post)
-    
-    const formData: any = {
+    // Browser Post transaction request - include ALL required fields per EPX feedback
+    const formData = {
       actionUrl: this.apiUrl,
-      TAC: tac, // Terminal Authentication Code from keyExchange
-      // 4-part merchant key (REQUIRED for Browser Post transaction)
-      CUST_NBR: this.config.custNbr,
-      MERCH_NBR: this.config.merchNbr,
-      DBA_NBR: this.config.dbaNbr,
-      TERMINAL_NBR: this.config.terminalNbr,
+      tac: tac,
+      // 4-part merchant key (required for Browser Post transaction)
+      custNbr: this.config.custNbr,
+      merchNbr: this.config.merchNbr,
+      dbaNbr: this.config.dbaNbr,
+      terminalNbr: this.config.terminalNbr,
       // Transaction details
-      TRAN_CODE: paymentMethod === "ach" ? "AES" : "CES", // Valid TRAN_CODEs from EPX data dictionary
-      AMOUNT: parseFloat(amount.toString()),
-      TRAN_NBR: tranNbr,
-      // Required fields per EPX feedback
-      INDUSTRY_TYPE: "ECOM", // Ecommerce industry type (REQUIRED)
-      BATCH_ID: Date.now().toString(), // Generate batch ID (REQUIRED)
-      // AVS information for better interchange rates (REQUIRED for ecommerce)
-      ZIP_CODE: customerData?.zipCode || "",
-      ADDRESS: customerData?.address || "",
+      tranCode: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
+      tranGroup: "SALE", // Transaction group
+      amount: parseFloat(amount.toString()),
+      tranNbr: tranNbr,
+      // URLs
+      redirectUrl: this.config.redirectUrl,
+      responseUrl: this.config.responseUrl, // For internal tracking
+      redirectEcho: "V", // Verbose response
+      responseEcho: "V", // Verbose response
+      // Required fields
+      industryType: "ECOM", // Ecommerce industry type
+      batchId: Date.now().toString(), // Generate batch ID
+      receipt: "Y", // Enable receipt
+      // AVS information for better interchange rates
+      zipCode: customerData?.zipCode || "",
+      address: customerData?.address || "",
     };
 
     console.log('[EPX Service] Browser Post form data:', {
       actionUrl: formData.actionUrl,
-      hasTAC: !!formData.TAC,
-      tranCode: formData.TRAN_CODE,
-      industryType: formData.INDUSTRY_TYPE,
-      batchId: formData.BATCH_ID,
-      custNbr: formData.CUST_NBR,
-      merchNbr: formData.MERCH_NBR,
-      dbaNbr: formData.DBA_NBR,
-      terminalNbr: formData.TERMINAL_NBR,
-      hasAVS: !!(formData.ZIP_CODE || formData.ADDRESS)
+      hasTAC: !!formData.tac,
+      tranCode: formData.tranCode,
+      tranGroup: formData.tranGroup,
+      industryType: formData.industryType,
+      custNbr: formData.custNbr,
+      merchNbr: formData.merchNbr,
+      dbaNbr: formData.dbaNbr,
+      terminalNbr: formData.terminalNbr,
+      hasAVS: !!(formData.zipCode || formData.address)
     });
 
     return formData;

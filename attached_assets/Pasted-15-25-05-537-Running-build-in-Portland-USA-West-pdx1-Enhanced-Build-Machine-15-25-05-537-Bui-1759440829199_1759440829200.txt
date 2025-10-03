@@ -1,0 +1,57 @@
+15:25:05.537 Running build in Portland, USA (West) – pdx1 (Enhanced Build Machine)
+15:25:05.537 Build machine configuration: 8 cores, 16 GB
+15:25:05.550 Cloning github.com/Bdkelp/getmydpc_enrollment (Branch: main, Commit: 9c90cf3)
+15:25:07.421 Cloning completed: 1.871s
+15:25:07.521 Restored build cache from previous deployment (8zNbcYJzvuPaLw6HFFkLByRzjq4P)
+15:25:08.030 Running "vercel build"
+15:25:08.385 Vercel CLI 48.1.6
+15:25:08.876 Running "install" command: `npm install`...
+15:25:15.257 
+15:25:15.257 up to date, audited 327 packages in 6s
+15:25:15.258 
+15:25:15.258 46 packages are looking for funding
+15:25:15.258   run `npm fund` for details
+15:25:15.258 
+15:25:15.258 found 0 vulnerabilities
+15:25:15.464 
+15:25:15.465 > client-app@1.0.0 build
+15:25:15.465 > vite build
+15:25:15.465 
+15:25:15.708 NODE_ENV=production is not supported in the .env file. Only NODE_ENV=development is supported to create a development build of your project. If you need to set process.env.NODE_ENV, you can set it in the Vite config instead.
+15:25:16.030 [36mvite v7.1.5 [32mbuilding for production...[36m[39m
+15:25:16.318 transforming...
+15:25:17.298 [32m✓[39m 39 modules transformed.
+15:25:17.300 [31m✗[39m Build failed in 1.25s
+15:25:17.301 [31merror during build:
+15:25:17.301 [31m[vite:esbuild] Transform failed with 2 errors:
+15:25:17.301 /vercel/path0/client/src/pages/admin.tsx:698:96: ERROR: The character ">" is not valid inside a JSX element
+15:25:17.301 /vercel/path0/client/src/pages/admin.tsx:701:18: ERROR: Unterminated regular expression[31m
+15:25:17.301 file: [36m/vercel/path0/client/src/pages/admin.tsx:698:96[31m
+15:25:17.301 [33m
+15:25:17.301 [33mThe character ">" is not valid inside a JSX element[33m
+15:25:17.301 696 |          </Card>
+15:25:17.301 697 |  
+15:25:17.301 698 |          {/* Removed redundant user table - use /admin/users for complete user management */}lect>
+15:25:17.301     |                                                                                                  ^
+15:25:17.301 699 |                  </div>
+15:25:17.301 700 |                </div>
+15:25:17.301 
+15:25:17.301 [33mUnterminated regular expression[33m
+15:25:17.301 699 |                  </div>
+15:25:17.301 700 |                </div>
+15:25:17.301 701 |              </div>
+15:25:17.301     |                    ^
+15:25:17.302 702 |  
+15:25:17.302 703 |              <div className="overflow-x-auto">
+15:25:17.302 [31m
+15:25:17.302     at failureErrorWithLog (/vercel/path0/client/node_modules/esbuild/lib/main.js:1467:15)
+15:25:17.302     at /vercel/path0/client/node_modules/esbuild/lib/main.js:736:50
+15:25:17.302     at responseCallbacks.<computed> (/vercel/path0/client/node_modules/esbuild/lib/main.js:603:9)
+15:25:17.302     at handleIncomingPacket (/vercel/path0/client/node_modules/esbuild/lib/main.js:658:12)
+15:25:17.302     at Socket.readFromStdout (/vercel/path0/client/node_modules/esbuild/lib/main.js:581:7)
+15:25:17.302     at Socket.emit (node:events:519:28)
+15:25:17.302     at addChunk (node:internal/streams/readable:561:12)
+15:25:17.302     at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+15:25:17.302     at Readable.push (node:internal/streams/readable:392:5)
+15:25:17.302     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
+15:25:17.340 Error: Command "npm run build" exited with 1

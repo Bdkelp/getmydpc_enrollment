@@ -94,7 +94,6 @@ export function EPXPayment({
         })
       });
       console.log('[EPX Payment] Response data:', data);
-      console.log('[EPX Payment] Form data fields:', data.formData ? Object.keys(data.formData) : 'No formData');
 
       if (!data.success || !data.formData) {
         throw new Error(data.error || 'Failed to create payment session');
@@ -105,9 +104,9 @@ export function EPXPayment({
       console.log('[EPX Payment] URL:', data.formData.actionUrl);
       console.log('[EPX Payment] Method: POST');
       console.log('[EPX Payment] Transaction Data:', {
-        amount: data.formData.AMOUNT || data.formData.amount,
-        tranNbr: data.formData.TRAN_NBR || data.formData.tranNbr,
-        tranCode: data.formData.TRAN_CODE || data.formData.tranCode,
+        amount: data.formData.amount,
+        tranNbr: data.formData.tranNbr,
+        tranCode: data.formData.tranCode,
         paymentMethod,
         hasAchData: paymentMethod === 'ach' ? !!achData.routingNumber : false
       });
@@ -121,19 +120,22 @@ export function EPXPayment({
       form.action = data.formData.actionUrl;
       form.target = '_self'; // Navigate in same window
 
-      // Add ONLY Browser Post fields per EPX feedback (NOT keyExchange fields)
-      // EPX feedback: Browser Post should NOT include REDIRECT_URL, RESPONSE_URL, REDIRECT_ECHO, TRAN_GROUP, RECEIPT, CANCEL_URL
+      // Add all form fields with exact EPX field names per EPX requirements
       const fields: any = {
-        'TAC': data.formData.TAC,
-        'CUST_NBR': data.formData.CUST_NBR,
-        'MERCH_NBR': data.formData.MERCH_NBR,
-        'DBA_NBR': data.formData.DBA_NBR,
-        'TERMINAL_NBR': data.formData.TERMINAL_NBR,
-        'TRAN_CODE': data.formData.TRAN_CODE,
-        'AMOUNT': typeof data.formData.AMOUNT === 'number' ? data.formData.AMOUNT.toFixed(2) : data.formData.AMOUNT,
-        'TRAN_NBR': data.formData.TRAN_NBR,
-        'INDUSTRY_TYPE': data.formData.INDUSTRY_TYPE,
-        'BATCH_ID': data.formData.BATCH_ID
+        'TAC': data.formData.tac,
+        'CUST_NBR': data.formData.custNbr,
+        'MERCH_NBR': data.formData.merchNbr,
+        'DBA_NBR': data.formData.dbaNbr,
+        'TERMINAL_NBR': data.formData.terminalNbr,
+        'TRAN_CODE': data.formData.tranCode,
+        'TRAN_GROUP': data.formData.tranGroup,
+        'AMOUNT': data.formData.amount.toFixed(2),
+        'TRAN_NBR': data.formData.tranNbr,
+        'REDIRECT_URL': data.formData.redirectUrl,
+        'REDIRECT_ECHO': data.formData.redirectEcho,
+        'INDUSTRY_TYPE': data.formData.industryType,
+        'BATCH_ID': data.formData.batchId,
+        'RECEIPT': data.formData.receipt
       };
 
       // Add ACH fields if using ACH with correct EPX field names
@@ -145,12 +147,18 @@ export function EPXPayment({
         fields['ACH_ACCOUNT_NAME'] = achData.accountName;
       }
 
-      // Add AVS information (REQUIRED for ecommerce per EPX feedback)
-      if (data.formData.ZIP_CODE) {
-        fields['ZIP_CODE'] = data.formData.ZIP_CODE;
+      if (data.formData.cancelUrl) {
+        fields['CANCEL_URL'] = data.formData.cancelUrl;
       }
-      if (data.formData.ADDRESS) {
-        fields['ADDRESS'] = data.formData.ADDRESS;
+
+      // Additional fields are now included in the main fields object above
+
+      // Add AVS information if available
+      if (data.formData.zipCode) {
+        fields['ZIP_CODE'] = data.formData.zipCode;
+      }
+      if (data.formData.address) {
+        fields['ADDRESS'] = data.formData.address;
       }
 
       Object.entries(fields).forEach(([key, value]) => {
