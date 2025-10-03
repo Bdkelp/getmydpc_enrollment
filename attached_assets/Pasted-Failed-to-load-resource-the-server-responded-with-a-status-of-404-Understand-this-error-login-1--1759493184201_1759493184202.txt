@@ -1,0 +1,26 @@
+Failed to load resource: the server responded with a status of 404 ()Understand this error
+login:1  Failed to load resource: the server responded with a status of 404 ()Understand this error
+Access to fetch at 'https://getmydpcenrollment-production.up.railway.app/api/plans' from origin 'https://enrollment.getmydpc.com' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.Understand this error
+main-sw.js:91   Uncaught (in promise) TypeError: Failed to fetch
+    at main-sw.js:91:14
+    at getRequestData (main-sw.js:92:7)Understand this error
+getmydpcenrollment-production.up.railway.app/api/plans:1  Failed to load resource: net::ERR_FAILEDUnderstand this error
+login:1 Access to fetch at 'https://getmydpcenrollment-production.up.railway.app/api/auth/login' from origin 'https://enrollment.getmydpc.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.Understand this error
+getmydpcenrollment-production.up.railway.app/api/auth/login:1  Failed to load resource: net::ERR_FAILEDUnderstand this error
+index-w4chL4Oy.js:382 [API] Network error for POST /api/auth/login: TypeError: Failed to fetch
+    at Object.post (index-w4chL4Oy.js:382:36514)
+    at l (index-w4chL4Oy.js:699:14821)
+    at index-w4chL4Oy.js:432:29445
+post @ index-w4chL4Oy.js:382Understand this error
+login:1 Access to fetch at 'https://getmydpcenrollment-production.up.railway.app/api/auth/login' from origin 'https://enrollment.getmydpc.com' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource.Understand this error
+index-w4chL4Oy.js:382  POST https://getmydpcenrollment-production.up.railway.app/api/auth/login net::ERR_FAILED
+post @ index-w4chL4Oy.js:382
+post @ index-w4chL4Oy.js:382Understand this error
+index-w4chL4Oy.js:382 [API] Network error for POST /api/auth/login: TypeError: Failed to fetch
+    at Object.post (index-w4chL4Oy.js:382:36514)
+    at Object.post (index-w4chL4Oy.js:382:37469)
+    at async l (index-w4chL4Oy.js:699:14812)
+    at async index-w4chL4Oy.js:432:29439
+post @ index-w4chL4Oy.js:382
+await in post
+post @ index-w4chL4Oy.js:382Understand this error
