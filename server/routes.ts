@@ -135,6 +135,22 @@ router.get("/api/test-leads", async (req, res) => {
 });
 
 router.get("/api/plans", async (req, res) => {
+  // Set CORS headers explicitly for this endpoint
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://getmydpcenrollment-production.up.railway.app',
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000'
+  ];
+
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+
   try {
     console.log("[API /plans] Fetching plans...");
     const allPlans = await storage.getPlans();

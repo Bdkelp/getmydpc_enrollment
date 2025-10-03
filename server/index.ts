@@ -41,7 +41,7 @@ app.use(
         "https://getmydpcenrollment-production.up.railway.app",
         "https://enrollment.getmydpc.com",
         "https://shimmering-nourishment.up.railway.app",
-        
+
         // Development domains
         /^https:\/\/.*\.replit\.dev$/,
         /^https:\/\/.*\.replit\.app$/,
@@ -49,7 +49,7 @@ app.use(
         /^https:\/\/.*\.railway\.app$/,
         /^http:\/\/localhost:\d+$/,
         /^http:\/\/127\.0\.0\.1:\d+$/,
-        
+
         // Environment variable URL
         process.env.VITE_PUBLIC_URL,
       ].filter((item): item is string | RegExp => Boolean(item));
@@ -91,7 +91,7 @@ app.use(
 app.options('/api/*', (req, res) => {
   const origin = req.headers.origin;
   console.log('[OPTIONS] Preflight request from:', origin);
-  
+
   // Set CORS headers explicitly
   if (origin) {
     res.header('Access-Control-Allow-Origin', origin);
@@ -162,7 +162,7 @@ app.use((req, res, next) => {
 (async () => {
   // Register EPX routes FIRST to prevent route conflicts
   app.use('/', epxRoutes);
-  
+
   // Register all other API routes (includes auth endpoints)
   const server = await registerRoutes(app);
 
