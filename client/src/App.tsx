@@ -143,7 +143,13 @@ export default function App() {
   // Initialize token refresh handling
   useEffect(() => {
     const subscription = setupTokenRefreshHandling();
-    return () => subscription.unsubscribe();
+    return () => {
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      } else if (subscription && subscription.data?.subscription) {
+        subscription.data.subscription.unsubscribe();
+      }
+    };
   }, []);
 
   return (
