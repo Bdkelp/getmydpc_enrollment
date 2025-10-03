@@ -135,22 +135,6 @@ router.get("/api/test-leads", async (req, res) => {
 });
 
 router.get("/api/plans", async (req, res) => {
-  // Set CORS headers explicitly for this endpoint
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://getmydpcenrollment-production.up.railway.app',
-    'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000'
-  ];
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
-
   try {
     console.log("[API /plans] Fetching plans...");
     const allPlans = await storage.getPlans();
@@ -898,7 +882,6 @@ router.get(
   "/api/admin/users",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    // ROLE-BASED ACCESS: Only admins can access this endpoint
     if (req.user!.role !== "admin") {
       console.log(
         "[Admin Users API] Access denied - user role:",
@@ -913,12 +896,12 @@ router.get(
       res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
 
       console.log(
-        "[Admin Users API] Admin access granted:",
+        "[Admin Users API] Fetching users for admin:",
         req.user!.email,
       );
       const filterType = req.query.filter as string;
 
-      // Admins can see ALL users across the entire system
+      // If filter is 'members', only get members (exclude agents/admins)
       const usersResult =
         filterType === "members"
           ? await storage.getMembersOnly()
@@ -980,7 +963,7 @@ router.get(
         users: enhancedUsers,
         totalCount: enhancedUsers.length,
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error("[Admin Users API] Error fetching users:", error);
       console.error("[Admin Users API] Error stack:", error.stack);
       res.status(500).json({
@@ -1665,7 +1648,7 @@ router.get(
       if (req.user!.role === "admin") {
         // Admin sees all enrollments
         enrollments = await storage.getAllEnrollments(
-          startDate as string,
+          startDate as string, 
           endDate as string
         );
       } else {
@@ -2174,11 +2157,7 @@ import { createServer } from "http";
 export async function registerRoutes(app: any) {
   // Create HTTP server instance
   const server = createServer(app);
-
-  // CRITICAL: Mount the router on the app BEFORE other middleware
-  // This ensures all /api/* routes are accessible
-  app.use(router);
-
+  
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
@@ -2258,11 +2237,14 @@ export async function registerRoutes(app: any) {
     next();
   };
 
-  // Register Supabase auth routes
-  app.use(supabaseAuthRoutes);
-
-  // Register EPX payment routes
+  // Register EPX payment routes FIRST (highest priority)
   app.use(epxRoutes);
+
+  // Use the router for general API routes
+  app.use(router);
+
+  // Register Supabase auth routes (after main routes)
+  app.use(supabaseAuthRoutes);
 
   // Registration endpoint - ensure it's accessible
   app.post("/api/registration", async (req: any, res: any) => {
@@ -2474,7 +2456,7 @@ export async function registerRoutes(app: any) {
           console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
           console.log("[Registration] Using Supabase ID:", data.user.id);
 
-          // Create member record in our database (members don't authenticate, they're data-only)
+          // Create user in our database with full enrollment data
           user = await storage.createUser({
             id: data.user.id, // Use the Supabase UUID directly
             email: data.user.email!, // Use the email from Supabase to ensure consistency
@@ -2495,7 +2477,7 @@ export async function registerRoutes(app: any) {
             memberType: memberType || "member-only",
             planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
             emailVerified: false,
-            role: "member", // CRITICAL: Members are 'member', NOT 'user'
+            role: "member",
             isActive: true,
             approvalStatus: "approved", // Auto-approve DPC enrollments
             createdAt: new Date(),
@@ -2534,7 +2516,7 @@ export async function registerRoutes(app: any) {
         throw new Error("Failed to create user in database after retries");
       }
 
-      console.log("✅ Step 9: Registration completed successfully");
+      console.log("✅ Step 9: User creation completed successfully");
       console.log("[Registration] Final user email:", user.email);
 
       // Create subscription if plan is selected
@@ -2609,7 +2591,7 @@ export async function registerRoutes(app: any) {
 
       // Clean up Supabase user if database creation failed
       if (supabaseUserId && error.message && (
-        error.message.includes('duplicate key') ||
+        error.message.includes('duplicate key') || 
         error.message.includes('constraint') ||
         error.message.includes('users_pkey')
       )) {
@@ -2870,7 +2852,7 @@ export async function registerRoutes(app: any) {
     }
   });
 
-  // Fix: /api/agent/commissions (403) - permission issue
+  // Fix: /api/agent/commissions (403) - permission issue  
   app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
     try {
       console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
@@ -3098,7 +3080,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] POST /api/agent/enrollment");
   console.log("[Route] GET /api/agent/:agentId");
   console.log("[Route] GET /api/agent/enrollments");
-  console.log("[Route] GET /api/agent/stats");
+  console.log("[Route] GET /api/agent/stats"); 
   console.log("[Route] GET /api/agent/commission-stats");
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");
