@@ -1,0 +1,307 @@
+You reached the start of the range
+Oct 3, 2025, 11:18 AM
+ 
+[Region: us-east4]
+==============
+Using Nixpacks
+==============
+
+context: t5cp-bYIe
+╔════════════ Nixpacks v1.38.0 ════════════╗
+║ setup      │ nodejs_18, npm-9_x, openssl ║
+║──────────────────────────────────────────║
+║ install    │ npm ci                      ║
+║──────────────────────────────────────────║
+║ build      │ npm run build:all           ║
+║──────────────────────────────────────────║
+║ start      │ npm start                   ║
+╚══════════════════════════════════════════╝
+
+internal
+load build definition from Dockerfile
+0ms
+
+internal
+load metadata for ghcr.io/railwayapp/nixpacks:ubuntu-1745885067
+62ms
+
+internal
+load .dockerignore
+0ms
+
+internal
+load build context
+0ms
+
+stage-0
+FROM ghcr.io/railwayapp/nixpacks:ubuntu-1745885067@sha256:d45c89d80e13d7ad0fd555b5130f22a866d9dd10e861f589932303ef2314c7de
+7ms
+
+stage-0
+WORKDIR /app/ cached
+0ms
+
+stage-0
+COPY .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix
+129ms
+
+stage-0
+RUN nix-env -if .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix && nix-collect-garbage -d
+37s
+61 store paths deleted, 559.40 MiB freed
+
+stage-0
+COPY . /app/.
+190ms
+
+stage-0
+RUN npm ci
+10s
+Run `npm audit` for details.
+
+stage-0
+COPY . /app/.
+222ms
+
+stage-0
+RUN npm run build:all
+8s
+npm warn config production Use `--omit=dev` instead.
+> rest-express@1.0.0 build:all
+> npm --prefix client ci && npm --prefix client run build && npm run build
+npm warn config production Use `--omit=dev` instead.
+npm warn EBADENGINE Unsupported engine {
+npm warn EBADENGINE   package: 'vite@7.1.5',
+npm warn EBADENGINE   required: { node: '^20.19.0 || >=22.12.0' },
+npm warn EBADENGINE   current: { node: 'v18.20.5', npm: '10.8.2' }
+npm warn EBADENGINE }
+npm error code EUSAGE
+npm error
+npm error `npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync. Please update your lock file with `npm install` before continuing.
+
+npm error
+npm error Missing: @hookform/resolvers@3.10.0 from lock file
+
+npm error Missing: @radix-ui/react-accordion@1.2.12 from lock file
+
+npm error Missing: @radix-ui/react-alert-dialog@1.1.15 from lock file
+
+npm error Missing: @radix-ui/react-aspect-ratio@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-avatar@1.1.10 from lock file
+
+npm error Missing: @radix-ui/react-checkbox@1.3.3 from lock file
+
+npm error Missing: @radix-ui/react-collapsible@1.1.12 from lock file
+
+npm error Missing: @radix-ui/react-context-menu@2.2.16 from lock file
+
+npm error Missing: @radix-ui/react-dialog@1.1.15 from lock file
+
+npm error Missing: @radix-ui/react-dropdown-menu@2.1.16 from lock file
+
+npm error Missing: @radix-ui/react-hover-card@1.1.15 from lock file
+
+npm error Missing: @radix-ui/react-label@2.1.7 from lock file
+
+npm error Missing: @radix-ui/react-menubar@1.1.16 from lock file
+
+npm error Missing: @radix-ui/react-navigation-menu@1.2.14 from lock file
+
+npm error Missing: @radix-ui/react-popover@1.1.15 from lock file
+
+npm error Missing: @radix-ui/react-progress@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-radio-group@1.3.8 from lock file
+
+npm error Missing: @radix-ui/react-scroll-area@1.2.10 from lock file
+
+npm error Missing: @radix-ui/react-select@2.2.6 from lock file
+
+npm error Missing: @radix-ui/react-separator@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-slider@1.3.6 from lock file
+
+npm error Missing: @radix-ui/react-slot@1.2.3 from lock file
+
+npm error Missing: @radix-ui/react-switch@1.2.6 from lock file
+
+npm error Missing: @radix-ui/react-tabs@1.1.13 from lock file
+
+npm error Missing: @radix-ui/react-toast@1.2.15 from lock file
+
+npm error Missing: @radix-ui/react-toggle@1.1.10 from lock file
+
+npm error Missing: @radix-ui/react-toggle-group@1.1.11 from lock file
+
+npm error Missing: @radix-ui/react-tooltip@1.2.8 from lock file
+
+npm error Missing: @supabase/supabase-js@2.58.0 from lock file
+
+npm error Missing: @tailwindcss/typography@0.5.19 from lock file
+
+npm error Missing: cmdk@1.1.1 from lock file
+
+npm error Missing: date-fns@4.1.0 from lock file
+
+npm error Missing: embla-carousel-react@8.6.0 from lock file
+
+npm error Missing: input-otp@1.4.2 from lock file
+
+npm error Missing: next-themes@0.4.6 from lock file
+
+npm error Missing: react-day-picker@9.11.0 from lock file
+
+npm error Missing: react-icons@5.5.0 from lock file
+
+npm error Missing: react-resizable-panels@2.1.9 from lock file
+
+npm error Missing: vaul@1.1.2 from lock file
+
+npm error Missing: @radix-ui/primitive@1.1.3 from lock file
+
+npm error Missing: @radix-ui/react-collection@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-compose-refs@1.1.2 from lock file
+
+npm error Missing: @radix-ui/react-context@1.1.2 from lock file
+
+npm error Missing: @radix-ui/react-direction@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-id@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-primitive@2.1.3 from lock file
+
+npm error Missing: @radix-ui/react-use-controllable-state@1.2.2 from lock file
+
+npm error Missing: @radix-ui/react-use-callback-ref@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-use-is-hydrated@0.1.0 from lock file
+
+npm error Missing: @radix-ui/react-use-layout-effect@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-presence@1.1.5 from lock file
+
+npm error Missing: @radix-ui/react-use-previous@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-use-size@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-menu@2.1.16 from lock file
+
+npm error Missing: @radix-ui/react-dismissable-layer@1.1.11 from lock file
+
+npm error Missing: @radix-ui/react-focus-guards@1.1.3 from lock file
+
+npm error Missing: @radix-ui/react-focus-scope@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-portal@1.1.9 from lock file
+
+npm error Missing: aria-hidden@1.2.6 from lock file
+
+npm error Missing: react-remove-scroll@2.7.1 from lock file
+
+npm error Missing: @radix-ui/react-use-escape-keydown@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-popper@1.2.8 from lock file
+
+npm error Missing: @radix-ui/react-roving-focus@1.1.11 from lock file
+
+npm error Missing: @radix-ui/react-visually-hidden@1.2.3 from lock file
+
+npm error Missing: @floating-ui/react-dom@2.1.6 from lock file
+
+npm error Missing: @radix-ui/react-arrow@1.1.7 from lock file
+
+npm error Missing: @radix-ui/react-use-rect@1.1.1 from lock file
+
+npm error Missing: @radix-ui/rect@1.1.1 from lock file
+
+npm error Missing: @floating-ui/dom@1.7.4 from lock file
+
+npm error Missing: @floating-ui/core@1.7.3 from lock file
+
+npm error Missing: @floating-ui/utils@0.2.10 from lock file
+
+npm error Missing: @radix-ui/number@1.1.1 from lock file
+
+npm error Missing: @radix-ui/react-use-effect-event@0.0.2 from lock file
+
+npm error Missing: @supabase/auth-js@2.72.0 from lock file
+
+npm error Missing: @supabase/functions-js@2.5.0 from lock file
+
+npm error Missing: @supabase/node-fetch@2.6.15 from lock file
+
+npm error Missing: @supabase/postgrest-js@1.21.4 from lock file
+
+npm error Missing: @supabase/realtime-js@2.15.5 from lock file
+
+npm error Missing: @supabase/storage-js@2.12.2 from lock file
+
+npm error Missing: whatwg-url@5.0.0 from lock file
+
+npm error Missing: @types/phoenix@1.6.6 from lock file
+
+npm error Missing: @types/ws@8.18.1 from lock file
+
+npm error Missing: ws@8.18.3 from lock file
+
+npm error Missing: postcss-selector-parser@6.0.10 from lock file
+
+npm error Missing: @types/node@24.6.2 from lock file
+
+npm error Missing: undici-types@7.13.0 from lock file
+
+npm error Missing: embla-carousel@8.6.0 from lock file
+
+npm error Missing: embla-carousel-reactive-utils@8.6.0 from lock file
+
+npm error Missing: @date-fns/tz@1.4.1 from lock file
+
+npm error Missing: date-fns-jalali@4.1.0-0 from lock file
+
+npm error Missing: react-remove-scroll-bar@2.3.8 from lock file
+
+npm error Missing: react-style-singleton@2.2.3 from lock file
+
+npm error Missing: use-callback-ref@1.3.3 from lock file
+
+npm error Missing: use-sidecar@1.1.3 from lock file
+
+npm error Missing: get-nonce@1.0.1 from lock file
+
+npm error Missing: detect-node-es@1.1.0 from lock file
+
+npm error Missing: tr46@0.0.3 from lock file
+
+npm error Missing: webidl-conversions@3.0.1 from lock file
+
+npm error
+npm error Clean install a project
+npm error
+npm error Usage:
+npm error npm ci
+npm error
+npm error Options:
+npm error [--install-strategy <hoisted|nested|shallow|linked>] [--legacy-bundling]
+npm error [--global-style] [--omit <dev|optional|peer> [--omit <dev|optional|peer> ...]]
+npm error [--include <prod|dev|optional|peer> [--include <prod|dev|optional|peer> ...]]
+npm error [--strict-peer-deps] [--foreground-scripts] [--ignore-scripts] [--no-audit]
+npm error [--no-bin-links] [--no-fund] [--dry-run]
+npm error [-w|--workspace <workspace-name> [-w|--workspace <workspace-name> ...]]
+npm error [-ws|--workspaces] [--include-workspace-root] [--install-links]
+npm error
+npm error aliases: clean-install, ic, install-clean, isntall-clean
+npm error
+npm error Run "npm help ci" for more info
+npm error A complete log of this run can be found in: /root/.npm/_logs/2025-10-03T17_19_48_762Z-debug-0.log
+Dockerfile:24
+-------------------
+22 |     # build phase
+23 |     COPY . /app/.
+24 | >>> RUN --mount=type=cache,id=s/71c2d2a0-80c1-43d0-a2b8-1840c9990a2e-node_modules/cache,target=/app/node_modules/.cache npm run build:all
+25 |
+26 |
+-------------------
+ERROR: failed to build: failed to solve: process "/bin/bash -ol pipefail -c npm run build:all" did not complete successfully: exit code: 1
+Error: Docker build failed
