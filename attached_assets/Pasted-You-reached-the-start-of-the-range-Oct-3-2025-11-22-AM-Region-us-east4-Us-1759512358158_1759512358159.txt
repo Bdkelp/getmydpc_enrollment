@@ -1,0 +1,101 @@
+You reached the start of the range
+Oct 3, 2025, 11:22 AM
+ 
+[Region: us-east4]
+==============
+Using Nixpacks
+==============
+
+context: 1jvh-3jXF
+╔══════════════════════════════ Nixpacks v1.38.0 ══════════════════════════════╗
+║ setup      │ nodejs_18, npm-9_x, openssl                                     ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ install    │ npm ci                                                          ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ build      │ npm --prefix client install && npm --prefix client run build && ║
+║            │ npm run build                                                   ║
+║──────────────────────────────────────────────────────────────────────────────║
+║ start      │ npm start                                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+internal
+load build definition from Dockerfile
+0ms
+
+internal
+load metadata for ghcr.io/railwayapp/nixpacks:ubuntu-1745885067
+109ms
+
+internal
+load .dockerignore
+0ms
+
+internal
+load build context
+1ms
+
+stage-0
+RUN nix-env -if .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix && nix-collect-garbage -d cached
+1ms
+
+stage-0
+COPY .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix .nixpacks/nixpkgs-ffeebf0acf3ae8b29f8c7049cd911b9636efd7e7.nix cached
+0ms
+
+stage-0
+WORKDIR /app/ cached
+0ms
+
+stage-0
+COPY . /app/.
+103ms
+
+stage-0
+RUN npm ci
+10s
+Run `npm audit` for details.
+
+stage-0
+COPY . /app/.
+231ms
+
+stage-0
+RUN npm --prefix client install && npm --prefix client run build && npm run build
+14s
+npm warn config production Use `--omit=dev` instead.
+npm warn EBADENGINE Unsupported engine {
+npm warn EBADENGINE   package: 'vite@7.1.5',
+npm warn EBADENGINE   required: { node: '^20.19.0 || >=22.12.0' },
+npm warn EBADENGINE   current: { node: 'v18.20.5', npm: '10.8.2' }
+npm warn EBADENGINE }
+added 326 packages, and audited 327 packages in 14s
+46 packages are looking for funding
+  run `npm fund` for details
+found 0 vulnerabilities
+npm warn config production Use `--omit=dev` instead.
+> client-app@1.0.0 build
+> vite build
+You are using Node.js 18.20.5. Vite requires Node.js version 20.19+ or 22.12+. Please upgrade your Node.js version.
+failed to load config from /app/client/vite.config.ts
+error during build:
+Error [ERR_REQUIRE_ESM]: require() of ES Module /app/client/node_modules/vite/dist/node/index.js from /app/client/vite.config.ts not supported.
+Instead change the require of index.js in /app/client/vite.config.ts to a dynamic import() which is available in all CommonJS modules.
+    at _require.extensions.<computed> [as .js] (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36647:9)
+    at Object.<anonymous> (/app/client/vite.config.ts:36:19)
+    at _require.extensions.<computed> [as .js] (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36646:44)
+    at loadConfigFromBundledFile (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36650:15)
+    at async bundleAndLoadConfigFile (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36520:21)
+    at async loadConfigFromFile (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36487:42)
+    at async resolveConfig (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:36133:22)
+    at async createBuilder (file:///app/client/node_modules/vite/dist/node/chunks/dep-M_KD0XSK.js:34588:19)
+    at async CAC.<anonymous> (file:///app/client/node_modules/vite/dist/node/cli.js:647:19)
+Dockerfile:24
+-------------------
+22 |     # build phase
+23 |     COPY . /app/.
+24 | >>> RUN --mount=type=cache,id=s/71c2d2a0-80c1-43d0-a2b8-1840c9990a2e-node_modules/cache,target=/app/node_modules/.cache npm --prefix client install && npm --prefix client run build && npm run build
+25 |
+26 |
+-------------------
+ERROR: failed to build: failed to solve: process "/bin/bash -ol pipefail -c npm --prefix client install && npm --prefix client run build && npm run build" did not complete successfully: exit code: 1
+Error: Docker build failed
