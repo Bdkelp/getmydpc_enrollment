@@ -854,14 +854,19 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 
 /**
  * Handle payment redirect (user returns from EPX)
+ * EPX may use either GET or POST for Browser Post redirects
  */
-router.get('/api/epx/redirect', async (req: Request, res: Response) => {
+const handleEPXRedirect = async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
     console.log('[EPX Redirect] Route matched successfully');
     console.log('[EPX Redirect] Request method:', req.method);
     console.log('[EPX Redirect] Request path:', req.path);
-    console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
+    
+    // EPX can send data via query params (GET) or body (POST)
+    const data = req.method === 'POST' ? req.body : req.query;
+    
+    console.log('[EPX Redirect] Data received:', JSON.stringify(data, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
 
     // Define baseUrl in the handler scope
@@ -878,7 +883,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
       BP_RESP_CODE,
       NETWORK_RESPONSE,
       status // For cancelled payments
-    } = req.query;
+    } = data;
 
     // Handle cancelled payments
     if (status === 'cancelled') {
@@ -901,7 +906,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     if (TRAN_NBR) {
       try {
         const epxService = getEPXService();
-        const result = epxService.processWebhook(req.query);
+        const result = epxService.processWebhook(data);
 
         const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
         
@@ -917,7 +922,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
               authAmount: result.amount,
               error: result.error,
               redirectProcessedAt: new Date().toISOString(),
-              epxRedirectResponse: req.query
+              epxRedirectResponse: data
             }
           });
 
@@ -958,7 +963,12 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
     res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
   }
-});
+};
+
+// Register both GET and POST handlers for the redirect endpoint
+// EPX Browser Post can use either method for redirects
+router.get('/api/epx/redirect', handleEPXRedirect);
+router.post('/api/epx/redirect', handleEPXRedirect);
 
 /**
  * Refund transaction
