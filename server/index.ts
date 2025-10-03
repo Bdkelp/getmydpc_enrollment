@@ -44,24 +44,6 @@ app.use(
         
         // Development domains
         /^https:\/\/.*\.replit\.dev$/,
-
-
-// Handle OPTIONS preflight requests for all API routes
-app.options('/api/*', (req, res) => {
-  const origin = req.headers.origin;
-  console.log('[OPTIONS] Preflight request from:', origin);
-  
-  // Set CORS headers explicitly
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name,X-CSRF-Token');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400');
-  res.status(200).end();
-});
-
         /^https:\/\/.*\.replit\.app$/,
         /^https:\/\/.*\.vercel\.app$/,
         /^https:\/\/.*\.railway\.app$/,
@@ -104,6 +86,22 @@ app.options('/api/*', (req, res) => {
     maxAge: 86400, // 24 hours
   }),
 );
+
+// Handle OPTIONS preflight requests for all API routes
+app.options('/api/*', (req, res) => {
+  const origin = req.headers.origin;
+  console.log('[OPTIONS] Preflight request from:', origin);
+  
+  // Set CORS headers explicitly
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name,X-CSRF-Token');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  res.status(200).end();
+});
 
 // Debug middleware to log all routes
 app.use('*', (req, res, next) => {
