@@ -1,17 +1,4 @@
-
-<old_str>{
-  "$schema": "https://railway.app/railway.schema.json",
-  "build": {
-    "builder": "NIXPACKS"
-  },
-  "deploy": {
-    "numReplicas": 1,
-    "startCommand": "tsx server/railway.ts",
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
-  }
-}</old_str>
-<new_str>{
+{
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS"
@@ -22,4 +9,4 @@
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }
-}</new_str>
+}
