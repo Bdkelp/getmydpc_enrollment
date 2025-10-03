@@ -29,9 +29,15 @@ export async function setupVite(app: Express, server: Server) {
   const vite = await createViteServer({
     configFile: false,
     root: path.resolve(import.meta.dirname, "..", "client"),
-    plugins: viteConfig.plugins,
-    resolve: viteConfig.resolve,
-    build: viteConfig.build,
+    plugins: viteConfig.plugins as any,
+    resolve: {
+      alias: {
+        "@": path.resolve(import.meta.dirname, "..", "client", "src"),
+        "@assets": path.resolve(import.meta.dirname, "..", "client", "src", "assets"),
+        "@shared": path.resolve(import.meta.dirname, "..", "shared"),
+      }
+    },
+    build: viteConfig.build as any,
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
