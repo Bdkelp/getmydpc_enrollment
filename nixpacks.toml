@@ -1,6 +1,12 @@
 
 
 
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-10_x"]
+
+[phases.install]
+cmds = ["npm ci"]
+
 [phases.build]
 cmds = ["npm --prefix client install && npm --prefix client run build && npm run build"]
 
