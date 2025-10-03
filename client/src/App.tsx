@@ -140,8 +140,8 @@ function Router() {
 export default function App() {
   // Initialize token refresh handling
   useEffect(() => {
-    const subscription = setupTokenRefreshHandling();
-    return () => subscription.unsubscribe();
+    const result = setupTokenRefreshHandling();
+    return () => result.data.subscription.unsubscribe();
   }, []);
 
   return (
