@@ -533,14 +533,13 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
 
     console.log('[EPX Create Payment] Generated form data:', {
       actionUrl: formData.actionUrl,
-      hasTAC: !!formData.tac,
-      tacLength: formData.tac?.length,
-      tranCode: formData.tranCode,
-      tranGroup: formData.tranGroup,
-      amount: formData.amount,
-      tranNbr: formData.tranNbr,
-      redirectUrl: formData.redirectUrl?.substring(0, 50) + '...',
-      responseUrl: formData.responseUrl?.substring(0, 50) + '...',
+      hasTAC: !!formData.TAC,
+      tacLength: formData.TAC?.length,
+      tranCode: formData.TRAN_CODE,
+      amount: formData.AMOUNT,
+      tranNbr: formData.TRAN_NBR,
+      industryType: formData.INDUSTRY_TYPE,
+      batchId: formData.BATCH_ID,
       paymentMethod: paymentMethod || 'card'
     });
 

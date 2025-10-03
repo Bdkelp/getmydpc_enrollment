@@ -94,6 +94,7 @@ export function EPXPayment({
         })
       });
       console.log('[EPX Payment] Response data:', data);
+      console.log('[EPX Payment] Form data fields:', data.formData ? Object.keys(data.formData) : 'No formData');
 
       if (!data.success || !data.formData) {
         throw new Error(data.error || 'Failed to create payment session');
@@ -104,9 +105,9 @@ export function EPXPayment({
       console.log('[EPX Payment] URL:', data.formData.actionUrl);
       console.log('[EPX Payment] Method: POST');
       console.log('[EPX Payment] Transaction Data:', {
-        amount: data.formData.amount,
-        tranNbr: data.formData.tranNbr,
-        tranCode: data.formData.tranCode,
+        amount: data.formData.AMOUNT || data.formData.amount,
+        tranNbr: data.formData.TRAN_NBR || data.formData.tranNbr,
+        tranCode: data.formData.TRAN_CODE || data.formData.tranCode,
         paymentMethod,
         hasAchData: paymentMethod === 'ach' ? !!achData.routingNumber : false
       });
@@ -129,7 +130,7 @@ export function EPXPayment({
         'DBA_NBR': data.formData.DBA_NBR,
         'TERMINAL_NBR': data.formData.TERMINAL_NBR,
         'TRAN_CODE': data.formData.TRAN_CODE,
-        'AMOUNT': data.formData.AMOUNT.toFixed(2),
+        'AMOUNT': typeof data.formData.AMOUNT === 'number' ? data.formData.AMOUNT.toFixed(2) : data.formData.AMOUNT,
         'TRAN_NBR': data.formData.TRAN_NBR,
         'INDUSTRY_TYPE': data.formData.INDUSTRY_TYPE,
         'BATCH_ID': data.formData.BATCH_ID
