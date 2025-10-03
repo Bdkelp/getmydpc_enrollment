@@ -856,7 +856,8 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 /**
  * Handle payment redirect (user returns from EPX)
  */
-router.get('/api/epx/redirect', async (req: Request, res: Response) => {
+// Handle both GET and POST requests from EPX
+router.all('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
     console.log('[EPX Redirect] Route matched successfully');
