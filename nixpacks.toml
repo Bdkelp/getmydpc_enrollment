@@ -1,7 +1,8 @@
 
 
+
 [phases.build]
-cmds = ["npm run build:all"]
+cmds = ["npm --prefix client install && npm --prefix client run build && npm run build"]
 
 [start]
 cmd = "npm start"
