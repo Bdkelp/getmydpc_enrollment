@@ -36,7 +36,7 @@ app.use(
       if (!origin) return callback(null, true);
 
       // Comprehensive list of allowed origins
-      const allowedOrigins: (string | RegExp)[] = [
+      const allowedOrigins = [
         // Production domains
         "https://getmydpcenrollment-production.up.railway.app",
         "https://enrollment.getmydpc.com",
@@ -52,7 +52,7 @@ app.use(
 
         // Environment variable URL
         process.env.VITE_PUBLIC_URL,
-      ].filter((item): item is string | RegExp => Boolean(item));
+      ].filter((item) => Boolean(item));
 
       const isAllowed = allowedOrigins.some((pattern) => {
         if (typeof pattern === "string") {
