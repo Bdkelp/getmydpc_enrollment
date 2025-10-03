@@ -862,6 +862,8 @@ const handleEPXRedirect = async (req: Request, res: Response) => {
     console.log('[EPX Redirect] Route matched successfully');
     console.log('[EPX Redirect] Request method:', req.method);
     console.log('[EPX Redirect] Request path:', req.path);
+    console.log('[EPX Redirect] Full URL:', req.url);
+    console.log('[EPX Redirect] Headers:', JSON.stringify(req.headers, null, 2));
     
     // EPX can send data via query params (GET) or body (POST)
     const data = req.method === 'POST' ? req.body : req.query;
@@ -1110,6 +1112,36 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
   }
 });
 
+// Catch-all debug route for EPX endpoints (must be last)
+router.all('/api/epx/*', (req: Request, res: Response) => {
+  console.error('[EPX Routes] 404 - Unmatched EPX route:', {
+    method: req.method,
+    path: req.path,
+    url: req.url,
+    originalUrl: req.originalUrl,
+    query: req.query,
+    body: req.body
+  });
+  
+  res.status(404).json({
+    error: 'EPX endpoint not found',
+    method: req.method,
+    path: req.path,
+    availableEndpoints: [
+      'GET /api/epx/health',
+      'GET /api/epx/browser-post-status',
+      'GET /api/epx/test-redirect-config',
+      'POST /api/epx/create-payment',
+      'POST /api/epx/webhook',
+      'GET /api/epx/webhook',
+      'GET /api/epx/redirect',
+      'POST /api/epx/redirect',
+      'POST /api/epx/refund',
+      'POST /api/epx/void'
+    ]
+  });
+});
+
 // Log available routes when module loads
 console.log('[EPX Routes] Registering EPX endpoints:');
 console.log('[EPX Routes] - GET /api/epx/health');
@@ -1120,6 +1152,7 @@ console.log('[EPX Routes] - POST /api/epx/create-payment');
 console.log('[EPX Routes] - POST /api/epx/webhook');
 console.log('[EPX Routes] - GET /api/epx/webhook');
 console.log('[EPX Routes] - GET /api/epx/redirect');
+console.log('[EPX Routes] - POST /api/epx/redirect');
 console.log('[EPX Routes] - POST /api/epx/refund');
 console.log('[EPX Routes] - POST /api/epx/void');
 

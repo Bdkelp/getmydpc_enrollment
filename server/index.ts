@@ -64,14 +64,6 @@ app.use(
   }),
 );
 
-// Debug middleware to log all routes
-app.use('*', (req, res, next) => {
-  if (req.path.includes('/api/epx/')) {
-    console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
-  }
-  next();
-});
-
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({
@@ -121,8 +113,11 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Register EPX routes FIRST before other routes
-  app.use('/', epxRoutes);
+  // CRITICAL: Register EPX routes BEFORE any other middleware or routes
+  // This ensures EPX redirect/webhook endpoints are accessible
+  console.log('[Server] Registering EPX routes...');
+  app.use(epxRoutes);
+  console.log('[Server] EPX routes registered successfully');
   
   // Register all API routes
   const server = await registerRoutes(app);
