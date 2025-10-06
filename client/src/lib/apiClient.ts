@@ -22,11 +22,11 @@ const buildBaseUrl = () => {
     return raw;
   }
 
-  // ALWAYS use Railway backend in production or when VITE_API_URL is not set
-  if (import.meta.env.PROD || !raw) {
-    const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
-    console.log('[API Client] Using Railway production API URL:', railwayUrl);
-    return railwayUrl;
+  // In production, use the same origin (frontend and backend on same domain)
+  if (import.meta.env.PROD) {
+    const origin = window.location.origin;
+    console.log('[API Client] Using same-origin production API URL:', origin);
+    return origin;
   }
 
   // Dev fallback: same-origin (Replit/local)
