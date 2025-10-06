@@ -856,8 +856,7 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 /**
  * Handle payment redirect (user returns from EPX)
  */
-// Handle both GET and POST requests from EPX
-router.all('/api/epx/redirect', async (req: Request, res: Response) => {
+router.get('/api/epx/redirect', async (req: Request, res: Response) => {
   try {
     console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
     console.log('[EPX Redirect] Route matched successfully');
@@ -940,14 +939,16 @@ router.all('/api/epx/redirect', async (req: Request, res: Response) => {
       }
     }
 
-    // Redirect to appropriate frontend page - use full URL for external redirects
+    // Redirect to appropriate frontend page with proper base URL handling
+    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
+    
     if (isApproved) {
-      // Redirect to confirmation page with full URL
-      const redirectUrl = `${baseUrl}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
+      // Redirect to confirmation page instead of payment-success
+      const redirectUrl = `${redirectBase}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
       console.log('[EPX Redirect] Redirecting to confirmation page:', redirectUrl);
       res.redirect(redirectUrl);
     } else {
-      const redirectUrl = `${baseUrl}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
+      const redirectUrl = `${redirectBase}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
       console.log('[EPX Redirect] Redirecting to failure page:', redirectUrl);
       res.redirect(redirectUrl);
     }
@@ -955,59 +956,8 @@ router.all('/api/epx/redirect', async (req: Request, res: Response) => {
     console.error('[EPX Redirect] Error handling redirect:', error);
     // Define baseUrl for error handling as well
     const baseUrl = 'https://enrollment.getmydpc.com';
-    res.redirect(`${baseUrl}/payment-failed?error=redirect_error`);
-  }
-});
-
-/**
- * Get payment and enrollment details by transaction ID
- * Used by confirmation page when redirected from EPX
- */
-router.get('/api/payment/transaction/:transactionId', async (req: Request, res: Response) => {
-  try {
-    const { transactionId } = req.params;
-    console.log('[Payment] Fetching payment by transaction ID:', transactionId);
-    
-    // Get payment record
-    const payment = await storage.getPaymentByTransactionId(transactionId);
-    
-    if (!payment) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-    
-    // Get associated subscription/enrollment if exists
-    let enrollment = null;
-    if (payment.subscriptionId) {
-      enrollment = await storage.getSubscriptionById(payment.subscriptionId);
-    }
-    
-    // Return payment and enrollment details
-    res.json({
-      success: true,
-      payment: {
-        id: payment.id,
-        amount: payment.amount,
-        status: payment.status,
-        transactionId: payment.transactionId,
-        createdAt: payment.createdAt
-      },
-      enrollment: enrollment ? {
-        memberId: enrollment.memberId || `MPP${payment.userId}`,
-        customerNumber: enrollment.customerNumber || `MPP${new Date().getFullYear()}${String(payment.userId).padStart(6, '0')}`,
-        planId: enrollment.planId || 1,
-        coverageType: enrollment.coverageType || 'individual',
-        rxValet: enrollment.metadata?.rxValet || false,
-        totalPrice: enrollment.price || payment.amount,
-        createdAt: enrollment.createdAt
-      } : null,
-      amount: payment.amount
-    });
-  } catch (error: any) {
-    console.error('[Payment] Error fetching payment by transaction:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch payment details',
-      message: error.message 
-    });
+    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
+    res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
   }
 });
 
