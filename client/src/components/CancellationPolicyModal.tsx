@@ -34,7 +34,7 @@ MyPremierPlans operates an agent-assisted membership model for both enrollment a
 
 Written Notice Requirement
 All membership cancellations must be submitted through one of the following methods:
-• Phone: Call our toll-free number at 1-888-346-9372 during business hours
+• Phone: Call our toll-free number at 888-346-9372 during business hours
 • Email: cancellations@mypremierplans.com
 • Mail: Certified mail to My Premier Plans LLC, 22211 W. I-10, San Antonio, TX 78253, Bldg. 1 Ste. 1206
 
@@ -86,7 +86,7 @@ Payment Processing
 • Refunds will be issued to the original payment method
 
 Contact Information
-Toll-Free: 1-888-346-9372
+Toll-Free: 888-346-9372
 Email: support@mypremierplans.com
 Business Hours: Monday-Friday 9:00 AM - 6:00 PM CT
 
@@ -161,7 +161,7 @@ Last Updated: January 31, 2025`;
                   <h4 className="font-semibold mb-2">Written Notice Requirement</h4>
                   <p className="text-gray-700 mb-2">All membership cancellations must be submitted through one of the following methods:</p>
                   <ul className="list-disc pl-5 space-y-1 text-gray-700">
-                    <li><strong>Phone:</strong> Call our toll-free number at 1-888-346-9372 during business hours</li>
+                    <li><strong>Phone:</strong> Call our toll-free number at 888-346-9372 during business hours</li>
                     <li><strong>Email:</strong> cancellations@mypremierplans.com</li>
                     <li><strong>Mail:</strong> Certified mail to My Premier Plans LLC, 22211 W. I-10, San Antonio, TX 78253, Bldg. 1 Ste. 1206</li>
                   </ul>
@@ -257,7 +257,7 @@ Last Updated: January 31, 2025`;
                 <div>
                   <h4 className="font-semibold mb-2">Contact Information</h4>
                   <div className="text-gray-700">
-                    <p><strong>Toll-Free:</strong> 1-888-346-9372</p>
+                    <p><strong>Toll-Free:</strong> 888-346-9372</p>
                     <p><strong>Email:</strong> support@mypremierplans.com</p>
                     <p><strong>Business Hours:</strong> Monday-Friday 9:00 AM - 6:00 PM CT</p>
                   </div>
