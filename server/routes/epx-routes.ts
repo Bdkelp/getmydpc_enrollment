@@ -596,9 +596,8 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
         console.log('[EPX Create Payment] ✅ Minimal payment record created after error:', paymentRecord?.id);
       } catch (fallbackError: any) {
         console.error('[EPX Create Payment] ❌ FATAL: Could not create even minimal payment record:', fallbackError.message);
-        // Log to file system as last resort
-        const fs = require('fs');
-        const logData = {
+        // Log critical error
+        console.error('[EPX Create Payment] Critical error logged:', {
           timestamp: new Date().toISOString(),
           transactionId: tranNbr,
           userId: sanitizedCustomerId,
@@ -606,8 +605,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
           error: 'Failed to create payment record',
           originalError: storageError.message,
           fallbackError: fallbackError.message
-        };
-        fs.appendFileSync('payment-errors.log', JSON.stringify(logData) + '\n');
+        });
       }
     }
 
@@ -839,16 +837,14 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
           note: 'This could indicate the payment was never created or transaction ID mismatch'
         });
 
-        // Log to file system for critical analysis
-        const fs = require('fs');
-        const errorLog = {
+        // Log for critical analysis
+        console.error('[EPX Webhook] Critical error - payment not found:', {
           timestamp: new Date().toISOString(),
           error: 'PAYMENT_NOT_FOUND_IN_WEBHOOK',
           transactionId: result.transactionId,
           webhookData: req.body,
           environment: process.env.EPX_ENVIRONMENT || 'sandbox'
-        };
-        fs.appendFileSync('payment-errors.log', JSON.stringify(errorLog) + '\n');
+        });
       }
     } else {
       console.error('[EPX Webhook] ❌ No transaction ID in webhook result:', {
