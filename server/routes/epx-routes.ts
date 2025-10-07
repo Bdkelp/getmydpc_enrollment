@@ -170,9 +170,9 @@ router.get('/api/epx/test-redirect-config', async (req: Request, res: Response) 
       responseUrl: `${backendUrl}/api/epx/webhook`,
       cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`,
       frontendRedirects: {
-        success: `${frontendUrl}/payment-success`,
-        failed: `${frontendUrl}/payment-failed`,
-        cancel: `${frontendUrl}/payment-cancel`
+        success: `${frontendUrl}/payment/success`,
+        failed: `${frontendUrl}/payment/failed`,
+        cancel: `${frontendUrl}/payment/cancel`
       }
     };
 
@@ -997,7 +997,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     // Handle cancelled payments
     if (status === 'cancelled') {
       console.log('[EPX Redirect] Payment was cancelled by user');
-      return res.redirect(`${frontendUrl.replace(/^https?:\/\/[^\/]+/, '')}/payment-cancel`);
+      return res.redirect(`${frontendUrl}/payment/cancel`);
     }
 
     const isApproved = AUTH_RESP === 'APPROVAL';
@@ -1061,7 +1061,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
       console.log('[EPX Redirect] Redirecting to confirmation page:', redirectUrl);
       res.redirect(redirectUrl);
     } else {
-      const redirectUrl = `${redirectBase}/payment-failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
+      const redirectUrl = `${redirectBase}/payment/failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
       console.log('[EPX Redirect] Redirecting to failure page:', redirectUrl);
       res.redirect(redirectUrl);
     }
@@ -1070,7 +1070,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     // Define frontendUrl for error handling as well
     const frontendUrl = 'https://enrollment.getmydpc.com';
     const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, '');
-    res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
+    res.redirect(`${redirectBase}/payment/failed?error=redirect_error`);
   }
 });
 
