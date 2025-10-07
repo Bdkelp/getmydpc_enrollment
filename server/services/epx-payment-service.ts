@@ -433,7 +433,7 @@ export class EPXPaymentService {
 
       return {
         success: false,
-        error: lastError?.message || error.message || "TAC generation failed",
+        error: error.message || "TAC generation failed",
       };
     }
   }
@@ -450,46 +450,47 @@ export class EPXPaymentService {
       address?: string;
       zipCode?: string;
     }
-  ): EPXPaymentForm & { [key: string]: any } {
+  ): { [key: string]: any } {
     // Browser Post transaction request - include ALL required fields per EPX feedback
+    // IMPORTANT: EPX requires UPPERCASE field names for Browser Post API
     const formData = {
       actionUrl: this.apiUrl,
-      tac: tac,
+      TAC: tac,  // MUST be uppercase
       // 4-part merchant key (required for Browser Post transaction)
-      custNbr: this.config.custNbr,
-      merchNbr: this.config.merchNbr,
-      dbaNbr: this.config.dbaNbr,
-      terminalNbr: this.config.terminalNbr,
+      CUST_NBR: this.config.custNbr,
+      MERCH_NBR: this.config.merchNbr,
+      DBA_NBR: this.config.dbaNbr,
+      TERMINAL_NBR: this.config.terminalNbr,
       // Transaction details
-      tranCode: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
-      tranGroup: "SALE", // Transaction group
-      amount: parseFloat(amount.toString()),
-      tranNbr: tranNbr,
+      TRAN_CODE: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
+      TRAN_GROUP: "SALE", // Transaction group
+      AMOUNT: parseFloat(amount.toString()),
+      TRAN_NBR: tranNbr,
       // URLs
-      redirectUrl: this.config.redirectUrl,
-      responseUrl: this.config.responseUrl, // For internal tracking
-      redirectEcho: "V", // Verbose response
-      responseEcho: "V", // Verbose response
+      REDIRECT_URL: this.config.redirectUrl,
+      RESPONSE_URL: this.config.responseUrl, // For internal tracking
+      REDIRECT_ECHO: "V", // Verbose response
+      RESPONSE_ECHO: "V", // Verbose response
       // Required fields
-      industryType: "ECOM", // Ecommerce industry type
-      batchId: Date.now().toString(), // Generate batch ID
-      receipt: "Y", // Enable receipt
+      INDUSTRY_TYPE: "ECOM", // Ecommerce industry type
+      BATCH_ID: Date.now().toString(), // Generate batch ID
+      RECEIPT: "Y", // Enable receipt
       // AVS information for better interchange rates
-      zipCode: customerData?.zipCode || "",
-      address: customerData?.address || "",
+      ZIP_CODE: customerData?.zipCode || "",
+      ADDRESS: customerData?.address || "",
     };
 
     console.log('[EPX Service] Browser Post form data:', {
       actionUrl: formData.actionUrl,
-      hasTAC: !!formData.tac,
-      tranCode: formData.tranCode,
-      tranGroup: formData.tranGroup,
-      industryType: formData.industryType,
-      custNbr: formData.custNbr,
-      merchNbr: formData.merchNbr,
-      dbaNbr: formData.dbaNbr,
-      terminalNbr: formData.terminalNbr,
-      hasAVS: !!(formData.zipCode || formData.address)
+      hasTAC: !!formData.TAC,
+      tranCode: formData.TRAN_CODE,
+      tranGroup: formData.TRAN_GROUP,
+      industryType: formData.INDUSTRY_TYPE,
+      custNbr: formData.CUST_NBR,
+      merchNbr: formData.MERCH_NBR,
+      dbaNbr: formData.DBA_NBR,
+      terminalNbr: formData.TERMINAL_NBR,
+      hasAVS: !!(formData.ZIP_CODE || formData.ADDRESS)
     });
 
     return formData;

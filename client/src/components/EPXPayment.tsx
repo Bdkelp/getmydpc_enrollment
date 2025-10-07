@@ -120,22 +120,23 @@ export function EPXPayment({
       form.action = data.formData.actionUrl;
       form.target = '_self'; // Navigate in same window
 
-      // Add all form fields with exact EPX field names per EPX requirements
+      // Add all form fields - EPX requires UPPERCASE field names
+      // Backend now returns them in uppercase already
       const fields: any = {
-        'TAC': data.formData.tac,
-        'CUST_NBR': data.formData.custNbr,
-        'MERCH_NBR': data.formData.merchNbr,
-        'DBA_NBR': data.formData.dbaNbr,
-        'TERMINAL_NBR': data.formData.terminalNbr,
-        'TRAN_CODE': data.formData.tranCode,
-        'TRAN_GROUP': data.formData.tranGroup,
-        'AMOUNT': data.formData.amount.toFixed(2),
-        'TRAN_NBR': data.formData.tranNbr,
-        'REDIRECT_URL': data.formData.redirectUrl,
-        'REDIRECT_ECHO': data.formData.redirectEcho,
-        'INDUSTRY_TYPE': data.formData.industryType,
-        'BATCH_ID': data.formData.batchId,
-        'RECEIPT': data.formData.receipt
+        'TAC': data.formData.TAC,
+        'CUST_NBR': data.formData.CUST_NBR,
+        'MERCH_NBR': data.formData.MERCH_NBR,
+        'DBA_NBR': data.formData.DBA_NBR,
+        'TERMINAL_NBR': data.formData.TERMINAL_NBR,
+        'TRAN_CODE': data.formData.TRAN_CODE,
+        'TRAN_GROUP': data.formData.TRAN_GROUP,
+        'AMOUNT': data.formData.AMOUNT.toFixed ? data.formData.AMOUNT.toFixed(2) : data.formData.AMOUNT,
+        'TRAN_NBR': data.formData.TRAN_NBR,
+        'REDIRECT_URL': data.formData.REDIRECT_URL,
+        'REDIRECT_ECHO': data.formData.REDIRECT_ECHO,
+        'INDUSTRY_TYPE': data.formData.INDUSTRY_TYPE,
+        'BATCH_ID': data.formData.BATCH_ID,
+        'RECEIPT': data.formData.RECEIPT
       };
 
       // Add ACH fields if using ACH with correct EPX field names
@@ -147,18 +148,18 @@ export function EPXPayment({
         fields['ACH_ACCOUNT_NAME'] = achData.accountName;
       }
 
-      if (data.formData.cancelUrl) {
-        fields['CANCEL_URL'] = data.formData.cancelUrl;
+      if (data.formData.CANCEL_URL) {
+        fields['CANCEL_URL'] = data.formData.CANCEL_URL;
       }
 
       // Additional fields are now included in the main fields object above
 
       // Add AVS information if available
-      if (data.formData.zipCode) {
-        fields['ZIP_CODE'] = data.formData.zipCode;
+      if (data.formData.ZIP_CODE) {
+        fields['ZIP_CODE'] = data.formData.ZIP_CODE;
       }
-      if (data.formData.address) {
-        fields['ADDRESS'] = data.formData.address;
+      if (data.formData.ADDRESS) {
+        fields['ADDRESS'] = data.formData.ADDRESS;
       }
 
       Object.entries(fields).forEach(([key, value]) => {
