@@ -17,8 +17,9 @@ let epxServiceInitialized = false;
 let epxInitError: string | null = null;
 
 try {
-  // ALWAYS use production domain for EPX - never send Replit URLs to EPX
-  const baseUrl = 'https://enrollment.getmydpc.com';
+  // Use Railway backend URL for EPX redirects
+  const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
 
   // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
@@ -33,10 +34,10 @@ try {
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
-    // Browser Post API URLs - Only REDIRECT_URL is stored on EPX side
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${baseUrl}/api/epx/redirect`,
-    responseUrl: `${baseUrl}/api/epx/webhook`, // For internal use only, not sent to EPX
-    cancelUrl: `${baseUrl}/api/epx/redirect?status=cancelled`, // For internal use only
+    // Browser Post API URLs - EPX will redirect to backend URL
+    redirectUrl: process.env.EPX_REDIRECT_URL || `${backendUrl}/api/epx/redirect`,
+    responseUrl: `${backendUrl}/api/epx/webhook`, // For internal use only, not sent to EPX
+    cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`, // For internal use only
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
   };
 
@@ -46,7 +47,8 @@ try {
     custNbr: epxConfig.custNbr,
     merchNbr: epxConfig.merchNbr,
     environment: epxConfig.environment,
-    baseUrl
+    backendUrl,
+    frontendUrl
   });
 
   // Validate critical configuration
@@ -64,7 +66,8 @@ try {
   console.log('[EPX Routes] ✅ EPX Browser Post API Service initialized successfully');
   console.log('[EPX Routes] Payment Method: Browser Post API (NOT Hosted Checkout)');
   console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
-  console.log('[EPX Routes] Base URL:', baseUrl);
+  console.log('[EPX Routes] Backend URL:', backendUrl);
+  console.log('[EPX Routes] Frontend URL:', frontendUrl);
   console.log('[EPX Routes] TAC Endpoint:', 'https://keyexch.epxuap.com');
   console.log('[EPX Routes] Payment Endpoint:', 'https://services.epxuap.com/browserpost/');
   console.log('[EPX Routes] Request Format:', 'Testing both form-encoded and JSON formats');
@@ -156,16 +159,20 @@ router.get('/api/epx/test-redirect-config', async (req: Request, res: Response) 
         error: 'EPX Service not initialized'
       });
     }
+    
+    const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
 
     const redirectConfig = {
-      baseUrl: baseUrl,
-      redirectUrl: `${baseUrl}/api/epx/redirect`,
-      responseUrl: `${baseUrl}/api/epx/webhook`,
-      cancelUrl: `${baseUrl}/api/epx/redirect?status=cancelled`,
+      backendUrl: backendUrl,
+      frontendUrl: frontendUrl,
+      redirectUrl: `${backendUrl}/api/epx/redirect`,
+      responseUrl: `${backendUrl}/api/epx/webhook`,
+      cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`,
       frontendRedirects: {
-        success: `${baseUrl}/payment-success`,
-        failed: `${baseUrl}/payment-failed`,
-        cancel: `${baseUrl}/payment-cancel`
+        success: `${frontendUrl}/payment-success`,
+        failed: `${frontendUrl}/payment-failed`,
+        cancel: `${frontendUrl}/payment-cancel`
       }
     };
 
@@ -865,8 +872,8 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
     console.log('[EPX Redirect] Full URL:', req.url);
 
-    // Define baseUrl in the handler scope
-    const baseUrl = 'https://enrollment.getmydpc.com';
+    // Define URLs in the handler scope
+    const frontendUrl = 'https://enrollment.getmydpc.com';
 
     // Parse response parameters from EPX
     const { 
@@ -884,7 +891,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     // Handle cancelled payments
     if (status === 'cancelled') {
       console.log('[EPX Redirect] Payment was cancelled by user');
-      return res.redirect(`${baseUrl.replace(/^https?:\/\/[^\/]+/, '')}/payment-cancel`);
+      return res.redirect(`${frontendUrl.replace(/^https?:\/\/[^\/]+/, '')}/payment-cancel`);
     }
 
     const isApproved = AUTH_RESP === 'APPROVAL';
@@ -940,7 +947,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     }
 
     // Redirect to appropriate frontend page with proper base URL handling
-    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
+    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
     
     if (isApproved) {
       // Redirect to confirmation page instead of payment-success
@@ -954,9 +961,9 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     }
   } catch (error: any) {
     console.error('[EPX Redirect] Error handling redirect:', error);
-    // Define baseUrl for error handling as well
-    const baseUrl = 'https://enrollment.getmydpc.com';
-    const redirectBase = baseUrl.replace(/^https?:\/\/[^\/]+/, '');
+    // Define frontendUrl for error handling as well
+    const frontendUrl = 'https://enrollment.getmydpc.com';
+    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, '');
     res.redirect(`${redirectBase}/payment-failed?error=redirect_error`);
   }
 });
