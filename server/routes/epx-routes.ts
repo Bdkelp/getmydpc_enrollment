@@ -217,6 +217,114 @@ router.get('/payment/cancel', async (req: Request, res: Response) => {
 });
 
 /**
+ * Debug endpoint to capture raw EPX request/response data for support
+ */
+router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => {
+  try {
+    if (!epxServiceInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'EPX Service not initialized'
+      });
+    }
+
+    const epxService = getEPXService();
+
+    console.log('[EPX Debug] === STARTING DEBUG TRANSACTION ===');
+    console.log('[EPX Debug] Timestamp:', new Date().toISOString());
+    console.log('[EPX Debug] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
+
+    // Generate a test TAC to capture raw request/response
+    const testTransactionId = `DEBUG_${Date.now()}`;
+    const testAmount = 1.00;
+
+    console.log('[EPX Debug] Test Transaction ID:', testTransactionId);
+    console.log('[EPX Debug] Test Amount:', testAmount);
+
+    const tacResponse = await epxService.generateTAC({
+      amount: testAmount,
+      tranNbr: testTransactionId,
+      customerEmail: 'debug@test.com',
+      orderDescription: 'Debug Transaction for EPX Support'
+    });
+
+    // The raw request and response will be logged by the service
+    // Let's capture the form data that would be sent to Browser Post
+    if (tacResponse.success && tacResponse.tac) {
+      const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
+      
+      // Log the Browser Post form data that would be created
+      const browserPostFormData = {
+        actionUrl: 'https://services.epxuap.com/browserpost/',
+        tac: tacResponse.tac,
+        custNbr: process.env.EPX_CUST_NBR || '9001',
+        merchNbr: process.env.EPX_MERCH_NBR || '900300',
+        dbaNbr: process.env.EPX_DBA_NBR || '2',
+        terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
+        tranCode: 'AUTH_CAPTURE',
+        tranGroup: 'ECOM',
+        amount: testAmount,
+        tranNbr: testTransactionId,
+        redirectUrl: `${backendUrl}/api/epx/redirect`,
+        responseUrl: `${backendUrl}/api/epx/webhook`,
+        redirectEcho: testTransactionId,
+        responseEcho: testTransactionId,
+        industryType: 'ECOMMERCE',
+        batchId: '1',
+        receipt: 'N',
+        zipCode: '12345',
+        address: '123 Test St'
+      };
+
+      console.log('[EPX Debug] === BROWSER POST FORM DATA ===');
+      console.log('[EPX Debug] Action URL:', browserPostFormData.actionUrl);
+      console.log('[EPX Debug] Form Fields:', JSON.stringify({
+        ...browserPostFormData,
+        tac: '***MASKED***'
+      }, null, 2));
+      console.log('[EPX Debug] === END DEBUG TRANSACTION ===');
+
+      res.json({
+        success: true,
+        message: 'Check server logs for raw request/response data',
+        tacGenerated: tacResponse.success,
+        tac: '***MASKED***',
+        transactionId: testTransactionId,
+        formActionUrl: browserPostFormData.actionUrl,
+        debugInfo: {
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          custNbr: browserPostFormData.custNbr,
+          merchNbr: browserPostFormData.merchNbr,
+          dbaNbr: browserPostFormData.dbaNbr,
+          terminalNbr: browserPostFormData.terminalNbr,
+          redirectUrl: browserPostFormData.redirectUrl,
+          timestamp: new Date().toISOString()
+        },
+        note: 'Raw keyExchange request/response logged to server console'
+      });
+    } else {
+      res.json({
+        success: false,
+        error: tacResponse.error,
+        details: tacResponse.details,
+        debugInfo: {
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          timestamp: new Date().toISOString()
+        },
+        note: 'Check server logs for detailed error information'
+      });
+    }
+  } catch (error: any) {
+    console.error('[EPX Debug] Error during debug transaction:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      note: 'Check server logs for full error details'
+    });
+  }
+});
+
+/**
  * Debug endpoint to validate form data structure
  */
 router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
