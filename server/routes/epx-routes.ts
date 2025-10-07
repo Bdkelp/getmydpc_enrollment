@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getEPXService, initializeEPXService } from '../services/epx-payment-service';
+import { getEPXService, initializeEPXService, EPXWebhookPayload } from '../services/epx-payment-service';
 import { storage } from '../storage';
 import { nanoid } from 'nanoid';
 import { sendEnrollmentNotification } from '../utils/notifications';
@@ -710,15 +710,17 @@ router.post('/api/epx/webhook', async (req: Request, res: Response) => {
         }
 
         // Send comprehensive enrollment notification (member, agent, admins)
+        // Note: Admin emails are configured in the notification service
         await sendEnrollmentNotification({
-          memberEmail: payment.userId, // Assuming userId is the member's email for notification
-          adminEmail: 'info@mypremierplans.com', // Admin email
-          transactionDetails: {
-            transactionId: result.transactionId,
-            status: result.isApproved ? 'completed' : 'failed',
-            amount: result.amount,
-            date: new Date()
-          }
+          memberName: payment.metadata?.memberName || 'Member',
+          memberEmail: payment.userId, // Assuming userId is the member's email
+          planName: payment.metadata?.planName || 'DPC Plan',
+          memberType: payment.metadata?.memberType || 'Individual',
+          amount: payment.amount,
+          agentName: payment.metadata?.agentName,
+          agentNumber: payment.metadata?.agentNumber,
+          commission: payment.metadata?.commission,
+          enrollmentDate: new Date()
         });
       } else {
         console.error('[EPX Transaction Log] ❌ PAYMENT NOT FOUND:', {
@@ -767,7 +769,7 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
     const epxService = getEPXService();
 
     // Process the webhook payload from query parameters
-    const result = epxService.processWebhook(req.query);
+    const result = epxService.processWebhook(req.query as any as EPXWebhookPayload);
 
     console.log('[EPX Webhook GET] Webhook processing result:', {
       isApproved: result.isApproved,
@@ -909,7 +911,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
     if (TRAN_NBR) {
       try {
         const epxService = getEPXService();
-        const result = epxService.processWebhook(req.query);
+        const result = epxService.processWebhook(req.query as any as EPXWebhookPayload);
 
         const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
         
