@@ -34,8 +34,8 @@ try {
     dbaNbr: process.env.EPX_DBA_NBR || '2',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
     environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
-    // Browser Post API URLs - EPX will redirect to backend URL
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${backendUrl}/api/epx/redirect`,
+    // Browser Post API URLs - EPX will redirect to FRONTEND URL for browser POST
+    redirectUrl: process.env.EPX_REDIRECT_URL || `${frontendUrl}/payment/callback`,
     responseUrl: `${backendUrl}/api/epx/webhook`, // For internal use only, not sent to EPX
     cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`, // For internal use only
     webhookSecret: process.env.EPX_WEBHOOK_SECRET
@@ -78,7 +78,7 @@ try {
       console.log('[EPX Routes] Testing EPX connectivity...');
       const testResponse = await epxService.generateTAC({
         amount: 1.00,
-        tranNbr: 'CONNECTIVITY_TEST_' + Date.now(),
+        tranNbr: Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
         customerEmail: 'test@mypremierplans.com',
         orderDescription: 'Connectivity Test'
       });
@@ -166,9 +166,9 @@ router.get('/api/epx/test-redirect-config', async (req: Request, res: Response) 
     const redirectConfig = {
       backendUrl: backendUrl,
       frontendUrl: frontendUrl,
-      redirectUrl: `${backendUrl}/api/epx/redirect`,
+      redirectUrl: `${frontendUrl}/payment/callback`,
       responseUrl: `${backendUrl}/api/epx/webhook`,
-      cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`,
+      cancelUrl: `${frontendUrl}/payment/cancel`,
       frontendRedirects: {
         success: `${frontendUrl}/payment/success`,
         failed: `${frontendUrl}/payment/failed`,
@@ -235,7 +235,7 @@ router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => 
     console.log('[EPX Debug] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
 
     // Generate a test TAC to capture raw request/response
-    const testTransactionId = `DEBUG_${Date.now()}`;
+    const testTransactionId = Date.now().toString().substring(0, 10); // Numeric only, max 10 digits
     const testAmount = 1.00;
 
     console.log('[EPX Debug] Test Transaction ID:', testTransactionId);
@@ -253,6 +253,7 @@ router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => 
     if (tacResponse.success && tacResponse.tac) {
       const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
       
+      const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
       // Log the Browser Post form data that would be created
       const browserPostFormData = {
         actionUrl: 'https://services.epxuap.com/browserpost/',
@@ -265,7 +266,7 @@ router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => 
         tranGroup: 'ECOM',
         amount: testAmount,
         tranNbr: testTransactionId,
-        redirectUrl: `${backendUrl}/api/epx/redirect`,
+        redirectUrl: `${frontendUrl}/payment/callback`,
         responseUrl: `${backendUrl}/api/epx/webhook`,
         redirectEcho: testTransactionId,
         responseEcho: testTransactionId,
@@ -341,7 +342,7 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
     // Generate a test TAC
     const testTacResponse = await epxService.generateTAC({
       amount: 1.00,
-      tranNbr: 'DEBUG_FORM_' + Date.now(),
+      tranNbr: Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
       customerEmail: 'debug@test.com',
       orderDescription: 'Form Debug Test'
     });
@@ -358,7 +359,7 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
     const formData = epxService.getPaymentFormData(
       testTacResponse.tac!,
       1.00,
-      'DEBUG_FORM_' + Date.now(),
+      Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
       'card'
     );
 
@@ -474,8 +475,9 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     const sanitizedCustomerId = customerId.toString().trim();
     const sanitizedEmail = customerEmail.toString().trim();
 
-    // Generate unique transaction number
-    const tranNbr = `TXN_${Date.now()}_${nanoid(8)}`;
+    // Generate unique NUMERIC transaction number (max 10 digits as per EPX requirement)
+    // Use last 10 digits of timestamp to ensure uniqueness
+    const tranNbr = Date.now().toString().slice(-10);
 
     console.log('[EPX Create Payment] Generating TAC with payload:', {
       amount: sanitizedAmount,
@@ -967,7 +969,56 @@ router.get('/api/epx/test', (req: Request, res: Response) => {
 });
 
 /**
- * Handle payment redirect (user returns from EPX)
+ * Process callback from frontend after EPX redirect
+ */
+router.post('/api/epx/process-callback', async (req: Request, res: Response) => {
+  try {
+    console.log('[EPX Process Callback] Received data from frontend:', req.body);
+    
+    const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.body;
+    const isApproved = AUTH_RESP === 'APPROVAL';
+    
+    // Process payment in database
+    if (TRAN_NBR) {
+      try {
+        const payment = await storage.getPaymentByTransactionId(TRAN_NBR);
+        if (payment) {
+          await storage.updatePayment(payment.id, {
+            status: isApproved ? 'completed' : 'failed',
+            authorizationCode: AUTH_CODE,
+            metadata: {
+              ...payment.metadata,
+              authAmount: AUTH_AMOUNT,
+              epxResponse: req.body,
+              processedAt: new Date().toISOString()
+            }
+          });
+          
+          if (isApproved && payment.subscriptionId) {
+            await storage.updateSubscription(payment.subscriptionId, {
+              status: 'active',
+              lastPaymentDate: new Date()
+            });
+          }
+        }
+      } catch (error) {
+        console.error('[EPX Process Callback] Database error:', error);
+      }
+    }
+    
+    res.json({ 
+      success: isApproved,
+      transactionId: TRAN_NBR,
+      amount: AUTH_AMOUNT
+    });
+  } catch (error: any) {
+    console.error('[EPX Process Callback] Error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Handle payment redirect (user returns from EPX) - LEGACY, kept for compatibility
  */
 router.get('/api/epx/redirect', async (req: Request, res: Response) => {
   try {

@@ -24,6 +24,7 @@ import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
 import PaymentFailed from "@/pages/payment-failed";
 import PaymentCancel from "@/pages/payment-cancel";
+import PaymentCallback from "@/pages/payment-callback";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
 import Quiz from "@/pages/quiz";
@@ -63,6 +64,7 @@ function Router() {
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
       <Route path="/quiz" component={Quiz} />
+      <Route path="/payment/callback" component={PaymentCallback} />
       <Route path="/payment/success" component={PaymentSuccess} />
       <Route path="/payment/failed" component={PaymentFailed} />
       <Route path="/payment/cancel" component={PaymentCancel} />

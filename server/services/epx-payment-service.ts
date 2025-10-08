@@ -125,7 +125,7 @@ export class EPXPaymentService {
       dbaNbr: this.config.dbaNbr,
       terminalNbr: this.config.terminalNbr,
       environment: this.config.environment,
-      redirectUrl: this.config.redirectUrl,
+      redirectUrl: this.config.redirectUrl, // This is now frontend URL for browser POST
       hasMAC: !!this.config.mac,
       tacEndpoint: this.config.tacEndpoint,
     });
