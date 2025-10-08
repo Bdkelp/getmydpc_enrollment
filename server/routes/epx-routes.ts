@@ -3,12 +3,16 @@
  * Browser Post API Integration with North.com EPX
  */
 
-import { Router, Request, Response } from 'express';
-import { getEPXService, initializeEPXService, EPXWebhookPayload } from '../services/epx-payment-service';
-import { storage } from '../storage';
-import { nanoid } from 'nanoid';
-import { sendEnrollmentNotification } from '../utils/notifications';
-import { transactionLogger } from '../services/transaction-logger';
+import { Router, Request, Response } from "express";
+import {
+  getEPXService,
+  initializeEPXService,
+  EPXWebhookPayload,
+} from "../services/epx-payment-service";
+import { storage } from "../storage";
+import { nanoid } from "nanoid";
+import { sendEnrollmentNotification } from "../utils/notifications";
+import { transactionLogger } from "../services/transaction-logger";
 
 const router = Router();
 
@@ -18,104 +22,137 @@ let epxInitError: string | null = null;
 
 try {
   // Use Railway backend URL for EPX redirects
-  const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
-  const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
+  // const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
+  const backendUrl =
+    process.env.BACKEND_URL ||
+    "https://enrollment.getmydpc.com/api/epx/redirect";
+  const frontendUrl =
+    process.env.FRONTEND_URL || "https://enrollment.getmydpc.com";
 
   // EPX Browser Post API Configuration (not Hosted Checkout)
   const epxConfig = {
     // MAC key is required for Browser Post API TAC generation
-    mac: process.env.EPX_MAC || process.env.EPX_MAC_KEY || '2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y',
+    mac:
+      process.env.EPX_MAC ||
+      process.env.EPX_MAC_KEY ||
+      "2ifP9bBSu9TrjMt8EPh1rGfJiZsfCb8Y",
     // EPI credentials for Custom Pay API (refunds/voids)
     epiId: process.env.EPX_EPI_ID,
     epiKey: process.env.EPX_EPI_KEY,
     // Merchant identification
-    custNbr: process.env.EPX_CUST_NBR || '9001',
-    merchNbr: process.env.EPX_MERCH_NBR || '900300',
-    dbaNbr: process.env.EPX_DBA_NBR || '2',
-    terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
-    environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox') as 'production' | 'sandbox',
+    custNbr: process.env.EPX_CUST_NBR || "9001",
+    merchNbr: process.env.EPX_MERCH_NBR || "900300",
+    dbaNbr: process.env.EPX_DBA_NBR || "2",
+    terminalNbr: process.env.EPX_TERMINAL_NBR || "72",
+    environment: (process.env.EPX_ENVIRONMENT === "production"
+      ? "production"
+      : "sandbox") as "production" | "sandbox",
     // Browser Post API URLs - EPX will redirect to FRONTEND URL for browser POST
-    redirectUrl: process.env.EPX_REDIRECT_URL || `${frontendUrl}/payment/callback`,
+    redirectUrl:
+      process.env.EPX_REDIRECT_URL || `${frontendUrl}/payment/callback`,
     responseUrl: `${backendUrl}/api/epx/webhook`, // For internal use only, not sent to EPX
     cancelUrl: `${backendUrl}/api/epx/redirect?status=cancelled`, // For internal use only
-    webhookSecret: process.env.EPX_WEBHOOK_SECRET
+    webhookSecret: process.env.EPX_WEBHOOK_SECRET,
   };
 
-  console.log('[EPX Routes] Configuration check:', {
+  console.log("[EPX Routes] Configuration check:", {
     hasMac: !!epxConfig.mac,
     macLength: epxConfig.mac?.length,
     custNbr: epxConfig.custNbr,
     merchNbr: epxConfig.merchNbr,
     environment: epxConfig.environment,
     backendUrl,
-    frontendUrl
+    frontendUrl,
   });
 
   // Validate critical configuration
   if (!epxConfig.mac) {
-    throw new Error('EPX_MAC_KEY environment variable is required for payment processing');
+    throw new Error(
+      "EPX_MAC_KEY environment variable is required for payment processing",
+    );
   }
 
   if (!epxConfig.custNbr || !epxConfig.merchNbr) {
-    throw new Error('EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing');
+    throw new Error(
+      "EPX_CUST_NBR and EPX_MERCH_NBR are required for payment processing",
+    );
   }
 
   initializeEPXService(epxConfig);
   const epxService = getEPXService();
   epxServiceInitialized = true;
-  console.log('[EPX Routes] ✅ EPX Browser Post API Service initialized successfully');
-  console.log('[EPX Routes] Payment Method: Browser Post API (NOT Hosted Checkout)');
-  console.log('[EPX Routes] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
-  console.log('[EPX Routes] Backend URL:', backendUrl);
-  console.log('[EPX Routes] Frontend URL:', frontendUrl);
-  console.log('[EPX Routes] TAC Endpoint:', 'https://keyexch.epxuap.com');
-  console.log('[EPX Routes] Payment Endpoint:', 'https://services.epxuap.com/browserpost/');
-  console.log('[EPX Routes] Request Format:', 'Testing both form-encoded and JSON formats');
+  console.log(
+    "[EPX Routes] ✅ EPX Browser Post API Service initialized successfully",
+  );
+  console.log(
+    "[EPX Routes] Payment Method: Browser Post API (NOT Hosted Checkout)",
+  );
+  console.log(
+    "[EPX Routes] Environment:",
+    process.env.EPX_ENVIRONMENT || "sandbox",
+  );
+  console.log("[EPX Routes] Backend URL:", backendUrl);
+  console.log("[EPX Routes] Frontend URL:", frontendUrl);
+  console.log("[EPX Routes] TAC Endpoint:", "https://keyexch.epxuap.com");
+  console.log(
+    "[EPX Routes] Payment Endpoint:",
+    "https://services.epxuap.com/browserpost/",
+  );
+  console.log(
+    "[EPX Routes] Request Format:",
+    "Testing both form-encoded and JSON formats",
+  );
 
   // Test EPX connectivity on startup
   setTimeout(async () => {
     try {
-      console.log('[EPX Routes] Testing EPX connectivity...');
+      console.log("[EPX Routes] Testing EPX connectivity...");
       const testResponse = await epxService.generateTAC({
-        amount: 1.00,
+        amount: 1.0,
         tranNbr: Date.now().toString().slice(-10), // Last 10 digits of timestamp
-        customerEmail: 'test@mypremierplans.com',
-        orderDescription: 'Connectivity Test'
+        customerEmail: "test@mypremierplans.com",
+        orderDescription: "Connectivity Test",
       });
 
       if (testResponse.success) {
-        console.log('[EPX Routes] ✅ EPX connectivity test passed');
+        console.log("[EPX Routes] ✅ EPX connectivity test passed");
       } else {
-        console.warn('[EPX Routes] ⚠️ EPX connectivity test failed:', testResponse.error);
+        console.warn(
+          "[EPX Routes] ⚠️ EPX connectivity test failed:",
+          testResponse.error,
+        );
       }
     } catch (testError: any) {
-      console.warn('[EPX Routes] ⚠️ EPX connectivity test error:', testError.message);
+      console.warn(
+        "[EPX Routes] ⚠️ EPX connectivity test error:",
+        testError.message,
+      );
     }
   }, 5000); // Test after 5 seconds to allow server to fully start
 } catch (error: any) {
-  epxInitError = error.message || 'Unknown error during EPX initialization';
-  console.error('[EPX Routes] Failed to initialize EPX Service:', error);
-  console.error('[EPX Routes] Payment processing will not be available');
+  epxInitError = error.message || "Unknown error during EPX initialization";
+  console.error("[EPX Routes] Failed to initialize EPX Service:", error);
+  console.error("[EPX Routes] Payment processing will not be available");
 }
 
 /**
  * Health check endpoint for EPX payment service
  */
-router.get('/api/epx/health', (req: Request, res: Response) => {
+router.get("/api/epx/health", (req: Request, res: Response) => {
   if (epxServiceInitialized) {
     res.json({
-      status: 'healthy',
-      service: 'EPX Payment Service',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-      initialized: true
+      status: "healthy",
+      service: "EPX Payment Service",
+      environment: process.env.EPX_ENVIRONMENT || "sandbox",
+      initialized: true,
     });
   } else {
     res.status(503).json({
-      status: 'unhealthy',
-      service: 'EPX Payment Service',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      status: "unhealthy",
+      service: "EPX Payment Service",
+      environment: process.env.EPX_ENVIRONMENT || "sandbox",
       initialized: false,
-      error: epxInitError || 'Service not initialized'
+      error: epxInitError || "Service not initialized",
     });
   }
 });
@@ -123,83 +160,94 @@ router.get('/api/epx/health', (req: Request, res: Response) => {
 /**
  * Browser Post API status endpoint - we're using Browser Post, not Hosted Checkout
  */
-router.get('/api/epx/browser-post-status', async (req: Request, res: Response) => {
-  try {
-    if (!epxServiceInitialized) {
-      return res.status(503).json({
+router.get(
+  "/api/epx/browser-post-status",
+  async (req: Request, res: Response) => {
+    try {
+      if (!epxServiceInitialized) {
+        return res.status(503).json({
+          success: false,
+          error: "EPX Browser Post API not initialized",
+          method: "browser-post",
+        });
+      }
+
+      res.json({
+        success: true,
+        method: "browser-post",
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
+        status: "ready",
+      });
+    } catch (error: any) {
+      console.error("[EPX] Browser Post status error:", error);
+      res.status(500).json({
         success: false,
-        error: 'EPX Browser Post API not initialized',
-        method: 'browser-post'
+        error: error.message || "Failed to get Browser Post status",
       });
     }
-
-    res.json({
-      success: true,
-      method: 'browser-post',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-      status: 'ready'
-    });
-  } catch (error: any) {
-    console.error('[EPX] Browser Post status error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to get Browser Post status'
-    });
-  }
-});
+  },
+);
 
 /**
  * Test EPX redirect URL configuration
  */
-router.get('/api/epx/test-redirect-config', async (req: Request, res: Response) => {
-  try {
-    if (!epxServiceInitialized) {
-      return res.status(503).json({
+router.get(
+  "/api/epx/test-redirect-config",
+  async (req: Request, res: Response) => {
+    try {
+      if (!epxServiceInitialized) {
+        return res.status(503).json({
+          success: false,
+          error: "EPX Service not initialized",
+        });
+      }
+
+      const backendUrl =
+        process.env.BACKEND_URL ||
+        "https://shimmering-bourishment.up.railway.app";
+      const frontendUrl =
+        process.env.FRONTEND_URL || "https://enrollment.getmydpc.com";
+
+      const redirectConfig = {
+        backendUrl: backendUrl,
+        frontendUrl: frontendUrl,
+        redirectUrl: `${frontendUrl}/payment/callback`,
+        responseUrl: `${backendUrl}/api/epx/webhook`,
+        cancelUrl: `${frontendUrl}/payment/cancel`,
+        frontendRedirects: {
+          success: `${frontendUrl}/payment/success`,
+          failed: `${frontendUrl}/payment/failed`,
+          cancel: `${frontendUrl}/payment/cancel`,
+        },
+      };
+
+      console.log("[EPX Test] Current redirect configuration:", redirectConfig);
+
+      res.json({
+        success: true,
+        config: redirectConfig,
+        note: "These are the URLs EPX will use for redirects after payment processing",
+      });
+    } catch (error: any) {
+      console.error("[EPX Test] Error checking redirect config:", error);
+      res.status(500).json({
         success: false,
-        error: 'EPX Service not initialized'
+        error: error.message,
       });
     }
-    
-    const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
-    const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
-
-    const redirectConfig = {
-      backendUrl: backendUrl,
-      frontendUrl: frontendUrl,
-      redirectUrl: `${frontendUrl}/payment/callback`,
-      responseUrl: `${backendUrl}/api/epx/webhook`,
-      cancelUrl: `${frontendUrl}/payment/cancel`,
-      frontendRedirects: {
-        success: `${frontendUrl}/payment/success`,
-        failed: `${frontendUrl}/payment/failed`,
-        cancel: `${frontendUrl}/payment/cancel`
-      }
-    };
-
-    console.log('[EPX Test] Current redirect configuration:', redirectConfig);
-
-    res.json({
-      success: true,
-      config: redirectConfig,
-      note: 'These are the URLs EPX will use for redirects after payment processing'
-    });
-  } catch (error: any) {
-    console.error('[EPX Test] Error checking redirect config:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+  },
+);
 
 /**
  * Test endpoint for payment success redirect (legacy)
  */
-router.get('/payment/success', async (req: Request, res: Response) => {
-  console.log('[EPX] Legacy payment success redirect received');
-  console.log('[EPX] Query parameters:', req.query);
-  console.log('[EPX] This endpoint should not be used - redirecting to API handler');
-  
+router.get("/payment/success", async (req: Request, res: Response) => {
+  console.log("[EPX] Legacy payment success redirect received");
+  console.log("[EPX] Query parameters:", req.query);
+  console.log(
+    "[EPX] This endpoint should not be used - redirecting to API handler",
+  );
+
   // Redirect to proper API handler
   const queryString = new URLSearchParams(req.query as any).toString();
   res.redirect(`/api/epx/redirect?${queryString}`);
@@ -208,131 +256,149 @@ router.get('/payment/success', async (req: Request, res: Response) => {
 /**
  * Test endpoint for payment cancel redirect (legacy)
  */
-router.get('/payment/cancel', async (req: Request, res: Response) => {
-  console.log('[EPX] Legacy payment cancel redirect received');
-  console.log('[EPX] Query parameters:', req.query);
-  console.log('[EPX] This endpoint should not be used - redirecting to API handler');
-  
-  res.redirect('/api/epx/redirect?status=cancelled');
+router.get("/payment/cancel", async (req: Request, res: Response) => {
+  console.log("[EPX] Legacy payment cancel redirect received");
+  console.log("[EPX] Query parameters:", req.query);
+  console.log(
+    "[EPX] This endpoint should not be used - redirecting to API handler",
+  );
+
+  res.redirect("/api/epx/redirect?status=cancelled");
 });
 
 /**
  * Debug endpoint to capture raw EPX request/response data for support
  */
-router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => {
-  try {
-    if (!epxServiceInitialized) {
-      return res.status(503).json({
-        success: false,
-        error: 'EPX Service not initialized'
-      });
-    }
+router.get(
+  "/api/epx/debug-transaction",
+  async (req: Request, res: Response) => {
+    try {
+      if (!epxServiceInitialized) {
+        return res.status(503).json({
+          success: false,
+          error: "EPX Service not initialized",
+        });
+      }
 
-    const epxService = getEPXService();
+      const epxService = getEPXService();
 
-    console.log('[EPX Debug] === STARTING DEBUG TRANSACTION ===');
-    console.log('[EPX Debug] Timestamp:', new Date().toISOString());
-    console.log('[EPX Debug] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
+      console.log("[EPX Debug] === STARTING DEBUG TRANSACTION ===");
+      console.log("[EPX Debug] Timestamp:", new Date().toISOString());
+      console.log(
+        "[EPX Debug] Environment:",
+        process.env.EPX_ENVIRONMENT || "sandbox",
+      );
 
-    // Generate a test TAC to capture raw request/response
-    const testTransactionId = Date.now().toString().slice(-10); // Last 10 digits of timestamp
-    const testAmount = 1.00;
+      // Generate a test TAC to capture raw request/response
+      const testTransactionId = Date.now().toString().slice(-10); // Last 10 digits of timestamp
+      const testAmount = 1.0;
 
-    console.log('[EPX Debug] Test Transaction ID:', testTransactionId);
-    console.log('[EPX Debug] Test Amount:', testAmount);
+      console.log("[EPX Debug] Test Transaction ID:", testTransactionId);
+      console.log("[EPX Debug] Test Amount:", testAmount);
 
-    const tacResponse = await epxService.generateTAC({
-      amount: testAmount,
-      tranNbr: testTransactionId,
-      customerEmail: 'debug@test.com',
-      orderDescription: 'Debug Transaction for EPX Support'
-    });
-
-    // The raw request and response will be logged by the service
-    // Let's capture the form data that would be sent to Browser Post
-    if (tacResponse.success && tacResponse.tac) {
-      const backendUrl = process.env.BACKEND_URL || 'https://shimmering-bourishment.up.railway.app';
-      
-      const frontendUrl = process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com';
-      // Log the Browser Post form data that would be created
-      const browserPostFormData = {
-        actionUrl: 'https://services.epxuap.com/browserpost/',
-        tac: tacResponse.tac,
-        custNbr: process.env.EPX_CUST_NBR || '9001',
-        merchNbr: process.env.EPX_MERCH_NBR || '900300',
-        dbaNbr: process.env.EPX_DBA_NBR || '2',
-        terminalNbr: process.env.EPX_TERMINAL_NBR || '72',
-        tranCode: 'AUTH_CAPTURE',
-        tranGroup: 'ECOM',
+      const tacResponse = await epxService.generateTAC({
         amount: testAmount,
         tranNbr: testTransactionId,
-        redirectUrl: `${frontendUrl}/payment/callback`,
-        // CRITICAL: Do NOT include responseUrl or responseEcho in Browser Post
-        redirectEcho: testTransactionId,
-        industryType: 'ECOMMERCE',
-        batchId: '1',
-        receipt: 'Y',
-        zipCode: '12345',
-        address: '123 Test St'
-      };
-
-      console.log('[EPX Debug] === BROWSER POST FORM DATA ===');
-      console.log('[EPX Debug] Action URL:', browserPostFormData.actionUrl);
-      console.log('[EPX Debug] Form Fields:', JSON.stringify({
-        ...browserPostFormData,
-        tac: '***MASKED***'
-      }, null, 2));
-      console.log('[EPX Debug] === END DEBUG TRANSACTION ===');
-
-      res.json({
-        success: true,
-        message: 'Check server logs for raw request/response data',
-        tacGenerated: tacResponse.success,
-        tac: '***MASKED***',
-        transactionId: testTransactionId,
-        formActionUrl: browserPostFormData.actionUrl,
-        debugInfo: {
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-          custNbr: browserPostFormData.custNbr,
-          merchNbr: browserPostFormData.merchNbr,
-          dbaNbr: browserPostFormData.dbaNbr,
-          terminalNbr: browserPostFormData.terminalNbr,
-          redirectUrl: browserPostFormData.redirectUrl,
-          timestamp: new Date().toISOString()
-        },
-        note: 'Raw keyExchange request/response logged to server console'
+        customerEmail: "debug@test.com",
+        orderDescription: "Debug Transaction for EPX Support",
       });
-    } else {
-      res.json({
+
+      // The raw request and response will be logged by the service
+      // Let's capture the form data that would be sent to Browser Post
+      if (tacResponse.success && tacResponse.tac) {
+        const backendUrl =
+          process.env.BACKEND_URL ||
+          "https://shimmering-bourishment.up.railway.app";
+
+        const frontendUrl =
+          process.env.FRONTEND_URL || "https://enrollment.getmydpc.com";
+        // Log the Browser Post form data that would be created
+        const browserPostFormData = {
+          actionUrl: "https://services.epxuap.com/browserpost/",
+          tac: tacResponse.tac,
+          custNbr: process.env.EPX_CUST_NBR || "9001",
+          merchNbr: process.env.EPX_MERCH_NBR || "900300",
+          dbaNbr: process.env.EPX_DBA_NBR || "2",
+          terminalNbr: process.env.EPX_TERMINAL_NBR || "72",
+          tranCode: "AUTH_CAPTURE",
+          tranGroup: "ECOM",
+          amount: testAmount,
+          tranNbr: testTransactionId,
+          redirectUrl: `${frontendUrl}/payment/callback`,
+          // CRITICAL: Do NOT include responseUrl or responseEcho in Browser Post
+          redirectEcho: testTransactionId,
+          industryType: "ECOMMERCE",
+          batchId: "1",
+          receipt: "Y",
+          zipCode: "12345",
+          address: "123 Test St",
+        };
+
+        console.log("[EPX Debug] === BROWSER POST FORM DATA ===");
+        console.log("[EPX Debug] Action URL:", browserPostFormData.actionUrl);
+        console.log(
+          "[EPX Debug] Form Fields:",
+          JSON.stringify(
+            {
+              ...browserPostFormData,
+              tac: "***MASKED***",
+            },
+            null,
+            2,
+          ),
+        );
+        console.log("[EPX Debug] === END DEBUG TRANSACTION ===");
+
+        res.json({
+          success: true,
+          message: "Check server logs for raw request/response data",
+          tacGenerated: tacResponse.success,
+          tac: "***MASKED***",
+          transactionId: testTransactionId,
+          formActionUrl: browserPostFormData.actionUrl,
+          debugInfo: {
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
+            custNbr: browserPostFormData.custNbr,
+            merchNbr: browserPostFormData.merchNbr,
+            dbaNbr: browserPostFormData.dbaNbr,
+            terminalNbr: browserPostFormData.terminalNbr,
+            redirectUrl: browserPostFormData.redirectUrl,
+            timestamp: new Date().toISOString(),
+          },
+          note: "Raw keyExchange request/response logged to server console",
+        });
+      } else {
+        res.json({
+          success: false,
+          error: tacResponse.error,
+          details: tacResponse.details,
+          debugInfo: {
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
+            timestamp: new Date().toISOString(),
+          },
+          note: "Check server logs for detailed error information",
+        });
+      }
+    } catch (error: any) {
+      console.error("[EPX Debug] Error during debug transaction:", error);
+      res.status(500).json({
         success: false,
-        error: tacResponse.error,
-        details: tacResponse.details,
-        debugInfo: {
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-          timestamp: new Date().toISOString()
-        },
-        note: 'Check server logs for detailed error information'
+        error: error.message,
+        note: "Check server logs for full error details",
       });
     }
-  } catch (error: any) {
-    console.error('[EPX Debug] Error during debug transaction:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      note: 'Check server logs for full error details'
-    });
-  }
-});
+  },
+);
 
 /**
  * Debug endpoint to validate form data structure
  */
-router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
+router.get("/api/epx/debug-form-data", async (req: Request, res: Response) => {
   try {
     if (!epxServiceInitialized) {
       return res.status(503).json({
         success: false,
-        error: 'EPX Service not initialized'
+        error: "EPX Service not initialized",
       });
     }
 
@@ -340,33 +406,33 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
 
     // Generate a test TAC
     const testTacResponse = await epxService.generateTAC({
-      amount: 1.00,
+      amount: 1.0,
       tranNbr: Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
-      customerEmail: 'debug@test.com',
-      orderDescription: 'Form Debug Test'
+      customerEmail: "debug@test.com",
+      orderDescription: "Form Debug Test",
     });
 
     if (!testTacResponse.success) {
       return res.status(500).json({
         success: false,
-        error: 'Failed to generate test TAC',
-        details: testTacResponse.error
+        error: "Failed to generate test TAC",
+        details: testTacResponse.error,
       });
     }
 
     // Generate form data
     const formData = epxService.getPaymentFormData(
       testTacResponse.tac!,
-      1.00,
+      1.0,
       Date.now().toString().slice(-10), // Last 10 digits of timestamp
-      'card'
+      "card",
     );
 
     res.json({
       success: true,
       formData: {
         ...formData,
-        tac: '***MASKED***' // Don't expose real TAC in debug
+        tac: "***MASKED***", // Don't expose real TAC in debug
       },
       tacGenerated: true,
       allRequiredFields: {
@@ -376,14 +442,14 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
         AMOUNT: !!formData.amount,
         TRAN_NBR: !!formData.tranNbr,
         REDIRECT_URL: !!formData.redirectUrl,
-        RESPONSE_URL: !!formData.responseUrl
-      }
+        RESPONSE_URL: !!formData.responseUrl,
+      },
     });
   } catch (error: any) {
-    console.error('[EPX] Debug form data error:', error);
+    console.error("[EPX] Debug form data error:", error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Debug form data failed'
+      error: error.message || "Debug form data failed",
     });
   }
 });
@@ -391,32 +457,44 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
 /**
  * Create payment session for Browser Post API
  */
-router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
+router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
   const startTime = Date.now();
 
   try {
-    console.log('[EPX Create Payment] === REQUEST START ===');
-    console.log('[EPX Create Payment] Headers:', JSON.stringify({
-      'content-type': req.headers['content-type'],
-      'authorization': req.headers.authorization ? 'Bearer ***' : 'none',
-      'user-agent': req.headers['user-agent']
-    }, null, 2));
+    console.log("[EPX Create Payment] === REQUEST START ===");
+    console.log(
+      "[EPX Create Payment] Headers:",
+      JSON.stringify(
+        {
+          "content-type": req.headers["content-type"],
+          authorization: req.headers.authorization ? "Bearer ***" : "none",
+          "user-agent": req.headers["user-agent"],
+        },
+        null,
+        2,
+      ),
+    );
 
-    console.log('[EPX Create Payment] Body:', JSON.stringify(req.body, null, 2));
+    console.log(
+      "[EPX Create Payment] Body:",
+      JSON.stringify(req.body, null, 2),
+    );
 
     // Check if EPX service is initialized
     if (!epxServiceInitialized) {
-      console.error('[EPX Create Payment] EPX Service not initialized');
-      console.error('[EPX Create Payment] Initialization error:', epxInitError);
+      console.error("[EPX Create Payment] EPX Service not initialized");
+      console.error("[EPX Create Payment] Initialization error:", epxInitError);
       return res.status(503).json({
         success: false,
-        error: 'Payment service temporarily unavailable',
-        details: epxInitError || 'EPX service not configured properly. Please check environment variables.',
+        error: "Payment service temporarily unavailable",
+        details:
+          epxInitError ||
+          "EPX service not configured properly. Please check environment variables.",
         requiredVars: [
-          'EPX_MAC_KEY (32-character key from North.com)',
-          'EPX_CUST_NBR (Customer number)',
-          'EPX_MERCH_NBR (Merchant number)'
-        ]
+          "EPX_MAC_KEY (32-character key from North.com)",
+          "EPX_CUST_NBR (Customer number)",
+          "EPX_MERCH_NBR (Merchant number)",
+        ],
       });
     }
 
@@ -427,11 +505,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     try {
       epxService = getEPXService();
     } catch (serviceError: any) {
-      console.error('[EPX Create Payment] EPX Service retrieval failed:', serviceError);
+      console.error(
+        "[EPX Create Payment] EPX Service retrieval failed:",
+        serviceError,
+      );
       return res.status(503).json({
         success: false,
-        error: 'Payment service temporarily unavailable',
-        details: serviceError.message || 'EPX service initialization failed'
+        error: "Payment service temporarily unavailable",
+        details: serviceError.message || "EPX service initialization failed",
       });
     }
 
@@ -446,27 +527,27 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       achRoutingNumber,
       achAccountNumber,
       achAccountType,
-      achAccountName
+      achAccountName,
     } = req.body;
 
     // Comprehensive input validation
     const errors = [];
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      errors.push('Valid amount is required');
+      errors.push("Valid amount is required");
     }
-    if (!customerId || customerId.toString().trim() === '') {
-      errors.push('Customer ID is required');
+    if (!customerId || customerId.toString().trim() === "") {
+      errors.push("Customer ID is required");
     }
-    if (!customerEmail || !customerEmail.includes('@')) {
-      errors.push('Valid customer email is required');
+    if (!customerEmail || !customerEmail.includes("@")) {
+      errors.push("Valid customer email is required");
     }
 
     if (errors.length > 0) {
-      console.error('[EPX Create Payment] Validation errors:', errors);
+      console.error("[EPX Create Payment] Validation errors:", errors);
       return res.status(400).json({
         success: false,
-        error: 'Invalid request data',
-        details: errors.join(', ')
+        error: "Invalid request data",
+        details: errors.join(", "),
       });
     }
 
@@ -478,14 +559,14 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     // Use last 10 digits of timestamp to ensure uniqueness
     const tranNbr = Date.now().toString().slice(-10);
 
-    console.log('[EPX Create Payment] Generating TAC with payload:', {
+    console.log("[EPX Create Payment] Generating TAC with payload:", {
       amount: sanitizedAmount,
       tranNbr,
       customerEmail: sanitizedEmail,
       customerId: sanitizedCustomerId,
       planId,
-      paymentMethod: paymentMethod || 'card',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+      paymentMethod: paymentMethod || "card",
+      environment: process.env.EPX_ENVIRONMENT || "sandbox",
     });
 
     // Generate TAC for Browser Post
@@ -493,37 +574,41 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       amount: sanitizedAmount,
       tranNbr,
       customerEmail: sanitizedEmail,
-      orderDescription: description || `DPC Subscription Payment - Plan ${planId}`,
-      paymentMethod: paymentMethod || 'card',
+      orderDescription:
+        description || `DPC Subscription Payment - Plan ${planId}`,
+      paymentMethod: paymentMethod || "card",
       achRoutingNumber,
       achAccountNumber,
       achAccountType,
-      achAccountName
+      achAccountName,
     });
 
     // Safety check: ensure tacResponse exists and has expected structure
-    if (!tacResponse || typeof tacResponse !== 'object') {
-      console.error('[EPX Create Payment] EPX service returned invalid response:', tacResponse);
+    if (!tacResponse || typeof tacResponse !== "object") {
+      console.error(
+        "[EPX Create Payment] EPX service returned invalid response:",
+        tacResponse,
+      );
       return res.status(500).json({
         success: false,
-        error: 'EPX service returned invalid response',
-        details: 'Payment service temporarily unavailable'
+        error: "EPX service returned invalid response",
+        details: "Payment service temporarily unavailable",
       });
     }
 
-    console.log('[EPX Create Payment] TAC Response:', {
+    console.log("[EPX Create Payment] TAC Response:", {
       success: tacResponse.success,
       hasTAC: !!tacResponse.tac,
       tacLength: tacResponse.tac?.length,
-      error: tacResponse.error
+      error: tacResponse.error,
     });
 
     if (!tacResponse.success || !tacResponse.tac) {
-      console.error('[EPX Create Payment] TAC generation failed:', tacResponse);
+      console.error("[EPX Create Payment] TAC generation failed:", tacResponse);
       return res.status(500).json({
         success: false,
-        error: tacResponse.error || 'Failed to generate payment session',
-        details: 'TAC generation failed'
+        error: tacResponse.error || "Failed to generate payment session",
+        details: "TAC generation failed",
       });
     }
 
@@ -534,78 +619,94 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
         userId: sanitizedCustomerId,
         subscriptionId: subscriptionId || null,
         amount: sanitizedAmount.toString(),
-        currency: 'USD',
-        status: 'pending',
-        paymentMethod: paymentMethod || 'card',
+        currency: "USD",
+        status: "pending",
+        paymentMethod: paymentMethod || "card",
         transactionId: tranNbr,
         metadata: {
           planId: planId ? parseInt(planId.toString()) : null,
           tac: tacResponse.tac,
-          paymentType: paymentMethod || 'card',
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-          ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
-          userAgent: req.headers['user-agent'] || 'unknown',
+          paymentType: paymentMethod || "card",
+          environment: process.env.EPX_ENVIRONMENT || "sandbox",
+          ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
+          userAgent: req.headers["user-agent"] || "unknown",
           timestamp: new Date().toISOString(),
           requestBody: req.body,
-          ...(paymentMethod === 'ach' && {
+          ...(paymentMethod === "ach" && {
             achLastFour: achAccountNumber?.slice(-4),
-            achAccountType
-          })
-        }
+            achAccountType,
+          }),
+        },
       };
 
-      console.log('[EPX Create Payment] Creating payment record with data:', {
+      console.log("[EPX Create Payment] Creating payment record with data:", {
         ...paymentData,
-        metadata: { ...paymentData.metadata, tac: '***MASKED***', requestBody: '***MASKED***' }
+        metadata: {
+          ...paymentData.metadata,
+          tac: "***MASKED***",
+          requestBody: "***MASKED***",
+        },
       });
 
       paymentRecord = await storage.createPayment(paymentData);
 
-      console.log('[EPX Create Payment] ✅ Payment record created successfully:', {
-        paymentId: paymentRecord?.id,
-        transactionId: tranNbr,
-        amount: sanitizedAmount,
-        userId: sanitizedCustomerId,
-        timestamp: new Date().toISOString()
-      });
+      console.log(
+        "[EPX Create Payment] ✅ Payment record created successfully:",
+        {
+          paymentId: paymentRecord?.id,
+          transactionId: tranNbr,
+          amount: sanitizedAmount,
+          userId: sanitizedCustomerId,
+          timestamp: new Date().toISOString(),
+        },
+      );
     } catch (storageError: any) {
-      console.error('[EPX Create Payment] ❌ CRITICAL: Storage error - payment record NOT created:', {
-        error: storageError.message,
-        stack: storageError.stack,
-        transactionId: tranNbr,
-        userId: sanitizedCustomerId,
-        amount: sanitizedAmount,
-        timestamp: new Date().toISOString()
-      });
+      console.error(
+        "[EPX Create Payment] ❌ CRITICAL: Storage error - payment record NOT created:",
+        {
+          error: storageError.message,
+          stack: storageError.stack,
+          transactionId: tranNbr,
+          userId: sanitizedCustomerId,
+          amount: sanitizedAmount,
+          timestamp: new Date().toISOString(),
+        },
+      );
 
       // Force create a minimal payment record for audit trail
       try {
         paymentRecord = await storage.createPayment({
           userId: sanitizedCustomerId,
           amount: sanitizedAmount.toString(),
-          currency: 'USD',
-          status: 'pending',
-          paymentMethod: paymentMethod || 'card',
+          currency: "USD",
+          status: "pending",
+          paymentMethod: paymentMethod || "card",
           transactionId: tranNbr,
           metadata: {
-            error: 'Storage error during creation',
+            error: "Storage error during creation",
             errorMessage: storageError.message,
             timestamp: new Date().toISOString(),
-            environment: process.env.EPX_ENVIRONMENT || 'sandbox'
-          }
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
+          },
         });
-        console.log('[EPX Create Payment] ✅ Minimal payment record created after error:', paymentRecord?.id);
+        console.log(
+          "[EPX Create Payment] ✅ Minimal payment record created after error:",
+          paymentRecord?.id,
+        );
       } catch (fallbackError: any) {
-        console.error('[EPX Create Payment] ❌ FATAL: Could not create even minimal payment record:', fallbackError.message);
+        console.error(
+          "[EPX Create Payment] ❌ FATAL: Could not create even minimal payment record:",
+          fallbackError.message,
+        );
         // Log critical error
-        console.error('[EPX Create Payment] Critical error logged:', {
+        console.error("[EPX Create Payment] Critical error logged:", {
           timestamp: new Date().toISOString(),
           transactionId: tranNbr,
           userId: sanitizedCustomerId,
           amount: sanitizedAmount,
-          error: 'Failed to create payment record',
+          error: "Failed to create payment record",
           originalError: storageError.message,
-          fallbackError: fallbackError.message
+          fallbackError: fallbackError.message,
         });
       }
     }
@@ -614,21 +715,24 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     try {
       transactionLogger.logPaymentCreated({
         transactionId: tranNbr,
-        paymentId: paymentRecord?.id || 'storage_failed',
+        paymentId: paymentRecord?.id || "storage_failed",
         amount: sanitizedAmount,
         customerId: sanitizedCustomerId,
-        paymentMethod: paymentMethod || 'card',
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        ipAddress: req.ip || req.socket?.remoteAddress || 'unknown',
-        userAgent: req.headers['user-agent'] || 'unknown',
+        paymentMethod: paymentMethod || "card",
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
+        ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
+        userAgent: req.headers["user-agent"] || "unknown",
         metadata: {
           planId,
           subscriptionId,
-          description
-        }
+          description,
+        },
       });
     } catch (logError) {
-      console.warn('[EPX Create Payment] Transaction logging failed:', logError);
+      console.warn(
+        "[EPX Create Payment] Transaction logging failed:",
+        logError,
+      );
       // Don't fail the payment creation for logging errors
     }
 
@@ -637,15 +741,15 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       tacResponse.tac,
       sanitizedAmount,
       tranNbr,
-      paymentMethod || 'card',
+      paymentMethod || "card",
       {
         // Include AVS data if available from request body
         zipCode: req.body.zipCode,
-        address: req.body.address
-      }
+        address: req.body.address,
+      },
     );
 
-    console.log('[EPX Create Payment] Generated form data:', {
+    console.log("[EPX Create Payment] Generated form data:", {
       actionUrl: formData.actionUrl,
       hasTAC: !!formData.tac,
       tacLength: formData.tac?.length,
@@ -653,21 +757,22 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       tranGroup: formData.tranGroup,
       amount: formData.amount,
       tranNbr: formData.tranNbr,
-      redirectUrl: formData.redirectUrl?.substring(0, 50) + '...',
+      redirectUrl: formData.redirectUrl?.substring(0, 50) + "...",
       // responseUrl is NOT included in Browser Post
-      paymentMethod: paymentMethod || 'card'
+      paymentMethod: paymentMethod || "card",
     });
 
     const processingTime = Date.now() - startTime;
-    console.log(`[EPX Create Payment] SUCCESS - Processing time: ${processingTime}ms`);
+    console.log(
+      `[EPX Create Payment] SUCCESS - Processing time: ${processingTime}ms`,
+    );
 
     res.json({
       success: true,
       transactionId: tranNbr,
       formData,
-      processingTime
+      processingTime,
     });
-
   } catch (error: any) {
     const processingTime = Date.now() - startTime;
     console.error(`[EPX Create Payment] ERROR after ${processingTime}ms:`, {
@@ -676,9 +781,9 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       name: error.name,
       requestBody: req.body,
       headers: {
-        'content-type': req.headers['content-type'],
-        'user-agent': req.headers['user-agent']
-      }
+        "content-type": req.headers["content-type"],
+        "user-agent": req.headers["user-agent"],
+      },
     });
 
     // Log detailed error information for debugging
@@ -693,25 +798,27 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
     }
 
     // Check if it's a TAC generation error
-    if (error.message.includes('TAC') || error.message.includes('EPX_MAC')) {
+    if (error.message.includes("TAC") || error.message.includes("EPX_MAC")) {
       return res.status(500).json({
         success: false,
-        error: 'TAC generation failed',
-        details: 'Unable to generate Transaction Authorization Code. Please check your EPX MAC key and configuration.',
-        suggestion: 'Ensure the EPX_MAC environment variable is correctly set and is a valid 32-character key.',
+        error: "TAC generation failed",
+        details:
+          "Unable to generate Transaction Authorization Code. Please check your EPX MAC key and configuration.",
+        suggestion:
+          "Ensure the EPX_MAC environment variable is correctly set and is a valid 32-character key.",
         processingTime,
         errorType: error.name,
-        errorCode: error.code || 'TAC_GENERATION_ERROR'
+        errorCode: error.code || "TAC_GENERATION_ERROR",
       });
     }
 
     res.status(500).json({
       success: false,
-      error: error.message || 'Failed to create payment session',
-      details: 'Internal server error during payment creation',
+      error: error.message || "Failed to create payment session",
+      details: "Internal server error during payment creation",
       processingTime,
       errorType: error.name,
-      errorCode: error.code || 'UNKNOWN'
+      errorCode: error.code || "UNKNOWN",
     });
   }
 });
@@ -720,186 +827,215 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
  * Handle EPX webhook/response URL
  * This receives payment results from EPX Browser Post API
  */
-router.post('/api/epx/webhook', async (req: Request, res: Response) => {
+router.post("/api/epx/webhook", async (req: Request, res: Response) => {
   try {
-    console.log('[EPX Webhook] === WEBHOOK RECEIVED ===');
-    console.log('[EPX Webhook] Request method:', req.method);
-    console.log('[EPX Webhook] Request headers:', JSON.stringify(req.headers, null, 2));
-    console.log('[EPX Webhook] Request body:', JSON.stringify(req.body, null, 2));
-    console.log('[EPX Webhook] Request query:', JSON.stringify(req.query, null, 2));
-    
+    console.log("[EPX Webhook] === WEBHOOK RECEIVED ===");
+    console.log("[EPX Webhook] Request method:", req.method);
+    console.log(
+      "[EPX Webhook] Request headers:",
+      JSON.stringify(req.headers, null, 2),
+    );
+    console.log(
+      "[EPX Webhook] Request body:",
+      JSON.stringify(req.body, null, 2),
+    );
+    console.log(
+      "[EPX Webhook] Request query:",
+      JSON.stringify(req.query, null, 2),
+    );
+
     const epxService = getEPXService();
 
     // Validate webhook signature if configured
-    const signature = req.headers['x-epx-signature'] as string;
+    const signature = req.headers["x-epx-signature"] as string;
     const isValid = epxService.validateWebhookSignature(req.body, signature);
 
     if (!isValid) {
-      console.error('[EPX Webhook] Invalid signature');
-      return res.status(401).json({ error: 'Invalid signature' });
+      console.error("[EPX Webhook] Invalid signature");
+      return res.status(401).json({ error: "Invalid signature" });
     }
 
     // Process the webhook payload
-    console.log('[EPX Webhook] Processing webhook payload:', {
+    console.log("[EPX Webhook] Processing webhook payload:", {
       body: req.body,
       headers: req.headers,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     const result = epxService.processWebhook(req.body);
 
-    console.log('[EPX Webhook] Webhook processing result:', {
+    console.log("[EPX Webhook] Webhook processing result:", {
       isApproved: result.isApproved,
       transactionId: result.transactionId,
       authCode: result.authCode,
       error: result.error,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     if (result.transactionId) {
       // Update payment status in database
-      console.log('[EPX Webhook] Looking up payment by transaction ID:', result.transactionId);
-      const payment = await storage.getPaymentByTransactionId(result.transactionId);
+      console.log(
+        "[EPX Webhook] Looking up payment by transaction ID:",
+        result.transactionId,
+      );
+      const payment = await storage.getPaymentByTransactionId(
+        result.transactionId,
+      );
 
       if (payment) {
-        console.log('[EPX Webhook] Found payment record:', {
+        console.log("[EPX Webhook] Found payment record:", {
           paymentId: payment.id,
           currentStatus: payment.status,
           amount: payment.amount,
-          userId: payment.userId
+          userId: payment.userId,
         });
 
         // Update payment with comprehensive logging
         const updateResult = await storage.updatePayment(payment.id, {
-          status: result.isApproved ? 'completed' : 'failed',
+          status: result.isApproved ? "completed" : "failed",
           authorizationCode: result.authCode,
           metadata: {
             ...payment.metadata,
-            bricToken: result.bricToken,  // Store for refunds
+            bricToken: result.bricToken, // Store for refunds
             authAmount: result.amount,
             error: result.error,
             webhookProcessedAt: new Date().toISOString(),
-            epxResponse: req.body // Store full EPX response for audit
-          }
+            epxResponse: req.body, // Store full EPX response for audit
+          },
         });
 
-        console.log('[EPX Webhook] Payment update result:', updateResult);
+        console.log("[EPX Webhook] Payment update result:", updateResult);
 
         // Comprehensive transaction logging
-        console.log(`[EPX Transaction Log] Payment ${result.isApproved ? 'APPROVED' : 'DECLINED'}:`, {
-          transactionId: result.transactionId,
-          paymentId: payment.id,
-          status: result.isApproved ? 'completed' : 'failed',
-          amount: result.amount,
-          authCode: result.authCode,
-          bricToken: result.bricToken,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-          subscriptionId: payment.subscriptionId,
-          customerId: payment.userId,
-          paymentMethod: payment.paymentMethod,
-          processingTime: new Date().getTime() - new Date(payment.metadata?.timestamp || new Date()).getTime(),
-          error: result.error,
-          timestamp: new Date().toISOString()
-        });
+        console.log(
+          `[EPX Transaction Log] Payment ${result.isApproved ? "APPROVED" : "DECLINED"}:`,
+          {
+            transactionId: result.transactionId,
+            paymentId: payment.id,
+            status: result.isApproved ? "completed" : "failed",
+            amount: result.amount,
+            authCode: result.authCode,
+            bricToken: result.bricToken,
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
+            subscriptionId: payment.subscriptionId,
+            customerId: payment.userId,
+            paymentMethod: payment.paymentMethod,
+            processingTime:
+              new Date().getTime() -
+              new Date(payment.metadata?.timestamp || new Date()).getTime(),
+            error: result.error,
+            timestamp: new Date().toISOString(),
+          },
+        );
 
         // If approved, update subscription status
         if (result.isApproved && payment.subscriptionId) {
           await storage.updateSubscription(payment.subscriptionId, {
-            status: 'active',
-            lastPaymentDate: new Date()
+            status: "active",
+            lastPaymentDate: new Date(),
           });
 
           console.log(`[EPX Transaction Log] Subscription activated:`, {
             subscriptionId: payment.subscriptionId,
             transactionId: result.transactionId,
-            environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
           });
         }
 
         // Send comprehensive enrollment notification (member, agent, admins)
         // Note: Admin emails are configured in the notification service
         await sendEnrollmentNotification({
-          memberName: payment.metadata?.memberName || 'Member',
+          memberName: payment.metadata?.memberName || "Member",
           memberEmail: payment.userId, // Assuming userId is the member's email
-          planName: payment.metadata?.planName || 'DPC Plan',
-          memberType: payment.metadata?.memberType || 'Individual',
+          planName: payment.metadata?.planName || "DPC Plan",
+          memberType: payment.metadata?.memberType || "Individual",
           amount: payment.amount,
           agentName: payment.metadata?.agentName,
           agentNumber: payment.metadata?.agentNumber,
           commission: payment.metadata?.commission,
-          enrollmentDate: new Date()
+          enrollmentDate: new Date(),
         });
       } else {
-        console.error('[EPX Transaction Log] ❌ PAYMENT NOT FOUND:', {
+        console.error("[EPX Transaction Log] ❌ PAYMENT NOT FOUND:", {
           transactionId: result.transactionId,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: process.env.EPX_ENVIRONMENT || "sandbox",
           webhookData: req.body,
           timestamp: new Date().toISOString(),
-          note: 'This could indicate the payment was never created or transaction ID mismatch'
+          note: "This could indicate the payment was never created or transaction ID mismatch",
         });
 
         // Log for critical analysis
-        console.error('[EPX Webhook] Critical error - payment not found:', {
+        console.error("[EPX Webhook] Critical error - payment not found:", {
           timestamp: new Date().toISOString(),
-          error: 'PAYMENT_NOT_FOUND_IN_WEBHOOK',
+          error: "PAYMENT_NOT_FOUND_IN_WEBHOOK",
           transactionId: result.transactionId,
           webhookData: req.body,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+          environment: process.env.EPX_ENVIRONMENT || "sandbox",
         });
       }
     } else {
-      console.error('[EPX Webhook] ❌ No transaction ID in webhook result:', {
+      console.error("[EPX Webhook] ❌ No transaction ID in webhook result:", {
         result,
         originalPayload: req.body,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     }
 
     // Acknowledge receipt
     res.status(200).json({ received: true });
   } catch (error: any) {
-    console.error('[EPX Webhook] Error processing webhook:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
+    console.error("[EPX Webhook] Error processing webhook:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
   }
 });
 
 /**
  * Handle EPX webhook/response URL via GET (EPX may send results via GET)
  */
-router.get('/api/epx/webhook', async (req: Request, res: Response) => {
+router.get("/api/epx/webhook", async (req: Request, res: Response) => {
   try {
-    console.log('[EPX Webhook GET] === WEBHOOK GET RECEIVED ===');
-    console.log('[EPX Webhook GET] Query parameters:', JSON.stringify(req.query, null, 2));
-    
+    console.log("[EPX Webhook GET] === WEBHOOK GET RECEIVED ===");
+    console.log(
+      "[EPX Webhook GET] Query parameters:",
+      JSON.stringify(req.query, null, 2),
+    );
+
     const epxService = getEPXService();
 
     // Process the webhook payload from query parameters
-    const result = epxService.processWebhook(req.query as any as EPXWebhookPayload);
+    const result = epxService.processWebhook(
+      req.query as any as EPXWebhookPayload,
+    );
 
-    console.log('[EPX Webhook GET] Webhook processing result:', {
+    console.log("[EPX Webhook GET] Webhook processing result:", {
       isApproved: result.isApproved,
       transactionId: result.transactionId,
       authCode: result.authCode,
       error: result.error,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     if (result.transactionId) {
       // Update payment status in database
-      console.log('[EPX Webhook GET] Looking up payment by transaction ID:', result.transactionId);
-      const payment = await storage.getPaymentByTransactionId(result.transactionId);
+      console.log(
+        "[EPX Webhook GET] Looking up payment by transaction ID:",
+        result.transactionId,
+      );
+      const payment = await storage.getPaymentByTransactionId(
+        result.transactionId,
+      );
 
       if (payment) {
-        console.log('[EPX Webhook GET] Found payment record:', {
+        console.log("[EPX Webhook GET] Found payment record:", {
           paymentId: payment.id,
           currentStatus: payment.status,
           amount: payment.amount,
-          userId: payment.userId
+          userId: payment.userId,
         });
 
         // Update payment with comprehensive logging
         const updateResult = await storage.updatePayment(payment.id, {
-          status: result.isApproved ? 'completed' : 'failed',
+          status: result.isApproved ? "completed" : "failed",
           authorizationCode: result.authCode,
           metadata: {
             ...payment.metadata,
@@ -907,36 +1043,39 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
             authAmount: result.amount,
             error: result.error,
             webhookProcessedAt: new Date().toISOString(),
-            epxResponse: req.query
-          }
+            epxResponse: req.query,
+          },
         });
 
-        console.log('[EPX Webhook GET] Payment update result:', updateResult);
+        console.log("[EPX Webhook GET] Payment update result:", updateResult);
 
         // Log transaction
-        console.log(`[EPX Transaction Log] Payment ${result.isApproved ? 'APPROVED' : 'DECLINED'}:`, {
-          transactionId: result.transactionId,
-          paymentId: payment.id,
-          status: result.isApproved ? 'completed' : 'failed',
-          amount: result.amount,
-          authCode: result.authCode,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-          timestamp: new Date().toISOString()
-        });
+        console.log(
+          `[EPX Transaction Log] Payment ${result.isApproved ? "APPROVED" : "DECLINED"}:`,
+          {
+            transactionId: result.transactionId,
+            paymentId: payment.id,
+            status: result.isApproved ? "completed" : "failed",
+            amount: result.amount,
+            authCode: result.authCode,
+            environment: process.env.EPX_ENVIRONMENT || "sandbox",
+            timestamp: new Date().toISOString(),
+          },
+        );
 
         // If approved, update subscription status
         if (result.isApproved && payment.subscriptionId) {
           await storage.updateSubscription(payment.subscriptionId, {
-            status: 'active',
-            lastPaymentDate: new Date()
+            status: "active",
+            lastPaymentDate: new Date(),
           });
         }
       } else {
-        console.error('[EPX Webhook GET] ❌ PAYMENT NOT FOUND:', {
+        console.error("[EPX Webhook GET] ❌ PAYMENT NOT FOUND:", {
           transactionId: result.transactionId,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: process.env.EPX_ENVIRONMENT || "sandbox",
           webhookData: req.query,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         });
       }
     }
@@ -944,7 +1083,7 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
     // Acknowledge receipt
     res.status(200).json({ received: true, processed: true });
   } catch (error: any) {
-    console.error('[EPX Webhook GET] Error processing webhook:', error);
+    console.error("[EPX Webhook GET] Error processing webhook:", error);
     res.status(200).json({ received: true, error: error.message }); // Still return 200 to EPX
   }
 });
@@ -952,128 +1091,141 @@ router.get('/api/epx/webhook', async (req: Request, res: Response) => {
 /**
  * Test endpoint to verify EPX routes are working
  */
-router.get('/api/epx/test', (req: Request, res: Response) => {
-  console.log('[EPX Test] Test endpoint called');
+router.get("/api/epx/test", (req: Request, res: Response) => {
+  console.log("[EPX Test] Test endpoint called");
   res.json({
     success: true,
-    message: 'EPX routes are working',
+    message: "EPX routes are working",
     timestamp: new Date().toISOString(),
     availableEndpoints: [
-      'GET /api/epx/health',
-      'GET /api/epx/redirect',
-      'POST /api/epx/webhook',
-      'POST /api/epx/create-payment'
-    ]
+      "GET /api/epx/health",
+      "GET /api/epx/redirect",
+      "POST /api/epx/webhook",
+      "POST /api/epx/create-payment",
+    ],
   });
 });
 
 /**
  * Process callback from frontend after EPX redirect
  */
-router.post('/api/epx/process-callback', async (req: Request, res: Response) => {
-  try {
-    console.log('[EPX Process Callback] Received data from frontend:', req.body);
-    
-    const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.body;
-    const isApproved = AUTH_RESP === 'APPROVAL';
-    
-    // Process payment in database
-    if (TRAN_NBR) {
-      try {
-        const payment = await storage.getPaymentByTransactionId(TRAN_NBR);
-        if (payment) {
-          await storage.updatePayment(payment.id, {
-            status: isApproved ? 'completed' : 'failed',
-            authorizationCode: AUTH_CODE,
-            metadata: {
-              ...payment.metadata,
-              authAmount: AUTH_AMOUNT,
-              epxResponse: req.body,
-              processedAt: new Date().toISOString()
-            }
-          });
-          
-          if (isApproved && payment.subscriptionId) {
-            await storage.updateSubscription(payment.subscriptionId, {
-              status: 'active',
-              lastPaymentDate: new Date()
+router.post(
+  "/api/epx/process-callback",
+  async (req: Request, res: Response) => {
+    try {
+      console.log(
+        "[EPX Process Callback] Received data from frontend:",
+        req.body,
+      );
+
+      const { AUTH_RESP, AUTH_CODE, TRAN_NBR, AUTH_AMOUNT } = req.body;
+      const isApproved = AUTH_RESP === "APPROVAL";
+
+      // Process payment in database
+      if (TRAN_NBR) {
+        try {
+          const payment = await storage.getPaymentByTransactionId(TRAN_NBR);
+          if (payment) {
+            await storage.updatePayment(payment.id, {
+              status: isApproved ? "completed" : "failed",
+              authorizationCode: AUTH_CODE,
+              metadata: {
+                ...payment.metadata,
+                authAmount: AUTH_AMOUNT,
+                epxResponse: req.body,
+                processedAt: new Date().toISOString(),
+              },
             });
+
+            if (isApproved && payment.subscriptionId) {
+              await storage.updateSubscription(payment.subscriptionId, {
+                status: "active",
+                lastPaymentDate: new Date(),
+              });
+            }
           }
+        } catch (error) {
+          console.error("[EPX Process Callback] Database error:", error);
         }
-      } catch (error) {
-        console.error('[EPX Process Callback] Database error:', error);
       }
+
+      res.json({
+        success: isApproved,
+        transactionId: TRAN_NBR,
+        amount: AUTH_AMOUNT,
+      });
+    } catch (error: any) {
+      console.error("[EPX Process Callback] Error:", error);
+      res.status(500).json({ success: false, error: error.message });
     }
-    
-    res.json({ 
-      success: isApproved,
-      transactionId: TRAN_NBR,
-      amount: AUTH_AMOUNT
-    });
-  } catch (error: any) {
-    console.error('[EPX Process Callback] Error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+  },
+);
 
 /**
  * Handle payment redirect (user returns from EPX) - LEGACY, kept for compatibility
  */
-router.get('/api/epx/redirect', async (req: Request, res: Response) => {
+router.get("/api/epx/redirect", async (req: Request, res: Response) => {
   try {
-    console.log('[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===');
-    console.log('[EPX Redirect] Route matched successfully');
-    console.log('[EPX Redirect] Request method:', req.method);
-    console.log('[EPX Redirect] Request path:', req.path);
-    console.log('[EPX Redirect] Query parameters:', JSON.stringify(req.query, null, 2));
-    console.log('[EPX Redirect] Full URL:', req.url);
+    console.log("[EPX Redirect] === USER RETURNED FROM EPX PAYMENT ===");
+    console.log("[EPX Redirect] Route matched successfully");
+    console.log("[EPX Redirect] Request method:", req.method);
+    console.log("[EPX Redirect] Request path:", req.path);
+    console.log(
+      "[EPX Redirect] Query parameters:",
+      JSON.stringify(req.query, null, 2),
+    );
+    console.log("[EPX Redirect] Full URL:", req.url);
 
     // Define URLs in the handler scope
-    const frontendUrl = 'https://enrollment.getmydpc.com';
+    const frontendUrl = "https://enrollment.getmydpc.com";
 
     // Parse response parameters from EPX
-    const { 
-      AUTH_RESP, 
-      AUTH_CODE, 
-      TRAN_NBR, 
-      AUTH_AMOUNT, 
+    const {
+      AUTH_RESP,
+      AUTH_CODE,
+      TRAN_NBR,
+      AUTH_AMOUNT,
       AUTH_GUID,
       TRAN_TYPE,
       BP_RESP_CODE,
       NETWORK_RESPONSE,
-      status // For cancelled payments
+      status, // For cancelled payments
     } = req.query;
 
     // Handle cancelled payments
-    if (status === 'cancelled') {
-      console.log('[EPX Redirect] Payment was cancelled by user');
+    if (status === "cancelled") {
+      console.log("[EPX Redirect] Payment was cancelled by user");
       return res.redirect(`${frontendUrl}/payment/cancel`);
     }
 
-    const isApproved = AUTH_RESP === 'APPROVAL';
+    const isApproved = AUTH_RESP === "APPROVAL";
 
-    console.log('[EPX Redirect] Payment result:', {
+    console.log("[EPX Redirect] Payment result:", {
       isApproved,
       authResponse: AUTH_RESP,
       transactionId: TRAN_NBR,
       amount: AUTH_AMOUNT,
       authCode: AUTH_CODE,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
     // Update payment in database if we have transaction info
     if (TRAN_NBR) {
       try {
         const epxService = getEPXService();
-        const result = epxService.processWebhook(req.query as any as EPXWebhookPayload);
+        const result = epxService.processWebhook(
+          req.query as any as EPXWebhookPayload,
+        );
 
-        const payment = await storage.getPaymentByTransactionId(TRAN_NBR as string);
-        
+        const payment = await storage.getPaymentByTransactionId(
+          TRAN_NBR as string,
+        );
+
         if (payment) {
-          console.log('[EPX Redirect] Updating payment record:', payment.id);
-          
+          console.log("[EPX Redirect] Updating payment record:", payment.id);
+
           await storage.updatePayment(payment.id, {
-            status: result.isApproved ? 'completed' : 'failed',
+            status: result.isApproved ? "completed" : "failed",
             authorizationCode: result.authCode,
             metadata: {
               ...payment.metadata,
@@ -1081,45 +1233,54 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
               authAmount: result.amount,
               error: result.error,
               redirectProcessedAt: new Date().toISOString(),
-              epxRedirectResponse: req.query
-            }
+              epxRedirectResponse: req.query,
+            },
           });
 
           // If approved, update subscription status
           if (result.isApproved && payment.subscriptionId) {
             await storage.updateSubscription(payment.subscriptionId, {
-              status: 'active',
-              lastPaymentDate: new Date()
+              status: "active",
+              lastPaymentDate: new Date(),
             });
-            console.log('[EPX Redirect] Subscription activated:', payment.subscriptionId);
+            console.log(
+              "[EPX Redirect] Subscription activated:",
+              payment.subscriptionId,
+            );
           }
         } else {
-          console.warn('[EPX Redirect] Payment record not found for transaction:', TRAN_NBR);
+          console.warn(
+            "[EPX Redirect] Payment record not found for transaction:",
+            TRAN_NBR,
+          );
         }
       } catch (dbError: any) {
-        console.error('[EPX Redirect] Database update error:', dbError);
+        console.error("[EPX Redirect] Database update error:", dbError);
         // Continue with redirect even if DB update fails
       }
     }
 
     // Redirect to appropriate frontend page with proper base URL handling
-    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, ''); // Remove protocol and domain for relative redirects
-    
+    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, ""); // Remove protocol and domain for relative redirects
+
     if (isApproved) {
       // Redirect to confirmation page instead of payment-success
       const redirectUrl = `${redirectBase}/confirmation?transaction=${TRAN_NBR}&amount=${AUTH_AMOUNT}&status=success`;
-      console.log('[EPX Redirect] Redirecting to confirmation page:', redirectUrl);
+      console.log(
+        "[EPX Redirect] Redirecting to confirmation page:",
+        redirectUrl,
+      );
       res.redirect(redirectUrl);
     } else {
       const redirectUrl = `${redirectBase}/payment/failed?transaction=${TRAN_NBR}&reason=${AUTH_RESP}`;
-      console.log('[EPX Redirect] Redirecting to failure page:', redirectUrl);
+      console.log("[EPX Redirect] Redirecting to failure page:", redirectUrl);
       res.redirect(redirectUrl);
     }
   } catch (error: any) {
-    console.error('[EPX Redirect] Error handling redirect:', error);
+    console.error("[EPX Redirect] Error handling redirect:", error);
     // Define frontendUrl for error handling as well
-    const frontendUrl = 'https://enrollment.getmydpc.com';
-    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, '');
+    const frontendUrl = "https://enrollment.getmydpc.com";
+    const redirectBase = frontendUrl.replace(/^https?:\/\/[^\/]+/, "");
     res.redirect(`${redirectBase}/payment/failed?error=redirect_error`);
   }
 });
@@ -1127,7 +1288,7 @@ router.get('/api/epx/redirect', async (req: Request, res: Response) => {
 /**
  * Refund transaction
  */
-router.post('/api/epx/refund', async (req: Request, res: Response) => {
+router.post("/api/epx/refund", async (req: Request, res: Response) => {
   try {
     const epxService = getEPXService();
     const { transactionId, amount } = req.body;
@@ -1135,7 +1296,7 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
     if (!transactionId) {
       return res.status(400).json({
         success: false,
-        error: 'Transaction ID required'
+        error: "Transaction ID required",
       });
     }
 
@@ -1145,24 +1306,27 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
     if (!payment || !payment.metadata?.bricToken) {
       return res.status(404).json({
         success: false,
-        error: 'Transaction not found or refund not available'
+        error: "Transaction not found or refund not available",
       });
     }
 
     // Process refund
     const refundAmount = amount || parseFloat(payment.amount);
-    const result = await epxService.refundTransaction(payment.metadata.bricToken, refundAmount);
+    const result = await epxService.refundTransaction(
+      payment.metadata.bricToken,
+      refundAmount,
+    );
 
     if (result.success) {
       // Update payment status
       await storage.updatePayment(payment.id, {
-        status: 'refunded',
+        status: "refunded",
         metadata: {
           ...payment.metadata,
           refundId: result.refundId,
           refundAmount,
-          refundDate: new Date().toISOString()
-        }
+          refundDate: new Date().toISOString(),
+        },
       });
 
       // Log refund transaction
@@ -1172,9 +1336,9 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
         refundAmount,
         originalAmount: payment.amount,
         bricToken: payment.metadata?.bricToken,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
         customerId: payment.userId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     } else {
       console.error(`[EPX Transaction Log] REFUND FAILED:`, {
@@ -1182,17 +1346,17 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
         refundAmount,
         error: result.error,
         bricToken: payment.metadata?.bricToken,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        timestamp: new Date().toISOString()
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
+        timestamp: new Date().toISOString(),
       });
     }
 
     res.json(result);
   } catch (error: any) {
-    console.error('[EPX] Refund error:', error);
+    console.error("[EPX] Refund error:", error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Refund failed'
+      error: error.message || "Refund failed",
     });
   }
 });
@@ -1200,7 +1364,7 @@ router.post('/api/epx/refund', async (req: Request, res: Response) => {
 /**
  * Void transaction
  */
-router.post('/api/epx/void', async (req: Request, res: Response) => {
+router.post("/api/epx/void", async (req: Request, res: Response) => {
   try {
     const epxService = getEPXService();
     const { transactionId } = req.body;
@@ -1208,7 +1372,7 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
     if (!transactionId) {
       return res.status(400).json({
         success: false,
-        error: 'Transaction ID required'
+        error: "Transaction ID required",
       });
     }
 
@@ -1218,7 +1382,7 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
     if (!payment || !payment.metadata?.bricToken) {
       return res.status(404).json({
         success: false,
-        error: 'Transaction not found or void not available'
+        error: "Transaction not found or void not available",
       });
     }
 
@@ -1228,11 +1392,11 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
     if (result.success) {
       // Update payment status
       await storage.updatePayment(payment.id, {
-        status: 'voided',
+        status: "voided",
         metadata: {
           ...payment.metadata,
-          voidDate: new Date().toISOString()
-        }
+          voidDate: new Date().toISOString(),
+        },
       });
 
       // Log void transaction
@@ -1240,41 +1404,41 @@ router.post('/api/epx/void', async (req: Request, res: Response) => {
         transactionId: transactionId,
         originalAmount: payment.amount,
         bricToken: payment.metadata?.bricToken,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
         customerId: payment.userId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
     } else {
       console.error(`[EPX Transaction Log] VOID FAILED:`, {
         transactionId: transactionId,
         error: result.error,
         bricToken: payment.metadata?.bricToken,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        timestamp: new Date().toISOString()
+        environment: process.env.EPX_ENVIRONMENT || "sandbox",
+        timestamp: new Date().toISOString(),
       });
     }
 
     res.json(result);
   } catch (error: any) {
-    console.error('[EPX] Void error:', error);
+    console.error("[EPX] Void error:", error);
     res.status(500).json({
       success: false,
-      error: error.message || 'Void failed'
+      error: error.message || "Void failed",
     });
   }
 });
 
 // Log available routes when module loads
-console.log('[EPX Routes] Registering EPX endpoints:');
-console.log('[EPX Routes] - GET /api/epx/health');
-console.log('[EPX Routes] - GET /api/epx/browser-post-status');
-console.log('[EPX Routes] - GET /api/epx/test-redirect-config');
-console.log('[EPX Routes] - GET /api/epx/debug-form-data');
-console.log('[EPX Routes] - POST /api/epx/create-payment');
-console.log('[EPX Routes] - POST /api/epx/webhook');
-console.log('[EPX Routes] - GET /api/epx/webhook');
-console.log('[EPX Routes] - GET /api/epx/redirect');
-console.log('[EPX Routes] - POST /api/epx/refund');
-console.log('[EPX Routes] - POST /api/epx/void');
+console.log("[EPX Routes] Registering EPX endpoints:");
+console.log("[EPX Routes] - GET /api/epx/health");
+console.log("[EPX Routes] - GET /api/epx/browser-post-status");
+console.log("[EPX Routes] - GET /api/epx/test-redirect-config");
+console.log("[EPX Routes] - GET /api/epx/debug-form-data");
+console.log("[EPX Routes] - POST /api/epx/create-payment");
+console.log("[EPX Routes] - POST /api/epx/webhook");
+console.log("[EPX Routes] - GET /api/epx/webhook");
+console.log("[EPX Routes] - GET /api/epx/redirect");
+console.log("[EPX Routes] - POST /api/epx/refund");
+console.log("[EPX Routes] - POST /api/epx/void");
 
 export default router;
