@@ -462,18 +462,18 @@ export class EPXPaymentService {
       DBA_NBR: this.config.dbaNbr,
       TERMINAL_NBR: this.config.terminalNbr,
       // Transaction details
-      TRAN_CODE: paymentMethod === "ach" ? "AES" : "CES", // Use valid TRAN_CODEs from EPX data dictionary
-      TRAN_GROUP: "SALE", // Transaction group
+      TRAN_CODE: "AUTH_CAPTURE", // Standard authorization and capture
+      TRAN_GROUP: "ECOM", // E-commerce transaction group
       AMOUNT: parseFloat(amount.toString()),
       TRAN_NBR: tranNbr,
-      // URLs
+      // URLs - Browser Post only needs REDIRECT_URL, NOT RESPONSE_URL
       REDIRECT_URL: this.config.redirectUrl,
-      RESPONSE_URL: this.config.responseUrl, // For internal tracking
+      // RESPONSE_URL is NOT included in Browser Post - it's only for webhook setup
       REDIRECT_ECHO: "V", // Verbose response
-      RESPONSE_ECHO: "V", // Verbose response
+      // RESPONSE_ECHO is also NOT used in Browser Post
       // Required fields
-      INDUSTRY_TYPE: "ECOM", // Ecommerce industry type
-      BATCH_ID: Date.now().toString(), // Generate batch ID
+      INDUSTRY_TYPE: "ECOMMERCE", // Full word as per EPX spec
+      BATCH_ID: "1", // Simple batch ID
       RECEIPT: "Y", // Enable receipt
       // AVS information for better interchange rates
       ZIP_CODE: customerData?.zipCode || "",

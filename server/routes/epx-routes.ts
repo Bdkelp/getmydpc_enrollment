@@ -78,7 +78,7 @@ try {
       console.log('[EPX Routes] Testing EPX connectivity...');
       const testResponse = await epxService.generateTAC({
         amount: 1.00,
-        tranNbr: Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
+        tranNbr: Date.now().toString().slice(-10), // Last 10 digits of timestamp
         customerEmail: 'test@mypremierplans.com',
         orderDescription: 'Connectivity Test'
       });
@@ -235,7 +235,7 @@ router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => 
     console.log('[EPX Debug] Environment:', process.env.EPX_ENVIRONMENT || 'sandbox');
 
     // Generate a test TAC to capture raw request/response
-    const testTransactionId = Date.now().toString().substring(0, 10); // Numeric only, max 10 digits
+    const testTransactionId = Date.now().toString().slice(-10); // Last 10 digits of timestamp
     const testAmount = 1.00;
 
     console.log('[EPX Debug] Test Transaction ID:', testTransactionId);
@@ -267,12 +267,11 @@ router.get('/api/epx/debug-transaction', async (req: Request, res: Response) => 
         amount: testAmount,
         tranNbr: testTransactionId,
         redirectUrl: `${frontendUrl}/payment/callback`,
-        responseUrl: `${backendUrl}/api/epx/webhook`,
+        // CRITICAL: Do NOT include responseUrl or responseEcho in Browser Post
         redirectEcho: testTransactionId,
-        responseEcho: testTransactionId,
         industryType: 'ECOMMERCE',
         batchId: '1',
-        receipt: 'N',
+        receipt: 'Y',
         zipCode: '12345',
         address: '123 Test St'
       };
@@ -359,7 +358,7 @@ router.get('/api/epx/debug-form-data', async (req: Request, res: Response) => {
     const formData = epxService.getPaymentFormData(
       testTacResponse.tac!,
       1.00,
-      Date.now().toString().substring(0, 10), // Numeric only, max 10 digits
+      Date.now().toString().slice(-10), // Last 10 digits of timestamp
       'card'
     );
 
@@ -655,7 +654,7 @@ router.post('/api/epx/create-payment', async (req: Request, res: Response) => {
       amount: formData.amount,
       tranNbr: formData.tranNbr,
       redirectUrl: formData.redirectUrl?.substring(0, 50) + '...',
-      responseUrl: formData.responseUrl?.substring(0, 50) + '...',
+      // responseUrl is NOT included in Browser Post
       paymentMethod: paymentMethod || 'card'
     });
 

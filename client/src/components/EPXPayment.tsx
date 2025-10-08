@@ -121,7 +121,7 @@ export function EPXPayment({
       form.target = '_self'; // Navigate in same window
 
       // Add all form fields - EPX requires UPPERCASE field names
-      // Backend now returns them in uppercase already
+      // CRITICAL: Do NOT include RESPONSE_URL or RESPONSE_ECHO in Browser Post
       const fields: any = {
         'TAC': data.formData.TAC,
         'CUST_NBR': data.formData.CUST_NBR,
