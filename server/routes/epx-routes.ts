@@ -4,7 +4,10 @@
  */
 
 import { Router, Request, Response } from "express";
-import { getEPXService, initializeEPXService } from "../services/epx-payment-service";
+import {
+  getEPXService,
+  initializeEPXService,
+} from "../services/epx-payment-service";
 import crypto from "crypto";
 
 const router = Router();
@@ -21,13 +24,15 @@ try {
     merchNbr: process.env.EPX_MERCH_NBR || "",
     dbaNbr: process.env.EPX_DBA_NBR || "",
     terminalNbr: process.env.EPX_TERMINAL_NBR || "",
-    environment: (process.env.EPX_ENVIRONMENT || "sandbox") as "sandbox" | "production",
+    environment: (process.env.EPX_ENVIRONMENT || "sandbox") as
+      | "sandbox"
+      | "production",
     redirectUrl: `${baseUrl}/api/epx/redirect`,
     responseUrl: `${baseUrl}/api/epx/webhook`,
     tacEndpoint: "https://keyexch.epxuap.com",
   };
 
-  console.log('[EPX Routes] Initializing EPX service with config:', {
+  console.log("[EPX Routes] Initializing EPX service with config:", {
     environment: epxConfig.environment,
     baseUrl,
     hasMac: !!epxConfig.mac,
@@ -36,10 +41,15 @@ try {
   });
 
   initializeEPXService(epxConfig);
-  console.log('[EPX Routes] ✅ EPX Service initialized successfully');
+  console.log("[EPX Routes] ✅ EPX Service initialized successfully");
 } catch (error: any) {
-  console.error('[EPX Routes] ❌ Failed to initialize EPX service:', error.message);
-  console.error('[EPX Routes] EPX payment endpoints will return errors until service is properly configured');
+  console.error(
+    "[EPX Routes] ❌ Failed to initialize EPX service:",
+    error.message,
+  );
+  console.error(
+    "[EPX Routes] EPX payment endpoints will return errors until service is properly configured",
+  );
 }
 
 /**
@@ -58,8 +68,11 @@ router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
       });
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[EPX Create Payment] Request received:', { amount, tranNbr });
+    if (process.env.NODE_ENV === "development") {
+      console.log("[EPX Create Payment] Request received:", {
+        amount,
+        tranNbr,
+      });
     }
 
     // Get EPX service instance
@@ -89,19 +102,20 @@ router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
       amount,
       tranNbr,
       "card",
-      customerData || {}
+      customerData || {},
     );
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[EPX Create Payment] Success');
+    if (process.env.NODE_ENV === "development") {
+      console.log("[EPX Create Payment] Success");
     }
 
     return res.json({
       success: true,
       formData,
-      epxEndpoint: epxService.getConfig().environment === "sandbox"
-        ? "https://services.epxuap.com/browserpost/"
-        : "https://services.epx.com/browserpost/",
+      epxEndpoint:
+        (process.env.EPX_ENVIRONMENT || "sandbox") === "sandbox"
+          ? "https://services.epxuap.com/browserpost/"
+          : "https://services.epx.com/browserpost/",
     });
   } catch (error: any) {
     console.error("[EPX Create Payment] Error:", error.message);
@@ -121,8 +135,8 @@ router.get("/api/epx/redirect", async (req: Request, res: Response) => {
   try {
     const { TRAN_NBR, RESPONSE_CODE, MESSAGE, AMOUNT, AUTH_CODE } = req.query;
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[EPX Redirect] Payment completed:', {
+    if (process.env.NODE_ENV === "development") {
+      console.log("[EPX Redirect] Payment completed:", {
         tranNbr: TRAN_NBR,
         responseCode: RESPONSE_CODE,
         amount: AMOUNT,
@@ -134,14 +148,18 @@ router.get("/api/epx/redirect", async (req: Request, res: Response) => {
 
     if (isSuccess) {
       // Redirect to success page
-      return res.redirect(`/payment-success?tranNbr=${TRAN_NBR}&amount=${AMOUNT}&authCode=${AUTH_CODE}`);
+      return res.redirect(
+        `/payment-success?tranNbr=${TRAN_NBR}&amount=${AMOUNT}&authCode=${AUTH_CODE}`,
+      );
     } else {
       // Redirect to failure page
-      return res.redirect(`/payment-failed?tranNbr=${TRAN_NBR}&message=${encodeURIComponent(MESSAGE as string || 'Payment failed')}`);
+      return res.redirect(
+        `/payment-failed?tranNbr=${TRAN_NBR}&message=${encodeURIComponent((MESSAGE as string) || "Payment failed")}`,
+      );
     }
   } catch (error: any) {
     console.error("[EPX Redirect] Error:", error.message);
-    return res.redirect('/payment-error');
+    return res.redirect("/payment-error");
   }
 });
 
@@ -153,16 +171,15 @@ router.post("/api/epx/webhook", async (req: Request, res: Response) => {
   try {
     const webhookData = req.body;
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[EPX Webhook] Notification received:', webhookData);
+    if (process.env.NODE_ENV === "development") {
+      console.log("[EPX Webhook] Notification received:", webhookData);
     }
 
     // Validate webhook signature if configured
-    const epxService = getEPXService();
-    const config = epxService.getConfig();
+    const webhookSecret = process.env.EPX_WEBHOOK_SECRET;
 
-    if (config.webhookSecret) {
-      const signature = req.headers['x-epx-signature'] as string;
+    if (webhookSecret) {
+      const signature = req.headers["x-epx-signature"] as string;
       if (!signature) {
         return res.status(401).json({
           success: false,
@@ -172,9 +189,9 @@ router.post("/api/epx/webhook", async (req: Request, res: Response) => {
 
       // Verify signature
       const expectedSignature = crypto
-        .createHmac('sha256', config.webhookSecret)
+        .createHmac("sha256", webhookSecret)
         .update(JSON.stringify(webhookData))
-        .digest('hex');
+        .digest("hex");
 
       if (signature !== expectedSignature) {
         return res.status(401).json({
@@ -205,14 +222,14 @@ router.get("/api/epx/cancel", async (req: Request, res: Response) => {
   try {
     const { TRAN_NBR } = req.query;
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[EPX Cancel] Payment cancelled:', { tranNbr: TRAN_NBR });
+    if (process.env.NODE_ENV === "development") {
+      console.log("[EPX Cancel] Payment cancelled:", { tranNbr: TRAN_NBR });
     }
 
     return res.redirect(`/payment-cancelled?tranNbr=${TRAN_NBR}`);
   } catch (error: any) {
     console.error("[EPX Cancel] Error:", error.message);
-    return res.redirect('/payment-error');
+    return res.redirect("/payment-error");
   }
 });
 
@@ -222,18 +239,23 @@ router.get("/api/epx/cancel", async (req: Request, res: Response) => {
  */
 router.get("/api/epx/health", async (req: Request, res: Response) => {
   try {
-    const epxService = getEPXService();
-    const config = epxService.getConfig();
+    const environment = process.env.EPX_ENVIRONMENT || "sandbox";
+    const mac = process.env.EPX_MAC || process.env.EPX_MAC_KEY;
+    const custNbr = process.env.EPX_CUST_NBR;
+    const merchNbr = process.env.EPX_MERCH_NBR;
+    const dbaNbr = process.env.EPX_DBA_NBR;
+    const terminalNbr = process.env.EPX_TERMINAL_NBR;
 
     return res.json({
       success: true,
-      environment: config.environment,
-      configured: !!(config.mac && config.custNbr && config.merchNbr && config.dbaNbr && config.terminalNbr),
+      environment,
+      configured: !!(mac && custNbr && merchNbr && dbaNbr && terminalNbr),
       endpoints: {
-        tac: config.tacEndpoint,
-        browserPost: config.environment === "sandbox"
-          ? "https://services.epxuap.com/browserpost/"
-          : "https://services.epx.com/browserpost/",
+        tac: "https://keyexch.epxuap.com",
+        browserPost:
+          environment === "sandbox"
+            ? "https://services.epxuap.com/browserpost/"
+            : "https://services.epx.com/browserpost/",
       },
     });
   } catch (error: any) {
