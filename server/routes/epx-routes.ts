@@ -211,7 +211,8 @@ router.get(
       const redirectConfig = {
         backendUrl: backendUrl,
         frontendUrl: frontendUrl,
-        redirectUrl: `${frontendUrl}/payment/callback`,
+        // redirectUrl: `${frontendUrl}/payment/callback`,
+        redirectUrl: `${frontendUrl}/api/epx/redirect`,
         responseUrl: `${backendUrl}/api/epx/webhook`,
         cancelUrl: `${frontendUrl}/payment/cancel`,
         frontendRedirects: {
