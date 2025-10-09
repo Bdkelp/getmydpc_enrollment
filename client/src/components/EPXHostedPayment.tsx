@@ -96,12 +96,22 @@ export default function EPXHostedPayment({
                          billingAddress.postalCode === homeAddr.postalCode;
           setSameAsHome(matches);
           if (!matches) {
-            setManualBillingAddress(billingAddress);
+            setManualBillingAddress({
+              streetAddress: billingAddress.streetAddress || '',
+              city: billingAddress.city || '',
+              state: billingAddress.state || '',
+              postalCode: billingAddress.postalCode || ''
+            });
           }
         }
       } else if (billingAddress.streetAddress) {
         // No home address in storage, but billing was provided
-        setManualBillingAddress(billingAddress);
+        setManualBillingAddress({
+          streetAddress: billingAddress.streetAddress || '',
+          city: billingAddress.city || '',
+          state: billingAddress.state || '',
+          postalCode: billingAddress.postalCode || ''
+        });
         setSameAsHome(false);
       }
     } catch (e) {
