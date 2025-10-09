@@ -149,8 +149,12 @@ export default function EPXHostedPayment({
 
     return () => {
       // Cleanup
-      delete window.epxSuccessCallback;
-      delete window.epxFailureCallback;
+      if (window.epxSuccessCallback) {
+        window.epxSuccessCallback = undefined as any;
+      }
+      if (window.epxFailureCallback) {
+        window.epxFailureCallback = undefined as any;
+      }
     };
   }, [sessionData, onSuccess, onError]);
 
@@ -316,11 +320,11 @@ export default function EPXHostedPayment({
             />
           </div>
 
-          {/* Hidden fields */}
+          {/* Hidden fields - Required by EPX Hosted Checkout */}
           <input type="hidden" name="Amount" value={amount.toFixed(2)} />
-          <input type="hidden" name="OrderNumber" value={sessionData?.transactionId} />
-          <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId} />
-          <input type="hidden" name="PublicKey" value={sessionData?.publicKey} />
+          <input type="hidden" name="OrderNumber" value={sessionData?.transactionId || ''} />
+          <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId || ''} />
+          <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
           <input type="hidden" name="Captcha" value={sessionData?.captcha || 'bypass'} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
