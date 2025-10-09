@@ -12,7 +12,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
-import { EPXPayment } from "@/components/EPXPayment";
+// import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
+import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
 
 // Function to detect card type based on card number
 const detectCardType = (cardNumber: string) => {
@@ -545,7 +546,7 @@ export default function Payment() {
       {showEPXPayment && selectedPlan && user?.id && user?.email && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <EPXPayment
+            <EPXHostedPayment
               amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
               customerId={user.id}
               customerEmail={user.email}
@@ -553,7 +554,6 @@ export default function Payment() {
               description={`${selectedPlan.name} - DPC Subscription`}
               onSuccess={handleEPXPaymentSuccess}
               onError={handleEPXPaymentError}
-              onCancel={handleEPXPaymentCancel}
             />
           </div>
         </div>

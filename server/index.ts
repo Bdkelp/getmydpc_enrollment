@@ -2,9 +2,10 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
-import { initializeEPXService } from "./services/epx-payment-service";
+// import { initializeEPXService } from "./services/epx-payment-service"; // Browser Post (commented out)
 import { WeeklyRecapService } from "./services/weekly-recap-service";
-import epxRoutes from "./routes/epx-routes";
+// import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
+import epxHostedRoutes from "./routes/epx-hosted-routes"; // Hosted Checkout (active)
 import adminLogsRoutes from "./routes/admin-logs";
 import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
@@ -122,7 +123,8 @@ app.use((req, res, next) => {
 
 (async () => {
   // Register EPX routes FIRST before other routes
-  app.use('/', epxRoutes);
+  // app.use('/', epxRoutes); // Browser Post routes (commented out)
+  app.use('/', epxHostedRoutes); // Hosted Checkout routes (active)
   
   // Register all API routes
   const server = await registerRoutes(app);

@@ -1,7 +1,19 @@
 /**
  * EPX Payment Service Implementation
  * Browser Post API Integration with North.com EPX
+ * 
+ * === BROWSER POST IMPLEMENTATION - PRESERVED FOR FUTURE USE ===
+ * Commented out on: 2025-10-08
+ * Reason: Transitioning to Hosted Checkout
+ * DO NOT DELETE - May be reactivated later
+ * 
+ * To reactivate: 
+ * 1. Uncomment this file's content
+ * 2. Set EPX_PAYMENT_METHOD=browser-post in .env
+ * 3. Comment out hosted checkout implementation
  */
+
+/* === START BROWSER POST IMPLEMENTATION (COMMENTED) ===
 
 import crypto from "crypto";
 
@@ -93,7 +105,7 @@ export interface EPXWebhookPayload {
   [key: string]: any;
 }
 
-export class EPXPaymentService {
+// export class EPXPaymentService {
   private config: EPXConfig;
   private apiUrl: string;
   private keyExchangeUrl: string;
@@ -676,3 +688,5 @@ export function getEPXService(): EPXPaymentService {
   }
   return epxService;
 }
+
+=== END BROWSER POST IMPLEMENTATION (COMMENTED) ===
