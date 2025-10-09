@@ -14,34 +14,37 @@ let hostedCheckoutService: EPXHostedCheckoutService | null = null;
 let serviceInitialized = false;
 let initError: string | null = null;
 
-try {
-  const config = {
-    publicKey: process.env.EPX_PUBLIC_KEY || '',
-    terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || '',
-    environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
-    successCallback: 'epxSuccessCallback',
-    failureCallback: 'epxFailureCallback'
-  };
-
-  if (!config.publicKey) {
-    throw new Error('EPX_PUBLIC_KEY not configured');
-  }
-
-  hostedCheckoutService = new EPXHostedCheckoutService(config);
-  serviceInitialized = true;
+// Lazy initialization function
+const initializeService = () => {
+  if (serviceInitialized || hostedCheckoutService) return;
   
-  console.log('[EPX Hosted Routes] ✅ Service initialized successfully');
-  console.log('[EPX Hosted Routes] Environment:', config.environment);
-  console.log('[EPX Hosted Routes] Terminal Profile ID:', config.terminalProfileId);
-} catch (error: any) {
-  initError = error.message || 'Unknown initialization error';
-  console.error('[EPX Hosted Routes] ❌ Failed to initialize:', error);
-}
+  try {
+    const config = {
+      publicKey: process.env.EPX_PUBLIC_KEY || 'eyAidGVybWluYWxQcm9maWxlSWQiOiAiYjE1NjFjODAtZTgxZC00NTNmLTlkMDUtYTI2NGRjOTZiODhkIiB9',
+      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || 'b1561c80-e81d-453f-9d05-a264dc96b88d',
+      environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+      successCallback: 'epxSuccessCallback',
+      failureCallback: 'epxFailureCallback'
+    };
+
+    hostedCheckoutService = new EPXHostedCheckoutService(config);
+    serviceInitialized = true;
+    
+    console.log('[EPX Hosted Routes] ✅ Service initialized successfully');
+    console.log('[EPX Hosted Routes] Environment:', config.environment);
+    console.log('[EPX Hosted Routes] Has PublicKey:', !!config.publicKey);
+  } catch (error: any) {
+    initError = error.message || 'Unknown initialization error';
+    console.error('[EPX Hosted Routes] ❌ Failed to initialize:', error);
+  }
+};
 
 /**
  * Health check for Hosted Checkout service
  */
 router.get('/api/epx/hosted/health', (req: Request, res: Response) => {
+  initializeService(); // Ensure service is initialized
+  
   if (serviceInitialized) {
     res.json({
       status: 'healthy',
@@ -64,6 +67,8 @@ router.get('/api/epx/hosted/health', (req: Request, res: Response) => {
  * Get configuration for frontend
  */
 router.get('/api/epx/hosted/config', (req: Request, res: Response) => {
+  initializeService(); // Ensure service is initialized
+  
   try {
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
@@ -90,6 +95,8 @@ router.get('/api/epx/hosted/config', (req: Request, res: Response) => {
  * Create payment session for Hosted Checkout
  */
 router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response) => {
+  initializeService(); // Ensure service is initialized
+  
   try {
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
