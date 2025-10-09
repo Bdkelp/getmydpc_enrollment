@@ -8,9 +8,10 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CreditCard, AlertCircle, Loader2 } from 'lucide-react';
+import { CreditCard, AlertCircle, Loader2, Home } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -56,30 +57,69 @@ export default function EPXHostedPayment({
   const [error, setError] = useState<string | null>(null);
   const [sessionData, setSessionData] = useState<any>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
+  const [sameAsHome, setSameAsHome] = useState(true);
+  const [homeAddress, setHomeAddress] = useState<any>(null);
+  const [manualBillingAddress, setManualBillingAddress] = useState({
+    streetAddress: '',
+    city: '',
+    state: '',
+    postalCode: ''
+  });
   const { toast } = useToast();
   
-  // Try to get billing address from sessionStorage if not provided
+  // Determine which address to use based on checkbox
   const [populatedBillingAddress, setPopulatedBillingAddress] = useState(billingAddress);
+
+  // Load home address from sessionStorage
+  useEffect(() => {
+    try {
+      const storedAddress = sessionStorage.getItem('primaryAddress');
+      if (storedAddress) {
+        const parsed = JSON.parse(storedAddress);
+        const homeAddr = {
+          streetAddress: parsed.address || '',
+          city: parsed.city || '',
+          state: parsed.state || '',
+          postalCode: parsed.zipCode || ''
+        };
+        setHomeAddress(homeAddr);
+        
+        // If we have a home address and billing wasn't provided, use home address
+        if (!billingAddress.streetAddress) {
+          setPopulatedBillingAddress(homeAddr);
+          setSameAsHome(true);
+        } else {
+          // Check if provided billing address matches home address
+          const matches = billingAddress.streetAddress === homeAddr.streetAddress &&
+                         billingAddress.city === homeAddr.city &&
+                         billingAddress.state === homeAddr.state &&
+                         billingAddress.postalCode === homeAddr.postalCode;
+          setSameAsHome(matches);
+          if (!matches) {
+            setManualBillingAddress(billingAddress);
+          }
+        }
+      } else if (billingAddress.streetAddress) {
+        // No home address in storage, but billing was provided
+        setManualBillingAddress(billingAddress);
+        setSameAsHome(false);
+      }
+    } catch (e) {
+      console.log('[EPX Hosted] Could not parse stored address:', e);
+    }
+  }, [billingAddress]);
+
+  // Update populated address when checkbox changes
+  useEffect(() => {
+    if (sameAsHome && homeAddress) {
+      setPopulatedBillingAddress(homeAddress);
+    } else {
+      setPopulatedBillingAddress(manualBillingAddress);
+    }
+  }, [sameAsHome, homeAddress, manualBillingAddress]);
 
   // Initialize payment session
   useEffect(() => {
-    // Try to get address from sessionStorage if not provided
-    if (!billingAddress.streetAddress) {
-      try {
-        const storedAddress = sessionStorage.getItem('primaryAddress');
-        if (storedAddress) {
-          const parsed = JSON.parse(storedAddress);
-          setPopulatedBillingAddress({
-            streetAddress: parsed.address || billingAddress.streetAddress || '',
-            city: parsed.city || billingAddress.city || '',
-            state: parsed.state || billingAddress.state || '',
-            postalCode: parsed.zipCode || billingAddress.postalCode || ''
-          });
-        }
-      } catch (e) {
-        console.log('[EPX Hosted] Could not parse stored address:', e);
-      }
-    }
     
     const initSession = async () => {
       try {
@@ -294,51 +334,81 @@ export default function EPXHostedPayment({
             />
           </div>
 
-          {/* Billing Address */}
-          <div>
-            <Label htmlFor="BillingStreetAddress">Street Address</Label>
-            <Input
-              type="text"
-              id="BillingStreetAddress"
-              name="BillingStreetAddress"
-              defaultValue={populatedBillingAddress.streetAddress}
-              required
-            />
-          </div>
+          {/* Billing Address Section */}
+          <div className="space-y-4 border-t pt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="sameAsHome"
+                checked={sameAsHome}
+                onCheckedChange={(checked) => setSameAsHome(checked as boolean)}
+              />
+              <Label 
+                htmlFor="sameAsHome" 
+                className="flex items-center gap-2 cursor-pointer font-medium"
+              >
+                <Home className="h-4 w-4" />
+                Billing address same as home address
+              </Label>
+            </div>
 
-          <div className="grid grid-cols-2 gap-4">
+            {/* Street Address */}
             <div>
-              <Label htmlFor="BillingCity">City</Label>
+              <Label htmlFor="BillingStreetAddress">Street Address</Label>
               <Input
                 type="text"
-                id="BillingCity"
-                name="BillingCity"
-                defaultValue={populatedBillingAddress.city}
+                id="BillingStreetAddress"
+                name="BillingStreetAddress"
+                value={sameAsHome && homeAddress ? homeAddress.streetAddress : manualBillingAddress.streetAddress}
+                onChange={(e) => !sameAsHome && setManualBillingAddress({...manualBillingAddress, streetAddress: e.target.value})}
+                readOnly={sameAsHome && !!homeAddress}
+                className={sameAsHome && homeAddress ? "bg-gray-50" : ""}
                 required
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="BillingCity">City</Label>
+                <Input
+                  type="text"
+                  id="BillingCity"
+                  name="BillingCity"
+                  value={sameAsHome && homeAddress ? homeAddress.city : manualBillingAddress.city}
+                  onChange={(e) => !sameAsHome && setManualBillingAddress({...manualBillingAddress, city: e.target.value})}
+                  readOnly={sameAsHome && !!homeAddress}
+                  className={sameAsHome && homeAddress ? "bg-gray-50" : ""}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="BillingState">State</Label>
+                <Input
+                  type="text"
+                  id="BillingState"
+                  name="BillingState"
+                  value={sameAsHome && homeAddress ? homeAddress.state : manualBillingAddress.state}
+                  onChange={(e) => !sameAsHome && setManualBillingAddress({...manualBillingAddress, state: e.target.value})}
+                  readOnly={sameAsHome && !!homeAddress}
+                  className={sameAsHome && homeAddress ? "bg-gray-50" : ""}
+                  maxLength={2}
+                  required
+                />
+              </div>
+            </div>
+
             <div>
-              <Label htmlFor="BillingState">State</Label>
+              <Label htmlFor="BillingPostalCode">Postal Code</Label>
               <Input
                 type="text"
-                id="BillingState"
-                name="BillingState"
-                defaultValue={populatedBillingAddress.state}
-                maxLength={2}
+                id="BillingPostalCode"
+                name="BillingPostalCode"
+                value={sameAsHome && homeAddress ? homeAddress.postalCode : manualBillingAddress.postalCode}
+                onChange={(e) => !sameAsHome && setManualBillingAddress({...manualBillingAddress, postalCode: e.target.value})}
+                readOnly={sameAsHome && !!homeAddress}
+                className={sameAsHome && homeAddress ? "bg-gray-50" : ""}
                 required
               />
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="BillingPostalCode">Postal Code</Label>
-            <Input
-              type="text"
-              id="BillingPostalCode"
-              name="BillingPostalCode"
-              defaultValue={populatedBillingAddress.postalCode}
-              required
-            />
           </div>
 
           {/* Hidden fields - Required by EPX Hosted Checkout */}
