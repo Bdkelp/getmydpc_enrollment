@@ -550,8 +550,15 @@ export default function Payment() {
               amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
               customerId={user.id}
               customerEmail={user.email}
+              customerName={`${user.firstName || ''} ${user.lastName || ''}`.trim()}
               planId={selectedPlanId?.toString()}
               description={`${selectedPlan.name} - DPC Subscription`}
+              billingAddress={{
+                streetAddress: user.address || '',
+                city: user.city || '',
+                state: user.state || '',
+                postalCode: user.zipCode || ''
+              }}
               onSuccess={handleEPXPaymentSuccess}
               onError={handleEPXPaymentError}
             />

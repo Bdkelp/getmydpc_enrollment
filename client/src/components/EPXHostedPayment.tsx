@@ -57,9 +57,30 @@ export default function EPXHostedPayment({
   const [sessionData, setSessionData] = useState<any>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const { toast } = useToast();
+  
+  // Try to get billing address from sessionStorage if not provided
+  const [populatedBillingAddress, setPopulatedBillingAddress] = useState(billingAddress);
 
   // Initialize payment session
   useEffect(() => {
+    // Try to get address from sessionStorage if not provided
+    if (!billingAddress.streetAddress) {
+      try {
+        const storedAddress = sessionStorage.getItem('primaryAddress');
+        if (storedAddress) {
+          const parsed = JSON.parse(storedAddress);
+          setPopulatedBillingAddress({
+            streetAddress: parsed.address || billingAddress.streetAddress || '',
+            city: parsed.city || billingAddress.city || '',
+            state: parsed.state || billingAddress.state || '',
+            postalCode: parsed.zipCode || billingAddress.postalCode || ''
+          });
+        }
+      } catch (e) {
+        console.log('[EPX Hosted] Could not parse stored address:', e);
+      }
+    }
+    
     const initSession = async () => {
       try {
         console.log('[EPX Hosted] Initializing payment session');
@@ -73,7 +94,7 @@ export default function EPXHostedPayment({
           planId,
           subscriptionId,
           description: description || 'DPC Subscription Payment',
-          billingAddress
+          billingAddress: populatedBillingAddress
         });
 
         if (!response.success) {
@@ -110,7 +131,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress]);
 
   // Setup callback functions
   useEffect(() => {
@@ -280,7 +301,7 @@ export default function EPXHostedPayment({
               type="text"
               id="BillingStreetAddress"
               name="BillingStreetAddress"
-              defaultValue={billingAddress.streetAddress}
+              defaultValue={populatedBillingAddress.streetAddress}
               required
             />
           </div>
@@ -292,7 +313,7 @@ export default function EPXHostedPayment({
                 type="text"
                 id="BillingCity"
                 name="BillingCity"
-                defaultValue={billingAddress.city}
+                defaultValue={populatedBillingAddress.city}
                 required
               />
             </div>
@@ -302,7 +323,7 @@ export default function EPXHostedPayment({
                 type="text"
                 id="BillingState"
                 name="BillingState"
-                defaultValue={billingAddress.state}
+                defaultValue={populatedBillingAddress.state}
                 maxLength={2}
                 required
               />
@@ -315,7 +336,7 @@ export default function EPXHostedPayment({
               type="text"
               id="BillingPostalCode"
               name="BillingPostalCode"
-              defaultValue={billingAddress.postalCode}
+              defaultValue={populatedBillingAddress.postalCode}
               required
             />
           </div>
