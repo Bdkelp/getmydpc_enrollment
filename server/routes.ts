@@ -15,7 +15,7 @@ import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is 
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { nanoid } from "nanoid"; // Import nanoid for generating IDs
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
-import epxHostedRoutes from "./routes/epx-hosted-routes"; // Hosted Checkout (active) // Import EPX payment routes
+// import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
 const router = Router();
 
@@ -2239,7 +2239,9 @@ export async function registerRoutes(app: any) {
   };
 
   // Register EPX payment routes FIRST (highest priority)
-  app.use(epxHostedRoutes);
+  // EPX routes are already registered in server/index.ts before registerRoutes() is called
+  // Commenting out to avoid duplicate registration
+  // app.use(epxHostedRoutes);
 
   // Use the router for general API routes
   app.use(router);
