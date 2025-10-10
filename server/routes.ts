@@ -2537,6 +2537,37 @@ export async function registerRoutes(app: any) {
             updatedAt: new Date()
           });
           console.log("[Registration] Subscription created:", subscription.id);
+
+          // ========== FIX: CREATE COMMISSION AUTOMATICALLY ==========
+          // Create commission record if enrolled by an agent
+          if (enrolledByAgentId && subscription.id) {
+            try {
+              console.log("[Registration] Creating commission for agent:", enrolledByAgentId);
+              
+              const commissionResult = await createCommissionWithCheck(
+                enrolledByAgentId,
+                subscription.id,
+                user.id,
+                planName || 'MyPremierPlan',
+                coverageType || 'Individual'
+              );
+              
+              if (commissionResult.success) {
+                console.log("[Registration] ✅ Commission created successfully:", commissionResult.commission.id);
+              } else if (commissionResult.skipped) {
+                console.log("[Registration] ⚠️ Commission skipped:", commissionResult.reason);
+              } else if (commissionResult.error) {
+                console.error("[Registration] ❌ Commission creation error:", commissionResult.error);
+              }
+            } catch (commError) {
+              console.error("[Registration] ❌ Exception creating commission:", commError);
+              // Log error but don't fail the registration
+            }
+          } else {
+            console.log("[Registration] ℹ️ No agent ID or subscription ID - skipping commission");
+          }
+          // ========== END COMMISSION FIX ==========
+
         } catch (subError) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
