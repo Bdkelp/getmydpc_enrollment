@@ -1,13 +1,24 @@
 # Database Access Guide
 
-## Database Connection Information
+## Database Architecture
 
-Your application uses Supabase for all business data (leads, users, enrollments, subscriptions).
+Your application uses a **dual-database architecture**:
+
+### 🔐 Supabase - Authentication Only
+- **Provider**: Supabase (Managed PostgreSQL)
+- **Purpose**: User authentication and session management
+- **Features**: Sign up/login, password reset, JWT tokens, OAuth
+- **Access**: Via Supabase Auth client
+
+### 💾 Neon - All Business Data
+- **Provider**: Neon (Serverless PostgreSQL)
+- **Purpose**: ALL business data storage
+- **Tables**: leads, users, enrollments, subscriptions, commissions, payments, plans, family_members
+- **Access**: Direct SQL via `neonPool` connection (server/lib/neonDb.ts)
 
 ### Connection Details
-- **Provider**: Supabase (Managed PostgreSQL with built-in APIs)
-- **Access**: Via Supabase client and API
-- **Authentication**: Integrated with Supabase Auth
+- **Authentication**: Supabase Auth (`supabase.auth.*`)
+- **Data Operations**: Neon PostgreSQL (via `DATABASE_URL`)
 
 ## How to Access Your Database
 

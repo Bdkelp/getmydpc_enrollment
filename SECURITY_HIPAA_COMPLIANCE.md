@@ -3,9 +3,9 @@
 ## Current Security Status
 
 ### ✅ Already Implemented
-- **HTTPS/TLS**: Automatic on Replit deployments
-- **Password Hashing**: Using bcrypt for secure password storage
-- **Session Management**: Secure sessions with PostgreSQL backing
+- **HTTPS/TLS**: Automatic on Railway/Vercel deployments
+- **Password Hashing**: Managed by Supabase Auth (industry-standard bcrypt)
+- **Session Management**: Supabase Auth with JWT tokens
 - **SQL Injection Protection**: Parameterized queries via Drizzle ORM
 - **CSRF Protection**: Session-based authentication
 - **Input Validation**: Zod schemas for all user inputs
@@ -115,10 +115,12 @@ export const permissions = {
 
 ### 4. Business Associate Agreements (BAAs)
 **Required with**:
-- Replit (if storing PHI)
-- Stripe (payment processor)
+- Neon (database provider - stores PHI)
+- Supabase (authentication provider)
+- Railway/Vercel (hosting platform)
+- EPX/North.com (payment processor)
 - Email service provider
-- Any third-party services
+- Any third-party services storing PHI
 
 ## HIPAA Physical Safeguards
 
@@ -219,11 +221,14 @@ const purgeOldData = async () => {
 
 ## Vendor Requirements
 
-### Hosting Provider BAA Status
-- **Replit**: Contact for BAA
-- **AWS**: HIPAA eligible with BAA
-- **Google Cloud**: HIPAA compliant with BAA
-- **Azure**: HIPAA compliant with BAA
+### Current Vendors & BAA Status
+- **Railway/Vercel**: Contact for BAA (hosting)
+- **Neon**: HIPAA-eligible PostgreSQL with BAA available
+- **Supabase**: HIPAA-compliant authentication with BAA available
+- **EPX/North.com**: PCI-DSS compliant payment processing
+- **AWS**: HIPAA eligible with BAA (if needed)
+- **Google Cloud**: HIPAA compliant with BAA (if needed)
+- **Azure**: HIPAA compliant with BAA (if needed)
 - **DigitalOcean**: HIPAA compliant with BAA
 
 ### Third-Party Services

@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS setup - improved for Replit deployment
+// CORS setup - production deployment configuration
 app.use(
   cors({
     origin: function (
@@ -41,12 +41,8 @@ app.use(
       // Allow requests with no origin (mobile apps, etc.)
       if (!origin) return callback(null, true);
 
-      // Allow Replit domains and production domain
+      // Allow production domains and development environments
       const allowedOrigins: (string | RegExp)[] = [
-        /\.replit\.dev$/,
-        /\.replit\.app$/,
-        /^https:\/\/.*\.replit\.dev$/,
-        /^https:\/\/.*\.replit\.app$/,
         /^https:\/\/.*\.vercel\.app$/,
         /^https:\/\/.*\.railway\.app$/,
         /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
@@ -181,8 +177,7 @@ app.use((req, res, next) => {
             EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT SET',
             EPX_MAC: process.env.EPX_MAC ? 'SET' : 'NOT SET',
             EPX_MAC_KEY: process.env.EPX_MAC_KEY ? 'SET' : 'NOT SET',
-            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET',
-            BASE_URL: process.env.REPLIT_DEV_DOMAIN
+            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET'
           });
       } catch (error) {
         console.warn('[Server] EPX configuration check failed:', error.message);

@@ -36,8 +36,7 @@ router.get("/api/test-cors", (req, res) => {
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
   if (allowedOrigins.includes(origin as string)) {
@@ -175,8 +174,7 @@ router.post("/api/auth/login", async (req, res) => {
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
   if (allowedOrigins.includes(origin as string)) {
@@ -553,8 +551,7 @@ router.post("/api/user/activity-ping", async (req: any, res: any) => {
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
   if (allowedOrigins.includes(origin as string)) {
@@ -697,7 +694,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
   ];
 
-  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
+  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
 
   // Always set CORS headers for this public endpoint
@@ -2263,8 +2260,7 @@ export async function registerRoutes(app: any) {
       'https://shimmering-nourishment.up.railway.app',
       'http://localhost:3000',
       'http://localhost:5173',
-      'http://localhost:5000',
-      'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+      'http://localhost:5000'
     ];
 
     if (allowedOrigins.includes(origin as string)) {
