@@ -11,6 +11,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://getmydpcenrollment-production.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
