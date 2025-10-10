@@ -1,26 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "cd client && npm ci && npm run build",
-  "outputDirectory": "client/dist",
   "env": {
     "VITE_API_URL": "https://getmydpcenrollment-production.up.railway.app"
-  },
-  "rewrites": [
-    {
-      "source": "/api/epx/redirect",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/redirect"
-    },
-    {
-      "source": "/api/epx/:path*",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/:path*"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/:path*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ]
+  }
 }
