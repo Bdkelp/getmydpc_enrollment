@@ -69,6 +69,7 @@ function Router() {
       <Route path="/payment/failed" component={PaymentFailed} />
       <Route path="/payment/cancel" component={PaymentCancel} />
       <Route path="/payment/error" component={PaymentFailed} />
+      {/* Confirmation page - accessible to authenticated agents/admins after payment */}
       <Route path="/confirmation" component={Confirmation} />
       <Route path="/confirmation/:userId" component={Confirmation} />
       <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={user.role === "admin" ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
