@@ -107,7 +107,7 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 }
 
-// Note: EPX Browser Post API integration is handled in epx-hosted-checkout-service.ts
+// Note: EPX Hosted Checkout integration is handled in epx-hosted-checkout-service.ts
 // This payment-service.ts file is for the Mock payment provider used in testing
 
 // Payment Service Factory
