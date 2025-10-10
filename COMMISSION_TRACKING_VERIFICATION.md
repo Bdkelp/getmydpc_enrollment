@@ -534,7 +534,7 @@ Create a script to generate commission records for existing subscriptions that d
 
 ### Fix #3: Add Commission Creation to Payment Success Webhook
 
-If using payment webhooks (Stripe, PayAnywhere), also trigger commission creation upon successful payment.
+If using payment webhooks (EPX), also trigger commission creation upon successful payment.
 
 ---
 

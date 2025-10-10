@@ -19,7 +19,7 @@ export interface PaymentRequest {
   customerEmail: string;
   description: string;
   metadata?: Record<string, any>;
-  // PayAnywhere specific fields
+  // Optional payment-specific fields
   invoiceNumber?: string;
   orderNumber?: string;
   taxAmount?: number;
