@@ -1,6 +1,6 @@
 /**
  * Payment Service Abstraction Layer
- * Supports multiple payment providers: Mock, EPX Browser Post API (North.com)
+ * Supports multiple payment providers: Mock, EPX Hosted Checkout (North.com)
  */
 
 export interface PaymentProvider {
