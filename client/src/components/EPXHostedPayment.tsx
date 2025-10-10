@@ -197,9 +197,10 @@ export default function EPXHostedPayment({
         onSuccess(sessionData.transactionId);
       }
 
-      // Redirect to success page
+      // Redirect to confirmation page with transaction details
       setTimeout(() => {
-        window.location.href = '/payment/success';
+        const transactionId = sessionData?.transactionId || 'unknown';
+        window.location.href = `/confirmation?transaction=${transactionId}&amount=${amount.toFixed(2)}`;
       }, 2000);
     };
 
