@@ -7,8 +7,8 @@
  * Run with: node check_commission_tracking.js
  */
 
-import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
+const { createClient } = require('@supabase/supabase-js');
+const dotenv = require('dotenv');
 
 // Load environment variables
 dotenv.config();
