@@ -1,0 +1,82 @@
+{{
+
+  "rewrites": [  "version": 2,
+
+    {  "env": {
+
+      "source": "/api/epx/redirect",    "VITE_API_URL": "https://getmydpcenrollment-production.up.railway.app"
+
+      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/redirect"  },
+
+    },  "rewrites": [
+
+    {    {
+
+      "source": "/api/epx/:path*",      "source": "/api/epx/redirect",
+
+      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/:path*"      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/redirect"
+
+    },    },
+
+    {    {
+
+      "source": "/api/:path*",      "source": "/api/epx/:path*",
+
+      "destination": "https://getmydpcenrollment-production.up.railway.app/api/:path*"      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/:path*"
+
+    },    },
+
+    {    {
+
+      "source": "/(.*)",      "source": "/api/:path*",
+
+      "destination": "/index.html"      "destination": "https://getmydpcenrollment-production.up.railway.app/api/:path*"
+
+    }    },
+
+  ],    {
+
+  "headers": [      "source": "/(.*)",
+
+    {      "destination": "/index.html"
+
+      "source": "/(.*)",    }
+
+      "headers": [  ],
+
+        {  "headers": [
+
+          "key": "X-Content-Type-Options",    {
+
+          "value": "nosniff"      "source": "/(.*)",
+
+        },      "headers": [
+
+        {        {
+
+          "key": "X-Frame-Options",          "key": "X-Content-Type-Options",
+
+          "value": "DENY"          "value": "nosniff"
+
+        },        },
+
+        {        {
+
+          "key": "X-XSS-Protection",          "key": "X-Frame-Options",
+
+          "value": "1; mode=block"          "value": "DENY"
+
+        }        },
+
+      ]        {
+
+    }          "key": "X-XSS-Protection",
+
+  ]          "value": "1; mode=block"
+
+}        }
+
+      ]
+    }
+  ]
+}
