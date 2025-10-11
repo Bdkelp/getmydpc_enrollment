@@ -215,13 +215,36 @@ export default function Confirmation() {
     });
   };
 
-  // Email function (simulated)
-  const handleEmail = () => {
-    // In a real implementation, this would call an API endpoint to send an email
-    toast({
-      title: "Email Requested",
-      description: "Your enrollment confirmation will be emailed to your registered address shortly.",
-    });
+  // Email function - sends confirmation email
+  const handleEmail = async () => {
+    try {
+      const response = await apiRequest('/api/send-confirmation-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          customerNumber: membershipData?.customerNumber,
+          memberName: `${user?.firstName} ${user?.lastName}`,
+          planName: selectedPlan?.name || 'Premium Plan',
+          transactionId: membershipData?.transactionId,
+          amount: membershipData?.totalMonthlyPrice
+        })
+      });
+
+      toast({
+        title: "Email Sent",
+        description: "Your enrollment confirmation has been emailed from info@mypremierplans.com",
+      });
+    } catch (error) {
+      console.error('Error sending confirmation email:', error);
+      toast({
+        title: "Email Error",
+        description: "Failed to send confirmation email. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
