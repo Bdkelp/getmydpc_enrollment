@@ -144,8 +144,8 @@ export default function Payment() {
     
     // Show acknowledgment toast
     toast({
-      title: "Policy Accepted",
-      description: "Cancellation and refund policy has been downloaded. Opening payment form...",
+      title: "Terms Acknowledged",
+      description: "Cancellation and refund terms have been reviewed. Opening payment form...",
     });
     
     // Use EPX payment directly (in sandbox mode, no real charges)
