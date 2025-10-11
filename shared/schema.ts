@@ -151,7 +151,9 @@ export const plans = pgTable("plans", {
 // Subscriptions table
 export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // For staff subscriptions (nullable)
+  memberId: integer("member_id").references(() => members.id), // For member subscriptions (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   planId: integer("plan_id").references(() => plans.id).notNull(),
   status: varchar("status").notNull(), // active, cancelled, suspended, pending
   pendingReason: varchar("pending_reason"), // payment_required, verification_needed, missing_documents, agent_review
@@ -163,12 +165,16 @@ export const subscriptions = pgTable("subscriptions", {
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_subscriptions_member_id").on(table.memberId),
+]);
 
 // Payments table
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // For staff payments (nullable)
+  memberId: integer("member_id").references(() => members.id), // For member payments (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency").default("USD"), // Payment currency
@@ -180,12 +186,15 @@ export const payments = pgTable("payments", {
   metadata: jsonb("metadata"), // Additional payment metadata
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_payments_member_id").on(table.memberId),
+]);
 
 // Enrollment modifications audit table
 export const enrollmentModifications = pgTable("enrollment_modifications", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // nullable - could be member
+  memberId: integer("member_id").references(() => members.id), // nullable - for member modifications
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   modifiedBy: varchar("modified_by").references(() => users.id).notNull(), // Agent or admin who made the change
   changeType: varchar("change_type").notNull(), // plan_change, info_update, status_change, etc.
@@ -199,9 +208,12 @@ export const enrollmentModifications = pgTable("enrollment_modifications", {
 // Commission tracking table
 export const commissions = pgTable("commissions", {
   id: serial("id").primaryKey(),
-  agentId: varchar("agent_id").references(() => users.id).notNull(),
+  agentId: varchar("agent_id").references(() => users.id).notNull(), // Agent earning commission
+  agentNumber: varchar("agent_number").notNull(), // Agent number at time of enrollment (MPP0001)
   subscriptionId: integer("subscription_id").references(() => subscriptions.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(), // The enrolled member
+  userId: varchar("user_id").references(() => users.id), // Legacy - for staff subscriptions (nullable)
+  memberId: integer("member_id").references(() => members.id), // The enrolled member (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   planName: varchar("plan_name").notNull(),
   planType: varchar("plan_type").notNull(), // IE, C, CH, AM
   planTier: varchar("plan_tier").notNull(), // MyPremierPlan, MyPremierPlan Plus, MyPremierElite Plan
@@ -214,7 +226,10 @@ export const commissions = pgTable("commissions", {
   cancellationReason: text("cancellation_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table: any) => [
+  index("idx_commissions_member_id").on(table.memberId),
+  index("idx_commissions_agent_number").on(table.agentNumber),
+]);
 
 // Leads table
 export const leads = pgTable("leads", {
@@ -243,7 +258,9 @@ export const leadActivities = pgTable("lead_activities", {
 
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
-  primaryUserId: varchar("primary_user_id").references(() => users.id).notNull(),
+  primaryUserId: varchar("primary_user_id").references(() => users.id), // For staff (nullable)
+  primaryMemberId: integer("primary_member_id").references(() => members.id), // For members (nullable)
+  // Note: Either primaryUserId OR primaryMemberId must be set, enforced by CHECK constraint in migration
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
   middleName: varchar("middle_name"),
@@ -262,37 +279,50 @@ export const familyMembers = pgTable("family_members", {
   planStartDate: varchar("plan_start_date"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table: any) => [
+  index("idx_family_members_primary_member_id").on(table.primaryMemberId),
+]);
 
 // Relations
-export const usersRelations = relations(users, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
   payments: many(payments),
   familyMembers: many(familyMembers),
   commissions: many(commissions),
 }));
 
-export const plansRelations = relations(plans, ({ many }) => ({
+export const membersRelations = relations(members, ({ many, one }: any) => ({
+  subscriptions: many(subscriptions),
+  payments: many(payments),
+  familyMembers: many(familyMembers),
+  commissions: many(commissions),
+  enrolledByAgent: one(users, { fields: [members.enrolledByAgentId], references: [users.id] }),
+}));
+
+export const plansRelations = relations(plans, ({ many }: any) => ({
   subscriptions: many(subscriptions),
 }));
 
-export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
+export const subscriptionsRelations = relations(subscriptions, ({ one, many }: any) => ({
   user: one(users, { fields: [subscriptions.userId], references: [users.id] }),
+  member: one(members, { fields: [subscriptions.memberId], references: [members.id] }),
   plan: one(plans, { fields: [subscriptions.planId], references: [plans.id] }),
   payments: many(payments),
   commissions: many(commissions),
 }));
 
-export const paymentsRelations = relations(payments, ({ one }) => ({
+export const paymentsRelations = relations(payments, ({ one }: any) => ({
   user: one(users, { fields: [payments.userId], references: [users.id] }),
+  member: one(members, { fields: [payments.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [payments.subscriptionId], references: [subscriptions.id] }),
 }));
 
-export const familyMembersRelations = relations(familyMembers, ({ one }) => ({
+export const familyMembersRelations = relations(familyMembers, ({ one }: any) => ({
   primaryUser: one(users, { fields: [familyMembers.primaryUserId], references: [users.id] }),
+  primaryMember: one(members, { fields: [familyMembers.primaryMemberId], references: [members.id] }),
 }));
 
-export const leadsRelations = relations(leads, ({ one, many }) => ({
+export const leadsRelations = relations(leads, ({ one, many }: any) => ({
   assignedAgent: one(users, {
     fields: [leads.assignedAgentId],
     references: [users.id],
@@ -300,7 +330,7 @@ export const leadsRelations = relations(leads, ({ one, many }) => ({
   activities: many(leadActivities),
 }));
 
-export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
+export const leadActivitiesRelations = relations(leadActivities, ({ one }: any) => ({
   lead: one(leads, {
     fields: [leadActivities.leadId],
     references: [leads.id],
@@ -311,14 +341,21 @@ export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
   }),
 }));
 
-export const commissionsRelations = relations(commissions, ({ one }) => ({
+export const commissionsRelations = relations(commissions, ({ one }: any) => ({
   agent: one(users, { fields: [commissions.agentId], references: [users.id] }),
   user: one(users, { fields: [commissions.userId], references: [users.id] }),
+  member: one(members, { fields: [commissions.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [commissions.subscriptionId], references: [subscriptions.id] }),
 }));
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMemberSchema = createInsertSchema(members).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -431,6 +468,8 @@ export const registrationSchema = z.object({
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type Member = typeof members.$inferSelect;
+export type InsertMember = z.infer<typeof insertMemberSchema>;
 export type Plan = typeof plans.$inferSelect;
 export type InsertPlan = z.infer<typeof insertPlanSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
