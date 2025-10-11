@@ -309,7 +309,7 @@ Last Updated: January 31, 2025`;
               className="flex items-center gap-2"
             >
               <Download className="h-4 w-4" />
-              Download Policy
+              Download Terms
             </Button>
 
             <div className="flex gap-2">
