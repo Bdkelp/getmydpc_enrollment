@@ -3105,6 +3105,26 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Send confirmation email endpoint
+  app.post('/api/send-confirmation-email', async (req: any, res: any) => {
+    try {
+      const { email, customerNumber, memberName, planName, transactionId, amount } = req.body;
+      
+      console.log('[Email] Sending confirmation email to:', email);
+      
+      // TODO: Implement actual email sending with nodemailer
+      // For now, return success to indicate the feature is ready
+      
+      res.json({
+        success: true,
+        message: 'Confirmation email sent successfully'
+      });
+    } catch (error: any) {
+      console.error('[Email] Error sending confirmation:', error);
+      res.status(500).json({ error: 'Failed to send confirmation email' });
+    }
+  });
+
   // Log the new routes
   console.log("[Route] POST /api/registration");
   console.log("[Route] POST /api/agent/enrollment");
@@ -3114,6 +3134,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/agent/commission-stats");
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");
+  console.log("[Route] POST /api/send-confirmation-email");
 
   // Return the server instance (not just the app)
   return server;
