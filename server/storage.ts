@@ -2177,35 +2177,48 @@ export const storage = {
     try {
       console.log('[Storage] Creating subscription:', sub);
       
-      // Database uses snake_case column names
-      const dbSub: any = {
-        user_id: sub.userId,
-        plan_id: sub.planId,
-        status: sub.status || 'pending_payment',
-        amount: sub.amount,
-        start_date: sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
-        end_date: sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        created_at: sub.createdAt || new Date().toISOString(),
-        updated_at: sub.updatedAt || new Date().toISOString()
-      };
+      // Use direct Neon database connection to bypass Supabase RLS
+      const insertQuery = `
+        INSERT INTO subscriptions (
+          user_id,
+          plan_id,
+          status,
+          amount,
+          start_date,
+          end_date,
+          pending_reason,
+          pending_details,
+          next_billing_date,
+          stripe_subscription_id,
+          created_at,
+          updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+        )
+        RETURNING *;
+      `;
 
-      // Optional fields
-      if (sub.pendingReason) dbSub.pending_reason = sub.pendingReason;
-      if (sub.pendingDetails) dbSub.pending_details = sub.pendingDetails;
-      if (sub.nextBillingDate) dbSub.next_billing_date = sub.nextBillingDate;
-      if (sub.stripeSubscriptionId) dbSub.stripe_subscription_id = sub.stripeSubscriptionId;
+      const values = [
+        sub.userId,
+        sub.planId,
+        sub.status || 'pending_payment',
+        sub.amount,
+        sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
+        sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        sub.pendingReason || null,
+        sub.pendingDetails || null,
+        sub.nextBillingDate || null,
+        sub.stripeSubscriptionId || null
+      ];
 
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .insert([dbSub])
-        .select()
-        .single();
+      console.log('[Storage] Executing direct SQL insert to Neon database');
+      const result = await query(insertQuery, values);
 
-      if (error) {
-        console.error('[Storage] Error creating subscription:', error);
-        throw new Error(`Failed to create subscription: ${error.message}`);
+      if (!result.rows || result.rows.length === 0) {
+        throw new Error('Subscription creation failed - no data returned');
       }
 
+      const data = result.rows[0];
       console.log('[Storage] ✅ Subscription created successfully:', data.id);
 
       // Return with camelCase for application layer
@@ -2221,12 +2234,12 @@ export const storage = {
         nextBillingDate: data.next_billing_date,
         currentPeriodStart: data.start_date, // Map for compatibility
         currentPeriodEnd: data.end_date, // Map for compatibility
-        amount: data.amount,
+        amount: parseFloat(data.amount),
         stripeSubscriptionId: data.stripe_subscription_id,
         createdAt: data.created_at,
         updatedAt: data.updated_at
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Storage] Exception in createSubscription:', error);
       throw error;
     }
