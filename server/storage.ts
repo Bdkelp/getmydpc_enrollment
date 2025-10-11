@@ -189,12 +189,34 @@ export async function createUser(userData: Partial<User>): Promise<User> {
   try {
     // Use direct Neon query to bypass RLS
     const id = userData.id || crypto.randomUUID();
+    
+    // Auto-generate agent number if user is agent/admin and has SSN
+    let agentNumber = userData.agentNumber;
+    const role = userData.role || 'member';
+    
+    if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
+      // Import agent number generator
+      const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
+      
+      // Extract last 4 digits of SSN
+      const ssnLast4 = userData.ssn.slice(-4);
+      
+      // Generate agent number (format: MPPSA251154 or MPPAG251154)
+      try {
+        agentNumber = generateAgentNumber(role, ssnLast4);
+        console.log(`[Agent Number] Generated: ${agentNumber} for ${role} ${userData.email}`);
+      } catch (error: any) {
+        console.warn(`[Agent Number] Generation failed: ${error.message}`);
+        // Continue without agent number - can be added later
+      }
+    }
+    
     const result = await query(
       `INSERT INTO users (
-        id, email, first_name, last_name, phone, role, is_active, approval_status,
-        email_verified, created_at, updated_at, profile_image_url,
-        google_id, facebook_id, twitter_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        id, email, first_name, last_name, phone, role, agent_number, ssn,
+        is_active, approval_status, email_verified, created_at, updated_at,
+        profile_image_url, google_id, facebook_id, twitter_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *`,
       [
         id,
@@ -202,7 +224,9 @@ export async function createUser(userData: Partial<User>): Promise<User> {
         userData.firstName || '',
         userData.lastName || '',
         userData.phone || null,
-        userData.role || 'member',
+        role,
+        agentNumber || null,
+        userData.ssn || null,
         userData.isActive !== undefined ? userData.isActive : true,
         userData.approvalStatus || 'approved',
         userData.emailVerified || false,
