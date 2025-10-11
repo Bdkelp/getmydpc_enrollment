@@ -7,7 +7,7 @@ import {
   calculateCommission,
   getPlanTierFromName,
   getPlanTypeFromMemberType,
-} from "./utils/commission";
+} from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
