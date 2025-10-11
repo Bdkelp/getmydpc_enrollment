@@ -198,9 +198,20 @@ export default function EPXHostedPayment({
       }
 
       // Redirect to confirmation page with transaction details
+      // Include planId so confirmation can show plan details even if sessionStorage cleared
       setTimeout(() => {
         const transactionId = sessionData?.transactionId || 'unknown';
-        window.location.href = `/confirmation?transaction=${transactionId}&amount=${amount.toFixed(2)}`;
+        const params = new URLSearchParams({
+          transaction: transactionId,
+          amount: amount.toFixed(2)
+        });
+        
+        // Add planId if available (won't affect EPX - this is our internal redirect)
+        if (planId) {
+          params.append('planId', planId);
+        }
+        
+        window.location.href = `/confirmation?${params.toString()}`;
       }, 2000);
     };
 

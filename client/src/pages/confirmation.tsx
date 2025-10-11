@@ -26,18 +26,26 @@ export default function Confirmation() {
     const urlParams = new URLSearchParams(window.location.search);
     const epxTransaction = urlParams.get('transaction');
     const epxAmount = urlParams.get('amount');
+    const urlPlanId = urlParams.get('planId'); // Get planId from URL (survives redirect)
     
     if (epxTransaction) {
-      console.log('EPX payment redirect detected:', { transaction: epxTransaction, amount: epxAmount });
+      console.log('EPX payment redirect detected:', { 
+        transaction: epxTransaction, 
+        amount: epxAmount,
+        planId: urlPlanId 
+      });
     }
 
-    const planId = sessionStorage.getItem("selectedPlanId");
+    // Try URL first (most reliable after redirect), then sessionStorage
+    const planId = urlPlanId || sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
     const rxValet = sessionStorage.getItem("rxValet") === "yes";
     const coverageType = sessionStorage.getItem("coverageType");
 
-    console.log("Confirmation page - Loading data from session:", { 
-      planId, 
+    console.log("Confirmation page - Loading data from URL and session:", { 
+      urlPlanId,
+      sessionPlanId: sessionStorage.getItem("selectedPlanId"),
+      planId, // Final resolved value
       totalPrice, 
       coverageType, 
       rxValet,
