@@ -293,7 +293,7 @@ Last Updated: January 31, 2025`;
               htmlFor="acknowledge" 
               className="text-sm font-medium leading-relaxed cursor-pointer"
             >
-              I acknowledge that I have read and understand the cancellation and refund policy. 
+              I acknowledge that I have read and understand the cancellation and refund terms. 
               I understand this is a recurring monthly membership that will automatically renew unless 
               I provide 14 days' written notice of cancellation. I understand that refunds are only 
               available within the first 14 days if no services have been used, and that no refunds 
