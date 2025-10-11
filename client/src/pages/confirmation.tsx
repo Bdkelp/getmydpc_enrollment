@@ -20,9 +20,9 @@ export default function Confirmation() {
 
 
 
-  // Get stored enrollment data
+  // Get stored enrollment data - immediate load from URL and sessionStorage
   useEffect(() => {
-    // Check for EPX redirect parameters
+    // Check for EPX redirect parameters (primary source for transaction info)
     const urlParams = new URLSearchParams(window.location.search);
     const epxTransaction = urlParams.get('transaction');
     const epxAmount = urlParams.get('amount');
@@ -33,7 +33,7 @@ export default function Confirmation() {
 
     const planId = sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
-    const rxValet = sessionStorage.getItem("rxValet") === "yes"; // Changed from addRxValet and check for "yes"
+    const rxValet = sessionStorage.getItem("rxValet") === "yes";
     const coverageType = sessionStorage.getItem("coverageType");
 
     console.log("Confirmation page - Loading data from session:", { 
@@ -42,22 +42,28 @@ export default function Confirmation() {
       coverageType, 
       rxValet,
       user,
+      epxTransaction,
+      epxAmount,
       allSessionStorage: Object.fromEntries(Object.entries(sessionStorage))
     });
 
-    if (!planId && !user) {
-      console.log("Waiting for user data...");
-      // Retry a few times before giving up
-      if (retryCount < 3) {
-        setTimeout(() => {
-          setRetryCount(retryCount + 1);
-        }, 1000);
-      }
-      return; // Wait for user data to load
-    }
+    // Build immediate confirmation data - don't wait for auth to complete
+    // This allows agents to see confirmation instantly for back-to-back enrollments
+    const immediateData: any = {
+      planId: planId || null,
+      totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
+      addRxValet: rxValet,
+      coverageType: coverageType || "individual",
+      transactionId: epxTransaction || null,
+      customerNumber: user?.id ? `MP-${user.id.slice(0, 8).toUpperCase()}` : "Pending",
+      createdAt: new Date().toISOString()
+    };
 
-    if (!planId) {
-      console.error("No plan ID found in session storage");
+    // Set immediately - don't block on auth
+    setMembershipData(immediateData);
+
+    if (!planId && !epxTransaction) {
+      console.error("No plan ID or transaction found - may need to redirect");
       // Only show error after a few retries
       if (retryCount >= 3) {
         toast({
