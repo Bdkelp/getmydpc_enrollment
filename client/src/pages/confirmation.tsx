@@ -57,41 +57,41 @@ export default function Confirmation() {
 
     // Build immediate confirmation data - don't wait for auth to complete
     // This allows agents to see confirmation instantly for back-to-back enrollments
+    const today = new Date();
+    const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+    
+    // Safely generate customer number
+    let customerNumber = "Pending";
+    let memberId = "Pending";
+    
+    if (user?.id) {
+      try {
+        const userId = String(user.id);
+        customerNumber = `MPP${new Date().getFullYear()}${userId.padStart(6, '0')}`;
+        memberId = `MPP${userId}`;
+      } catch (err) {
+        console.error("Error generating customer number:", err);
+      }
+    }
+    
     const immediateData: any = {
-      planId: planId || null,
+      planId: planId ? parseInt(planId) : null,
       totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
       addRxValet: rxValet,
       coverageType: coverageType || "individual",
-      transactionId: epxTransaction || null,
-      customerNumber: user?.id ? `MP-${user.id.slice(0, 8).toUpperCase()}` : "Pending",
+      transactionId: epxTransaction || `TXN${Date.now()}`,
+      customerNumber,
+      memberId,
+      billingDate: today,
+      nextBillingDate,
+      enrollmentDate: today,
       createdAt: new Date().toISOString()
     };
 
+    console.log("Setting immediate membership data:", immediateData);
+
     // Set immediately - don't block on auth
     setMembershipData(immediateData);
-
-    // Enhance with full user data when auth completes
-    if (user && !authLoading) {
-      console.log("Auth loaded, enhancing confirmation data with user details");
-      
-      const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
-      const transactionId = epxTransaction || `TXN${Date.now()}`;
-      const today = new Date();
-      const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-
-      setMembershipData({
-        memberId: `MPP${user.id}`,
-        customerNumber,
-        transactionId,
-        billingDate: today,
-        nextBillingDate: nextBillingDate,
-        totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
-        addRxValet: rxValet,
-        coverageType,
-        planId: planId ? parseInt(planId) : null,
-        enrollmentDate: today
-      });
-    }
 
     if (!planId && !epxTransaction && retryCount >= 3) {
       console.error("No plan ID or transaction found after retries");
@@ -147,16 +147,17 @@ export default function Confirmation() {
     );
   }
 
-  const selectedPlan = plans?.find((plan: any) => plan.id === membershipData.planId);
+  const selectedPlan = plans?.find((plan: any) => plan.id === membershipData?.planId);
+  const planName = selectedPlan?.name || "";
   const planFeatures = selectedPlan ? [
     "Unlimited virtual telehealth visits 24/7",
     "Primary care physician visits",
     "Preventive care and wellness exams",
     "Chronic disease management",
     "Generic medications (when applicable)",
-    ...(selectedPlan.name.includes("Plus") ? ["Specialist referrals", "Mental health support"] : []),
-    ...(selectedPlan.name.includes("Elite") ? ["Premium provider network", "Executive health services", "Concierge support"] : []),
-    ...(membershipData.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
+    ...(planName.includes("Plus") ? ["Specialist referrals", "Mental health support"] : []),
+    ...(planName.includes("Elite") ? ["Premium provider network", "Executive health services", "Concierge support"] : []),
+    ...(membershipData?.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
   ] : [];
 
   // Print function
@@ -266,27 +267,32 @@ export default function Confirmation() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <p className="text-sm text-gray-600">Member Name</p>
-                  <p className="font-medium">{user?.firstName} {user?.lastName}</p>
+                  <p className="font-medium">{user?.firstName || "Member"} {user?.lastName || ""}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Customer Number</p>
-                  <p className="font-medium">{membershipData.customerNumber}</p>
+                  <p className="font-medium">{membershipData?.customerNumber || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Member ID</p>
-                  <p className="font-medium">{membershipData.memberId}</p>
+                  <p className="font-medium">{membershipData?.memberId || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Enrollment Date</p>
-                  <p className="font-medium">{format(membershipData.enrollmentDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.enrollmentDate 
+                      ? format(new Date(membershipData.enrollmentDate), "MMMM d, yyyy")
+                      : format(new Date(), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Plan Name</p>
-                  <p className="font-medium">{selectedPlan?.name || "Plan"}</p>
+                  <p className="font-medium">{selectedPlan?.name || "Premium Plan"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Coverage Type</p>
-                  <p className="font-medium">{membershipData.coverageType || "Individual"}</p>
+                  <p className="font-medium">{membershipData?.coverageType || "Individual"}</p>
                 </div>
               </div>
 
