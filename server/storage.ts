@@ -2173,7 +2173,66 @@ export const storage = {
       updatedAt: sub.updated_at
     }));
   },
-  createSubscription: async (sub: any) => sub,
+  createSubscription: async (sub: any) => {
+    try {
+      console.log('[Storage] Creating subscription:', sub);
+      
+      // Convert camelCase to snake_case for database
+      const dbSub: any = {
+        user_id: sub.userId,
+        plan_id: sub.planId,
+        status: sub.status || 'pending_payment',
+        amount: sub.amount,
+        current_period_start: sub.currentPeriodStart || new Date().toISOString(),
+        current_period_end: sub.currentPeriodEnd || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        created_at: sub.createdAt || new Date().toISOString(),
+        updated_at: sub.updatedAt || new Date().toISOString()
+      };
+
+      // Optional fields
+      if (sub.pendingReason) dbSub.pending_reason = sub.pendingReason;
+      if (sub.pendingDetails) dbSub.pending_details = sub.pendingDetails;
+      if (sub.startDate) dbSub.start_date = sub.startDate;
+      if (sub.endDate) dbSub.end_date = sub.endDate;
+      if (sub.nextBillingDate) dbSub.next_billing_date = sub.nextBillingDate;
+      if (sub.stripeSubscriptionId) dbSub.stripe_subscription_id = sub.stripeSubscriptionId;
+
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .insert([dbSub])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[Storage] Error creating subscription:', error);
+        throw new Error(`Failed to create subscription: ${error.message}`);
+      }
+
+      console.log('[Storage] ✅ Subscription created successfully:', data.id);
+
+      // Map back to camelCase
+      return {
+        id: data.id,
+        userId: data.user_id,
+        planId: data.plan_id,
+        status: data.status,
+        pendingReason: data.pending_reason,
+        pendingDetails: data.pending_details,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        nextBillingDate: data.next_billing_date,
+        currentPeriodStart: data.current_period_start,
+        currentPeriodEnd: data.current_period_end,
+        amount: data.amount,
+        stripeSubscriptionId: data.stripe_subscription_id,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    } catch (error) {
+      console.error('[Storage] Exception in createSubscription:', error);
+      throw error;
+    }
+  },
   updateSubscription: async (id: number, updates: any) => {
     // Convert camelCase to snake_case for database
     const dbUpdates: any = {};
