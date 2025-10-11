@@ -2128,7 +2128,7 @@ export const storage = {
       const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
-        .eq('userId', userId)
+        .eq('user_id', userId)  // Use snake_case column name
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no records
@@ -2177,23 +2177,23 @@ export const storage = {
     try {
       console.log('[Storage] Creating subscription:', sub);
       
-      // Database uses camelCase column names (not snake_case)
+      // Database uses snake_case column names
       const dbSub: any = {
-        userId: sub.userId,
-        planId: sub.planId,
+        user_id: sub.userId,
+        plan_id: sub.planId,
         status: sub.status || 'pending_payment',
         amount: sub.amount,
-        startDate: sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
-        endDate: sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        createdAt: sub.createdAt || new Date().toISOString(),
-        updatedAt: sub.updatedAt || new Date().toISOString()
+        start_date: sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
+        end_date: sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        created_at: sub.createdAt || new Date().toISOString(),
+        updated_at: sub.updatedAt || new Date().toISOString()
       };
 
       // Optional fields
-      if (sub.pendingReason) dbSub.pendingReason = sub.pendingReason;
-      if (sub.pendingDetails) dbSub.pendingDetails = sub.pendingDetails;
-      if (sub.nextBillingDate) dbSub.nextBillingDate = sub.nextBillingDate;
-      if (sub.stripeSubscriptionId) dbSub.stripeSubscriptionId = sub.stripeSubscriptionId;
+      if (sub.pendingReason) dbSub.pending_reason = sub.pendingReason;
+      if (sub.pendingDetails) dbSub.pending_details = sub.pendingDetails;
+      if (sub.nextBillingDate) dbSub.next_billing_date = sub.nextBillingDate;
+      if (sub.stripeSubscriptionId) dbSub.stripe_subscription_id = sub.stripeSubscriptionId;
 
       const { data, error } = await supabase
         .from('subscriptions')
@@ -2208,23 +2208,23 @@ export const storage = {
 
       console.log('[Storage] ✅ Subscription created successfully:', data.id);
 
-      // Return with consistent camelCase
+      // Return with camelCase for application layer
       return {
         id: data.id,
-        userId: data.userId,
-        planId: data.planId,
+        userId: data.user_id,
+        planId: data.plan_id,
         status: data.status,
-        pendingReason: data.pendingReason,
-        pendingDetails: data.pendingDetails,
-        startDate: data.startDate,
-        endDate: data.endDate,
-        nextBillingDate: data.nextBillingDate,
-        currentPeriodStart: data.startDate, // Map for compatibility
-        currentPeriodEnd: data.endDate, // Map for compatibility
+        pendingReason: data.pending_reason,
+        pendingDetails: data.pending_details,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        nextBillingDate: data.next_billing_date,
+        currentPeriodStart: data.start_date, // Map for compatibility
+        currentPeriodEnd: data.end_date, // Map for compatibility
         amount: data.amount,
-        stripeSubscriptionId: data.stripeSubscriptionId,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt
+        stripeSubscriptionId: data.stripe_subscription_id,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
       };
     } catch (error) {
       console.error('[Storage] Exception in createSubscription:', error);
