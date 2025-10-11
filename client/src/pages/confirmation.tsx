@@ -324,19 +324,29 @@ export default function Confirmation() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Transaction ID</p>
-                  <p className="font-medium font-mono text-sm">{membershipData.transactionId}</p>
+                  <p className="font-medium font-mono text-sm">{membershipData?.transactionId || "Processing"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Monthly Amount</p>
-                  <p className="font-medium">${membershipData.totalPrice}</p>
+                  <p className="font-medium">${membershipData?.totalMonthlyPrice || membershipData?.totalPrice || "0.00"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Billing Date</p>
-                  <p className="font-medium">{format(membershipData.billingDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.billingDate 
+                      ? format(new Date(membershipData.billingDate), "MMMM d, yyyy")
+                      : format(new Date(), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Next Billing Date</p>
-                  <p className="font-medium">{format(membershipData.nextBillingDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.nextBillingDate 
+                      ? format(new Date(membershipData.nextBillingDate), "MMMM d, yyyy")
+                      : format(new Date(new Date().setMonth(new Date().getMonth() + 1)), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
               </div>
             </div>
