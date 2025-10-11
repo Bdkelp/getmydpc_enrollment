@@ -11,12 +11,16 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function Confirmation() {
+  console.log("[Confirmation] Component rendering - v1.1");
+  
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [membershipData, setMembershipData] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { toast } = useToast();
+  
+  console.log("[Confirmation] State:", { membershipData, user, authLoading, isProcessingPayment });
 
 
 
