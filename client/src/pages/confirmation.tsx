@@ -367,8 +367,8 @@ export default function Confirmation() {
                 </p>
                 <p className="flex items-center text-sm">
                   <Phone className="h-4 w-4 text-gray-600 mr-2" />
-                  <a href="tel:210-512-4318" className="text-blue-600 hover:underline">
-                    210-512-4318
+                  <a href="tel:888-346-9372" className="text-blue-600 hover:underline">
+                    888-346-9372 (888-34-MYDPC)
                   </a>
                 </p>
                 <p className="flex items-center text-sm">
