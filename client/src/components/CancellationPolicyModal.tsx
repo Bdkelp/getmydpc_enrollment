@@ -179,9 +179,9 @@ Last Updated: January 31, 2025`;
               </div>
             </div>
 
-            {/* Refund Policy */}
+            {/* Refund Terms */}
             <div>
-              <h3 className="font-bold text-base mb-3 text-blue-900">REFUND POLICY</h3>
+              <h3 className="font-bold text-base mb-3 text-blue-900">REFUND TERMS</h3>
 
               <div className="space-y-4">
                 <div className="bg-green-50 p-3 rounded-lg border border-green-200">
