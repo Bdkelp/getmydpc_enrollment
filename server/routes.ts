@@ -2129,9 +2129,14 @@ async function createCommissionWithCheck(
       return { skipped: true, reason: "no_commission_rate" };
     }
 
+    // Get agent number from agent profile
+    const agentNumber = agent?.agentNumber || 'HOUSE';
+    console.log(`[Commission] Agent number for commission: ${agentNumber}`);
+
     // Create commission record
     const commission = await storage.createCommission({
       agentId: agentId || "HOUSE", // Assign to 'HOUSE' if no agent is assigned
+      agentNumber: agentNumber, // Capture agent number for reporting
       subscriptionId,
       userId,
       planName,
