@@ -25,7 +25,7 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table - stores user data from Supabase Auth
+// User storage table - ONLY for agents/admins with login access (NOT members)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
   email: varchar("email").unique(),
@@ -45,8 +45,8 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
-  role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
-  agentNumber: varchar("agent_number"), // Agent identifier for production tracking
+  role: varchar("role").default("agent"), // agent, admin, super_admin (NO "member" - members are in separate table)
+  agentNumber: varchar("agent_number").notNull(), // Required for all users: MPP0001, MPP0002, etc.
   isActive: boolean("is_active").default(true),
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
@@ -74,16 +74,64 @@ export const users = pgTable("users", {
   // Session tracking
   lastLoginAt: timestamp("last_login_at"),
   lastActivityAt: timestamp("last_activity_at"),
-  // Employment information
+  // Employment information (usually not needed for agents/admins, kept for flexibility)
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
-  memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // Encrypted SSN storage - used for agent number generation (last 4 digits)
+  memberType: varchar("member_type"),
+  ssn: varchar("ssn"),
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Members table - Enrolled healthcare customers (NO authentication access)
+export const members = pgTable("members", {
+  id: serial("id").primaryKey(),
+  customerNumber: varchar("customer_number").unique().notNull(), // MPP20250001, etc.
+  // Personal information
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  middleName: varchar("middle_name"),
+  email: varchar("email").unique().notNull(),
+  phone: varchar("phone"),
+  dateOfBirth: varchar("date_of_birth"), // stored as string for flexibility
+  gender: varchar("gender"),
+  ssn: varchar("ssn"), // Encrypted SSN storage
+  // Address information
+  address: text("address"),
+  address2: text("address2"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zipCode: varchar("zip_code"),
+  // Emergency contact
+  emergencyContactName: varchar("emergency_contact_name"),
+  emergencyContactPhone: varchar("emergency_contact_phone"),
+  // Employment information
+  employerName: varchar("employer_name"),
+  divisionName: varchar("division_name"),
+  memberType: varchar("member_type"), // employee, spouse, dependent
+  dateOfHire: varchar("date_of_hire"),
+  planStartDate: varchar("plan_start_date"),
+  // Enrollment tracking
+  enrolledByAgentId: varchar("enrolled_by_agent_id").references(() => users.id),
+  agentNumber: varchar("agent_number"), // Capture agent number at enrollment (MPP0001)
+  enrollmentDate: timestamp("enrollment_date").defaultNow(),
+  // Status
+  isActive: boolean("is_active").default(true),
+  status: varchar("status").default("active"), // active, cancelled, suspended, pending
+  cancellationDate: timestamp("cancellation_date"),
+  cancellationReason: text("cancellation_reason"),
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_members_customer_number").on(table.customerNumber),
+  index("idx_members_email").on(table.email),
+  index("idx_members_enrolled_by").on(table.enrolledByAgentId),
+  index("idx_members_agent_number").on(table.agentNumber),
+  index("idx_members_status").on(table.status),
+]);
 
 // Plans table
 export const plans = pgTable("plans", {
