@@ -62,45 +62,40 @@ export default function Confirmation() {
     // Set immediately - don't block on auth
     setMembershipData(immediateData);
 
-    if (!planId && !epxTransaction) {
-      console.error("No plan ID or transaction found - may need to redirect");
-      // Only show error after a few retries
-      if (retryCount >= 3) {
-        toast({
-          title: "Session Expired",
-          description: "Please start the enrollment process again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          setLocation("/");
-        }, 2000);
-      }
-      return;
+    // Enhance with full user data when auth completes
+    if (user && !authLoading) {
+      console.log("Auth loaded, enhancing confirmation data with user details");
+      
+      const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
+      const transactionId = epxTransaction || `TXN${Date.now()}`;
+      const today = new Date();
+      const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
+
+      setMembershipData({
+        memberId: `MPP${user.id}`,
+        customerNumber,
+        transactionId,
+        billingDate: today,
+        nextBillingDate: nextBillingDate,
+        totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
+        addRxValet: rxValet,
+        coverageType,
+        planId: planId ? parseInt(planId) : null,
+        enrollmentDate: today
+      });
     }
 
-    if (!user) {
-      console.error("No user data available");
-      return;
+    if (!planId && !epxTransaction && retryCount >= 3) {
+      console.error("No plan ID or transaction found after retries");
+      toast({
+        title: "Session Expired",
+        description: "Please start the enrollment process again.",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        setLocation("/");
+      }, 2000);
     }
-
-    // Generate a unique customer number and transaction ID
-    const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
-    const transactionId = `TXN${Date.now()}`;
-    const today = new Date();
-    const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-
-    setMembershipData({
-      memberId: `MPP${user.id}`,
-      customerNumber,
-      transactionId,
-      billingDate: today,
-      nextBillingDate: nextBillingDate,
-      totalPrice,
-      addRxValet: rxValet,
-      coverageType,
-      planId: parseInt(planId),
-      enrollmentDate: today
-    });
 
     // Clear session storage after a longer delay to prevent issues
     setTimeout(() => {
@@ -116,17 +111,29 @@ export default function Confirmation() {
 
   const { data: plans = [] } = useQuery<any[]>({
     queryKey: ["/api/plans"],
-    enabled: isAuthenticated && !!membershipData,
+    enabled: !!membershipData, // Load plans as soon as we have any membership data
   });
 
-  if (authLoading || !membershipData || isProcessingPayment) {
+  // Only show loading if we're actively processing a payment
+  // Don't block on auth loading - agents need immediate confirmation for back-to-back enrollments
+  if (isProcessingPayment) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <LoadingSpinner />
-          {isProcessingPayment && (
-            <p className="mt-4 text-gray-600">Processing your payment...</p>
-          )}
+          <p className="mt-4 text-gray-600">Processing your payment...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If no membership data at all, show loading (shouldn't happen with immediate data load)
+  if (!membershipData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner />
+          <p className="mt-4 text-gray-600">Loading confirmation...</p>
         </div>
       </div>
     );
