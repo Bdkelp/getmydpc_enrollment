@@ -7,8 +7,11 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 
-// Use the current Neon DATABASE_URL
-const DATABASE_URL = 'postgresql://neondb_owner:npg_1xLagzI6bHNO@ep-young-violet-ae4ri08o.us-east-2.aws.neon.tech/neondb?sslmode=require';
+// Use the current Neon DATABASE_URL from environment or hardcoded
+// Note: The password might have URL encoding issues, let's try to decode it
+const DATABASE_URL = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_1xLagzI6bHNO@ep-young-violet-ae4ri08o.us-east-2.aws.neon.tech/neondb?sslmode=require';
+
+console.log('Connecting to:', DATABASE_URL.replace(/:[^:@]+@/, ':****@'));
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
