@@ -67,8 +67,8 @@ const apiClient = {
       console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
 
       if (!res.ok) {
-        // Retry on CORS or server errors
-        if (retryCount === 0 && (res.status === 0 || res.status >= 500 || res.status === 401)) {
+        // Retry on CORS or server errors (but NOT on auth failures 401)
+        if (retryCount === 0 && (res.status === 0 || res.status >= 500)) {
           console.log(`[API] Retrying POST ${endpoint} after ${res.status} error...`);
           await new Promise(resolve => setTimeout(resolve, 1000));
           return this.post(endpoint, data, retryCount + 1);
