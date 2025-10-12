@@ -164,8 +164,8 @@ router.get("/api/plans", async (req, res) => {
   }
 });
 
-// CORS preflight handler for auth endpoints
-router.options("/api/auth/login", (req, res) => {
+// CORS preflight handlers for auth endpoints
+const authCorsHandler = (req: any, res: any) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://getmydpcenrollment-production.up.railway.app',
@@ -183,7 +183,11 @@ router.options("/api/auth/login", (req, res) => {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Accept');
   }
   res.sendStatus(200);
-});
+};
+
+router.options("/api/auth/login", authCorsHandler);
+router.options("/api/auth/register", authCorsHandler);
+router.options("/api/auth/logout", authCorsHandler);
 
 // Auth routes (public - no authentication required)
 router.post("/api/auth/login", async (req, res) => {
