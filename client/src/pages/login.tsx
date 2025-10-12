@@ -62,31 +62,14 @@ export default function Login() {
     try {
       console.log("Attempting login with:", data.email);
 
-      // Try both common backend paths
-      const endpoints = ["/api/auth/login", "/auth/login"];
-      let response: any = null;
-      let lastErr: any = null;
+      // Call the auth endpoint
+      const response = await apiClient.post("/api/auth/login", {
+        email: data.email,
+        password: data.password,
+      });
+      
+      console.log(`[Login] Response received`);
 
-      for (const ep of endpoints) {
-        try {
-          response = await apiClient.post(ep, {
-            email: data.email,
-            password: data.password,
-          });
-          console.log(`[Login] SUCCESS endpoint: ${ep}`);
-          break; // success
-        } catch (e: any) {
-          console.log(`[Login] FAILED endpoint: ${ep}`, e.message);
-          lastErr = e;
-        }
-      }
-
-      if (!response) {
-        throw (
-          lastErr ||
-          new Error(`Login endpoint not found (tried ${endpoints.join(", ")})`)
-        );
-      }
 
       // Detailed response logging for debugging
       console.log('=== LOGIN RESPONSE DEBUG ===');
