@@ -164,6 +164,27 @@ router.get("/api/plans", async (req, res) => {
   }
 });
 
+// CORS preflight handler for auth endpoints
+router.options("/api/auth/login", (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://getmydpcenrollment-production.up.railway.app',
+    'https://enrollment.getmydpc.com',
+    'https://shimmering-nourishment.up.railway.app',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000'
+  ];
+
+  if (allowedOrigins.includes(origin as string)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Accept');
+  }
+  res.sendStatus(200);
+});
+
 // Auth routes (public - no authentication required)
 router.post("/api/auth/login", async (req, res) => {
   // Set CORS headers for auth endpoint
