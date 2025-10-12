@@ -298,8 +298,16 @@ router.post("/api/auth/login", async (req, res) => {
       token: data.session.access_token, // Also include token at root for compatibility
     });
   } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Login failed" });
+    console.error("❌ [Login] Fatal error:", error);
+    console.error("❌ [Login] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error("❌ [Login] Error details:", {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : typeof error,
+    });
+    res.status(500).json({ 
+      message: "Login failed",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    });
   }
 });
 
