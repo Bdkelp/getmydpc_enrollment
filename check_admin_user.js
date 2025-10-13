@@ -1,7 +1,6 @@
 // Check if admin user exists in database
-import { neon } from '@neondatabase/serverless';
-
-const sql = neon(process.env.DATABASE_URL);
+// import { createClient } from '@supabase/supabase-js'; // If using Supabase client
+// const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 async function checkAdminUser() {
   try {
