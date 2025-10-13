@@ -318,21 +318,35 @@ function mapUserFromDB(data: any): User | null {
 
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
+    console.log('[Storage] getUserByEmail called with:', email);
     // Use Supabase to fetch user by email
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
       .single();
+    console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
     if (error || !data) {
       if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching user by email:', error);
+        console.error('[Storage] getUserByEmail error:', error);
+        console.error('[Storage] getUserByEmail error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+      } else {
+        console.log('[Storage] getUserByEmail: User not found (expected for new users)');
       }
       return null;
     }
-    return mapUserFromDB(data);
+    console.log('[Storage] getUserByEmail: User found, mapping data');
+    const mappedUser = mapUserFromDB(data);
+    console.log('[Storage] getUserByEmail: Mapped user:', { id: mappedUser?.id, email: mappedUser?.email, role: mappedUser?.role });
+    return mappedUser;
   } catch (error: any) {
-    console.error('Error fetching user by email:', error);
+    console.error('[Storage] getUserByEmail fatal error:', error);
+    console.error('[Storage] getUserByEmail error stack:', error.stack);
     return null;
   }
 }
@@ -1770,17 +1784,37 @@ function mapPlanFromDB(data: any): Plan | null {
 // Plan operations (add missing ones from original Drizzle implementation)
 export async function getPlans(): Promise<Plan[]> {
   try {
+    console.log('[Storage] getPlans called');
     const { data, error } = await supabase
       .from('plans')
       .select('*')
       .order('price', { ascending: true });
+    console.log('[Storage] getPlans Supabase response:', { dataCount: data?.length || 0, error: error ? error.message : 'none' });
     if (error) {
-      console.error('Error fetching plans:', error);
+      console.error('[Storage] getPlans error:', error);
+      console.error('[Storage] getPlans error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
       throw new Error(`Failed to get plans: ${error.message}`);
     }
-    return (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
+    console.log('[Storage] getPlans: Mapping data for', data?.length || 0, 'plans');
+    const mappedPlans = (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
+    console.log('[Storage] getPlans: Successfully mapped', mappedPlans.length, 'plans');
+    if (mappedPlans.length > 0) {
+      console.log('[Storage] getPlans: Sample plan:', {
+        id: mappedPlans[0].id,
+        name: mappedPlans[0].name,
+        price: mappedPlans[0].price,
+        isActive: mappedPlans[0].isActive
+      });
+    }
+    return mappedPlans;
   } catch (error: any) {
-    console.error('Error fetching plans:', error);
+    console.error('[Storage] getPlans fatal error:', error);
+    console.error('[Storage] getPlans error stack:', error.stack);
     throw new Error(`Failed to get plans: ${error.message}`);
   }
 }
