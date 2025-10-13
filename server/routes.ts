@@ -169,23 +169,33 @@ router.post("/api/auth/login", async (req, res) => {
 
   try {
     const { email, password } = req.body;
+    console.log('[Login] Starting login attempt for:', email);
 
     // Sign in with Supabase
+    console.log('[Login] Calling Supabase auth.signInWithPassword');
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      console.error("Login error:", error);
+      console.error('[Login] Supabase auth error:', error);
+      console.error('[Login] Supabase auth error details:', {
+        code: error.code,
+        message: error.message,
+        status: error.status
+      });
       return res
         .status(401)
         .json({ message: error.message || "Invalid credentials" });
     }
 
     if (!data.session) {
+      console.error('[Login] No session returned from Supabase');
       return res.status(401).json({ message: "Failed to create session" });
     }
+
+    console.log('[Login] Supabase auth successful, session created');
 
     // Get or create user in our database
     console.log("[Login] Checking for existing user:", email);
