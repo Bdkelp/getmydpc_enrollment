@@ -1,5 +1,5 @@
 import { supabase } from './lib/supabaseClient'; // Keep for auth only
-import { neonPool, query } from './lib/neonDb'; // Use for all database operations
+// import { neonPool, query } from './lib/neonDb'; // Neon removed, now using Supabase for all DB operations
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
@@ -187,58 +187,50 @@ export interface IStorage {
 // User operations
 export async function createUser(userData: Partial<User>): Promise<User> {
   try {
-    // Use direct Neon query to bypass RLS
+    // Use Supabase to insert user
     const id = userData.id || crypto.randomUUID();
-    
-    // Auto-generate agent number if user is agent/admin and has SSN
     let agentNumber = userData.agentNumber;
     const role = userData.role || 'member';
-    
     if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
-      // Import agent number generator
       const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
-      
-      // Extract last 4 digits of SSN
       const ssnLast4 = userData.ssn.slice(-4);
-      
-      // Generate agent number (format: MPPSA251154 or MPPAG251154)
       try {
         agentNumber = generateAgentNumber(role, ssnLast4);
         console.log(`[Agent Number] Generated: ${agentNumber} for ${role} ${userData.email}`);
       } catch (error: any) {
         console.warn(`[Agent Number] Generation failed: ${error.message}`);
-        // Continue without agent number - can be added later
       }
     }
-    
-    const result = await query(
-      `INSERT INTO users (
-        id, email, first_name, last_name, phone, role, agent_number, ssn,
-        is_active, approval_status, email_verified, created_at, updated_at,
-        profile_image_url, google_id, facebook_id, twitter_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-      RETURNING *`,
-      [
-        id,
-        userData.email,
-        userData.firstName || '',
-        userData.lastName || '',
-        userData.phone || null,
-        role,
-        agentNumber || null,
-        userData.ssn || null,
-        userData.isActive !== undefined ? userData.isActive : true,
-        userData.approvalStatus || 'approved',
-        userData.emailVerified || false,
-        userData.createdAt || new Date(),
-        userData.updatedAt || new Date(),
-        userData.profileImageUrl || null,
-        userData.googleId || null,
-        userData.facebookId || null,
-        userData.twitterId || null
-      ]
-    );
-    return mapUserFromDB(result.rows[0]);
+    const { data, error } = await supabase
+      .from('users')
+      .insert([
+        {
+          id,
+          email: userData.email,
+          first_name: userData.firstName || '',
+          last_name: userData.lastName || '',
+          phone: userData.phone || null,
+          role,
+          agent_number: agentNumber || null,
+          ssn: userData.ssn || null,
+          is_active: userData.isActive !== undefined ? userData.isActive : true,
+          approval_status: userData.approvalStatus || 'approved',
+          email_verified: userData.emailVerified || false,
+          created_at: userData.createdAt || new Date(),
+          updated_at: userData.updatedAt || new Date(),
+          profile_image_url: userData.profileImageUrl || null,
+          google_id: userData.googleId || null,
+          facebook_id: userData.facebookId || null,
+          twitter_id: userData.twitterId || null
+        }
+      ])
+      .select()
+      .single();
+    if (error) {
+      console.error('Error creating user:', error);
+      throw new Error(`Failed to create user: ${error.message}`);
+    }
+    return mapUserFromDB(data);
   } catch (error: any) {
     console.error('Error creating user:', error);
     throw new Error(`Failed to create user: ${error.message}`);
@@ -326,14 +318,19 @@ function mapUserFromDB(data: any): User | null {
 
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
-    // Use direct Neon query to bypass RLS
-    const result = await query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
+    // Use Supabase to fetch user by email
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+    if (error || !data) {
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching user by email:', error);
+      }
+      return null;
+    }
+    return mapUserFromDB(data);
   } catch (error: any) {
     console.error('Error fetching user by email:', error);
     return null;
@@ -1773,10 +1770,15 @@ function mapPlanFromDB(data: any): Plan | null {
 // Plan operations (add missing ones from original Drizzle implementation)
 export async function getPlans(): Promise<Plan[]> {
   try {
-    const result = await query(
-      'SELECT * FROM plans ORDER BY price ASC'
-    );
-    return (result.rows || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .order('price', { ascending: true });
+    if (error) {
+      console.error('Error fetching plans:', error);
+      throw new Error(`Failed to get plans: ${error.message}`);
+    }
+    return (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
   } catch (error: any) {
     console.error('Error fetching plans:', error);
     throw new Error(`Failed to get plans: ${error.message}`);
