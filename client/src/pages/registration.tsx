@@ -1205,9 +1205,9 @@ export default function Registration() {
                               .filter((plan: any) => {
                                 // Map coverage types to plan name patterns
                                 const coverageMapping: { [key: string]: string[] } = {
-                                  "Member Only": ["Member Only", "Mem Only"],
-                                  "Member/Spouse": ["Member/Spouse", "Mem/Spouse"],
-                                  "Member/Child": ["Member/Child", "Mem/Child", "Parent/Child"],
+                                  "Member Only": ["Member Only", "Individual Plan"],
+                                  "Member/Spouse": ["Member/Spouse"],
+                                  "Member/Child": ["Member/Child", "Parent/Child"],
                                   "Family": ["Family"]
                                 };
                                 
@@ -1224,22 +1224,31 @@ export default function Registration() {
                             return filteredPlans || [];
                           })()
                             ?.filter((plan: any) => {
+                              // Filter for tier-based plans (Base, Plus, Elite)
+                              // Also allow "Individual Plan" and "Family Plan" for legacy compatibility
                               if (plan.name.includes("Base")) return true;
                               if (plan.name.includes("Plus") || plan.name.includes("+")) return true;
                               if (plan.name.includes("Elite")) return true;
+                              if (plan.name.includes("Individual Plan")) return true;
+                              if (plan.name === "Family Plan") return true;
                               return false;
                             })
                             .sort((a: any, b: any) => {
                               const order = ["Base", "Plus", "Elite"];
                               const aIndex = order.findIndex(tier => a.name.includes(tier));
                               const bIndex = order.findIndex(tier => b.name.includes(tier));
+                              // Legacy plans go last
+                              if (aIndex === -1) return 1;
+                              if (bIndex === -1) return -1;
                               return aIndex - bIndex;
                             })
                             .map((plan: any) => {
                               const planTier = plan.name.includes("Base") ? "Base" : 
-                                              plan.name.includes("Plus") || plan.name.includes("+") ? "Plus" : "Elite";
+                                              plan.name.includes("Plus") || plan.name.includes("+") ? "Plus" : 
+                                              plan.name.includes("Elite") ? "Elite" : "Standard";
                               const tierColor = planTier === "Base" ? "gray" : 
-                                               planTier === "Plus" ? "blue" : "purple";
+                                               planTier === "Plus" ? "blue" : 
+                                               planTier === "Elite" ? "purple" : "green";
                               const isRecommended = recommendedTier && planTier.toLowerCase() === recommendedTier.toLowerCase();
                               
                               return (
