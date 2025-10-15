@@ -2376,6 +2376,7 @@ export async function registerRoutes(app: any) {
   app.post("/api/registration", async (req: any, res: any) => {
     console.log("[Registration] Member registration attempt");
     console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
+    console.log("[Registration] FULL REQUEST BODY:", JSON.stringify(req.body, null, 2));
 
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
@@ -2428,6 +2429,16 @@ export async function registerRoutes(app: any) {
       } = req.body;
 
       console.log("[Registration] Email:", email);
+      console.log("[Registration] Extracted Key Fields:", {
+        planId: planId,
+        planIdType: typeof planId,
+        coverageType: coverageType,
+        memberType: memberType,
+        totalMonthlyPrice: totalMonthlyPrice,
+        agentNumber: agentNumber,
+        enrolledByAgentId: enrolledByAgentId,
+        addRxValet: addRxValet
+      });
 
       // Basic validation
       const missingFields = [];
@@ -2504,9 +2515,12 @@ export async function registerRoutes(app: any) {
 
       // Create subscription if plan is selected
       let subscriptionId = null;
+      console.log("[Subscription Check] planId:", planId, "totalMonthlyPrice:", totalMonthlyPrice);
+      console.log("[Subscription Check] Will create subscription:", !!(planId && totalMonthlyPrice));
+      
       if (planId && totalMonthlyPrice) {
         try {
-          console.log("[Registration] Creating subscription...");
+          console.log("[Registration] Creating subscription with planId:", planId);
           const subscription = await storage.createSubscription({
             userId: member.id,
             planId: parseInt(planId),
