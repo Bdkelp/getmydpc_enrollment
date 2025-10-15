@@ -265,7 +265,7 @@ export default function AdminUsers() {
     },
   });
 
-  // Suspend user mutation
+  // Suspend user mutation (for agents/admins)
   const suspendUserMutation = useMutation({
     mutationFn: async ({ userId, reason }: { userId: string; reason?: string }) => {
       const response = await fetch(`/api/admin/users/${userId}/suspend`, {
@@ -299,7 +299,41 @@ export default function AdminUsers() {
     },
   });
 
-  // Reactivate user mutation
+  // Suspend DPC member mutation (for members in Neon database)
+  const suspendMemberMutation = useMutation({
+    mutationFn: async ({ customerId, reason }: { customerId: string; reason?: string }) => {
+      const response = await fetch(`/api/admin/dpc-members/${customerId}/suspend`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to suspend member');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Member suspended successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/dpc-members'] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to suspend member.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Reactivate user mutation (for agents/admins)
   const reactivateUserMutation = useMutation({
     mutationFn: async ({ userId, reactivateSubscriptions }: { userId: string; reactivateSubscriptions: boolean }) => {
       const response = await fetch(`/api/admin/users/${userId}/reactivate`, {
@@ -335,6 +369,39 @@ export default function AdminUsers() {
     },
   });
 
+  // Reactivate DPC member mutation (for members in Neon database)
+  const reactivateMemberMutation = useMutation({
+    mutationFn: async ({ customerId }: { customerId: string }) => {
+      const response = await fetch(`/api/admin/dpc-members/${customerId}/reactivate`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reactivate member');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Member reactivated successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/dpc-members'] });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to reactivate member.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Approve user mutation
   const approveUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -359,13 +426,17 @@ export default function AdminUsers() {
     },
   });
 
-  // Safe array handling for users data
+  // Safe array handling for users data (agents and admins)
   const rawUsers = usersData?.users;
   const safeUsers = Array.isArray(rawUsers) ? rawUsers : [];
   const safeUsersData = usersData || { users: [], totalCount: 0 };
 
+  // Safe array handling for DPC members data (from Neon database)
+  const rawMembers = dpcMembersData?.members;
+  const safeMembers = Array.isArray(rawMembers) ? rawMembers : [];
+
   // Filter users by role
-  const members = safeUsers.filter((u: UserType) => u && (u.role === 'member' || u.role === 'user'));
+  const members = safeMembers; // DPC members from Neon database
   const agents = safeUsers.filter((u: UserType) => u && u.role === 'agent');
   const admins = safeUsers.filter((u: UserType) => u && u.role === 'admin');
 
@@ -610,32 +681,44 @@ export default function AdminUsers() {
                         size="sm"
                         className="text-green-600 hover:text-green-700"
                         onClick={() => {
-                          // Only ask about subscriptions for members
-                          let reactivateSubscriptions = false;
                           const userName = user.firstName && user.lastName 
                             ? `${user.firstName} ${user.lastName}` 
                             : user.firstName || user.lastName || user.email || 'this user';
                           
-                          if (user.role === 'member' || user.role === 'user') {
-                            reactivateSubscriptions = confirm(
+                          if (user.role === 'member' && (user as any).customerNumber) {
+                            // DPC Member - use member reactivation mutation
+                            const confirmReactivation = confirm(
+                              `Reactivate membership for ${userName}?`
+                            );
+                            if (!confirmReactivation) return;
+                            reactivateMemberMutation.mutate({ 
+                              customerId: (user as any).customerNumber 
+                            });
+                          } else if (user.role === 'member' || user.role === 'user') {
+                            // Legacy user - use user reactivation
+                            const reactivateSubscriptions = confirm(
                               `Reactivate account for ${userName}? Would you also like to reactivate their subscription?`
                             );
+                            reactivateUserMutation.mutate({ 
+                              userId: user.id, 
+                              reactivateSubscriptions 
+                            });
                           } else {
-                            // For agents and admins, just confirm the account reactivation
+                            // Agents and admins
                             const confirmReactivation = confirm(
                               `Reactivate ${user.role} account for ${userName}?`
                             );
                             if (!confirmReactivation) return;
+                            reactivateUserMutation.mutate({ 
+                              userId: user.id, 
+                              reactivateSubscriptions: false 
+                            });
                           }
-                          reactivateUserMutation.mutate({ 
-                            userId: user.id, 
-                            reactivateSubscriptions 
-                          });
                         }}
-                        disabled={reactivateUserMutation.isPending}
+                        disabled={reactivateUserMutation.isPending || reactivateMemberMutation.isPending}
                       >
                         <UserCheck className="h-3 w-3 mr-1" />
-                        {reactivateUserMutation.isPending ? 'Reactivating...' : 'Reactivate'}
+                        {(reactivateUserMutation.isPending || reactivateMemberMutation.isPending) ? 'Reactivating...' : 'Reactivate'}
                       </Button>
                     ) : user.isActive && user.approvalStatus === 'approved' ? (
                       <Button
@@ -645,13 +728,18 @@ export default function AdminUsers() {
                         onClick={() => {
                           const reason = prompt("Reason for suspension (optional):");
                           if (reason !== null) { // User didn't cancel
-                            suspendUserMutation.mutate({ userId: user.id, reason });
+                            // Check if this is a DPC member
+                            if (user.role === 'member' && (user as any).customerNumber) {
+                              suspendMemberMutation.mutate({ customerId: (user as any).customerNumber, reason });
+                            } else {
+                              suspendUserMutation.mutate({ userId: user.id, reason });
+                            }
                           }
                         }}
-                        disabled={suspendUserMutation.isPending}
+                        disabled={suspendUserMutation.isPending || suspendMemberMutation.isPending}
                       >
                         <Ban className="h-3 w-3 mr-1" />
-                        {suspendUserMutation.isPending ? 'Suspending...' : 'Suspend'}
+                        {(suspendUserMutation.isPending || suspendMemberMutation.isPending) ? 'Suspending...' : 'Suspend'}
                       </Button>
                     ) : null}
                   </div>
