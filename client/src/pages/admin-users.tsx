@@ -140,13 +140,25 @@ export default function AdminUsers() {
     };
   }, [queryClient, toast]);
 
-  // Fetch users
+  // Fetch users (agents and admins from Supabase)
   const { data: usersData, isLoading, error } = useQuery({
     queryKey: ['/api/admin/users'],
     queryFn: async () => {
       console.log('[AdminUsers] Fetching users...');
       const data = await apiRequest('/api/admin/users');
       console.log('[AdminUsers] Fetched users:', data);
+      return data;
+    },
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch DPC members (from Neon database)
+  const { data: dpcMembersData, isLoading: membersLoading, error: membersError } = useQuery({
+    queryKey: ['/api/admin/dpc-members'],
+    queryFn: async () => {
+      console.log('[AdminUsers] Fetching DPC members...');
+      const data = await apiRequest('/api/admin/dpc-members');
+      console.log('[AdminUsers] Fetched DPC members:', data);
       return data;
     },
     refetchInterval: 30000, // Refetch every 30 seconds
