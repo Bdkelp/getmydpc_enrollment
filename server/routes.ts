@@ -826,6 +826,22 @@ router.post("/api/public/leads", async (req: any, res) => {
         status: lead.status,
         source: lead.source,
       });
+
+      // Send email notification (don't fail if email fails)
+      try {
+        await sendLeadNotification({
+          firstName: leadData.firstName,
+          lastName: leadData.lastName,
+          email: leadData.email,
+          phone: leadData.phone,
+          message: leadData.message,
+          source: leadData.source,
+        });
+        console.log(`[${timestamp}] [Public Leads] Email notification sent successfully`);
+      } catch (emailError: any) {
+        console.error(`[${timestamp}] [Public Leads] Email notification failed:`, emailError.message);
+        // Don't throw - we still want to return success even if email fails
+      }
     } catch (storageError: any) {
       console.error(
         `[${timestamp}] [Public Leads] Storage error creating lead:`,
