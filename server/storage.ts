@@ -1797,7 +1797,7 @@ export async function createCommission(commission: InsertCommission): Promise<Co
       INSERT INTO commissions (
         agent_id,
         subscription_id,
-        user_id,
+        member_id,
         plan_name,
         plan_type,
         plan_tier,
@@ -1812,7 +1812,7 @@ export async function createCommission(commission: InsertCommission): Promise<Co
     `, [
       commission.agentId,
       commission.subscriptionId || null,
-      commission.userId || null,
+      commission.memberId || null, // Changed from userId to memberId
       commission.planName,
       commission.planType,
       commission.planTier,

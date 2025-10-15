@@ -94,8 +94,8 @@ async function backfillCommissions() {
       
       // Check if commission already exists
       const existingComm = await neonPool.query(
-        'SELECT id FROM commissions WHERE user_id = $1',
-        [member.id.toString()]
+        'SELECT id FROM commissions WHERE member_id = $1',
+        [member.id]
       );
       
       if (existingComm.rows.length > 0) {
@@ -157,7 +157,7 @@ async function backfillCommissions() {
       // Check if subscription exists, create if not
       let subscriptionId = member.id;
       const subCheck = await neonPool.query(
-        'SELECT id FROM subscriptions WHERE id = $1',
+        'SELECT id FROM subscriptions WHERE member_id = $1',
         [member.id]
       );
       
@@ -166,18 +166,16 @@ async function backfillCommissions() {
         try {
           const subResult = await neonPool.query(`
             INSERT INTO subscriptions (
-              id,
-              user_id,
+              member_id,
               plan_id,
               status,
               amount,
               created_at,
               updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ) VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING id
           `, [
             member.id,
-            member.id.toString(),
             member.plan_id || 36, // Default to plan 36 if not specified
             'active',
             commissionResult.totalCost,
@@ -187,8 +185,11 @@ async function backfillCommissions() {
           subscriptionId = subResult.rows[0].id;
           console.log(`   ✅ Subscription created: ${subscriptionId}`);
         } catch (subError) {
-          console.log(`   ⚠️  Could not create subscription, using member ID: ${subError.message}`);
+          console.log(`   ⚠️  Could not create subscription: ${subError.message}`);
+          subscriptionId = null; // subscription_id is now nullable
         }
+      } else {
+        subscriptionId = subCheck.rows[0].id;
       }
       
       // Create commission
@@ -197,7 +198,7 @@ async function backfillCommissions() {
           INSERT INTO commissions (
             agent_id,
             subscription_id,
-            user_id,
+            member_id,
             plan_name,
             plan_type,
             plan_tier,
@@ -213,7 +214,7 @@ async function backfillCommissions() {
         `, [
           agentUUID,
           subscriptionId,
-          member.id.toString(),
+          member.id,
           planName,
           coverage,
           planTier,

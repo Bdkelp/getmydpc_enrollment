@@ -2629,8 +2629,8 @@ export async function registerRoutes(app: any) {
             if (commissionResult) {
               await storage.createCommission({
                 agentId: agentUser.id, // USE UUID, not email!
-                subscriptionId: subscriptionId || member.id, // Use member ID if no subscription
-                userId: member.id,
+                subscriptionId: subscriptionId || null, // subscription_id is nullable now
+                memberId: member.id, // Changed from userId to memberId
                 planName: planName,
                 planType: coverage,
                 planTier: planTier,
