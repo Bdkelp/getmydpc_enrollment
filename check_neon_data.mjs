@@ -109,7 +109,7 @@ async function checkNeonData() {
         console.log(`      Member's Agent: ${row.agent_number || 'Not set'}`);
         if (row.commission_amount) {
           console.log(`      ✅ Commission: $${row.commission_amount} (${row.commission_status})`);
-          console.log(`      Plan: ${row.plan_name} - ${row.coverage_type}`);
+          console.log(`      Plan: ${row.plan_name} - ${row.plan_type}`);
           console.log(`      Commission Agent: ${row.agent_id}`);
         } else {
           console.log(`      ❌ NO COMMISSION FOUND`);
