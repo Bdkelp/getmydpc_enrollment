@@ -952,6 +952,139 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
   }
 }
 
+// DPC Member operations (Neon database)
+export async function getAllDPCMembers(): Promise<any[]> {
+  try {
+    const result = await neonQuery(`
+      SELECT 
+        id,
+        customer_number,
+        first_name,
+        last_name,
+        middle_name,
+        email,
+        phone,
+        date_of_birth,
+        gender,
+        ssn,
+        address,
+        address2,
+        city,
+        state,
+        zip_code,
+        emergency_contact_name,
+        emergency_contact_phone,
+        employer_name,
+        division_name,
+        member_type,
+        date_of_hire,
+        plan_start_date,
+        enrolled_by_agent_id,
+        agent_number,
+        enrollment_date,
+        is_active,
+        status,
+        cancellation_date,
+        cancellation_reason,
+        created_at,
+        updated_at
+      FROM members 
+      ORDER BY created_at DESC
+    `);
+    
+    return result.rows.map(row => ({
+      id: row.customer_number, // Use customer_number as ID for frontend
+      customerNumber: row.customer_number,
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      employerName: row.employer_name,
+      divisionName: row.division_name,
+      memberType: row.member_type,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      role: 'member',
+      agentNumber: row.agent_number,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      enrollmentDate: row.enrollment_date,
+      isActive: row.is_active && row.status === 'active',
+      status: row.status,
+      approvalStatus: row.is_active && row.status === 'active' ? 'approved' : 
+                       row.status === 'suspended' ? 'suspended' : 'inactive',
+      cancellationDate: row.cancellation_date,
+      cancellationReason: row.cancellation_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      emailVerified: true // Members are pre-verified through enrollment process
+    }));
+  } catch (error: any) {
+    console.error('Error fetching DPC members:', error);
+    throw new Error(`Failed to fetch DPC members: ${error.message}`);
+  }
+}
+
+export async function suspendDPCMember(customerId: string, reason?: string): Promise<any> {
+  try {
+    const result = await neonQuery(`
+      UPDATE members 
+      SET 
+        status = 'suspended',
+        is_active = false,
+        cancellation_reason = $2,
+        updated_at = NOW()
+      WHERE customer_number = $1
+      RETURNING *
+    `, [customerId, reason || 'Suspended by administrator']);
+    
+    if (result.rows.length === 0) {
+      throw new Error('Member not found');
+    }
+    
+    console.log(`✅ DPC Member ${customerId} suspended successfully`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('Error suspending DPC member:', error);
+    throw new Error(`Failed to suspend DPC member: ${error.message}`);
+  }
+}
+
+export async function reactivateDPCMember(customerId: string): Promise<any> {
+  try {
+    const result = await neonQuery(`
+      UPDATE members 
+      SET 
+        status = 'active',
+        is_active = true,
+        cancellation_reason = NULL,
+        cancellation_date = NULL,
+        updated_at = NOW()
+      WHERE customer_number = $1
+      RETURNING *
+    `, [customerId]);
+    
+    if (result.rows.length === 0) {
+      throw new Error('Member not found');
+    }
+    
+    console.log(`✅ DPC Member ${customerId} reactivated successfully`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('Error reactivating DPC member:', error);
+    throw new Error(`Failed to reactivate DPC member: ${error.message}`);
+  }
+}
+
 // Lead operations
 export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lead> {
   try {
