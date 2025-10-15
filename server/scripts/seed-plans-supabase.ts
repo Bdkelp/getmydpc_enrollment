@@ -6,7 +6,7 @@ const testPlans = [
     name: "MyPremierPlan Base - Member Only",
     description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee",
     price: 59,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telehealth visits",
       "Unlimited primary care office visits", 
@@ -15,8 +15,8 @@ const testPlans = [
       "Prescription coordination",
       "Wellcard benefits included"
     ],
-    maxMembers: 1,
-    isActive: true
+    max_members: 1,
+    is_active: true
   },
   
   // MyPremierPlan Base - Spouse
@@ -24,7 +24,7 @@ const testPlans = [
     name: "MyPremierPlan Base - Member/Spouse", 
     description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee for member and spouse",
     price: 109,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telehealth visits",
       "Unlimited primary care office visits",
@@ -33,8 +33,8 @@ const testPlans = [
       "Prescription coordination",
       "Wellcard benefits included"
     ],
-    maxMembers: 2,
-    isActive: true
+    max_members: 2,
+    is_active: true
   },
 
   // MyPremierPlan Base - Family
@@ -42,7 +42,7 @@ const testPlans = [
     name: "MyPremierPlan Base - Family",
     description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee for entire family",
     price: 149,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telehealth visits", 
       "Unlimited primary care office visits",
@@ -51,8 +51,8 @@ const testPlans = [
       "Prescription coordination",
       "Wellcard benefits included"
     ],
-    maxMembers: 5,
-    isActive: true
+    max_members: 5,
+    is_active: true
   },
 
   // MyPremierPlan+ Individual
@@ -60,7 +60,7 @@ const testPlans = [
     name: "MyPremierPlan+ - Member Only",
     description: "Primary care plus urgent care with visit fees",
     price: 99,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits",
@@ -69,8 +69,8 @@ const testPlans = [
       "$25 urgent care visit fee",
       "Wellcard benefits included"
     ],
-    maxMembers: 1,
-    isActive: true
+    max_members: 1,
+    is_active: true
   },
 
   // MyPremierPlan+ Spouse
@@ -78,7 +78,7 @@ const testPlans = [
     name: "MyPremierPlan+ - Member/Spouse",
     description: "Primary care plus urgent care with visit fees for member and spouse", 
     price: 199,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits", 
@@ -87,8 +87,8 @@ const testPlans = [
       "$25 urgent care visit fee",
       "Wellcard benefits included"
     ],
-    maxMembers: 2,
-    isActive: true
+    max_members: 2,
+    is_active: true
   },
 
   // MyPremierPlan+ Family
@@ -96,7 +96,7 @@ const testPlans = [
     name: "MyPremierPlan+ - Family",
     description: "Primary care plus urgent care with visit fees for entire family",
     price: 299,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits",
@@ -105,8 +105,8 @@ const testPlans = [
       "$25 urgent care visit fee",
       "Wellcard benefits included"
     ],
-    maxMembers: 5,
-    isActive: true
+    max_members: 5,
+    is_active: true
   },
 
   // MyPremierPlan Elite - Individual
@@ -114,7 +114,7 @@ const testPlans = [
     name: "MyPremierPlan Elite - Member Only",
     description: "Comprehensive coverage with no visit fees",
     price: 199,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits",
@@ -125,8 +125,8 @@ const testPlans = [
       "Priority scheduling",
       "Wellcard benefits included"
     ],
-    maxMembers: 1,
-    isActive: true
+    max_members: 1,
+    is_active: true
   },
 
   // MyPremierPlan Elite - Spouse
@@ -134,7 +134,7 @@ const testPlans = [
     name: "MyPremierPlan Elite - Member/Spouse",
     description: "Comprehensive coverage with no visit fees for member and spouse",
     price: 399,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits",
@@ -145,8 +145,8 @@ const testPlans = [
       "Priority scheduling",
       "Wellcard benefits included"
     ],
-    maxMembers: 2,
-    isActive: true
+    max_members: 2,
+    is_active: true
   },
 
   // MyPremierPlan Elite - Family  
@@ -154,7 +154,7 @@ const testPlans = [
     name: "MyPremierPlan Elite - Family",
     description: "Comprehensive coverage with no visit fees for entire family",
     price: 599,
-    billingPeriod: "monthly",
+    billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
       "Unlimited in-office doctor visits",
@@ -165,8 +165,8 @@ const testPlans = [
       "Priority scheduling",
       "Wellcard benefits included"
     ],
-    maxMembers: 5,
-    isActive: true
+    max_members: 5,
+    is_active: true
   }
 ];
 
@@ -206,8 +206,8 @@ async function seedPlans() {
     
     const plansWithTimestamps = testPlans.map(plan => ({
       ...plan,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     }));
 
     const { data: insertedPlans, error: insertError } = await supabase
