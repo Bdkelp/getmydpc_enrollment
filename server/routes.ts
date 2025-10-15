@@ -2537,6 +2537,8 @@ export async function registerRoutes(app: any) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
         }
+      } else {
+        console.warn("[Registration] ⚠️  Subscription NOT created - missing planId or totalMonthlyPrice");
       }
 
       // Create commission if enrolled by agent
