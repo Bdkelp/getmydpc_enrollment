@@ -365,6 +365,14 @@ export async function getUserByEmail(email: string): Promise<User | null> {
       .eq('email', email)
       .single();
     console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
+    
+    // DEBUG: Log the actual data structure
+    if (data) {
+      console.log('[Storage] getUserByEmail RAW data:', JSON.stringify(data, null, 2));
+      console.log('[Storage] getUserByEmail data.id:', data.id);
+      console.log('[Storage] getUserByEmail data keys:', Object.keys(data));
+    }
+    
     if (error || !data) {
       if (error && error.code !== 'PGRST116') {
         console.error('[Storage] getUserByEmail error:', error);
