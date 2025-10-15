@@ -2546,31 +2546,61 @@ export async function registerRoutes(app: any) {
       console.log("[Commission Check] enrolledByAgentId:", enrolledByAgentId);
       console.log("[Commission Check] planId:", planId);
       console.log("[Commission Check] subscriptionId:", subscriptionId);
-      console.log("[Commission Check] Condition check:", {
-        hasAgentNumber: !!agentNumber,
-        hasEnrolledByAgentId: !!enrolledByAgentId,
-        hasPlanId: !!planId,
-        allConditionsMet: !!(agentNumber && enrolledByAgentId && planId)
-      });
+      console.log("[Commission Check] coverageType:", coverageType);
+      console.log("[Commission Check] memberType:", memberType);
+      console.log("[Commission Check] totalMonthlyPrice:", totalMonthlyPrice);
       
-      if (agentNumber && enrolledByAgentId && planId) {
+      // Commission creation - only requires agent info and coverage type
+      // planId is optional - we can infer plan from totalMonthlyPrice or use default
+      if (agentNumber && enrolledByAgentId && (coverageType || memberType)) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
           
-          // Get plan details for commission
-          const plan = await storage.getPlanById(parseInt(planId));
+          let plan = null;
+          let planName = 'Base'; // Default to Base plan
+          let planTier = 'Base';
+          
+          // Try to get plan details if planId is provided
+          if (planId) {
+            try {
+              plan = await storage.getPlanById(parseInt(planId));
+              planName = plan?.name || 'Base';
+              planTier = plan?.name?.includes('Elite') ? 'Elite' : plan?.name?.includes('Plus') ? 'Plus' : 'Base';
+              console.log("[Commission] Plan found from planId:", planName);
+            } catch (planError) {
+              console.warn("[Commission] Could not fetch plan by ID, using defaults");
+            }
+          } else {
+            // Infer plan from price if planId not provided
+            console.log("[Commission] No planId provided, inferring from price");
+            if (totalMonthlyPrice) {
+              const basePrice = totalMonthlyPrice / 1.04; // Remove 4% admin fee
+              if (basePrice >= 70) {
+                planName = 'Elite';
+                planTier = 'Elite';
+              } else if (basePrice >= 50) {
+                planName = 'Plus';
+                planTier = 'Plus';
+              } else {
+                planName = 'Base';
+                planTier = 'Base';
+              }
+              console.log("[Commission] Inferred plan from price:", planName);
+            }
+          }
           
           // Calculate commission using proper commission structure
-          const commissionResult = calculateCommission(plan?.name || '', coverageType || memberType || '');
+          const coverage = coverageType || memberType || 'Member Only';
+          const commissionResult = calculateCommission(planName, coverage);
           
           if (commissionResult) {
             await storage.createCommission({
               agentId: enrolledByAgentId,
-              subscriptionId: subscriptionId,
+              subscriptionId: subscriptionId || member.id, // Use member ID if no subscription
               userId: member.id,
-              planName: plan?.name || coverageType,
-              planType: coverageType || memberType,
-              planTier: plan?.name?.includes('Elite') ? 'Elite' : plan?.name?.includes('Plus') ? 'Plus' : 'Base',
+              planName: planName,
+              planType: coverage,
+              planTier: planTier,
               commissionAmount: commissionResult.commission,
               totalPlanCost: commissionResult.totalCost,
               status: 'pending',
@@ -2579,19 +2609,21 @@ export async function registerRoutes(app: any) {
               updatedAt: new Date()
             });
             
-            console.log("[Registration] Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + plan?.name + ", Type: " + coverageType + ")");
+            console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")");
           } else {
-            console.warn("[Registration] Could not calculate commission - no matching rate found");
+            console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
           }
         } catch (commError) {
           console.error("[Registration] Error creating commission:", commError);
+          console.error("[Registration] Commission error details:", commError.stack);
           // Continue with registration even if commission creation fails
         }
       } else {
-        console.warn("[Registration] ⚠️  Commission NOT created - one or more required values missing");
+        console.warn("[Registration] ⚠️  Commission NOT created - missing required values");
         if (!agentNumber) console.warn("[Registration]   - Missing: agentNumber");
         if (!enrolledByAgentId) console.warn("[Registration]   - Missing: enrolledByAgentId");
-        if (!planId) console.warn("[Registration]   - Missing: planId");
+        if (!coverageType && !memberType) console.warn("[Registration]   - Missing: coverageType/memberType");
+        console.log("[Registration]   Note: planId is optional and can be inferred from price");
       }
 
       // Add family members if provided
