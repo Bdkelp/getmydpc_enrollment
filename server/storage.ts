@@ -227,7 +227,7 @@ export interface IStorage {
 export async function createUser(userData: Partial<User>): Promise<User> {
   try {
     // Use Supabase to insert user
-    const id = userData.id || crypto.randomUUID();
+    // NOTE: The users table in Supabase uses email as primary key, not id
     let agentNumber = userData.agentNumber;
     const role = userData.role || 'member';
     if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
@@ -240,29 +240,29 @@ export async function createUser(userData: Partial<User>): Promise<User> {
         console.warn(`[Agent Number] Generation failed: ${error.message}`);
       }
     }
+    
+    // Build insert object with only columns that exist in Supabase
+    const insertData: any = {
+      email: userData.email,
+      username: userData.email?.split('@')[0] || null, // Use email prefix as username
+      first_name: userData.firstName || '',
+      last_name: userData.lastName || '',
+      phone: userData.phone || null,
+      role,
+      agent_number: agentNumber || null,
+      is_active: userData.isActive !== undefined ? userData.isActive : true,
+      created_at: userData.createdAt || new Date()
+    };
+    
+    console.log('[Storage] createUser: Inserting user with data:', {
+      email: insertData.email,
+      role: insertData.role,
+      agent_number: insertData.agent_number
+    });
+    
     const { data, error } = await supabase
       .from('users')
-      .insert([
-        {
-          id,
-          email: userData.email,
-          first_name: userData.firstName || '',
-          last_name: userData.lastName || '',
-          phone: userData.phone || null,
-          role,
-          agent_number: agentNumber || null,
-          ssn: userData.ssn || null,
-          is_active: userData.isActive !== undefined ? userData.isActive : true,
-          approval_status: userData.approvalStatus || 'approved',
-          email_verified: userData.emailVerified || false,
-          created_at: userData.createdAt || new Date(),
-          updated_at: userData.updatedAt || new Date(),
-          profile_image_url: userData.profileImageUrl || null,
-          google_id: userData.googleId || null,
-          facebook_id: userData.facebookId || null,
-          twitter_id: userData.twitterId || null
-        }
-      ])
+      .insert([insertData])
       .select()
       .single();
     if (error) {
@@ -300,7 +300,8 @@ function mapUserFromDB(data: any): User | null {
   const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
 
   return {
-    id: data.id,
+    // The Supabase users table doesn't have an id column - use email as identifier
+    id: data.id || data.email,
     email: data.email,
     firstName: data.first_name || data.firstName || '',
     lastName: data.last_name || data.lastName || '',
@@ -359,10 +360,11 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   try {
     console.log('[Storage] getUserByEmail called with:', email);
     // Use Supabase to fetch user by email
-    // Explicitly select id column to ensure it's included
+    // The users table doesn't have an 'id' column - use email as the primary identifier
+    // Column names in Supabase are snake_case (first_name, agent_number, etc.)
     const { data, error } = await supabase
       .from('users')
-      .select('id, email, username, first_name, last_name, phone, role, agent_number, is_active, approval_status, created_at, updated_at, last_login_at, password_hash, email_verified, profile_image_url')
+      .select('*')
       .eq('email', email)
       .single();
     console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
