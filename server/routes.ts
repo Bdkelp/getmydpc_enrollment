@@ -2526,6 +2526,17 @@ export async function registerRoutes(app: any) {
       }
 
       // Create commission if enrolled by agent
+      console.log("[Commission Check] agentNumber:", agentNumber);
+      console.log("[Commission Check] enrolledByAgentId:", enrolledByAgentId);
+      console.log("[Commission Check] planId:", planId);
+      console.log("[Commission Check] subscriptionId:", subscriptionId);
+      console.log("[Commission Check] Condition check:", {
+        hasAgentNumber: !!agentNumber,
+        hasEnrolledByAgentId: !!enrolledByAgentId,
+        hasPlanId: !!planId,
+        allConditionsMet: !!(agentNumber && enrolledByAgentId && planId)
+      });
+      
       if (agentNumber && enrolledByAgentId && planId) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
