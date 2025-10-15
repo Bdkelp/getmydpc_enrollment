@@ -138,6 +138,7 @@ async function backfillCommissions() {
           successCount++;
         } catch (insertError) {
           console.error(`  ❌ Failed to create commission:`, insertError.message);
+          console.error(`  Full error:`, JSON.stringify(insertError, null, 2));
           failCount++;
         }
       } else {
