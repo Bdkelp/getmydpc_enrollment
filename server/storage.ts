@@ -1831,52 +1831,58 @@ export async function createCommission(commission: InsertCommission): Promise<Co
 }
 
 export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
-  let query = supabase.from('commissions').select('*').eq('agentId', agentId);
+  try {
+    let sql = 'SELECT * FROM commissions WHERE agent_id = $1';
+    const params: any[] = [agentId];
 
-  if (startDate && endDate) {
-    query = query.gte('created_at', startDate).lte('created_at', endDate);
-  }
+    if (startDate && endDate) {
+      sql += ' AND created_at >= $2 AND created_at <= $3';
+      params.push(startDate, endDate);
+    }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+    sql += ' ORDER BY created_at DESC';
 
-  if (error) {
+    const result = await query(sql, params);
+    return result.rows || [];
+  } catch (error: any) {
     console.error('Error fetching agent commissions:', error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);
   }
-
-  return data || [];
 }
 
 export async function getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
-  let query = supabase.from('commissions').select('*');
+  try {
+    let sql = 'SELECT * FROM commissions';
+    const params: any[] = [];
 
-  if (startDate && endDate) {
-    query = query.gte('created_at', startDate).lte('created_at', endDate);
-  }
+    if (startDate && endDate) {
+      sql += ' WHERE created_at >= $1 AND created_at <= $2';
+      params.push(startDate, endDate);
+    }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+    sql += ' ORDER BY created_at DESC';
 
-  if (error) {
+    const result = await query(sql, params);
+    return result.rows || [];
+  } catch (error: any) {
     console.error('Error fetching all commissions:', error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
   }
-
-  return data || [];
 }
 
 export async function getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
-  const { data, error } = await supabase
-    .from('commissions')
-    .select('*')
-    .eq('subscriptionId', subscriptionId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return undefined;
+  try {
+    const result = await query(
+      'SELECT * FROM commissions WHERE subscription_id = $1 LIMIT 1',
+      [subscriptionId]
+    );
+    
+    if (result.rows.length === 0) return undefined;
+    return result.rows[0];
+  } catch (error: any) {
     console.error('Error fetching commission by subscription ID:', error);
     return undefined;
   }
-  return data;
 }
 
 export async function getCommissionByUserId(userId: string, agentId: string): Promise<Commission | undefined> {
