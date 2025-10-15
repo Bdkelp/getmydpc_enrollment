@@ -2728,59 +2728,58 @@ export const storage = {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
 
-      // Get fresh data with proper error handling
+      // Get users from Supabase (agents/admins only stored there)
       const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
-      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
-      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*');
-
-      if (usersError || subscriptionsError || commissionsError) {
-        console.error('[Storage] Error fetching dashboard data:', { usersError, subscriptionsError, commissionsError });
+      if (usersError) {
+        console.error('[Storage] Error fetching users:', usersError);
       }
-
       const allUsers = allUsersData || [];
-      const allSubscriptions = allSubscriptionsData || [];
-      const allCommissions = allCommissionsData || [];
+
+      // Get members, subscriptions, and commissions from Neon
+      const membersResult = await query('SELECT * FROM members WHERE status = $1', ['active']);
+      const subscriptionsResult = await query('SELECT * FROM subscriptions');
+      const commissionsResult = await query('SELECT * FROM commissions');
+
+      const allMembers = membersResult.rows || [];
+      const allSubscriptions = subscriptionsResult.rows || [];
+      const allCommissions = commissionsResult.rows || [];
 
       console.log('[Storage] Raw dashboard data counts:', {
         users: allUsers.length,
+        members: allMembers.length,
         subscriptions: allSubscriptions.length,
         commissions: allCommissions.length
       });
 
-      // Filter for actual active members only (not admins/agents)
-      const actualMembers = allUsers.filter(user =>
-        (user.role === 'member' || user.role === 'user') &&
-        user.approval_status === 'approved' &&
-        user.is_active === true
-      );
-
-      const totalUsers = allUsers.length;
-      const totalMembers = actualMembers.length;
       const totalAgents = allUsers.filter(user => user.role === 'agent').length;
-      const totalAdmins = allUsers.filter(user => user.role === 'admin').length;
+      const totalAdmins = allUsers.filter(user => user.role === 'admin' || user.role === 'super_admin').length;
+      const totalMembers = allMembers.length;
+      const totalUsers = totalAgents + totalAdmins + totalMembers;
 
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
       const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
       const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
 
-      // Calculate revenue from active subscriptions only
+      // Calculate revenue from active subscriptions
       const monthlyRevenue = allSubscriptions
         .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (sub.amount || 0), 0);
+        .reduce((total, sub) => total + parseFloat(sub.amount || 0), 0);
 
-      const totalCommissions = allCommissions.reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+      // Calculate commissions
+      const totalCommissions = allCommissions.reduce((total, comm) => 
+        total + parseFloat(comm.commission_amount || 0), 0);
       const paidCommissions = allCommissions
         .filter(comm => comm.payment_status === 'paid')
-        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
       const pendingCommissions = allCommissions
         .filter(comm => comm.payment_status === 'unpaid' || comm.payment_status === 'pending')
-        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
 
+      // Calculate new enrollments (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const newEnrollments = allSubscriptions.filter(sub =>
-        sub.createdAt && new Date(sub.createdAt) >= thirtyDaysAgo
+      const newEnrollments = allMembers.filter(member =>
+        member.created_at && new Date(member.created_at) >= thirtyDaysAgo
       ).length || 0;
 
       const stats = {
@@ -2791,13 +2790,13 @@ export const storage = {
         activeSubscriptions,
         pendingSubscriptions,
         cancelledSubscriptions,
-        monthlyRevenue,
-        totalCommissions,
-        paidCommissions,
-        pendingCommissions,
+        monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
+        totalCommissions: parseFloat(totalCommissions.toFixed(2)),
+        paidCommissions: parseFloat(paidCommissions.toFixed(2)),
+        pendingCommissions: parseFloat(pendingCommissions.toFixed(2)),
         newEnrollments,
-        churnRate: totalUsers > 0 ? ((cancelledSubscriptions / totalUsers) * 100) : 0,
-        averageRevenue: activeSubscriptions > 0 ? (monthlyRevenue / activeSubscriptions) : 0
+        churnRate: totalMembers > 0 ? parseFloat(((cancelledSubscriptions / totalMembers) * 100).toFixed(2)) : 0,
+        averageRevenue: activeSubscriptions > 0 ? parseFloat((monthlyRevenue / activeSubscriptions).toFixed(2)) : 0
       };
 
       console.log('[Storage] Admin stats:', stats);
