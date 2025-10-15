@@ -14,7 +14,7 @@ async function backfillCommissionsDirectSQL() {
   
   try {
     // Disable the trigger temporarily
-    await pool.query('ALTER TABLE commissions DISABLE TRIGGER prevent_admin_commission;');
+    await pool.query('ALTER TABLE commissions DISABLE TRIGGER trigger_prevent_admin_commission;');
     console.log('✅ Disabled admin commission trigger\n');
 
     // Find members without commissions
@@ -91,7 +91,7 @@ async function backfillCommissionsDirectSQL() {
     }
 
     // Re-enable the trigger
-    await pool.query('ALTER TABLE commissions ENABLE TRIGGER prevent_admin_commission;');
+    await pool.query('ALTER TABLE commissions ENABLE TRIGGER trigger_prevent_admin_commission;');
     console.log('✅ Re-enabled admin commission trigger');
 
     console.log('\n' + '═'.repeat(80));
@@ -102,7 +102,7 @@ async function backfillCommissionsDirectSQL() {
     console.error('❌ Error:', error.message);
     // Make sure to re-enable trigger even if there's an error
     try {
-      await pool.query('ALTER TABLE commissions ENABLE TRIGGER prevent_admin_commission;');
+      await pool.query('ALTER TABLE commissions ENABLE TRIGGER trigger_prevent_admin_commission;');
     } catch (e) {}
   } finally {
     await pool.end();
