@@ -1044,6 +1044,94 @@ router.post(
   },
 );
 
+// Get all DPC members from Neon database
+router.get(
+  "/api/admin/dpc-members",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      console.log("[Admin DPC Members API] Fetching DPC members from Neon database");
+      const members = await storage.getAllDPCMembers();
+      console.log(`[Admin DPC Members API] Retrieved ${members.length} members`);
+      res.json({
+        members: members,
+        totalCount: members.length,
+      });
+    } catch (error: any) {
+      console.error("[Admin DPC Members API] Error fetching DPC members:", error);
+      res.status(500).json({
+        message: "Failed to fetch DPC members",
+        error: error.message,
+      });
+    }
+  },
+);
+
+// Suspend DPC member
+router.put(
+  "/api/admin/dpc-members/:customerId/suspend",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { customerId } = req.params;
+      const { reason } = req.body;
+      
+      console.log(`[Admin] Suspending DPC member: ${customerId}`);
+      const updatedMember = await storage.suspendDPCMember(customerId, reason);
+      
+      res.json({
+        success: true,
+        message: "Member suspended successfully",
+        member: updatedMember
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error suspending DPC member:", error);
+      res.status(500).json({
+        message: "Failed to suspend member",
+        error: error.message
+      });
+    }
+  },
+);
+
+// Reactivate DPC member
+router.put(
+  "/api/admin/dpc-members/:customerId/reactivate",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { customerId } = req.params;
+      
+      console.log(`[Admin] Reactivating DPC member: ${customerId}`);
+      const updatedMember = await storage.reactivateDPCMember(customerId);
+      
+      res.json({
+        success: true,
+        message: "Member reactivated successfully",
+        member: updatedMember
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error reactivating DPC member:", error);
+      res.status(500).json({
+        message: "Failed to reactivate member",
+        error: error.message
+      });
+    }
+  },
+);
+
 router.post(
   "/api/admin/reject-user/:userId",
   authenticateToken,
