@@ -278,14 +278,9 @@ export async function createUser(userData: Partial<User>): Promise<User> {
 
 export async function getUser(id: string): Promise<User | null> {
   try {
-    // Use direct Neon query to bypass RLS
-    const result = await query(
-      'SELECT * FROM users WHERE id = $1',
-      [id]
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
+    // Supabase users table uses email as primary key, not id
+    // So id parameter is actually an email
+    return await getUserByEmail(id);
   } catch (error: any) {
     console.error('Error fetching user:', error);
     return null; // Return null instead of throwing for non-critical queries
@@ -411,97 +406,49 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 
 export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
   try {
-    // Build dynamic UPDATE query
-    const updateFields: string[] = [];
-    const values: any[] = [];
-    let paramCount = 1;
-
-    // Map the fields that might be updated
-    if (updates.firstName !== undefined) {
-      updateFields.push(`first_name = $${paramCount++}`);
-      values.push(updates.firstName);
-    }
-    if (updates.lastName !== undefined) {
-      updateFields.push(`last_name = $${paramCount++}`);
-      values.push(updates.lastName);
-    }
-    if (updates.lastLoginAt !== undefined) {
-      updateFields.push(`last_login_at = $${paramCount++}`);
-      values.push(updates.lastLoginAt);
-    }
-    if (updates.email !== undefined) {
-      updateFields.push(`email = $${paramCount++}`);
-      values.push(updates.email);
-    }
-    if (updates.phone !== undefined) {
-      updateFields.push(`phone = $${paramCount++}`);
-      values.push(updates.phone);
-    }
-    if (updates.role !== undefined) {
-      updateFields.push(`role = $${paramCount++}`);
-      values.push(updates.role);
-    }
-    if (updates.isActive !== undefined) {
-      updateFields.push(`is_active = $${paramCount++}`);
-      values.push(updates.isActive);
-    }
-    if (updates.approvalStatus !== undefined) {
-      updateFields.push(`approval_status = $${paramCount++}`);
-      values.push(updates.approvalStatus);
-    }
-    if (updates.approvedAt !== undefined) {
-      updateFields.push(`approved_at = $${paramCount++}`);
-      values.push(updates.approvedAt);
-    }
-    if (updates.approvedBy !== undefined) {
-      updateFields.push(`approved_by = $${paramCount++}`);
-      values.push(updates.approvedBy);
-    }
-    if (updates.agentNumber !== undefined) {
-      updateFields.push(`agent_number = $${paramCount++}`);
-      values.push(updates.agentNumber);
-    }
-    if (updates.profileImageUrl !== undefined) {
-      updateFields.push(`profile_image_url = $${paramCount++}`);
-      values.push(updates.profileImageUrl);
-    }
-    if (updates.googleId !== undefined) {
-      updateFields.push(`google_id = $${paramCount++}`);
-      values.push(updates.googleId);
-    }
-    if (updates.facebookId !== undefined) {
-      updateFields.push(`facebook_id = $${paramCount++}`);
-      values.push(updates.facebookId);
-    }
-    if (updates.twitterId !== undefined) {
-      updateFields.push(`twitter_id = $${paramCount++}`);
-      values.push(updates.twitterId);
-    }
-
-    // Always update the timestamp
-    updateFields.push(`updated_at = $${paramCount++}`);
-    values.push(new Date());
-
-    // Add the ID at the end
-    values.push(id);
-
-    if (updateFields.length === 1) { // Only updated_at
-      // If no actual updates, just return the existing user
-      const currentUser = await getUser(id);
+    // Build update object with only columns that exist in Supabase
+    // Supabase users table columns: email, username, first_name, last_name, phone, role, agent_number, is_active, created_at
+    const updateData: any = {};
+    
+    if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
+    if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
+    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.role !== undefined) updateData.role = updates.role;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+    if (updates.agentNumber !== undefined) updateData.agent_number = updates.agentNumber;
+    
+    // Ignore fields that don't exist in Supabase:
+    // - lastLoginAt, approvalStatus, approvedAt, approvedBy, profileImageUrl
+    // - googleId, facebookId, twitterId, emailVerified, etc.
+    
+    if (Object.keys(updateData).length === 0) {
+      // No valid updates, just return the existing user
+      console.log('[Storage] updateUser: No valid fields to update, returning existing user');
+      const currentUser = await getUserByEmail(id); // id is actually email
       if (currentUser) return currentUser;
       throw new Error('User not found');
     }
 
-    const result = await query(
-      `UPDATE users SET ${updateFields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-      values
-    );
+    console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
+    
+    // Use Supabase update - id is actually email (primary key)
+    const { data, error } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('email', id) // Use email as identifier since there's no id column
+      .select()
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error) {
+      console.error('[Storage] updateUser error:', error);
+      throw new Error(`Failed to update user: ${error.message}`);
+    }
+
+    if (!data) {
       throw new Error('User not found');
     }
 
-    return mapUserFromDB(result.rows[0]);
+    return mapUserFromDB(data);
   } catch (error: any) {
     console.error('Error updating user:', error);
 
