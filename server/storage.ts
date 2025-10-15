@@ -1,5 +1,5 @@
 import { supabase } from './lib/supabaseClient'; // Keep for auth only
-// import { neonPool, query } from './lib/neonDb'; // Neon removed, now using Supabase for all DB operations
+import { neonPool, query } from './lib/neonDb'; // Use Neon for all database operations, Supabase for auth
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
