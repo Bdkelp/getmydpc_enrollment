@@ -17,7 +17,7 @@ async function backfillCommissionsDirectSQL() {
     await pool.query('ALTER TABLE commissions DISABLE TRIGGER trigger_prevent_admin_commission;');
     console.log('✅ Disabled admin commission trigger\n');
 
-    // Find members without commissions
+    // Find members without commissions and get the agent's UUID
     const membersWithoutCommissions = await pool.query(`
       SELECT 
         m.id,
@@ -27,9 +27,11 @@ async function backfillCommissionsDirectSQL() {
         m.agent_number,
         m.enrolled_by_agent_id,
         m.member_type,
-        m.created_at
+        m.created_at,
+        u.id as agent_uuid
       FROM members m
       LEFT JOIN commissions c ON CAST(m.id AS INTEGER) = c.subscription_id
+      LEFT JOIN users u ON u.email = m.enrolled_by_agent_id
       WHERE m.agent_number IS NOT NULL 
         AND m.enrolled_by_agent_id IS NOT NULL
         AND c.id IS NULL
@@ -42,6 +44,11 @@ async function backfillCommissionsDirectSQL() {
 
     for (const member of membersWithoutCommissions.rows) {
       console.log(`Processing: ${member.customer_number} - ${member.first_name} ${member.last_name}`);
+      
+      if (!member.agent_uuid) {
+        console.error(`  ❌ Agent not found in users table: ${member.enrolled_by_agent_id}\n`);
+        continue;
+      }
 
       // Normalize coverage type
       let coverageType = member.member_type || 'Member Only';
@@ -69,7 +76,7 @@ async function backfillCommissionsDirectSQL() {
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           RETURNING id
         `, [
-          member.enrolled_by_agent_id,
+          member.agent_uuid,  // Use UUID instead of email
           parseInt(member.id),
           member.id.toString(),
           'Base',
