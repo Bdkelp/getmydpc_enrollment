@@ -1916,36 +1916,41 @@ export async function updateCommission(id: number, data: Partial<Commission>): P
 }
 
 export async function getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
-  // This requires custom aggregation or fetching all and processing.
-  // Assuming a simplified approach by fetching relevant commissions.
-  let query = supabase.from('commissions').select('commissionAmount, paymentStatus');
+  try {
+    let sql = 'SELECT commission_amount, payment_status FROM commissions';
+    const params: any[] = [];
 
-  if (agentId) {
-    query = query.eq('agentId', agentId);
-  }
+    if (agentId) {
+      sql += ' WHERE agent_id = $1';
+      params.push(agentId);
+    }
 
-  const { data, error } = await query;
+    const result = await query(sql, params);
+    const data = result.rows || [];
 
-  if (error) {
+    let totalEarned = 0;
+    let totalPending = 0;
+    let totalPaid = 0;
+
+    data.forEach(commission => {
+      const amount = parseFloat(commission.commission_amount?.toString() || '0');
+      if (commission.payment_status === 'paid') {
+        totalPaid += amount;
+        totalEarned += amount;
+      } else if (commission.payment_status === 'unpaid' || commission.payment_status === 'pending') {
+        totalPending += amount;
+      }
+    });
+
+    return { 
+      totalEarned: parseFloat(totalEarned.toFixed(2)), 
+      totalPending: parseFloat(totalPending.toFixed(2)), 
+      totalPaid: parseFloat(totalPaid.toFixed(2)) 
+    };
+  } catch (error: any) {
     console.error('Error fetching commission stats:', error);
     throw new Error(`Failed to get commission stats: ${error.message}`);
   }
-
-  let totalEarned = 0;
-  let totalPending = 0;
-  let totalPaid = 0;
-
-  (data || []).forEach(commission => {
-    const amount = parseFloat(commission.commissionAmount?.toString() || '0');
-    if (commission.paymentStatus === 'paid') {
-      totalPaid += amount;
-      totalEarned += amount;
-    } else if (commission.paymentStatus === 'unpaid') {
-      totalPending += amount;
-    }
-  });
-
-  return { totalEarned, totalPending, totalPaid };
 }
 
 // Helper function to map database snake_case to camelCase for plans
