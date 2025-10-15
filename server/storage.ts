@@ -831,12 +831,13 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
 
 export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
   try {
-    let sql = "SELECT * FROM users WHERE role IN ('user', 'member')";
+    // Query members table from Neon database (not Supabase users table)
+    let sql = "SELECT * FROM members WHERE status = 'active'";
     const params: any[] = [];
     let paramCount = 1;
 
     if (startDate && endDate) {
-      sql += ` AND created_at > $${paramCount++} AND created_at < $${paramCount++}`;
+      sql += ` AND created_at >= $${paramCount++} AND created_at <= $${paramCount++}`;
       params.push(startDate, endDate);
     }
 
@@ -845,11 +846,97 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
       params.push(agentId);
     }
 
-    const result = await query(sql, params);
-    return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
+    sql += " ORDER BY created_at DESC";
+
+    const result = await neonQuery(sql, params);
+    
+    // Map member data to User format for compatibility
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.status === 'active',
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.member_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number
+    } as any));
   } catch (error: any) {
     console.error('Error fetching all enrollments:', error);
     throw new Error(`Failed to get enrollments: ${error.message}`);
+  }
+}
+
+export async function getEnrollmentsByAgent(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+  try {
+    // Query members table from Neon database filtered by agent
+    let sql = "SELECT * FROM members WHERE enrolled_by_agent_id = $1 AND status = 'active'";
+    const params: any[] = [agentId];
+    let paramCount = 2;
+
+    if (startDate && endDate) {
+      sql += ` AND created_at >= $${paramCount++} AND created_at <= $${paramCount++}`;
+      params.push(startDate, endDate);
+    }
+
+    sql += " ORDER BY created_at DESC";
+
+    const result = await neonQuery(sql, params);
+    
+    // Map member data to User format for compatibility
+    return result.rows.map(row => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.status === 'active',
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.member_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number
+    } as any));
+  } catch (error: any) {
+    console.error('Error fetching agent enrollments:', error);
+    throw new Error(`Failed to get agent enrollments: ${error.message}`);
   }
 }
 
@@ -2160,6 +2247,7 @@ export const storage = {
   getSubscriptionStats,
   getAgentEnrollments,
   getAllEnrollments,
+  getEnrollmentsByAgent,
   recordEnrollmentModification,
 
   // Stub functions for operations needed by routes (to prevent errors)
