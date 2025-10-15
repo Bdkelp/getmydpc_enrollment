@@ -86,40 +86,51 @@ export const users = pgTable("users", {
 });
 
 // Members table - Enrolled healthcare customers (NO authentication access)
+// Field types match fresh_start_migration.sql - using CHAR for fixed-length fields
 export const members = pgTable("members", {
   id: serial("id").primaryKey(),
-  customerNumber: varchar("customer_number").unique().notNull(), // MPP20250001, etc.
+  // Customer identifier: MPP20250001 (11 chars fixed)
+  customerNumber: varchar("customer_number", { length: 11 }).unique().notNull(), // CHAR(11) in DB
   // Personal information
-  firstName: varchar("first_name").notNull(),
-  lastName: varchar("last_name").notNull(),
-  middleName: varchar("middle_name"),
-  email: varchar("email").unique().notNull(),
-  phone: varchar("phone"),
-  dateOfBirth: varchar("date_of_birth"), // stored as string for flexibility
-  gender: varchar("gender"),
-  ssn: varchar("ssn"), // Encrypted SSN storage
+  firstName: varchar("first_name", { length: 50 }).notNull(),
+  lastName: varchar("last_name", { length: 50 }).notNull(),
+  middleName: varchar("middle_name", { length: 50 }),
+  email: varchar("email", { length: 100 }).unique().notNull(),
+  // Phone: US numbers only - 10 digits (no formatting: 5125551234)
+  phone: varchar("phone", { length: 10 }), // CHAR(10) in DB - digits only
+  // Date of Birth: MMDDYYYY format (8 chars: 01151990 = Jan 15, 1990)
+  dateOfBirth: varchar("date_of_birth", { length: 8 }), // CHAR(8) in DB
+  // Gender: M, F, O (1 char)
+  gender: varchar("gender", { length: 1 }), // CHAR(1) in DB
+  // SSN: 9 digits, no dashes (123456789)
+  ssn: varchar("ssn", { length: 9 }), // CHAR(9) in DB - encrypted in app layer
   // Address information
-  address: text("address"),
-  address2: text("address2"),
-  city: varchar("city"),
-  state: varchar("state"),
-  zipCode: varchar("zip_code"),
+  address: varchar("address", { length: 100 }),
+  address2: varchar("address2", { length: 50 }),
+  city: varchar("city", { length: 50 }),
+  // State: US state code (2 chars: TX, CA)
+  state: varchar("state", { length: 2 }), // CHAR(2) in DB
+  // ZIP code: 5 digits only (78701)
+  zipCode: varchar("zip_code", { length: 5 }), // CHAR(5) in DB
   // Emergency contact
-  emergencyContactName: varchar("emergency_contact_name"),
-  emergencyContactPhone: varchar("emergency_contact_phone"),
+  emergencyContactName: varchar("emergency_contact_name", { length: 100 }),
+  // Emergency phone: 10 digits (no formatting)
+  emergencyContactPhone: varchar("emergency_contact_phone", { length: 10 }), // CHAR(10) in DB
   // Employment information
-  employerName: varchar("employer_name"),
-  divisionName: varchar("division_name"),
-  memberType: varchar("member_type"), // employee, spouse, dependent
-  dateOfHire: varchar("date_of_hire"),
-  planStartDate: varchar("plan_start_date"),
+  employerName: varchar("employer_name", { length: 100 }),
+  divisionName: varchar("division_name", { length: 100 }),
+  memberType: varchar("member_type", { length: 20 }), // employee, spouse, dependent
+  // Date of Hire: MMDDYYYY format (8 chars)
+  dateOfHire: varchar("date_of_hire", { length: 8 }), // CHAR(8) in DB
+  // Plan Start Date: MMDDYYYY format (8 chars)
+  planStartDate: varchar("plan_start_date", { length: 8 }), // CHAR(8) in DB
   // Enrollment tracking
-  enrolledByAgentId: varchar("enrolled_by_agent_id").references(() => users.id),
-  agentNumber: varchar("agent_number"), // Capture agent number at enrollment (MPP0001)
+  enrolledByAgentId: varchar("enrolled_by_agent_id", { length: 255 }).references(() => users.id),
+  agentNumber: varchar("agent_number", { length: 20 }), // MPP0001, MPP0002, etc.
   enrollmentDate: timestamp("enrollment_date").defaultNow(),
   // Status
   isActive: boolean("is_active").default(true),
-  status: varchar("status").default("active"), // active, cancelled, suspended, pending
+  status: varchar("status", { length: 20 }).default("active"), // active, cancelled, suspended, pending
   cancellationDate: timestamp("cancellation_date"),
   cancellationReason: text("cancellation_reason"),
   // Timestamps
@@ -129,8 +140,9 @@ export const members = pgTable("members", {
   index("idx_members_customer_number").on(table.customerNumber),
   index("idx_members_email").on(table.email),
   index("idx_members_enrolled_by").on(table.enrolledByAgentId),
-  index("idx_members_agent_number").on(table.agentNumber),
   index("idx_members_status").on(table.status),
+  index("idx_members_phone").on(table.phone),
+  index("idx_members_last_name").on(table.lastName),
 ]);
 
 // Plans table

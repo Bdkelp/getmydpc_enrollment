@@ -2262,11 +2262,15 @@ export async function registerRoutes(app: any) {
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
 
-  // Registration endpoint - ensure it's accessible
+  // ============================================================
+  // ============================================================
+  // MEMBER REGISTRATION ENDPOINT
+  // Creates members WITHOUT Supabase Auth (members cannot log in)
+  // Customer number auto-generates via database function
+  // ============================================================
   app.post("/api/registration", async (req: any, res: any) => {
-    console.log("🔍 REGISTRATION START - Data received");
-    console.log("Request body keys:", Object.keys(req.body || {}));
-    console.log("[Registration] Endpoint hit - method:", req.method, "path:", req.path);
+    console.log("[Registration] Member registration attempt");
+    console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
 
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
@@ -2284,16 +2288,9 @@ export async function registerRoutes(app: any) {
       res.header('Access-Control-Allow-Credentials', 'true');
     }
 
-    let supabaseUserId = null; // Track for cleanup if needed
-
     try {
-      console.log("✅ Step 1: Starting user creation...");
-      console.log("[Registration] Registration attempt:", req.body?.email);
-      console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
-
       const {
         email,
-        password,
         firstName,
         lastName,
         middleName,
@@ -2323,12 +2320,9 @@ export async function registerRoutes(app: any) {
         faqDownloaded
       } = req.body;
 
-      console.log("✅ Step 2: Email validation debugging...");
-      console.log("[Registration] Email received:", email);
-      console.log("[Registration] Email type:", typeof email);
-      console.log("[Registration] Email length:", email?.length);
+      console.log("[Registration] Email:", email);
 
-      // Basic validation with better error details
+      // Basic validation
       const missingFields = [];
       if (!email) missingFields.push("email");
       if (!firstName) missingFields.push("firstName");
@@ -2339,207 +2333,69 @@ export async function registerRoutes(app: any) {
         return res.status(400).json({
           error: "Missing required fields",
           required: ["email", "firstName", "lastName"],
-          missing: missingFields,
-          received: {
-            email: !!email,
-            firstName: !!firstName,
-            lastName: !!lastName
-          }
+          missing: missingFields
         });
       }
 
-      // Email validation with detailed logging
-      console.log("✅ Step 3: Email format validation...");
+      // Email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const isValidEmail = emailRegex.test(email);
-      console.log("[Registration] Email regex test result:", isValidEmail);
-      console.log("[Registration] Email regex pattern:", emailRegex.toString());
-
-      if (!isValidEmail) {
-        console.error("[Registration] Email validation failed for:", email);
+      if (!emailRegex.test(email)) {
+        console.error("[Registration] Invalid email format:", email);
         return res.status(400).json({
-          error: "Invalid email format",
-          email: email,
-          regexPattern: emailRegex.toString()
+          error: "Invalid email format"
         });
       }
 
-      // Check if user already exists in our database first
-      console.log("✅ Step 3.5: Checking for existing user...");
-      try {
-        const existingUser = await storage.getUserByEmail(email.trim().toLowerCase());
-        if (existingUser) {
-          console.log("[Registration] User already exists:", existingUser.id);
-          return res.status(400).json({
-            error: "User already exists with this email",
-            existingUserId: existingUser.id
-          });
-        }
-      } catch (checkError) {
-        console.warn("[Registration] Error checking existing user:", checkError.message);
-        // Continue with registration attempt
+      // Check if member already exists
+      const existingMember = await storage.getMemberByEmail(email.trim().toLowerCase());
+      if (existingMember) {
+        console.log("[Registration] Member already exists:", existingMember.id);
+        return res.status(400).json({
+          error: "Member already exists with this email"
+        });
       }
 
-      // Generate a strong password by default to avoid Supabase validation issues
-      let finalPassword = password;
+      console.log("[Registration] Creating member...");
 
-      console.log("✅ Step 4: Processing password...");
-      console.log("[Registration] Original password provided:", !!password);
-
-      // Always generate a strong password for DPC enrollments to avoid Supabase issues
-      const timestamp = Date.now();
-      const randomNum = Math.floor(Math.random() * 9999);
-      finalPassword = `MPP${timestamp}${randomNum}!Secure`;
-
-      console.log("[Registration] Using strong generated password for Supabase compliance");
-      console.log("[Registration] Generated password length:", finalPassword.length);
-
-      console.log("✅ Step 5: Before Supabase auth signUp...");
-      console.log("[Registration] Email for Supabase:", email);
-      console.log("[Registration] Password strength check passed");
-      console.log("[Registration] Supabase signup payload:", {
-        email: email,
-        passwordLength: finalPassword.length,
-        hasMetadata: !!firstName
+      // Create member (NO Supabase Auth, NO password)
+      // Customer number auto-generates
+      // Fields auto-format (phone, DOB, SSN, etc.)
+      const member = await storage.createMember({
+        email: email.trim().toLowerCase(),
+        firstName: firstName?.trim() || "",
+        lastName: lastName?.trim() || "",
+        middleName: middleName?.trim() || null,
+        phone: phone || null,
+        dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
+        ssn: ssn || null,
+        address: address?.trim() || null,
+        address2: address2?.trim() || null,
+        city: city?.trim() || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        employerName: employerName?.trim() || null,
+        dateOfHire: dateOfHire || null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate || null,
+        isActive: true,
+        emailVerified: false,
+        termsAccepted: termsAccepted || false,
+        privacyAccepted: privacyAccepted || false,
+        privacyNoticeAcknowledged: privacyNoticeAcknowledged || false,
+        smsConsent: smsConsent || false,
+        communicationsConsent: communicationsConsent || false,
+        faqDownloaded: faqDownloaded || false
       });
 
-      // Use existing registration logic with improved password and detailed error handling
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(), // Ensure clean email format
-        password: finalPassword,
-        options: {
-          data: {
-            firstName,
-            lastName,
-            phone: phone || "",
-          },
-        },
-      });
-
-      if (error) {
-        console.error("❌ SUPABASE AUTH ERROR:", error.message);
-        console.error("❌ Error details:", JSON.stringify(error, null, 2));
-        console.error("[Registration] Supabase error code:", error.status);
-        console.error("[Registration] Error source:", error.name || 'Unknown');
-
-        // Check if it's an email validation error from Supabase
-        if (error.message && error.message.toLowerCase().includes('invalid')) {
-          console.error("❌ EMAIL VALIDATION ERROR FROM SUPABASE");
-          console.error("❌ Original email:", email);
-          console.error("❌ Processed email:", email.trim().toLowerCase());
-        }
-
-        return res.status(400).json({
-          error: error.message || "Registration failed",
-          source: "Supabase Auth",
-          details: process.env.NODE_ENV === "development" ? error : undefined
-        });
-      }
-
-      console.log("✅ Step 6: Supabase user created successfully");
-      console.log("[Registration] Supabase user ID:", data.user?.id);
-      console.log("[Registration] Supabase user email:", data.user?.email);
-
-      if (!data.user) {
-        console.error("❌ No user data returned from Supabase");
-        return res.status(400).json({
-          error: "Failed to create user - no user data returned"
-        });
-      }
-
-      // Store Supabase user ID for potential cleanup
-      supabaseUserId = data.user.id;
-
-      console.log("✅ Step 7: Before database user creation...");
-      console.log("[Registration] Creating user with ID:", data.user.id);
-      console.log("[Registration] Creating user with email:", data.user.email);
-      console.log("[Registration] User ID type:", typeof data.user.id);
-      console.log("[Registration] User ID length:", data.user.id?.length);
-
-      // Verify the Supabase user ID is valid
-      if (!data.user.id || typeof data.user.id !== 'string') {
-        throw new Error("Invalid user ID from Supabase authentication");
-      }
-
-      // Create user in our database with retry logic for ID conflicts
-      let user;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
-          console.log("[Registration] Using Supabase ID:", data.user.id);
-
-          // Create user in our database with full enrollment data
-          user = await storage.createUser({
-            id: data.user.id, // Use the Supabase UUID directly
-            email: data.user.email!, // Use the email from Supabase to ensure consistency
-            firstName: firstName || "User",
-            lastName: lastName || "",
-            middleName: middleName || "",
-            phone: phone || "",
-            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-            gender: gender || null,
-            ssn: ssn || null,
-            address: address || "",
-            address2: address2 || "",
-            city: city || "",
-            state: state || "",
-            zipCode: zipCode || "",
-            employerName: employerName || "",
-            dateOfHire: dateOfHire ? new Date(dateOfHire) : null,
-            memberType: memberType || "member-only",
-            planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
-            emailVerified: false,
-            role: "member",
-            isActive: true,
-            approvalStatus: "approved", // Auto-approve DPC enrollments
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-
-          console.log("✅ Step 8: User created in database successfully");
-          console.log("[Registration] User ID:", user.id);
-          break; // Success, exit retry loop
-
-        } catch (dbError: any) {
-          retryCount++;
-          console.error(`❌ Database error attempt ${retryCount}/${maxRetries}:`, dbError.message);
-
-          if (dbError.message && dbError.message.includes('duplicate key')) {
-            console.error("❌ DUPLICATE KEY ERROR - User ID conflict");
-            console.error("❌ Conflicting ID:", data.user.id);
-
-            if (retryCount < maxRetries) {
-              console.log("🔄 Retrying user creation...");
-              // Wait a moment before retry
-              await new Promise(resolve => setTimeout(resolve, 100));
-            } else {
-              console.error("❌ Max retries reached for user creation");
-              throw new Error(`Failed to create user after ${maxRetries} attempts: ${dbError.message}`);
-            }
-          } else {
-            // Non-duplicate key error, don't retry
-            console.error("❌ Non-recoverable database error:", dbError);
-            throw dbError;
-          }
-        }
-      }
-
-      if (!user) {
-        throw new Error("Failed to create user in database after retries");
-      }
-
-      console.log("✅ Step 9: User creation completed successfully");
-      console.log("[Registration] Final user email:", user.email);
+      console.log("[Registration] Member created:", member.id, member.customerNumber);
 
       // Create subscription if plan is selected
       if (planId && totalMonthlyPrice) {
         try {
-          console.log("✅ Step 7: Before subscription creation...");
+          console.log("[Registration] Creating subscription...");
           const subscription = await storage.createSubscription({
-            userId: user.id,
+            userId: member.id,
             planId: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
@@ -2549,44 +2405,11 @@ export async function registerRoutes(app: any) {
             updatedAt: new Date()
           });
           console.log("[Registration] Subscription created:", subscription.id);
-
-          // ========== FIX: CREATE COMMISSION AUTOMATICALLY ==========
-          // Create commission record if enrolled by an agent
-          if (enrolledByAgentId && subscription.id) {
-            try {
-              console.log("[Registration] Creating commission for agent:", enrolledByAgentId);
-              
-              const commissionResult = await createCommissionWithCheck(
-                enrolledByAgentId,
-                subscription.id,
-                user.id,
-                planName || 'MyPremierPlan',
-                coverageType || 'Individual'
-              );
-              
-              if (commissionResult.success) {
-                console.log("[Registration] ✅ Commission created successfully:", commissionResult.commission.id);
-              } else if (commissionResult.skipped) {
-                console.log("[Registration] ⚠️ Commission skipped:", commissionResult.reason);
-              } else if (commissionResult.error) {
-                console.error("[Registration] ❌ Commission creation error:", commissionResult.error);
-              }
-            } catch (commError) {
-              console.error("[Registration] ❌ Exception creating commission:", commError);
-              // Log error but don't fail the registration
-            }
-          } else {
-            console.log("[Registration] ℹ️ No agent ID or subscription ID - skipping commission");
-          }
-          // ========== END COMMISSION FIX ==========
-
         } catch (subError) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
         }
       }
-
-      console.log("✅ Step 8: Before family members processing...");
 
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
@@ -2595,8 +2418,8 @@ export async function registerRoutes(app: any) {
           if (familyMember.firstName && familyMember.lastName) {
             try {
               await storage.addFamilyMember({
-                ...familyMemberData,
-                primaryUserId: user.id,
+                ...familyMember,
+                primaryUserId: member.id,
               });
               console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
             } catch (familyError) {
@@ -2607,84 +2430,57 @@ export async function registerRoutes(app: any) {
         }
       }
 
-      console.log("✅ Step 9: Registration completed successfully!");
-      console.log("[Registration] Final user email:", user.email);
+      console.log("[Registration] Registration completed successfully");
 
       res.json({
         success: true,
         message: "Registration successful. Proceeding to payment...",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-          approvalStatus: user.approvalStatus,
+        member: {
+          id: member.id,
+          customerNumber: member.customerNumber,
+          email: member.email,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          memberType: member.memberType
         },
         enrollment: {
           planId: planId,
           coverageType: coverageType,
           totalMonthlyPrice: totalMonthlyPrice,
           addRxValet: addRxValet
-        },
-        // Include generated password for testing purposes
-        ...(finalPassword !== password && { generatedPassword: finalPassword })
+        }
       });
     } catch (error: any) {
-      console.error("❌ REGISTRATION ERROR:", error.message);
-      console.error("❌ Error details:", error);
-      console.error("❌ Stack trace:", error.stack);
+      console.error("[Registration] Error:", error.message);
+      console.error("[Registration] Stack:", error.stack);
 
-      // Clean up Supabase user if database creation failed
-      if (supabaseUserId && error.message && (
-        error.message.includes('duplicate key') || 
-        error.message.includes('constraint') ||
-        error.message.includes('users_pkey')
-      )) {
-        console.log("🧹 Cleaning up Supabase user due to database error...");
-        try {
-          // Note: In production, you might want to keep the Supabase user and handle this differently
-          const { error: deleteError } = await supabase.auth.admin.deleteUser(supabaseUserId);
-          if (deleteError) {
-            console.error("❌ Failed to cleanup Supabase user:", deleteError.message);
-          } else {
-            console.log("✅ Cleaned up Supabase user:", supabaseUserId);
-          }
-        } catch (cleanupError) {
-          console.error("❌ Error during cleanup:", cleanupError);
-        }
-      }
-
-      // Provide specific error messages based on error type
+      // Provide specific error messages
       let errorMessage = "Registration failed";
       let statusCode = 500;
 
       if (error.message && error.message.includes('duplicate key')) {
-        errorMessage = "Account with this information already exists";
-        statusCode = 409; // Conflict
+        errorMessage = "Member with this information already exists";
+        statusCode = 409;
       } else if (error.message && error.message.includes('constraint')) {
         errorMessage = "Invalid data provided for registration";
-        statusCode = 400; // Bad Request
-      } else if (error.message && error.message.includes('users_pkey')) {
-        errorMessage = "User ID conflict - please try again";
-        statusCode = 409; // Conflict
+        statusCode = 400;
       }
 
       res.status(statusCode).json({
         error: errorMessage,
         message: error.message,
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error",
-        retryable: statusCode === 409 // Suggest retry for conflicts
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
       });
     }
   });
 
-  // Agent enrollment endpoint
+  // ============================================================
+  // AGENT ENROLLMENT ENDPOINT
+  // Agents create members and earn commissions
+  // ============================================================
   app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {
     try {
-      console.log("[Agent Enrollment] Enrollment attempt by agent:", req.user?.email);
-
-      const { agentCode, userEmail, planType, memberData } = req.body;
+      console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
 
       // Validate agent has permission
       if (req.user?.role !== "agent" && req.user?.role !== "admin") {
@@ -2693,35 +2489,175 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      const {
+        email,
+        firstName,
+        lastName,
+        middleName,
+        phone,
+        dateOfBirth,
+        gender,
+        ssn,
+        address,
+        address2,
+        city,
+        state,
+        zipCode,
+        employerName,
+        dateOfHire,
+        memberType,
+        planStartDate,
+        planId,
+        planName,
+        coverageType,
+        addRxValet,
+        totalMonthlyPrice,
+        familyMembers
+      } = req.body;
+
       // Basic validation
-      if (!userEmail || !planType) {
+      const missingFields = [];
+      if (!email) missingFields.push("email");
+      if (!firstName) missingFields.push("firstName");
+      if (!lastName) missingFields.push("lastName");
+      if (!planId) missingFields.push("planId");
+
+      if (missingFields.length > 0) {
+        console.log("[Agent Enrollment] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["userEmail", "planType"]
+          required: ["email", "firstName", "lastName", "planId"],
+          missing: missingFields
         });
       }
 
-      // Record enrollment attempt
-      const enrollmentRecord = {
-        agentId: req.user.id,
-        agentEmail: req.user.email,
-        memberEmail: userEmail,
-        planType: planType,
-        enrollmentDate: new Date(),
-        status: "pending"
-      };
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          error: "Invalid email format"
+        });
+      }
 
-      console.log("[Agent Enrollment] Recording enrollment:", enrollmentRecord);
+      // Check if member already exists
+      const existingMember = await storage.getMemberByEmail(email.trim().toLowerCase());
+      if (existingMember) {
+        return res.status(400).json({
+          error: "Member already exists with this email"
+        });
+      }
+
+      console.log("[Agent Enrollment] Creating member for agent:", req.user.agentNumber);
+
+      // Create member with agent tracking
+      // enrolledByAgentId and agentNumber capture who enrolled them
+      const member = await storage.createMember({
+        email: email.trim().toLowerCase(),
+        firstName: firstName?.trim() || "",
+        lastName: lastName?.trim() || "",
+        middleName: middleName?.trim() || null,
+        phone: phone || null,
+        dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
+        ssn: ssn || null,
+        address: address?.trim() || null,
+        address2: address2?.trim() || null,
+        city: city?.trim() || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        employerName: employerName?.trim() || null,
+        dateOfHire: dateOfHire || null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate || null,
+        enrolledByAgentId: req.user.id,
+        agentNumber: req.user.agentNumber,
+        isActive: true,
+        emailVerified: false
+      });
+
+      console.log("[Agent Enrollment] Member created:", member.id, member.customerNumber);
+
+      // Create subscription if plan selected
+      let subscription = null;
+      if (planId && totalMonthlyPrice) {
+        try {
+          console.log("[Agent Enrollment] Creating subscription...");
+          subscription = await storage.createSubscription({
+            userId: member.id,
+            planId: parseInt(planId),
+            status: "pending_payment",
+            amount: totalMonthlyPrice,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          console.log("[Agent Enrollment] Subscription created:", subscription.id);
+        } catch (subError) {
+          console.error("[Agent Enrollment] Error creating subscription:", subError);
+        }
+      }
+
+      // Create commission for agent
+      if (subscription && subscription.id) {
+        try {
+          console.log("[Agent Enrollment] Creating commission for agent:", req.user.agentNumber);
+          
+          const commissionResult = await createCommissionWithCheck(
+            req.user.id,
+            subscription.id,
+            member.id,
+            planName || 'MyPremierPlan',
+            coverageType || 'Individual'
+          );
+
+          if (commissionResult.success) {
+            console.log("[Agent Enrollment] Commission created:", commissionResult.commission.id);
+          } else {
+            console.warn("[Agent Enrollment] Commission not created:", commissionResult.reason);
+          }
+        } catch (commError) {
+          console.error("[Agent Enrollment] Error creating commission:", commError);
+          // Continue even if commission fails
+        }
+      }
+
+      // Add family members if provided
+      if (familyMembers && Array.isArray(familyMembers)) {
+        console.log("[Agent Enrollment] Processing", familyMembers.length, "family members");
+        for (const familyMember of familyMembers) {
+          if (familyMember.firstName && familyMember.lastName) {
+            try {
+              await storage.addFamilyMember({
+                ...familyMember,
+                primaryUserId: member.id,
+              });
+              console.log("[Agent Enrollment] Added family member:", familyMember.firstName);
+            } catch (familyError) {
+              console.error("[Agent Enrollment] Error adding family member:", familyError);
+            }
+          }
+        }
+      }
+
+      console.log("[Agent Enrollment] Enrollment completed successfully");
 
       res.json({
         success: true,
-        message: "Agent enrollment recorded successfully",
-        data: {
-          enrollmentId: nanoid(),
-          agentCode: req.user.agentNumber || agentCode,
-          userEmail,
-          planType,
-          enrolledBy: req.user.email
+        message: "Member enrolled successfully",
+        member: {
+          id: member.id,
+          customerNumber: member.customerNumber,
+          email: member.email,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          enrolledByAgent: req.user.agentNumber
+        },
+        enrollment: {
+          planId: planId,
+          coverageType: coverageType,
+          totalMonthlyPrice: totalMonthlyPrice,
+          subscriptionId: subscription?.id
         }
       });
 
@@ -2729,6 +2665,7 @@ export async function registerRoutes(app: any) {
       console.error("[Agent Enrollment] Error:", error);
       res.status(500).json({
         error: "Agent enrollment failed",
+        message: error.message,
         details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
       });
     }
