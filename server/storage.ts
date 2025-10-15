@@ -792,10 +792,10 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
 
     sql += " ORDER BY created_at DESC";
 
-    const result = await neonQuery(sql, params);
+    const result = await query(sql, params);
     
     // Map member data to User format for compatibility
-    return result.rows.map(row => ({
+    return result.rows.map((row: any) => ({
       id: row.id.toString(),
       email: row.email,
       firstName: row.first_name,
@@ -845,10 +845,10 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
 
     sql += " ORDER BY created_at DESC";
 
-    const result = await neonQuery(sql, params);
+    const result = await query(sql, params);
     
     // Map member data to User format for compatibility
-    return result.rows.map(row => ({
+    return result.rows.map((row: any) => ({
       id: row.id.toString(),
       email: row.email,
       firstName: row.first_name,
@@ -899,7 +899,7 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 // DPC Member operations (Neon database)
 export async function getAllDPCMembers(): Promise<any[]> {
   try {
-    const result = await neonQuery(`
+    const result = await query(`
       SELECT 
         id,
         customer_number,
@@ -936,7 +936,7 @@ export async function getAllDPCMembers(): Promise<any[]> {
       ORDER BY created_at DESC
     `);
     
-    return result.rows.map(row => ({
+    return result.rows.map((row: any) => ({
       id: row.customer_number, // Use customer_number as ID for frontend
       customerNumber: row.customer_number,
       email: row.email,
@@ -980,7 +980,7 @@ export async function getAllDPCMembers(): Promise<any[]> {
 
 export async function suspendDPCMember(customerId: string, reason?: string): Promise<any> {
   try {
-    const result = await neonQuery(`
+    const result = await query(`
       UPDATE members 
       SET 
         status = 'suspended',
@@ -1005,7 +1005,7 @@ export async function suspendDPCMember(customerId: string, reason?: string): Pro
 
 export async function reactivateDPCMember(customerId: string): Promise<any> {
   try {
-    const result = await neonQuery(`
+    const result = await query(`
       UPDATE members 
       SET 
         status = 'active',
