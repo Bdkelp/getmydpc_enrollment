@@ -25,14 +25,32 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table (required for Replit Auth)
+// App Users table (agents and admins ONLY)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
-  email: varchar("email").unique(),
+  email: varchar("email").unique().notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  middleName: varchar("middle_name"),
   profileImageUrl: varchar("profile_image_url"),
+  phone: varchar("phone"),
+  role: varchar("role").notNull().default("agent"), // only 'agent' or 'admin'
+  agentNumber: varchar("agent_number").unique(),
+  isActive: boolean("is_active").default(true),
+  emailVerified: boolean("email_verified").default(false),
+  emailVerifiedAt: timestamp("email_verified_at"),
+  lastLoginAt: timestamp("last_login_at"),
+  lastActivityAt: timestamp("last_activity_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Members table (MPP product subscribers - NO app access)
+export const members = pgTable("members", {
+  id: serial("id").primaryKey(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  middleName: varchar("middle_name"),
   phone: varchar("phone"),
   dateOfBirth: varchar("date_of_birth"),
   gender: varchar("gender"),
@@ -44,43 +62,20 @@ export const users = pgTable("users", {
   emergencyContactName: varchar("emergency_contact_name"),
   emergencyContactPhone: varchar("emergency_contact_phone"),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
-  stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
-  role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
-  agentNumber: varchar("agent_number"), // Agent identifier for production tracking
-  isActive: boolean("is_active").default(true),
-  approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
+  approvalStatus: varchar("approval_status").default("pending"),
   approvedAt: timestamp("approved_at"),
-  approvedBy: varchar("approved_by"), // Admin who approved the user
-  rejectionReason: text("rejection_reason"), // If rejected, the reason
-  emailVerified: boolean("email_verified").default(false),
-  emailVerifiedAt: timestamp("email_verified_at"),
-  registrationIp: varchar("registration_ip"), // Track IP for bot detection
-  registrationUserAgent: text("registration_user_agent"), // Track user agent
-  suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
-  enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
-  // Authentication fields
-  username: varchar("username"),
-  passwordHash: text("password_hash"),
-  emailVerificationToken: text("email_verification_token"),
-  resetPasswordToken: text("reset_password_token"),
-  resetPasswordExpiry: timestamp("reset_password_expiry"),
-  // Social login IDs
-  googleId: varchar("google_id"),
-  facebookId: varchar("facebook_id"),
-  appleId: varchar("apple_id"),
-  microsoftId: varchar("microsoft_id"),
-  linkedinId: varchar("linkedin_id"),
-  twitterId: varchar("twitter_id"),
-  // Session tracking
-  lastLoginAt: timestamp("last_login_at"),
-  lastActivityAt: timestamp("last_activity_at"),
-  // Employment information
+  approvedBy: varchar("approved_by").references(() => users.id), // references app user (admin)
+  rejectionReason: text("rejection_reason"),
+  registrationIp: varchar("registration_ip"),
+  suspiciousFlags: jsonb("suspicious_flags"),
+  enrolledByAgentId: varchar("enrolled_by_agent_id").references(() => users.id), // references app user (agent)
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
-  memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // Encrypted SSN storage - used for agent number generation (last 4 digits)
+  memberType: varchar("member_type"),
+  ssn: varchar("ssn"),
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
+  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -91,8 +86,8 @@ export const plans = pgTable("plans", {
   name: varchar("name").notNull(),
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
-  billingPeriod: varchar("billing_period").default("monthly"), // monthly, yearly
-  features: jsonb("features"), // Array of features
+  billingPeriod: varchar("billing_period").default("monthly"),
+  features: jsonb("features"),
   maxMembers: integer("max_members").default(1),
   isActive: boolean("is_active").default(true),
   stripePriceId: varchar("stripe_price_id"),
@@ -100,14 +95,14 @@ export const plans = pgTable("plans", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Subscriptions table
+// Subscriptions table (links members to plans)
 export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  memberId: integer("member_id").references(() => members.id).notNull(),
   planId: integer("plan_id").references(() => plans.id).notNull(),
-  status: varchar("status").notNull(), // active, cancelled, suspended, pending
-  pendingReason: varchar("pending_reason"), // payment_required, verification_needed, missing_documents, agent_review
-  pendingDetails: text("pending_details"), // Additional details about why it's pending
+  status: varchar("status").notNull(),
+  pendingReason: varchar("pending_reason"),
+  pendingDetails: text("pending_details"),
   startDate: timestamp("start_date").defaultNow(),
   endDate: timestamp("end_date"),
   nextBillingDate: timestamp("next_billing_date"),
@@ -120,47 +115,33 @@ export const subscriptions = pgTable("subscriptions", {
 // Payments table
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  memberId: integer("member_id").references(() => members.id).notNull(),
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  currency: varchar("currency").default("USD"), // Payment currency
-  status: varchar("status").notNull(), // succeeded, failed, pending, refunded
-  transactionId: varchar("transaction_id").unique(), // External transaction ID
+  currency: varchar("currency").default("USD"),
+  status: varchar("status").notNull(),
+  transactionId: varchar("transaction_id").unique(),
   stripePaymentIntentId: varchar("stripe_payment_intent_id").unique(),
   stripeChargeId: varchar("stripe_charge_id"),
-  paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
-  metadata: jsonb("metadata"), // Additional payment metadata
+  paymentMethod: varchar("payment_method"),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Enrollment modifications audit table
-export const enrollmentModifications = pgTable("enrollment_modifications", {
-  id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  subscriptionId: integer("subscription_id").references(() => subscriptions.id),
-  modifiedBy: varchar("modified_by").references(() => users.id).notNull(), // Agent or admin who made the change
-  changeType: varchar("change_type").notNull(), // plan_change, info_update, status_change, etc.
-  changeDetails: jsonb("change_details"), // JSON with before/after values
-  consentType: varchar("consent_type"), // verbal, written, email
-  consentNotes: text("consent_notes"), // Details about how consent was obtained
-  consentDate: timestamp("consent_date"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Commission tracking table
+// Commission tracking table (links agents to member subscriptions)
 export const commissions = pgTable("commissions", {
   id: serial("id").primaryKey(),
-  agentId: varchar("agent_id").references(() => users.id).notNull(),
+  agentId: varchar("agent_id").references(() => users.id).notNull(), // app user (agent)
+  memberId: integer("member_id").references(() => members.id).notNull(), // MPP member
   subscriptionId: integer("subscription_id").references(() => subscriptions.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(), // The enrolled member
   planName: varchar("plan_name").notNull(),
-  planType: varchar("plan_type").notNull(), // IE, C, CH, AM
-  planTier: varchar("plan_tier").notNull(), // MyPremierPlan, MyPremierPlan Plus, MyPremierElite Plan
+  planType: varchar("plan_type").notNull(),
+  planTier: varchar("plan_tier").notNull(),
   commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull(),
   totalPlanCost: decimal("total_plan_cost", { precision: 10, scale: 2 }).notNull(),
-  status: varchar("status").notNull().default("pending"), // pending, active, cancelled, paid
-  paymentStatus: varchar("payment_status").default("unpaid"), // unpaid, paid, cancelled
+  status: varchar("status").notNull().default("pending"),
+  paymentStatus: varchar("payment_status").default("unpaid"),
   paidDate: timestamp("paid_date"),
   cancellationDate: timestamp("cancellation_date"),
   cancellationReason: text("cancellation_reason"),
@@ -178,7 +159,7 @@ export const leads = pgTable("leads", {
   message: text("message"),
   source: varchar("source", { length: 50 }).default("contact_form"),
   status: varchar("status", { length: 50 }).default("new"),
-  assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
+  assignedAgentId: varchar("assigned_agent_id", { length: 255 }).references(() => users.id),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -187,15 +168,15 @@ export const leads = pgTable("leads", {
 export const leadActivities = pgTable("lead_activities", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id").references(() => leads.id),
-  agentId: varchar("agent_id", { length: 255 }),
-  activityType: varchar("activity_type", { length: 50 }), // call, email, meeting, note
+  agentId: varchar("agent_id", { length: 255 }).references(() => users.id),
+  activityType: varchar("activity_type", { length: 50 }),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
-  primaryUserId: varchar("primary_user_id").references(() => users.id).notNull(),
+  primaryMemberId: integer("primary_member_id").references(() => members.id).notNull(),
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
   middleName: varchar("middle_name"),
@@ -204,8 +185,8 @@ export const familyMembers = pgTable("family_members", {
   ssn: varchar("ssn"),
   email: varchar("email"),
   phone: varchar("phone"),
-  relationship: varchar("relationship"), // spouse, child, parent, etc
-  memberType: varchar("member_type").notNull(), // spouse, dependent
+  relationship: varchar("relationship"),
+  memberType: varchar("member_type").notNull(),
   address: text("address"),
   address2: text("address2"),
   city: varchar("city"),
@@ -216,8 +197,39 @@ export const familyMembers = pgTable("family_members", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Enrollment modifications audit table
+export const enrollmentModifications = pgTable("enrollment_modifications", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id).notNull(),
+  subscriptionId: integer("subscription_id").references(() => subscriptions.id),
+  modifiedBy: varchar("modified_by").references(() => users.id).notNull(), // app user (agent/admin)
+  changeType: varchar("change_type").notNull(),
+  changeDetails: jsonb("change_details"),
+  consentType: varchar("consent_type"),
+  consentNotes: text("consent_notes"),
+  consentDate: timestamp("consent_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Relations
-export const usersRelations = relations(users, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many }) => ({
+  enrolledMembers: many(members, { relationName: "enrolledBy" }),
+  approvedMembers: many(members, { relationName: "approvedBy" }),
+  commissions: many(commissions),
+  leads: many(leads),
+}));
+
+export const membersRelations = relations(members, ({ one, many }) => ({
+  enrolledByAgent: one(users, { 
+    fields: [members.enrolledByAgentId], 
+    references: [users.id],
+    relationName: "enrolledBy"
+  }),
+  approvedByAdmin: one(users, { 
+    fields: [members.approvedBy], 
+    references: [users.id],
+    relationName: "approvedBy"
+  }),
   subscriptions: many(subscriptions),
   payments: many(payments),
   familyMembers: many(familyMembers),
@@ -229,48 +241,35 @@ export const plansRelations = relations(plans, ({ many }) => ({
 }));
 
 export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
-  user: one(users, { fields: [subscriptions.userId], references: [users.id] }),
+  member: one(members, { fields: [subscriptions.memberId], references: [members.id] }),
   plan: one(plans, { fields: [subscriptions.planId], references: [plans.id] }),
   payments: many(payments),
   commissions: many(commissions),
 }));
 
 export const paymentsRelations = relations(payments, ({ one }) => ({
-  user: one(users, { fields: [payments.userId], references: [users.id] }),
+  member: one(members, { fields: [payments.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [payments.subscriptionId], references: [subscriptions.id] }),
 }));
 
 export const familyMembersRelations = relations(familyMembers, ({ one }) => ({
-  primaryUser: one(users, { fields: [familyMembers.primaryUserId], references: [users.id] }),
-}));
-
-export const leadsRelations = relations(leads, ({ one, many }) => ({
-  assignedAgent: one(users, {
-    fields: [leads.assignedAgentId],
-    references: [users.id],
-  }),
-  activities: many(leadActivities),
-}));
-
-export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
-  lead: one(leads, {
-    fields: [leadActivities.leadId],
-    references: [leads.id],
-  }),
-  agent: one(users, {
-    fields: [leadActivities.agentId],
-    references: [users.id],
-  }),
+  primaryMember: one(members, { fields: [familyMembers.primaryMemberId], references: [members.id] }),
 }));
 
 export const commissionsRelations = relations(commissions, ({ one }) => ({
   agent: one(users, { fields: [commissions.agentId], references: [users.id] }),
-  user: one(users, { fields: [commissions.userId], references: [users.id] }),
+  member: one(members, { fields: [commissions.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [commissions.subscriptionId], references: [subscriptions.id] }),
 }));
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMemberSchema = createInsertSchema(members).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -381,20 +380,13 @@ export const registrationSchema = z.object({
 });
 
 // Types
-export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type Member = typeof members.$inferSelect;
 export type Plan = typeof plans.$inferSelect;
-export type InsertPlan = z.infer<typeof insertPlanSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
-export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type Payment = typeof payments.$inferSelect;
-export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type FamilyMember = typeof familyMembers.$inferSelect;
-export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
-export type RegistrationData = z.infer<typeof registrationSchema>;
-export type Lead = typeof leads.$inferSelect;
 export type Commission = typeof commissions.$inferSelect;
-export type InsertCommission = z.infer<typeof insertCommissionSchema>;
-export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type Lead = typeof leads.$inferSelect;
 export type LeadActivity = typeof leadActivities.$inferSelect;
-export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
+export type InsertMember = z.infer<typeof insertMemberSchema>;
