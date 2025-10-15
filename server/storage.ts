@@ -2579,35 +2579,18 @@ export const storage = {
   },
   getUnassignedLeadsCount: async () => 0,
 
-  createCommission: async (commission: any) => {
-    // Check if the agent is an admin. If so, skip commission creation.
-    const agent = await getUser(commission.agentId);
-    if (agent && agent.role === 'admin') {
-      console.log(`Skipping commission for admin agent: ${commission.agentId}`);
-      return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
-    }
-
-    // Check if the enrolling user is an admin. If so, skip commission creation.
-    if (commission.subscriptionId) {
-      const { data: subscription, error: subError } = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
-      if (subError) {
-        console.error('Error fetching subscription for enrolling user check:', subError);
-      } else if (subscription && subscription.userId) {
-        const enrollingUser = await getUser(subscription.userId);
-        if (enrollingUser && enrollingUser.role === 'admin') {
-          console.log(`Skipping commission for enrolling admin user: ${subscription.userId}`);
-          return { skipped: true, reason: 'admin_no_commission' } as any;
-        }
-      }
-    }
-    // Call the actual createCommission function if checks pass
-    return storage.createCommission(commission);
+  createCommission,
+  updateCommission,
+  getAgentCommissions,
+  getAllCommissions,
+  getCommissionBySubscriptionId,
+  updateCommissionStatus: async (id: number, status: string) => {
+    return updateCommission(id, { status: status as any });
   },
-  updateCommissionStatus: async () => {},
-  getAgentCommissions: async () => [],
-  getAllCommissions: async () => [],
-  updateCommissionPaymentStatus: async () => {},
-  getCommissionStats: async () => ({ totalUnpaid: 0, totalPaid: 0 }),
+  updateCommissionPaymentStatus: async (id: number, paymentStatus: string) => {
+    return updateCommission(id, { paymentStatus: paymentStatus as any });
+  },
+  getCommissionStats,
 
   // Login session methods
   createLoginSession: async (sessionData: {
