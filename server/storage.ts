@@ -574,28 +574,6 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     return null;
   }
 }
-    dateOfHire: data.date_of_hire || data.dateOfHire,
-    planStartDate: data.plan_start_date || data.planStartDate,
-    createdAt: data.created_at || new Date(),
-    updatedAt: data.updated_at || new Date(),
-    username: data.username,
-    passwordHash: data.password_hash || data.passwordHash,
-    emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
-    resetPasswordToken: data.reset_password_token || data.resetPasswordExpiry,
-    resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
-    lastLoginAt: data.last_login_at || data.lastLoginAt,
-    lastActivityAt: data.last_activity_at || data.lastActivityAt,
-    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
-    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
-    googleId: data.google_id || data.googleId,
-    facebookId: data.facebook_id || data.facebookId,
-    appleId: data.apple_id || data.appleId,
-    microsoftId: data.microsoft_id || data.microsoftId,
-    linkedinId: data.linkedin_id || data.linkedinId,
-    twitterId: data.twitter_id || data.twitterId
-  } as User;
-}
-
 
 export async function upsertUser(userData: UpsertUser): Promise<User> {
   // Supabase upsert logic can be a bit more involved if preserving specific fields is critical.
