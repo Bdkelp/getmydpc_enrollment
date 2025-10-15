@@ -239,6 +239,14 @@ router.post("/api/auth/login", async (req, res) => {
         role: user.role,
         approvalStatus: user.approvalStatus,
       });
+
+      // Update role if it doesn't match the expected role for this email
+      const expectedRole = determineUserRole(data.user.email!);
+      if (user.role !== expectedRole) {
+        console.log(`[Login] Updating user role from ${user.role} to ${expectedRole}`);
+        await storage.updateUser(user.id, { role: expectedRole });
+        user.role = expectedRole; // Update the local user object
+      }
     }
 
     // Update last login - temporarily skip due to RLS recursion issue
