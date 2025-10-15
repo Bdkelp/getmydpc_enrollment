@@ -20,8 +20,8 @@ async function checkNeonData() {
         first_name,
         last_name,
         email,
-        plan_name,
-        total_amount,
+        agent_number,
+        enrolled_by_agent_id,
         status,
         created_at
       FROM members
@@ -36,7 +36,8 @@ async function checkNeonData() {
       membersResult.rows.forEach((member, i) => {
         console.log(`   ${i + 1}. ${member.customer_number} - ${member.first_name} ${member.last_name}`);
         console.log(`      Email: ${member.email}`);
-        console.log(`      Plan: ${member.plan_name} ($${member.total_amount})`);
+        console.log(`      Agent: ${member.agent_number || 'Not set'}`);
+        console.log(`      Enrolled By: ${member.enrolled_by_agent_id || 'Not set'}`);
         console.log(`      Status: ${member.status}`);
         console.log(`      Created: ${new Date(member.created_at).toLocaleString()}`);
         console.log('');
@@ -51,10 +52,11 @@ async function checkNeonData() {
         id,
         agent_id,
         subscription_id,
-        amount,
+        commission_amount,
         status,
         plan_name,
-        coverage_type,
+        plan_type,
+        plan_tier,
         created_at
       FROM commissions
       ORDER BY created_at DESC
@@ -86,11 +88,13 @@ async function checkNeonData() {
         m.customer_number,
         m.first_name,
         m.last_name,
-        m.plan_name,
-        m.total_amount,
+        m.agent_number,
+        m.enrolled_by_agent_id,
         c.amount as commission_amount,
         c.status as commission_status,
-        c.agent_id
+        c.agent_id,
+        c.plan_name,
+        c.coverage_type
       FROM members m
       LEFT JOIN commissions c ON m.customer_number = c.subscription_id
       ORDER BY m.created_at DESC
@@ -102,10 +106,11 @@ async function checkNeonData() {
     } else {
       relationshipResult.rows.forEach((row, i) => {
         console.log(`   ${i + 1}. ${row.customer_number} - ${row.first_name} ${row.last_name}`);
-        console.log(`      Plan: ${row.plan_name} ($${row.total_amount})`);
+        console.log(`      Member's Agent: ${row.agent_number || 'Not set'}`);
         if (row.commission_amount) {
           console.log(`      ✅ Commission: $${row.commission_amount} (${row.commission_status})`);
-          console.log(`      Agent: ${row.agent_id}`);
+          console.log(`      Plan: ${row.plan_name} - ${row.coverage_type}`);
+          console.log(`      Commission Agent: ${row.agent_id}`);
         } else {
           console.log(`      ❌ NO COMMISSION FOUND`);
         }
@@ -137,7 +142,7 @@ async function checkNeonData() {
       console.log(`   Customer Number: ${member.customer_number}`);
       console.log(`   Name: ${member.first_name} ${member.last_name}`);
       console.log(`   Email: ${member.email}`);
-      console.log(`   Plan: ${member.plan_name} ($${member.total_amount})`);
+      console.log(`   Status: ${member.status}`);
       console.log(`   Agent Number: ${member.agent_number || 'Not set'}`);
       console.log(`   Enrolled By: ${member.enrolled_by_agent_id || 'Not set'}`);
       
