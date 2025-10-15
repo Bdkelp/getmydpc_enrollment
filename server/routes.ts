@@ -9,6 +9,7 @@ import {
   getPlanTypeFromMemberType,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { commissions, users, plans, subscriptions } from "@shared/schema";
+import { sendLeadNotification } from "./email";
 import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
 import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here

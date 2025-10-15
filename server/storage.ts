@@ -1039,18 +1039,18 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
       throw new Error('Missing required fields: firstName, lastName, email, phone');
     }
 
-    // Map camelCase to snake_case for database
+    // Keep camelCase for database (leads table uses camelCase columns)
     const dbData = {
-      first_name: leadData.firstName.trim(),
-      last_name: leadData.lastName.trim(),
+      firstName: leadData.firstName.trim(),
+      lastName: leadData.lastName.trim(),
       email: leadData.email.trim().toLowerCase(),
       phone: leadData.phone.trim(),
       message: leadData.message ? leadData.message.trim() : '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
-      assigned_agent_id: leadData.assignedAgentId || null,
-      created_at: new Date(),
-      updated_at: new Date()
+      assignedAgentId: leadData.assignedAgentId || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
 
     console.log('[Storage] Mapped data for database:', dbData);
