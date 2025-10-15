@@ -71,9 +71,9 @@ async function checkNeonData() {
         console.log(`   ${i + 1}. Commission ID: ${commission.id}`);
         console.log(`      Agent ID: ${commission.agent_id}`);
         console.log(`      Member ID: ${commission.subscription_id}`);
-        console.log(`      Amount: $${commission.amount}`);
-        console.log(`      Plan: ${commission.plan_name}`);
-        console.log(`      Coverage: ${commission.coverage_type}`);
+        console.log(`      Amount: $${commission.commission_amount}`);
+        console.log(`      Plan: ${commission.plan_name} (${commission.plan_tier})`);
+        console.log(`      Type: ${commission.plan_type}`);
         console.log(`      Status: ${commission.status}`);
         console.log(`      Created: ${new Date(commission.created_at).toLocaleString()}`);
         console.log('');
@@ -90,11 +90,11 @@ async function checkNeonData() {
         m.last_name,
         m.agent_number,
         m.enrolled_by_agent_id,
-        c.amount as commission_amount,
+        c.commission_amount,
         c.status as commission_status,
         c.agent_id,
         c.plan_name,
-        c.coverage_type
+        c.plan_type
       FROM members m
       LEFT JOIN commissions c ON m.customer_number = c.subscription_id
       ORDER BY m.created_at DESC
