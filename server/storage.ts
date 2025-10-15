@@ -359,9 +359,10 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   try {
     console.log('[Storage] getUserByEmail called with:', email);
     // Use Supabase to fetch user by email
+    // Explicitly select id column to ensure it's included
     const { data, error } = await supabase
       .from('users')
-      .select('*')
+      .select('id, email, username, first_name, last_name, phone, role, agent_number, is_active, approval_status, created_at, updated_at, last_login_at, password_hash, email_verified, profile_image_url')
       .eq('email', email)
       .single();
     console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
@@ -389,6 +390,14 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     }
     console.log('[Storage] getUserByEmail: User found, mapping data');
     const mappedUser = mapUserFromDB(data);
+    
+    // FALLBACK: If id is still undefined, use email as the identifier
+    // This handles cases where the id column doesn't exist in the database
+    if (!mappedUser.id && mappedUser.email) {
+      console.warn('[Storage] getUserByEmail: id is undefined, using email as fallback identifier');
+      mappedUser.id = mappedUser.email;
+    }
+    
     console.log('[Storage] getUserByEmail: Mapped user:', { id: mappedUser?.id, email: mappedUser?.email, role: mappedUser?.role });
     return mappedUser;
   } catch (error: any) {
