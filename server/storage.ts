@@ -3111,14 +3111,16 @@ export const storage = {
           emergency_contact_name, emergency_contact_phone,
           employer_name, division_name, member_type,
           date_of_hire, plan_start_date,
-          enrolled_by_agent_id, agent_number, is_active, status
+          enrolled_by_agent_id, agent_number, is_active, status,
+          plan_id, coverage_type, total_monthly_price, add_rx_valet
         ) VALUES (
           generate_customer_number(), $1, $2, $3, $4,
           $5, $6, $7, $8, $9, $10, $11, $12, $13,
           $14, $15,
           $16, $17, $18,
           $19, $20,
-          $21, $22, $23, $24
+          $21, $22, $23, $24,
+          $25, $26, $27, $28
         ) RETURNING *
       `, [
         formattedData.firstName, formattedData.lastName, formattedData.middleName, formattedData.email,
@@ -3127,7 +3129,8 @@ export const storage = {
         formattedData.emergencyContactName, formattedData.emergencyContactPhone,
         formattedData.employerName, formattedData.divisionName, formattedData.memberType,
         formattedData.dateOfHire, formattedData.planStartDate,
-        formattedData.enrolledByAgentId, formattedData.agentNumber, formattedData.isActive ?? true, formattedData.status ?? 'active'
+        formattedData.enrolledByAgentId, formattedData.agentNumber, formattedData.isActive ?? true, formattedData.status ?? 'active',
+        formattedData.planId, formattedData.coverageType, formattedData.totalMonthlyPrice, formattedData.addRxValet ?? false
       ]);
 
       console.log('[Storage] Created member:', result.rows[0].customer_number);

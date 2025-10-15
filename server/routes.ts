@@ -2508,7 +2508,12 @@ export async function registerRoutes(app: any) {
         privacyNoticeAcknowledged: privacyNoticeAcknowledged || false,
         smsConsent: smsConsent || false,
         communicationsConsent: communicationsConsent || false,
-        faqDownloaded: faqDownloaded || false
+        faqDownloaded: faqDownloaded || false,
+        // Confirmation page fields
+        planId: planId ? parseInt(planId) : null,
+        coverageType: coverageType || memberType || "member-only",
+        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        addRxValet: addRxValet || false
       });
 
       console.log("[Registration] Member created:", member.id, member.customerNumber);
@@ -2787,7 +2792,12 @@ export async function registerRoutes(app: any) {
         enrolledByAgentId: req.user.id,
         agentNumber: req.user.agentNumber,
         isActive: true,
-        emailVerified: false
+        emailVerified: false,
+        // Confirmation page fields
+        planId: planId ? parseInt(planId) : null,
+        coverageType: coverageType || memberType || "member-only",
+        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        addRxValet: addRxValet || false
       });
 
       console.log("[Agent Enrollment] Member created:", member.id, member.customerNumber);
