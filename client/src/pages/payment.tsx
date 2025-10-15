@@ -252,17 +252,17 @@ export default function Payment() {
                           {sessionStorage.getItem("rxValet") === "yes" && (
                             <div className="flex justify-between text-sm">
                               <span>RxValet Add-on</span>
-                              <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-sm">
-                            <span>Processing Fee (4%)</span>
-                            <span>${sessionStorage.getItem("processingFee") || "0"}</span>
+                            <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                           </div>
-                          <div className="flex justify-between font-bold pt-2 border-t">
-                            <span>Total</span>
-                            <span>${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}</span>
-                          </div>
+                        )}
+                        <div className="flex justify-between text-sm">
+                          <span>Administration Fee (4%)</span>
+                          <span>${sessionStorage.getItem("processingFee") || "0"}</span>
+                        </div>
+                        <div className="flex justify-between font-bold pt-2 border-t">
+                          <span>Total</span>
+                          <span>${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}</span>
+                        </div>
                         </div>
                         
                         <button
