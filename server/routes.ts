@@ -322,9 +322,26 @@ router.post("/api/auth/login", async (req, res) => {
       message: error instanceof Error ? error.message : String(error),
       name: error instanceof Error ? error.name : typeof error,
     });
+    
+    // Log environment check for debugging
+    console.error("❌ [Login] Environment check:", {
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      nodeEnv: process.env.NODE_ENV
+    });
+    
     res.status(500).json({ 
       message: "Login failed",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+      error: error instanceof Error ? error.message : String(error),
+      details: process.env.NODE_ENV === 'development' ? {
+        stack: error instanceof Error ? error.stack : undefined,
+        env: {
+          hasSupabaseUrl: !!process.env.SUPABASE_URL,
+          hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+          hasDatabaseUrl: !!process.env.DATABASE_URL
+        }
+      } : undefined
     });
   }
 });
