@@ -2587,6 +2587,11 @@ export async function registerRoutes(app: any) {
           console.error("[Registration] Error creating commission:", commError);
           // Continue with registration even if commission creation fails
         }
+      } else {
+        console.warn("[Registration] ⚠️  Commission NOT created - one or more required values missing");
+        if (!agentNumber) console.warn("[Registration]   - Missing: agentNumber");
+        if (!enrolledByAgentId) console.warn("[Registration]   - Missing: enrolledByAgentId");
+        if (!planId) console.warn("[Registration]   - Missing: planId");
       }
 
       // Add family members if provided
