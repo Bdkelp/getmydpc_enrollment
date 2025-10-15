@@ -402,24 +402,22 @@ export default function Payment() {
                       <span className="text-gray-900">${selectedPlan?.price || "0.00"}</span>
                     </div>
                     
-                    {sessionStorage.getItem("rxValet") === "yes" && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">RxValet Add-on</span>
-                        <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
-                      </div>
-                    )}
-                    
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Processing Fee (4%)</span>
-                      <span className="text-gray-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
+                  {sessionStorage.getItem("rxValet") === "yes" && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">RxValet Add-on</span>
+                      <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                     </div>
-                    
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Setup Fee</span>
-                      <span className="text-green-600">Free</span>
-                    </div>
-                    
-                    <div className="border-t border-gray-200 pt-4">
+                  )}
+                  
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Administration Fee (4%)</span>
+                    <span className="text-gray-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
+                  </div>
+                  
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Setup Fee</span>
+                    <span className="text-green-600">Free</span>
+                  </div>                    <div className="border-t border-gray-200 pt-4">
                       <div className="flex justify-between text-lg font-bold">
                         <span>Total Due Today</span>
                         <span className="text-medical-blue-600">${sessionStorage.getItem("totalMonthlyPrice") || "0"}</span>

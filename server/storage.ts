@@ -1714,33 +1714,43 @@ export async function createCommission(commission: InsertCommission): Promise<Co
     return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
   }
 
-  // Check if the enrolling user is an admin. If so, skip commission creation.
-  // Assuming enrolling user is available in commission object or can be fetched
-  // For now, let's assume enrolling user ID is passed or fetched via subscription
-  // If subscriptionId is available, we can fetch the user who owns the subscription
-  if (commission.subscriptionId) {
-    const subscription = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
-    if (subscription.data && subscription.data.userId) {
-      const enrollingUser = await getUser(subscription.data.userId);
-      if (enrollingUser && enrollingUser.role === 'admin') {
-        console.log(`Skipping commission for enrolling admin user: ${subscription.data.userId}`);
-        return { skipped: true, reason: 'admin_no_commission' } as any;
-      }
-    }
-  }
+  // Insert commission into Neon database (not Supabase)
+  try {
+    const result = await query(`
+      INSERT INTO commissions (
+        agent_id,
+        subscription_id,
+        user_id,
+        plan_name,
+        plan_type,
+        plan_tier,
+        commission_amount,
+        total_plan_cost,
+        status,
+        payment_status,
+        created_at,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      RETURNING *
+    `, [
+      commission.agentId,
+      commission.subscriptionId || null,
+      commission.userId || null,
+      commission.planName,
+      commission.planType,
+      commission.planTier,
+      commission.commissionAmount,
+      commission.totalPlanCost,
+      commission.status || 'pending',
+      commission.paymentStatus || 'unpaid'
+    ]);
 
-
-  const { data, error } = await supabase
-    .from('commissions')
-    .insert([{ ...commission, created_at: new Date(), updated_at: new Date() }])
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating commission:', error);
+    console.log(`✅ Commission created in Neon database: $${commission.commissionAmount} for agent ${commission.agentId}`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('❌ Error creating commission in Neon:', error);
     throw new Error(`Failed to create commission: ${error.message}`);
   }
-  return data;
 }
 
 export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
