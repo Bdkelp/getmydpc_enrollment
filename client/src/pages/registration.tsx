@@ -150,7 +150,7 @@ export default function Registration() {
     mutationFn: async (data: RegistrationForm) => {
       const subtotal = selectedPlan ? 
         parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
-      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% processing fee
+      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% administration fee
       
       // Ensure all required fields are present
       const submissionData = {
@@ -1427,7 +1427,7 @@ export default function Registration() {
                               Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)).toFixed(2)}
                             </div>
                             <div className="text-sm">
-                              Processing Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
+                              Administration Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
                             </div>
                             <div className="text-lg font-semibold border-t pt-1">
                               Total Monthly: <span className="text-green-600">
