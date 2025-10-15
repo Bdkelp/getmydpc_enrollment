@@ -89,9 +89,28 @@ The registration endpoint (`/api/registration`) was designed for members-only re
    ```
 
 ## Commission Structure
-- **Commission Rate**: 10% of total plan cost
-- **Status**: 'pending' (awaiting payment confirmation)
-- **Payment Status**: 'unpaid' (awaiting commission payout)
+Uses the proper commission calculator with fixed rates:
+
+### Base Plan (MyPremierPlan)
+- **Member Only**: $9.00
+- **Member + Spouse**: $15.00
+- **Member + Children**: $17.00
+- **Family**: $17.00
+
+### Plus Plan (MyPremierPlan Plus)
+- **Member Only**: $20.00
+- **Member + Spouse**: $40.00
+- **Member + Children**: $40.00
+- **Family**: $40.00
+
+### Elite Plan (MyPremierElite Plan)
+- **Member Only**: $20.00
+- **Member + Spouse**: $40.00
+- **Member + Children**: $40.00
+- **Family**: $40.00
+
+**Status**: 'pending' (awaiting payment confirmation)
+**Payment Status**: 'unpaid' (awaiting commission payout)
 
 ## Database Schema Verified
 - **Neon members table**: Has `agent_number` and `enrolled_by_agent_id` columns

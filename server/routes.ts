@@ -2438,32 +2438,36 @@ export async function registerRoutes(app: any) {
       }
 
       // Create commission if enrolled by agent
-      if (agentNumber && enrolledByAgentId && planId && totalMonthlyPrice) {
+      if (agentNumber && enrolledByAgentId && planId) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
           
           // Get plan details for commission
           const plan = await storage.getPlanById(parseInt(planId));
           
-          // Calculate commission (10% of plan cost)
-          const commissionAmount = parseFloat(totalMonthlyPrice) * 0.10;
+          // Calculate commission using proper commission structure
+          const commissionResult = calculateCommission(plan?.name || '', coverageType || memberType || '');
           
-          await storage.createCommission({
-            agentId: enrolledByAgentId,
-            subscriptionId: subscriptionId,
-            userId: member.id,
-            planName: plan?.name || coverageType,
-            planType: coverageType || memberType,
-            planTier: plan?.name?.includes('Base') ? 'Base' : plan?.name?.includes('Plus') ? 'Plus' : plan?.name?.includes('Elite') ? 'Elite' : 'Base',
-            commissionAmount: commissionAmount,
-            totalPlanCost: parseFloat(totalMonthlyPrice),
-            status: 'pending',
-            paymentStatus: 'unpaid',
-            createdAt: new Date(),
-            updatedAt: new Date()
-          });
-          
-          console.log("[Registration] Commission created: $" + commissionAmount.toFixed(2));
+          if (commissionResult) {
+            await storage.createCommission({
+              agentId: enrolledByAgentId,
+              subscriptionId: subscriptionId,
+              userId: member.id,
+              planName: plan?.name || coverageType,
+              planType: coverageType || memberType,
+              planTier: plan?.name?.includes('Elite') ? 'Elite' : plan?.name?.includes('Plus') ? 'Plus' : 'Base',
+              commissionAmount: commissionResult.commission,
+              totalPlanCost: commissionResult.totalCost,
+              status: 'pending',
+              paymentStatus: 'unpaid',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            console.log("[Registration] Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + plan?.name + ", Type: " + coverageType + ")");
+          } else {
+            console.warn("[Registration] Could not calculate commission - no matching rate found");
+          }
         } catch (commError) {
           console.error("[Registration] Error creating commission:", commError);
           // Continue with registration even if commission creation fails
