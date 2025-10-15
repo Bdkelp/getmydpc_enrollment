@@ -74,7 +74,14 @@ export default function Registration() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Query to get current user data
-  const { data: currentUser } = useQuery<{ role?: string }>({
+  const { data: currentUser } = useQuery<{ 
+    id?: string;
+    role?: string;
+    agentNumber?: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+  }>({
     queryKey: ['/api/user'],
     enabled: isAuthenticated,
   });
@@ -165,7 +172,11 @@ export default function Registration() {
         termsAccepted: data.termsAccepted,
         privacyAccepted: data.privacyNoticeAcknowledged,
         smsConsent: data.communicationsConsent,
-        faqDownloaded: data.faqDownloaded
+        faqDownloaded: data.faqDownloaded,
+        
+        // Agent information (if enrolled by agent)
+        agentNumber: currentUser?.agentNumber || null,
+        enrolledByAgentId: currentUser?.id || null
       };
       
       console.log('Submitting registration data:', {

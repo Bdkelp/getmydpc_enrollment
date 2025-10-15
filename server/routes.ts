@@ -2334,7 +2334,9 @@ export async function registerRoutes(app: any) {
         privacyNoticeAcknowledged,
         smsConsent,
         communicationsConsent,
-        faqDownloaded
+        faqDownloaded,
+        agentNumber,
+        enrolledByAgentId
       } = req.body;
 
       console.log("[Registration] Email:", email);
@@ -2373,6 +2375,9 @@ export async function registerRoutes(app: any) {
       }
 
       console.log("[Registration] Creating member...");
+      if (agentNumber) {
+        console.log("[Registration] Agent enrollment by:", agentNumber);
+      }
 
       // Create member (NO Supabase Auth, NO password)
       // Customer number auto-generates
@@ -2395,6 +2400,8 @@ export async function registerRoutes(app: any) {
         dateOfHire: dateOfHire || null,
         memberType: memberType || "member-only",
         planStartDate: planStartDate || null,
+        agentNumber: agentNumber || null,
+        enrolledByAgentId: enrolledByAgentId || null,
         isActive: true,
         emailVerified: false,
         termsAccepted: termsAccepted || false,
@@ -2408,6 +2415,7 @@ export async function registerRoutes(app: any) {
       console.log("[Registration] Member created:", member.id, member.customerNumber);
 
       // Create subscription if plan is selected
+      let subscriptionId = null;
       if (planId && totalMonthlyPrice) {
         try {
           console.log("[Registration] Creating subscription...");
@@ -2421,10 +2429,44 @@ export async function registerRoutes(app: any) {
             createdAt: new Date(),
             updatedAt: new Date()
           });
+          subscriptionId = subscription.id;
           console.log("[Registration] Subscription created:", subscription.id);
         } catch (subError) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
+        }
+      }
+
+      // Create commission if enrolled by agent
+      if (agentNumber && enrolledByAgentId && planId && totalMonthlyPrice) {
+        try {
+          console.log("[Registration] Creating commission for agent:", agentNumber);
+          
+          // Get plan details for commission
+          const plan = await storage.getPlanById(parseInt(planId));
+          
+          // Calculate commission (10% of plan cost)
+          const commissionAmount = parseFloat(totalMonthlyPrice) * 0.10;
+          
+          await storage.createCommission({
+            agentId: enrolledByAgentId,
+            subscriptionId: subscriptionId,
+            userId: member.id,
+            planName: plan?.name || coverageType,
+            planType: coverageType || memberType,
+            planTier: plan?.name?.includes('Base') ? 'Base' : plan?.name?.includes('Plus') ? 'Plus' : plan?.name?.includes('Elite') ? 'Elite' : 'Base',
+            commissionAmount: commissionAmount,
+            totalPlanCost: parseFloat(totalMonthlyPrice),
+            status: 'pending',
+            paymentStatus: 'unpaid',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          
+          console.log("[Registration] Commission created: $" + commissionAmount.toFixed(2));
+        } catch (commError) {
+          console.error("[Registration] Error creating commission:", commError);
+          // Continue with registration even if commission creation fails
         }
       }
 
@@ -3058,19 +3100,29 @@ export async function registerRoutes(app: any) {
   });
 
   // Fix: /api/user (404) - basic user endpoint
-  app.get('/api/user', async (req: any, res: any) => {
+  app.get('/api/user', authenticateToken, async (req: AuthRequest, res: any) => {
     try {
-      // TODO: Add authentication and return actual user data
+      // Return authenticated user from token
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Get user details from database
+      const user = await storage.getUserByEmail(req.user.email);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
       res.json({
-        success: true,
-        user: {
-          id: 'temp-user-id',
-          email: 'user@example.com',
-          firstName: 'Test',
-          lastName: 'User'
-        }
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        agentNumber: user.agentNumber || null
       });
     } catch (error: any) {
+      console.error('[/api/user] Error:', error);
       res.status(500).json({ error: 'Failed to fetch user' });
     }
   });
