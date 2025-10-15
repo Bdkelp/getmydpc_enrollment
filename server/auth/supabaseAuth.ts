@@ -24,16 +24,6 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       return res.status(401).json({ message: 'Invalid token' });
     }
 
-    // Check if this email belongs to a member - members cannot authenticate
-    const member = await storage.getMemberByEmail(user.email!);
-    if (member) {
-      console.log('[Auth] Blocked member login attempt:', user.email);
-      return res.status(403).json({ 
-        message: 'Members cannot log into this application. Please contact your agent.',
-        isMember: true
-      });
-    }
-
     // Try to get user from our database
     let dbUser = await storage.getUserByEmail(user.email!);
 
