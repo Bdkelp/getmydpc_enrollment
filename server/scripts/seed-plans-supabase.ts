@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabaseClient';
 
 const testPlans = [
-  // MyPremierPlan Base - Individual
+  // MyPremierPlan Base - Member Only
   {
     name: "MyPremierPlan Base - Member Only",
     description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee",
@@ -19,11 +19,11 @@ const testPlans = [
     is_active: true
   },
   
-  // MyPremierPlan Base - Spouse
+  // MyPremierPlan Base - Member/Spouse
   {
     name: "MyPremierPlan Base - Member/Spouse", 
     description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee for member and spouse",
-    price: 109,
+    price: 99,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telehealth visits",
@@ -34,6 +34,24 @@ const testPlans = [
       "Wellcard benefits included"
     ],
     max_members: 2,
+    is_active: true
+  },
+
+  // MyPremierPlan Base - Member/Child
+  {
+    name: "MyPremierPlan Base - Member/Child",
+    description: "Unlimited virtual/telehealth visits, primary care with $10 office visit fee for member and children",
+    price: 129,
+    billing_period: "monthly",
+    features: [
+      "Unlimited virtual/telehealth visits",
+      "Unlimited primary care office visits",
+      "$10 office visit fee",
+      "Access to Patient Advocate Line (PAL)",
+      "Prescription coordination",
+      "Wellcard benefits included"
+    ],
+    max_members: 3,
     is_active: true
   },
 
@@ -55,7 +73,7 @@ const testPlans = [
     is_active: true
   },
 
-  // MyPremierPlan+ Individual
+  // MyPremierPlan+ - Member Only
   {
     name: "MyPremierPlan+ - Member Only",
     description: "Primary care plus urgent care with visit fees",
@@ -73,11 +91,11 @@ const testPlans = [
     is_active: true
   },
 
-  // MyPremierPlan+ Spouse
+  // MyPremierPlan+ - Member/Spouse
   {
     name: "MyPremierPlan+ - Member/Spouse",
     description: "Primary care plus urgent care with visit fees for member and spouse", 
-    price: 199,
+    price: 179,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
@@ -91,11 +109,29 @@ const testPlans = [
     is_active: true
   },
 
-  // MyPremierPlan+ Family
+  // MyPremierPlan+ - Member/Child
+  {
+    name: "MyPremierPlan+ - Member/Child",
+    description: "Primary care plus urgent care with visit fees for member and children",
+    price: 229,
+    billing_period: "monthly",
+    features: [
+      "Unlimited virtual/telemed visits",
+      "Unlimited in-office doctor visits",
+      "$10 office visit fee",
+      "Unlimited urgent care visits",
+      "$25 urgent care visit fee",
+      "Wellcard benefits included"
+    ],
+    max_members: 3,
+    is_active: true
+  },
+
+  // MyPremierPlan+ - Family
   {
     name: "MyPremierPlan+ - Family",
     description: "Primary care plus urgent care with visit fees for entire family",
-    price: 299,
+    price: 279,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
@@ -109,11 +145,11 @@ const testPlans = [
     is_active: true
   },
 
-  // MyPremierPlan Elite - Individual
+  // MyPremierPlan Elite - Member Only
   {
     name: "MyPremierPlan Elite - Member Only",
     description: "Comprehensive coverage with no visit fees",
-    price: 199,
+    price: 119,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
@@ -129,11 +165,11 @@ const testPlans = [
     is_active: true
   },
 
-  // MyPremierPlan Elite - Spouse
+  // MyPremierPlan Elite - Member/Spouse
   {
     name: "MyPremierPlan Elite - Member/Spouse",
     description: "Comprehensive coverage with no visit fees for member and spouse",
-    price: 399,
+    price: 209,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
@@ -149,11 +185,31 @@ const testPlans = [
     is_active: true
   },
 
+  // MyPremierPlan Elite - Member/Child
+  {
+    name: "MyPremierPlan Elite - Member/Child",
+    description: "Comprehensive coverage with no visit fees for member and children",
+    price: 279,
+    billing_period: "monthly",
+    features: [
+      "Unlimited virtual/telemed visits",
+      "Unlimited in-office doctor visits",
+      "NO office visit fee",
+      "Unlimited urgent care visits",
+      "NO urgent care visit fee",
+      "Premium care coordination",
+      "Priority scheduling",
+      "Wellcard benefits included"
+    ],
+    max_members: 3,
+    is_active: true
+  },
+
   // MyPremierPlan Elite - Family  
   {
     name: "MyPremierPlan Elite - Family",
     description: "Comprehensive coverage with no visit fees for entire family",
-    price: 599,
+    price: 349,
     billing_period: "monthly",
     features: [
       "Unlimited virtual/telemed visits",
