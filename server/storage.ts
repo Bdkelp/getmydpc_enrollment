@@ -757,16 +757,68 @@ export async function getSubscriptionStats(): Promise<{ active: number; pending:
 
 export async function getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
   try {
-    let sql = 'SELECT * FROM users WHERE enrolled_by_agent_id = $1';
+    // Query members table from Neon database (not users table)
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        c.commission_amount,
+        c.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN commissions c ON c.member_id = m.id
+      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+    `;
     const params: any[] = [agentId];
 
     if (startDate && endDate) {
-      sql += ' AND created_at > $2 AND created_at < $3';
+      sql += ' AND m.created_at >= $2 AND m.created_at <= $3';
       params.push(startDate, endDate);
     }
 
+    sql += ' ORDER BY m.created_at DESC';
+
     const result = await query(sql, params);
-    return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
+    
+    // Map member data to User format for compatibility, including plan and commission info
+    return result.rows.map((row: any) => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.is_active,
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.coverage_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
+    } as any));
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
