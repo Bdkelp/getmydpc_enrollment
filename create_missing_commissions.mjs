@@ -74,17 +74,18 @@ async function createMissingCommissions() {
       const commissionAmount = calculateCommission(member.plan_price);
       const planTier = getPlanTier(member.plan_name);
       
-      // Get agent UUID from Supabase users table
-      const { data: agent, error: agentError } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', member.enrolled_by_agent_id)
-        .single();
+      // Get agent UUID from Neon users table
+      const agentResult = await neonPool.query(
+        'SELECT id FROM users WHERE email = $1',
+        [member.enrolled_by_agent_id]
+      );
       
-      if (agentError || !agent) {
+      if (!agentResult.rows || agentResult.rows.length === 0) {
         console.log(`  ⚠️  Could not find agent UUID for ${member.enrolled_by_agent_id}, skipping member ${member.customer_number}`);
         continue;
       }
+      
+      const agent = agentResult.rows[0];
       
       await neonPool.query(`
         INSERT INTO commissions (
