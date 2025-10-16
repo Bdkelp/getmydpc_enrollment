@@ -827,26 +827,37 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
 
 export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
   try {
-    // Query members table from Neon database (not Supabase users table)
-    let sql = "SELECT * FROM members WHERE status = 'active'";
+    // Query members table from Neon database with plan and commission data
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        c.commission_amount,
+        c.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN commissions c ON c.member_id = m.id
+      WHERE m.is_active = true
+    `;
     const params: any[] = [];
     let paramCount = 1;
 
     if (startDate && endDate) {
-      sql += ` AND created_at >= $${paramCount++} AND created_at <= $${paramCount++}`;
+      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
       params.push(startDate, endDate);
     }
 
     if (agentId) {
-      sql += ` AND enrolled_by_agent_id = $${paramCount++}`;
+      sql += ` AND m.enrolled_by_agent_id = $${paramCount++}`;
       params.push(agentId);
     }
 
-    sql += " ORDER BY created_at DESC";
+    sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
     
-    // Map member data to User format for compatibility
+    // Map member data to User format for compatibility, including plan and commission data
     return result.rows.map((row: any) => ({
       id: row.id.toString(),
       email: row.email,
@@ -865,17 +876,24 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
       emergencyContactPhone: row.emergency_contact_phone,
       role: 'member',
       agentNumber: row.agent_number,
-      isActive: row.status === 'active',
+      isActive: row.is_active,
       emailVerified: row.email_verified || false,
       enrolledByAgentId: row.enrolled_by_agent_id,
       employerName: row.employer_name,
-      memberType: row.member_type,
+      memberType: row.coverage_type,
       ssn: row.ssn,
       dateOfHire: row.date_of_hire,
       planStartDate: row.plan_start_date,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      customerNumber: row.customer_number
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
     } as any));
   } catch (error: any) {
     console.error('Error fetching all enrollments:', error);
@@ -885,21 +903,32 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
 
 export async function getEnrollmentsByAgent(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
   try {
-    // Query members table from Neon database filtered by agent
-    let sql = "SELECT * FROM members WHERE enrolled_by_agent_id = $1 AND status = 'active'";
+    // Query members table from Neon database with plan and commission data
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        c.commission_amount,
+        c.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN commissions c ON c.member_id = m.id
+      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+    `;
     const params: any[] = [agentId];
     let paramCount = 2;
 
     if (startDate && endDate) {
-      sql += ` AND created_at >= $${paramCount++} AND created_at <= $${paramCount++}`;
+      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
       params.push(startDate, endDate);
     }
 
-    sql += " ORDER BY created_at DESC";
+    sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
     
-    // Map member data to User format for compatibility
+    // Map member data to User format for compatibility, including plan and commission data
     return result.rows.map((row: any) => ({
       id: row.id.toString(),
       email: row.email,
@@ -918,17 +947,24 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       emergencyContactPhone: row.emergency_contact_phone,
       role: 'member',
       agentNumber: row.agent_number,
-      isActive: row.status === 'active',
+      isActive: row.is_active,
       emailVerified: row.email_verified || false,
       enrolledByAgentId: row.enrolled_by_agent_id,
       employerName: row.employer_name,
-      memberType: row.member_type,
+      memberType: row.coverage_type,
       ssn: row.ssn,
       dateOfHire: row.date_of_hire,
       planStartDate: row.plan_start_date,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      customerNumber: row.customer_number
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
     } as any));
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
