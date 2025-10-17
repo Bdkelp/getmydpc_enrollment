@@ -38,8 +38,8 @@ interface Enrollment {
   lastName: string;
   planName: string;
   memberType: string;
-  monthlyPrice: number;
-  commission: number;
+  totalMonthlyPrice: number;
+  commissionAmount: number;
   status: string;
   pendingReason?: string;
   pendingDetails?: string;
@@ -373,8 +373,8 @@ export default function AgentDashboard() {
                       <td className="py-2">{enrollment.firstName} {enrollment.lastName}</td>
                       <td className="py-2">{enrollment.planName}</td>
                       <td className="py-2">{enrollment.memberType}</td>
-                      <td className="py-2">${enrollment.monthlyPrice}</td>
-                      <td className="py-2 text-green-600">${enrollment.commission?.toFixed(2)}</td>
+                      <td className="py-2">${enrollment.totalMonthlyPrice}</td>
+                      <td className="py-2 text-green-600">${enrollment.commissionAmount?.toFixed(2)}</td>
                       <td className="py-2">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           enrollment.status === 'active' 
@@ -464,7 +464,7 @@ export default function AgentDashboard() {
                   <div><span className="font-medium">Name:</span> {selectedEnrollment.firstName} {selectedEnrollment.lastName}</div>
                   <div><span className="font-medium">Plan:</span> {selectedEnrollment.planName}</div>
                   <div><span className="font-medium">Type:</span> {selectedEnrollment.memberType}</div>
-                  <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.monthlyPrice}</div>
+                  <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.totalMonthlyPrice}</div>
                 </div>
               </div>
 

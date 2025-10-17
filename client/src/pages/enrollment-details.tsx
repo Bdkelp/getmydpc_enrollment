@@ -62,7 +62,7 @@ interface EnrollmentDetails {
   planName: string;
   memberType: string;
   planStartDate: string;
-  monthlyPrice: number;
+  totalMonthlyPrice: number;
   status: string;
   // Emergency Contact
   emergencyContactName?: string;
@@ -185,7 +185,7 @@ PLAN DETAILS
 ------------
 Plan: ${enrollment.planName}
 Coverage Type: ${enrollment.memberType}
-Monthly Premium: $${enrollment.monthlyPrice}
+Monthly Premium: $${enrollment.totalMonthlyPrice}
 Start Date: ${format(new Date(enrollment.planStartDate), 'MM/dd/yyyy')}
 Status: ${enrollment.status}
 
@@ -349,7 +349,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   </div>
                   <div>
                     <Label className="text-gray-600">Monthly Premium</Label>
-                    <p className="font-semibold text-2xl text-green-600">${enrollment.monthlyPrice}</p>
+                    <p className="font-semibold text-2xl text-green-600">${enrollment.totalMonthlyPrice}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Start Date</Label>
@@ -690,7 +690,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                 <div className="space-y-4">
                   <div>
                     <Label className="text-gray-600">Monthly Premium</Label>
-                    <p className="font-semibold text-2xl">${enrollment.monthlyPrice}</p>
+                    <p className="font-semibold text-2xl">${enrollment.totalMonthlyPrice}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Billing Status</Label>
