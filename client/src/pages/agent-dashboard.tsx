@@ -374,7 +374,7 @@ export default function AgentDashboard() {
                       <td className="py-2">{enrollment.planName}</td>
                       <td className="py-2">{enrollment.memberType}</td>
                       <td className="py-2">${enrollment.totalMonthlyPrice}</td>
-                      <td className="py-2 text-green-600">${enrollment.commissionAmount?.toFixed(2)}</td>
+                      <td className="py-2 text-green-600">${enrollment.commissionAmount ? Number(enrollment.commissionAmount).toFixed(2) : '0.00'}</td>
                       <td className="py-2">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           enrollment.status === 'active' 
