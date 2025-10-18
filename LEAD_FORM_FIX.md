@@ -1,4 +1,4 @@
-# Lead Form Fix Summary
+# Lead Form Fix - Column Name Mismatch (UPDATED)
 
 ## Issue
 Lead form was failing with 500 error: "Could not find the 'assigned_agent_id' column of 'leads' in the schema cache"

@@ -1127,18 +1127,18 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
       throw new Error('Missing required fields: firstName, lastName, email, phone');
     }
 
-    // Keep camelCase for database (leads table uses camelCase columns)
+    // Map to snake_case for Supabase database (leads table uses snake_case columns)
     const dbData = {
-      firstName: leadData.firstName.trim(),
-      lastName: leadData.lastName.trim(),
+      first_name: leadData.firstName.trim(),
+      last_name: leadData.lastName.trim(),
       email: leadData.email.trim().toLowerCase(),
       phone: leadData.phone.trim(),
       message: leadData.message ? leadData.message.trim() : '',
       source: leadData.source || 'contact_form',
       status: leadData.status || 'new',
-      assignedAgentId: leadData.assignedAgentId || null,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      assigned_agent_id: leadData.assignedAgentId || null,
+      created_at: new Date(),
+      updated_at: new Date()
     };
 
     console.log('[Storage] Mapped data for database:', dbData);
