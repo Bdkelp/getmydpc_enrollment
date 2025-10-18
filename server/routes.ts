@@ -653,6 +653,52 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
+// Update lead (status, notes, assignment, etc.)
+router.put("/api/leads/:leadId", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const leadId = parseInt(req.params.leadId);
+    const updates = req.body;
+
+    console.log(`[Leads API] Updating lead ${leadId} with:`, updates);
+
+    const updatedLead = await storage.updateLead(leadId, updates);
+    
+    res.json(updatedLead);
+  } catch (error: any) {
+    console.error("[Leads API] Error updating lead:", error);
+    res.status(500).json({
+      message: "Failed to update lead",
+      error: error.message,
+    });
+  }
+});
+
+// Add activity to lead
+router.post("/api/leads/:leadId/activities", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const leadId = parseInt(req.params.leadId);
+    const { activityType, notes } = req.body;
+
+    console.log(`[Leads API] Adding activity to lead ${leadId}:`, { activityType, notes });
+
+    const activity = await storage.addLeadActivity({
+      leadId,
+      agentId: req.user!.id,
+      activityType,
+      notes,
+      createdAt: new Date()
+    });
+
+    res.json(activity);
+  } catch (error: any) {
+    console.error("[Leads API] Error adding activity:", error);
+    res.status(500).json({
+      message: "Failed to add activity",
+      error: error.message,
+    });
+  }
+});
+
 // Payment processing endpoint with error handling
 router.post(
   "/api/process-payment",
