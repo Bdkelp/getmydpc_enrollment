@@ -9,52 +9,49 @@ const supabase = createClient(
 );
 
 async function checkLeadsSchema() {
-  console.log('🔍 Checking leads table schema...\n');
+  console.log('🔍 Checking leads table schema using Supabase RPC...\n');
 
-  // Try to get one lead record to see column names
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .limit(1);
+  // Use raw SQL to get table structure
+  const { data, error } = await supabase.rpc('get_table_columns', {
+    table_name: 'leads'
+  });
 
   if (error) {
-    console.error('❌ Error querying leads table:', error);
-    return;
-  }
-
-  if (data && data.length > 0) {
-    console.log('✅ Leads table columns:', Object.keys(data[0]));
-  } else {
-    console.log('⚠️ No leads found in table');
+    console.log('⚠️ RPC not available, trying direct query...\n');
     
-    // Try to insert a test lead to see what columns are required
-    console.log('\n🧪 Testing column names with insert...');
-    
-    const testLead = {
-      first_name: 'Test',
-      last_name: 'User',
-      email: 'test@example.com',
-      phone: '1234567890',
-      message: 'Test message',
-      source: 'contact_form',
-      status: 'new'
-    };
-    
-    const { data: insertData, error: insertError } = await supabase
+    // Try a raw SQL query instead
+    const { data: columnsData, error: columnsError } = await supabase
       .from('leads')
-      .insert([testLead])
-      .select();
+      .select('*')
+      .limit(0); // Get no rows, just structure
     
-    if (insertError) {
-      console.error('❌ Insert error:', insertError.message);
-      console.error('Details:', insertError.details);
-    } else {
-      console.log('✅ Insert successful! Columns:', Object.keys(insertData[0]));
+    if (columnsError) {
+      console.error('❌ Error:', columnsError.message);
       
-      // Clean up test lead
-      await supabase.from('leads').delete().eq('id', insertData[0].id);
-      console.log('🧹 Test lead deleted');
+      // Last resort - try different column name variations
+      console.log('\n🧪 Testing different column name formats...');
+      
+      const variations = [
+        { first_name: 'Test', last_name: 'User', email: 'test@test.com', phone: '1234567890' },
+        { firstName: 'Test', lastName: 'User', email: 'test@test.com', phone: '1234567890' },
+        { 'first name': 'Test', 'last name': 'User', email: 'test@test.com', phone: '1234567890' }
+      ];
+      
+      for (const testData of variations) {
+        console.log('\n  Testing:', Object.keys(testData));
+        const { error: testError } = await supabase.from('leads').insert([testData]);
+        if (!testError) {
+          console.log('  ✅ SUCCESS with these columns!');
+          // Clean up
+          await supabase.from('leads').delete().match(testData);
+          break;
+        } else {
+          console.log('  ❌', testError.message);
+        }
+      }
     }
+  } else {
+    console.log('✅ Table columns:', data);
   }
 }
 
