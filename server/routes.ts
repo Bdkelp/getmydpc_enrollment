@@ -2971,59 +2971,8 @@ export async function registerRoutes(app: any) {
     }
   });
 
-  // Agent lookup endpoint
-  app.get("/api/agent/:agentId", async (req: any, res: any) => {
-    try {
-      const { agentId } = req.params;
-      console.log("[Agent Lookup] Looking up agent:", agentId);
-
-      // Try to find agent by ID or agent number
-      let agent;
-      try {
-        agent = await storage.getUser(agentId);
-      } catch (error) {
-        // Try by agent number if direct ID lookup fails
-        agent = await storage.getUserByAgentNumber(agentId);
-      }
-
-      if (!agent) {
-        return res.status(404).json({
-          error: "Agent not found",
-          agentId: agentId
-        });
-      }
-
-      // Only return agent data if they are actually an agent
-      if (agent.role !== "agent" && agent.role !== "admin") {
-        return res.status(404).json({
-          error: "Agent not found",
-          agentId: agentId
-        });
-      }
-
-      res.json({
-        success: true,
-        agent: {
-          id: agent.id,
-          agentNumber: agent.agentNumber,
-          firstName: agent.firstName,
-          lastName: agent.lastName,
-          email: agent.email,
-          isActive: agent.isActive,
-          role: agent.role
-        }
-      });
-
-    } catch (error: any) {
-      console.error("[Agent Lookup] Error:", error);
-      res.status(500).json({
-        error: "Agent lookup failed",
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
-      });
-    }
-  });
-
   // Fix: /api/agent/enrollments (404)
+  // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
   app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
     try {
       if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
@@ -3140,6 +3089,59 @@ export async function registerRoutes(app: any) {
     } catch (error: any) {
       console.error('❌ Agent commissions error:', error);
       res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
+    }
+  });
+
+  // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
+  // Dynamic routes like :agentId catch everything if they come first
+  app.get("/api/agent/:agentId", async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      console.log("[Agent Lookup] Looking up agent:", agentId);
+
+      // Try to find agent by ID or agent number
+      let agent;
+      try {
+        agent = await storage.getUser(agentId);
+      } catch (error) {
+        // Try by agent number if direct ID lookup fails
+        agent = await storage.getUserByAgentNumber(agentId);
+      }
+
+      if (!agent) {
+        return res.status(404).json({
+          error: "Agent not found",
+          agentId: agentId
+        });
+      }
+
+      // Only return agent data if they are actually an agent
+      if (agent.role !== "agent" && agent.role !== "admin") {
+        return res.status(404).json({
+          error: "Agent not found",
+          agentId: agentId
+        });
+      }
+
+      res.json({
+        success: true,
+        agent: {
+          id: agent.id,
+          agentNumber: agent.agentNumber,
+          firstName: agent.firstName,
+          lastName: agent.lastName,
+          email: agent.email,
+          isActive: agent.isActive,
+          role: agent.role
+        }
+      });
+
+    } catch (error: any) {
+      console.error("[Agent Lookup] Error:", error);
+      res.status(500).json({
+        error: "Agent lookup failed",
+        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+      });
     }
   });
 
