@@ -1932,18 +1932,56 @@ export async function createCommission(commission: InsertCommission): Promise<Co
 
 export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
   try {
-    let sql = 'SELECT * FROM commissions WHERE agent_id = $1';
+    let sql = `
+      SELECT 
+        c.id,
+        c.agent_id,
+        c.subscription_id,
+        c.member_id,
+        c.plan_name,
+        c.plan_type,
+        c.plan_tier,
+        c.commission_amount,
+        c.total_plan_cost,
+        c.status,
+        c.payment_status,
+        c.paid_date,
+        c.created_at,
+        c.updated_at,
+        m.first_name,
+        m.last_name,
+        m.email as member_email
+      FROM commissions c
+      LEFT JOIN members m ON c.member_id = m.id
+      WHERE c.agent_id = $1
+    `;
     const params: any[] = [agentId];
 
     if (startDate && endDate) {
-      sql += ' AND created_at >= $2 AND created_at <= $3';
+      sql += ' AND c.created_at >= $2 AND c.created_at <= $3';
       params.push(startDate, endDate);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    sql += ' ORDER BY c.created_at DESC';
 
     const result = await query(sql, params);
-    return result.rows || [];
+    
+    // Transform snake_case to camelCase for frontend
+    return (result.rows || []).map(row => ({
+      id: row.id,
+      subscriptionId: row.subscription_id,
+      userId: row.agent_id,
+      userName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown',
+      planName: row.plan_name,
+      planType: row.plan_type,
+      planTier: row.plan_tier,
+      commissionAmount: parseFloat(row.commission_amount || 0),
+      totalPlanCost: parseFloat(row.total_plan_cost || 0),
+      status: row.status,
+      paymentStatus: row.payment_status,
+      paidDate: row.paid_date,
+      createdAt: row.created_at
+    }));
   } catch (error: any) {
     console.error('Error fetching agent commissions:', error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);

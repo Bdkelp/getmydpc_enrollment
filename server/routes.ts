@@ -3104,34 +3104,15 @@ export async function registerRoutes(app: any) {
 
       // Get actual commission stats for the agent
       const agentId = req.user.id;
-      const commissions = await storage.getAgentCommissions(agentId);
+      const stats = await storage.getCommissionStats(agentId);
 
-      const totalCommission = commissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
-
-      const monthlyCommissions = commissions.filter(c => new Date(c.createdAt) >= thisMonth);
-      const monthlyCommission = monthlyCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-
-      const pendingCommissions = commissions.filter(c => c.paymentStatus === 'unpaid');
-      const pendingCommission = pendingCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-
-      console.log("✅ Got commission stats for", req.user.role);
-      res.json({
-        success: true,
-        commissionStats: {
-          totalCommission: totalCommission.toFixed(2),
-          monthlyCommission: monthlyCommission.toFixed(2),
-          pendingCommission: pendingCommission.toFixed(2),
-          totalCount: commissions.length,
-          monthlyCount: monthlyCommissions.length,
-          pendingCount: pendingCommissions.length
-        }
-      });
+      console.log("✅ Got commission stats:", stats);
+      
+      // Return stats in the format expected by frontend
+      res.json(stats);
     } catch (error: any) {
       console.error('❌ Commission stats error:', error);
-      res.status(500).json({ error: 'Failed to fetch commission stats' });
+      res.status(500).json({ error: 'Failed to fetch commission stats', details: error.message });
     }
   });
 
@@ -3152,16 +3133,13 @@ export async function registerRoutes(app: any) {
         endDate as string
       );
 
-      console.log("✅ Got", commissions?.length || 0, "commissions");
-      res.json({
-        success: true,
-        commissions: commissions || [],
-        dateRange: { startDate, endDate },
-        total: commissions?.length || 0
-      });
+      console.log("✅ Got", commissions?.length || 0, "commissions for agent:", req.user?.email);
+      
+      // Return the commissions array directly (already formatted by storage function)
+      res.json(commissions || []);
     } catch (error: any) {
       console.error('❌ Agent commissions error:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions' });
+      res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
     }
   });
 
