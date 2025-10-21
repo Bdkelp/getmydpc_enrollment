@@ -3024,16 +3024,31 @@ export async function registerRoutes(app: any) {
 
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
+      
+      // Get monthly commissions (this month only)
+      const startOfMonth = thisMonth.toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+      const monthlyCommissions = await storage.getAgentCommissions(
+        agentId,
+        startOfMonth,
+        today
+      );
+      
+      const monthlyCommission = monthlyCommissions.reduce((sum, c) => {
+        return sum + (parseFloat(c.commissionAmount?.toString() || '0'));
+      }, 0);
 
       res.json({
-        success: true,
-        stats: {
-          totalEnrollments: enrollments.length,
-          monthlyEnrollments,
-          activeMembers,
-          pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
-          ...commissionStats
-        }
+        totalEnrollments: enrollments.length,
+        monthlyEnrollments,
+        activeMembers,
+        pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
+        totalCommission: commissionStats.totalEarned,
+        monthlyCommission: parseFloat(monthlyCommission.toFixed(2)),
+        activeLeads: 0, // TODO: Implement leads count
+        conversionRate: 0, // TODO: Implement conversion rate
+        leads: [], // TODO: Implement leads data
+        ...commissionStats
       });
     } catch (error: any) {
       console.error('Agent stats error:', error);
