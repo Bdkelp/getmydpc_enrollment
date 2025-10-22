@@ -1,6 +1,0 @@
-{
-  "version": 2,
-  "env": {
-    "VITE_API_URL": "https://getmydpcenrollment-production.up.railway.app"
-  }
-}
