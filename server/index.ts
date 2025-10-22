@@ -15,10 +15,6 @@ import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
 
-// NEW: EPX Server Post routes (conditional)
-import epxServerPostRoutes from './routes/epx-server-post-routes';
-import { startRecurringBillingScheduler } from './services/recurring-billing-scheduler';
-
 const app = express();
 
 // Set trust proxy for proper IP handling
@@ -111,27 +107,6 @@ app.use((req, res, next) => {
 (async () => {
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use('/', epxHostedRoutes);
-  
-  // NEW: Register EPX Server Post routes (ONLY if enabled via environment variable)
-  // This ensures zero impact on existing system unless explicitly enabled
-  const billingSchedulerEnabled = process.env.BILLING_SCHEDULER_ENABLED === 'true';
-  if (billingSchedulerEnabled) {
-    console.log('[EPX Server Post] Recurring billing is ENABLED');
-    console.log('[EPX Server Post] Registering Server Post API routes...');
-    app.use('/', epxServerPostRoutes);
-    
-    // Start the recurring billing scheduler
-    try {
-      startRecurringBillingScheduler();
-      console.log('[EPX Server Post] ✅ Recurring billing scheduler started');
-      console.log('[EPX Server Post] Schedule: Daily at 2:00 AM');
-    } catch (schedulerError: any) {
-      console.error('[EPX Server Post] ❌ Failed to start scheduler:', schedulerError.message);
-      console.error('[EPX Server Post] Recurring billing will not run automatically');
-    }
-  } else {
-    console.log('[EPX Server Post] Recurring billing is DISABLED (set BILLING_SCHEDULER_ENABLED=true to enable)');
-  }
   
   // Register all API routes
   const server = await registerRoutes(app);
