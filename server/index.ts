@@ -37,33 +37,16 @@ app.use((req, res, next) => {
 // CORS setup - production deployment configuration
 app.use(
   cors({
-    origin: function (
-      origin: string | undefined,
-      callback: (err: Error | null, origin?: boolean) => void,
-    ) {
-      // Allow requests with no origin (mobile apps, etc.)
-      if (!origin) return callback(null, true);
-
-      // Allow production domains and development environments
-      const allowedOrigins: (string | RegExp)[] = [
-        /^https:\/\/.*\.vercel\.app$/,
-        /^https:\/\/.*\.railway\.app$/,
-        /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
-        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
-        "https://getmydpcenrollment-production.up.railway.app",
-        "https://enrollment.getmydpc.com",
-        process.env.VITE_PUBLIC_URL,
-      ].filter((item): item is string | RegExp => Boolean(item));
-
-      const isAllowed = allowedOrigins.some((pattern) => {
-        if (typeof pattern === "string") {
-          return origin === pattern;
-        }
-        return pattern.test(origin);
-      });
-
-      callback(null, isAllowed);
-    },
+    origin: [
+      /^https:\/\/.*\.vercel\.app$/,
+      /^https:\/\/.*\.railway\.app$/,
+      /^http:\/\/localhost:\d+$/,
+      /^http:\/\/127\.0\.0\.1:\d+$/,
+      "https://getmydpcenrollment-production.up.railway.app",
+      "https://enrollment.getmydpc.com",
+      "http://localhost:5173",
+      "http://localhost:5000"
+    ],
     credentials: true,
     optionsSuccessStatus: 200,
   }),
