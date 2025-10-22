@@ -295,6 +295,117 @@ export const familyMembers = pgTable("family_members", {
   index("idx_family_members_primary_member_id").on(table.primaryMemberId),
 ]);
 
+// ============================================================
+// EPX SERVER POST - RECURRING BILLING TABLES
+// ============================================================
+
+// Payment Tokens (Card on File - BRIC tokens)
+export const paymentTokens = pgTable("payment_tokens", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  
+  // EPX BRIC Token (treat like password - secure storage)
+  bricToken: varchar("bric_token", { length: 255 }).notNull().unique(),
+  
+  // Card display information (for member UI)
+  cardLastFour: varchar("card_last_four", { length: 4 }),
+  cardType: varchar("card_type", { length: 50 }), // Visa, Mastercard, Discover, Amex
+  expiryMonth: varchar("expiry_month", { length: 2 }),
+  expiryYear: varchar("expiry_year", { length: 4 }),
+  
+  // Card network tracking (CRITICAL for recurring charges)
+  originalNetworkTransId: varchar("original_network_trans_id", { length: 255 }),
+  
+  // Token management
+  isActive: boolean("is_active").default(true),
+  isPrimary: boolean("is_primary").default(false),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+}, (table: any) => [
+  index("idx_payment_tokens_member_id").on(table.memberId),
+  index("idx_payment_tokens_bric").on(table.bricToken),
+]);
+
+// Billing Schedule (recurring billing management)
+export const billingSchedule = pgTable("billing_schedule", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  paymentTokenId: integer("payment_token_id").references(() => paymentTokens.id, { onDelete: "restrict" }).notNull(),
+  
+  // Billing configuration
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  frequency: varchar("frequency", { length: 20 }).default("monthly"), // monthly, quarterly, annual
+  
+  // Schedule tracking
+  nextBillingDate: timestamp("next_billing_date").notNull(),
+  lastBillingDate: timestamp("last_billing_date"),
+  lastSuccessfulBilling: timestamp("last_successful_billing"),
+  
+  // Status management
+  status: varchar("status", { length: 20 }).default("active"), // active, paused, cancelled, suspended
+  
+  // Failure tracking
+  consecutiveFailures: integer("consecutive_failures").default(0),
+  lastFailureReason: text("last_failure_reason"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  cancelledAt: timestamp("cancelled_at"),
+  cancellationReason: text("cancellation_reason"),
+}, (table: any) => [
+  index("idx_billing_schedule_member").on(table.memberId),
+  index("idx_billing_schedule_token").on(table.paymentTokenId),
+  index("idx_billing_schedule_next_billing").on(table.nextBillingDate),
+  index("idx_billing_schedule_status").on(table.status),
+]);
+
+// Recurring Billing Log (audit trail)
+export const recurringBillingLog = pgTable("recurring_billing_log", {
+  id: serial("id").primaryKey(),
+  
+  // References
+  subscriptionId: integer("subscription_id").references(() => subscriptions.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  paymentTokenId: integer("payment_token_id").references(() => paymentTokens.id),
+  billingScheduleId: integer("billing_schedule_id").references(() => billingSchedule.id),
+  
+  // Charge details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  billingDate: timestamp("billing_date").notNull(),
+  attemptNumber: integer("attempt_number").default(1),
+  
+  // Status
+  status: varchar("status", { length: 50 }).notNull(), // success, failed, pending, retry
+  
+  // EPX response data
+  epxTransactionId: varchar("epx_transaction_id", { length: 255 }),
+  epxNetworkTransId: varchar("epx_network_trans_id", { length: 255 }),
+  epxAuthCode: varchar("epx_auth_code", { length: 50 }),
+  epxResponseCode: varchar("epx_response_code", { length: 10 }),
+  epxResponseMessage: text("epx_response_message"),
+  
+  // Failure handling
+  failureReason: text("failure_reason"),
+  nextRetryDate: timestamp("next_retry_date"),
+  
+  // Link to payments table if successful
+  paymentId: integer("payment_id").references(() => payments.id),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (table: any) => [
+  index("idx_billing_log_subscription").on(table.subscriptionId),
+  index("idx_billing_log_member").on(table.memberId),
+  index("idx_billing_log_status").on(table.status),
+  index("idx_billing_log_billing_date").on(table.billingDate),
+  index("idx_billing_log_next_retry").on(table.nextRetryDate),
+]);
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
@@ -412,6 +523,23 @@ export const insertCommissionSchema = createInsertSchema(commissions).omit({
   updatedAt: true,
 });
 
+// EPX Server Post insert schemas
+export const insertPaymentTokenSchema = createInsertSchema(paymentTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertBillingScheduleSchema = createInsertSchema(billingSchedule).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRecurringBillingLogSchema = createInsertSchema(recurringBillingLog).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Custom validation functions
 const isValidUSAPhone = (phone: string) => {
   // Remove all non-numeric characters
@@ -497,3 +625,11 @@ export type InsertCommission = z.infer<typeof insertCommissionSchema>;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
+
+// EPX Server Post types
+export type PaymentToken = typeof paymentTokens.$inferSelect;
+export type InsertPaymentToken = z.infer<typeof insertPaymentTokenSchema>;
+export type BillingSchedule = typeof billingSchedule.$inferSelect;
+export type InsertBillingSchedule = z.infer<typeof insertBillingScheduleSchema>;
+export type RecurringBillingLog = typeof recurringBillingLog.$inferSelect;
+export type InsertRecurringBillingLog = z.infer<typeof insertRecurringBillingLogSchema>;
