@@ -40,6 +40,18 @@ export default function Confirmation() {
       });
     }
 
+    // Get stored member data from registration
+    const storedMemberData = sessionStorage.getItem("memberData");
+    let memberInfo = null;
+    if (storedMemberData) {
+      try {
+        memberInfo = JSON.parse(storedMemberData);
+        console.log("Loaded member data from session:", memberInfo);
+      } catch (e) {
+        console.error("Failed to parse member data:", e);
+      }
+    }
+
     // Try URL first (most reliable after redirect), then sessionStorage
     const planId = urlPlanId || sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
@@ -53,30 +65,15 @@ export default function Confirmation() {
       totalPrice, 
       coverageType, 
       rxValet,
-      user,
+      memberInfo,
       epxTransaction,
       epxAmount,
       allSessionStorage: Object.fromEntries(Object.entries(sessionStorage))
     });
 
-    // Build immediate confirmation data - don't wait for auth to complete
-    // This allows agents to see confirmation instantly for back-to-back enrollments
+    // Build immediate confirmation data - use actual member data from registration
     const today = new Date();
     const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-    
-    // Safely generate customer number
-    let customerNumber = "Pending";
-    let memberId = "Pending";
-    
-    if (user?.id) {
-      try {
-        const userId = String(user.id);
-        customerNumber = `MPP${new Date().getFullYear()}${userId.padStart(6, '0')}`;
-        memberId = `MPP${userId}`;
-      } catch (err) {
-        console.error("Error generating customer number:", err);
-      }
-    }
     
     const immediateData: any = {
       planId: planId ? parseInt(planId) : null,
@@ -84,8 +81,12 @@ export default function Confirmation() {
       addRxValet: rxValet,
       coverageType: coverageType || "individual",
       transactionId: epxTransaction || `TXN${Date.now()}`,
-      customerNumber,
-      memberId,
+      // Use actual member data if available
+      customerNumber: memberInfo?.customerNumber || "Pending",
+      memberId: memberInfo?.id || "Pending",
+      firstName: memberInfo?.firstName || user?.firstName || "Member",
+      lastName: memberInfo?.lastName || user?.lastName || "",
+      email: memberInfo?.email || user?.email || "",
       billingDate: today,
       nextBillingDate,
       enrollmentDate: today,
@@ -294,7 +295,7 @@ export default function Confirmation() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <p className="text-sm text-gray-600">Member Name</p>
-                  <p className="font-medium">{user?.firstName || "Member"} {user?.lastName || ""}</p>
+                  <p className="font-medium">{membershipData.firstName} {membershipData.lastName}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Customer Number</p>
@@ -302,7 +303,7 @@ export default function Confirmation() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Member ID</p>
-                  <p className="font-medium">{membershipData?.memberId || "Pending"}</p>
+                  <p className="font-medium">{membershipData?.email || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Enrollment Date</p>
@@ -417,7 +418,7 @@ export default function Confirmation() {
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 mt-8">
               <Button 
-                className="flex-1 medical-blue-600 hover:medical-blue-700"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                 onClick={() => setLocation("/agent")}
               >
                 Return to Dashboard

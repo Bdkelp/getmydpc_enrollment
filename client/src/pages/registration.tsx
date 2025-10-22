@@ -192,7 +192,15 @@ export default function Registration() {
         body: JSON.stringify(submissionData)
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("Registration successful, received data:", data);
+      
+      // Store member data for confirmation page
+      if (data.member) {
+        sessionStorage.setItem("memberData", JSON.stringify(data.member));
+        console.log("Stored member data:", data.member);
+      }
+      
       // Invalidate cache to show new enrollment immediately
       queryClient.invalidateQueries({ queryKey: ['/api/agent/stats'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/enrollments'] });
