@@ -404,7 +404,7 @@ router.post("/api/auth/register", async (req, res) => {
       firstName: firstName || "User",
       lastName: lastName || "",
       emailVerified: true, // Auto-verify since we're not using email confirmation
-      role: "member",
+      role: "agent", // Users who register are agents, not members
       isActive: false, // Not active until admin approves
       approvalStatus: "pending",
       createdAt: new Date(),
