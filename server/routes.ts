@@ -2583,6 +2583,13 @@ export async function registerRoutes(app: any) {
       });
 
       console.log("[Registration] Member created:", member.id, member.customerNumber);
+      console.log("[Registration] Member name fields:", {
+        firstName: member.firstName,
+        lastName: member.lastName,
+        email: member.email,
+        hasFirstName: !!member.firstName,
+        hasLastName: !!member.lastName
+      });
 
       // Create subscription if plan is selected
       let subscriptionId = null;
@@ -2730,7 +2737,7 @@ export async function registerRoutes(app: any) {
 
       console.log("[Registration] Registration completed successfully");
 
-      res.json({
+      const responsePayload = {
         success: true,
         message: "Registration successful. Proceeding to payment...",
         member: {
@@ -2747,7 +2754,12 @@ export async function registerRoutes(app: any) {
           totalMonthlyPrice: totalMonthlyPrice,
           addRxValet: addRxValet
         }
-      });
+      };
+
+      console.log("[Registration] Response member object:", responsePayload.member);
+      console.log("[Registration] Has firstName?", !!responsePayload.member.firstName, "Has lastName?", !!responsePayload.member.lastName);
+
+      res.json(responsePayload);
     } catch (error: any) {
       console.error("[Registration] Error:", error.message);
       console.error("[Registration] Stack:", error.stack);
