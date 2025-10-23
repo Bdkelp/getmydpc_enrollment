@@ -561,7 +561,7 @@ export default function Payment() {
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <EPXHostedPayment
               amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
-              customerId={memberData?.id || user.id}
+              customerId={user.id}
               customerEmail={memberData?.email || user.email}
               customerName={memberData ? `${memberData.firstName || ''} ${memberData.lastName || ''}`.trim() : `${user.firstName || ''} ${user.lastName || ''}`.trim()}
               planId={selectedPlanId?.toString()}
