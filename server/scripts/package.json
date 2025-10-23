@@ -6,7 +6,8 @@
   "main": "index.js",
   "scripts": {
     "sync": "tsx sync-auth-users.ts",
-    "check": "tsx check-users.ts"
+    "check": "tsx check-users.ts",
+    "migrate": "tsx migrate-to-supabase.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",
