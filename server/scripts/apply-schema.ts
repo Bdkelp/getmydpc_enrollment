@@ -25,23 +25,52 @@ async function applySchema() {
     const schemaPath = resolve(process.cwd(), '../../migrations/schema_export.sql');
     console.log(`Reading schema from: ${schemaPath}`);
     
-    const schema = readFileSync(schemaPath, 'utf-8');
+    let schema = readFileSync(schemaPath, 'utf-8');
     
-    // Execute the schema
-    console.log("Executing schema...");
-    await pool.query(schema);
+    // Fix common pg_dump issues
+    console.log("Fixing schema syntax...");
+    schema = schema
+      .replace(/integer\(\d+,\d+\)/g, 'SERIAL')  // Replace integer with auto-increment SERIAL
+      .replace(/DEFAULT nextval\([^)]+\)/g, '')  // Remove nextval references (handled by SERIAL)
+      .replace(/character\((\d+)\)/g, 'char($1)')  // Fix character(n) -> char(n)
+      .replace(/character varying/g, 'varchar')    // Normalize to varchar
+      .replace(/timestamp without time zone/g, 'timestamp'); // Simplify timestamp
     
-    console.log("\n✅ Schema applied successfully!");
+    // Split into individual statements
+    const statements = schema
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s && !s.startsWith('--'));
+    
+    console.log(`Found ${statements.length} SQL statements to execute\n`);
+    
+    // Execute each statement
+    let executed = 0;
+    for (const statement of statements) {
+      if (!statement) continue;
+      
+      try {
+        await pool.query(statement);
+        executed++;
+        if (executed % 5 === 0) {
+          process.stdout.write(`\rExecuted: ${executed}/${statements.length}`);
+        }
+      } catch (error: any) {
+        if (error.message.includes('already exists')) {
+          console.log(`\n⚠️  Skipping: ${error.message.split(':')[0]}`);
+        } else {
+          throw error;
+        }
+      }
+    }
+    
+    console.log(`\n\n✅ Schema applied successfully! (${executed} statements)`);
     console.log("\nYou can now run the data migration:");
     console.log("  npm run migrate");
     
   } catch (error: any) {
     console.error("\n❌ Error applying schema:", error.message);
-    if (error.message.includes('already exists')) {
-      console.log("\n⚠️  Some tables already exist. This is normal if you've run this before.");
-      console.log("You can proceed with the data migration:");
-      console.log("  npm run migrate");
-    }
+    console.error("\nFull error:", error);
     process.exit(1);
   } finally {
     await pool.end();
