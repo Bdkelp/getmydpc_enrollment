@@ -2583,13 +2583,17 @@ export async function registerRoutes(app: any) {
       });
 
       console.log("[Registration] Member created:", member.id, member.customerNumber);
+      console.log("[Registration] Member object keys:", Object.keys(member));
       console.log("[Registration] Member name fields:", {
         firstName: member.firstName,
         lastName: member.lastName,
         email: member.email,
         hasFirstName: !!member.firstName,
-        hasLastName: !!member.lastName
+        hasLastName: !!member.lastName,
+        firstNameValue: JSON.stringify(member.firstName),
+        lastNameValue: JSON.stringify(member.lastName)
       });
+      console.log("[Registration] Full member object:", JSON.stringify(member, null, 2));
 
       // Create subscription if plan is selected
       let subscriptionId = null;

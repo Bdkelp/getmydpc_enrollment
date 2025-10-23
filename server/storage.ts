@@ -3248,8 +3248,42 @@ export const storage = {
         formattedData.planId, formattedData.coverageType, formattedData.totalMonthlyPrice, formattedData.addRxValet ?? false
       ]);
 
-      console.log('[Storage] Created member:', result.rows[0].customer_number);
-      return result.rows[0];
+      const dbMember = result.rows[0];
+      console.log('[Storage] Created member:', dbMember.customer_number);
+      console.log('[Storage] Database returned columns:', Object.keys(dbMember));
+      
+      // Map snake_case database columns to camelCase JavaScript properties
+      const member = {
+        ...dbMember,
+        firstName: dbMember.first_name,
+        lastName: dbMember.last_name,
+        middleName: dbMember.middle_name,
+        customerNumber: dbMember.customer_number,
+        dateOfBirth: dbMember.date_of_birth,
+        zipCode: dbMember.zip_code,
+        emergencyContactName: dbMember.emergency_contact_name,
+        emergencyContactPhone: dbMember.emergency_contact_phone,
+        employerName: dbMember.employer_name,
+        divisionName: dbMember.division_name,
+        memberType: dbMember.member_type,
+        dateOfHire: dbMember.date_of_hire,
+        planStartDate: dbMember.plan_start_date,
+        enrolledByAgentId: dbMember.enrolled_by_agent_id,
+        agentNumber: dbMember.agent_number,
+        isActive: dbMember.is_active,
+        enrollmentDate: dbMember.enrollment_date,
+        cancellationDate: dbMember.cancellation_date,
+        cancellationReason: dbMember.cancellation_reason,
+        createdAt: dbMember.created_at,
+        updatedAt: dbMember.updated_at,
+        planId: dbMember.plan_id,
+        coverageType: dbMember.coverage_type,
+        totalMonthlyPrice: dbMember.total_monthly_price,
+        addRxValet: dbMember.add_rx_valet
+      };
+      
+      console.log('[Storage] Mapped to camelCase, has firstName?', !!member.firstName, 'lastName?', !!member.lastName);
+      return member;
     } catch (error: any) {
       console.error('[Storage] Error creating member:', error);
       throw new Error(`Failed to create member: ${error.message}`);
