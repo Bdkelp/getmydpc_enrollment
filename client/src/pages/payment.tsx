@@ -53,6 +53,7 @@ export default function Payment() {
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [showEPXPayment, setShowEPXPayment] = useState(false);
+  const [memberData, setMemberData] = useState<any>(null);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -76,7 +77,7 @@ export default function Payment() {
     enabled: isAuthenticated,
   });
 
-  // Load stored plan ID from registration
+  // Load stored plan ID and member data from registration
   useEffect(() => {
     const storedPlanId = sessionStorage.getItem("selectedPlanId");
     console.log("Loading stored plan ID from session:", storedPlanId);
@@ -91,6 +92,20 @@ export default function Payment() {
         description: "Please go back to registration and select a healthcare membership.",
         variant: "destructive",
       });
+    }
+
+    // Load member data for payment (use member's info, not agent's)
+    const storedMemberData = sessionStorage.getItem("memberData");
+    if (storedMemberData) {
+      try {
+        const parsedMemberData = JSON.parse(storedMemberData);
+        console.log("Loaded member data for payment:", parsedMemberData);
+        setMemberData(parsedMemberData);
+      } catch (e) {
+        console.error("Failed to parse member data:", e);
+      }
+    } else {
+      console.warn("No member data found in session storage - will use logged-in user data");
     }
   }, []);
 
@@ -546,9 +561,9 @@ export default function Payment() {
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <EPXHostedPayment
               amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
-              customerId={user.id}
-              customerEmail={user.email}
-              customerName={`${user.firstName || ''} ${user.lastName || ''}`.trim()}
+              customerId={memberData?.id || user.id}
+              customerEmail={memberData?.email || user.email}
+              customerName={memberData ? `${memberData.firstName || ''} ${memberData.lastName || ''}`.trim() : `${user.firstName || ''} ${user.lastName || ''}`.trim()}
               planId={selectedPlanId?.toString()}
               description={`${selectedPlan.name} - DPC Subscription`}
               billingAddress={{
