@@ -1,0 +1,13 @@
+{
+  "name": "sync-auth-users",
+  "version": "1.0.0",
+  "description": "Sync Supabase Auth users to application users table",
+  "main": "index.js",
+  "scripts": {
+    "sync": "tsx scripts/sync-auth-users.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
