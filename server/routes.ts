@@ -2528,9 +2528,12 @@ export async function registerRoutes(app: any) {
       }
 
       // Check if member already exists
-      const existingMember = await storage.getMemberByEmail(email.trim().toLowerCase());
+      const normalizedEmail = email.trim().toLowerCase();
+      console.log("[Registration] Checking for existing member with email:", normalizedEmail);
+      const existingMember = await storage.getMemberByEmail(normalizedEmail);
+      console.log("[Registration] Existing member check result:", existingMember ? `Found ID ${existingMember.id}` : "Not found");
       if (existingMember) {
-        console.log("[Registration] Member already exists:", existingMember.id);
+        console.log("[Registration] Member already exists:", existingMember.id, existingMember.customerNumber);
         return res.status(400).json({
           error: "Member already exists with this email"
         });
