@@ -70,10 +70,13 @@ export default function Register() {
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
+    console.log("[Register] Starting registration submission...");
     try {
       const { confirmPassword, agreeToTerms, ...userData } = data;
+      console.log("[Register] Form data:", { email: userData.email, firstName: userData.firstName, lastName: userData.lastName });
 
       // Call backend API endpoint instead of Supabase directly
+      console.log("[Register] Calling /api/auth/register...");
       const response = await apiRequest('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
@@ -85,7 +88,10 @@ export default function Register() {
         })
       });
 
+      console.log("[Register] API response:", response);
+
       if (response.success) {
+        console.log("[Register] Registration successful!");
         // Set the Supabase session if available
         if (response.session) {
           const { supabase } = await import("@/lib/supabase");
@@ -93,6 +99,7 @@ export default function Register() {
             access_token: response.session.access_token,
             refresh_token: response.session.refresh_token
           });
+          console.log("[Register] Session set successfully");
         }
 
         toast({
@@ -100,12 +107,21 @@ export default function Register() {
           description: response.message || "Your account is pending approval. You'll receive an email once approved.",
         });
 
+        console.log("[Register] Redirecting to /pending-approval in 2 seconds...");
         // Redirect to pending approval page
         setTimeout(() => {
           setLocation("/pending-approval");
         }, 2000);
+      } else {
+        console.error("[Register] Registration failed - response.success is false");
+        toast({
+          title: "Registration failed",
+          description: response.message || "Please try again",
+          variant: "destructive",
+        });
       }
     } catch (error: any) {
+      console.error("[Register] Error during registration:", error);
       toast({
         title: "Registration failed",
         description: error.message || "Please try again",
@@ -113,6 +129,7 @@ export default function Register() {
       });
     } finally {
       setIsLoading(false);
+      console.log("[Register] Form submission completed");
     }
   };
 

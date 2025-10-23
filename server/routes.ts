@@ -351,6 +351,8 @@ router.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
 
+    console.log("[Register] Creating new user:", email);
+
     // Sign up with Supabase
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -360,38 +362,61 @@ router.post("/api/auth/register", async (req, res) => {
           firstName,
           lastName,
         },
+        emailRedirectTo: undefined,
       },
     });
 
     if (error) {
-      console.error("Registration error:", error);
+      console.error("[Register] Supabase signup error:", error);
       return res
         .status(400)
-        .json({ message: error.message || "Registration failed" });
+        .json({ success: false, message: error.message || "Registration failed" });
     }
 
     if (!data.user) {
-      return res.status(400).json({ message: "Failed to create user" });
+      console.error("[Register] No user returned from Supabase");
+      return res.status(400).json({ success: false, message: "Failed to create user" });
     }
 
-    // Create user in our database
+    console.log("[Register] Supabase user created:", data.user.id);
+
+    // Auto-confirm the user's email using admin API (bypass email verification)
+    try {
+      const { data: adminData, error: adminError } = await supabase.auth.admin.updateUserById(
+        data.user.id,
+        { email_confirm: true }
+      );
+      
+      if (adminError) {
+        console.warn("[Register] Failed to auto-confirm email:", adminError);
+      } else {
+        console.log("[Register] User email auto-confirmed");
+      }
+    } catch (confirmError) {
+      console.warn("[Register] Error auto-confirming user:", confirmError);
+      // Continue anyway - user can still be approved manually
+    }
+
+    // Create user in our database with pending approval
     const user = await storage.createUser({
       id: data.user.id,
       email: data.user.email!,
       firstName: firstName || "User",
       lastName: lastName || "",
-      emailVerified: false,
+      emailVerified: true, // Auto-verify since we're not using email confirmation
       role: "member",
-      isActive: true,
+      isActive: false, // Not active until admin approves
       approvalStatus: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
+    console.log("[Registration] User created, pending admin approval:", user.id);
+
     res.json({
       success: true,
       message:
-        "Registration successful. Please check your email to verify your account.",
+        "Registration successful! Your account is pending admin approval. You'll be notified once approved.",
       session: data.session
         ? {
             access_token: data.session.access_token,
