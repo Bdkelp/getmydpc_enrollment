@@ -8,7 +8,8 @@
     "sync": "tsx sync-auth-users.ts",
     "check": "tsx check-users.ts",
     "migrate": "tsx migrate-to-supabase.ts",
-    "export-schema": "tsx export-schema.ts"
+    "export-schema": "tsx export-schema.ts",
+    "apply-schema": "tsx apply-schema.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",
