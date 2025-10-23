@@ -243,19 +243,11 @@ export default function Registration() {
         totalMonthlyPrice: totalWithFees
       });
       
-      // Always go directly to payment now that family members are included in registration
-      // Check if Stripe is configured
-      if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-        toast({
-          title: "Registration Complete",
-          description: "Redirecting to mock payment for testing...",
-        });
-      } else {
-        toast({
-          title: "Registration Complete",
-          description: "Your information has been saved. Proceeding to payment...",
-        });
-      }
+      // Registration complete - proceed to EPX payment
+      toast({
+        title: "Registration Complete",
+        description: "Your information has been saved. Proceeding to payment...",
+      });
       setLocation("/payment");
     },
     onError: (error) => {
