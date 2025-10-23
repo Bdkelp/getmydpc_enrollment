@@ -187,7 +187,8 @@ export default function Registration() {
         hasPassword: !!submissionData.password
       });
       
-      await apiRequest("/api/registration", {
+      // CRITICAL: Must RETURN the API response so onSuccess receives the data
+      return await apiRequest("/api/registration", {
         method: "POST",
         body: JSON.stringify(submissionData)
       });
