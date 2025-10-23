@@ -194,12 +194,17 @@ export default function Registration() {
       });
     },
     onSuccess: (data) => {
-      console.log("Registration successful, received data:", data);
+      console.log("[Registration] API response received:", data);
+      console.log("[Registration] Member object:", data.member);
+      console.log("[Registration] Member has firstName?", !!data.member?.firstName, "lastName?", !!data.member?.lastName);
       
       // Store member data for confirmation page
       if (data.member) {
         sessionStorage.setItem("memberData", JSON.stringify(data.member));
-        console.log("Stored member data:", data.member);
+        console.log("[Registration] Stored to sessionStorage:", data.member);
+        console.log("[Registration] Verify stored data:", JSON.parse(sessionStorage.getItem("memberData") || "{}"));
+      } else {
+        console.error("[Registration] ⚠️ No member object in response!");
       }
       
       // Invalidate cache to show new enrollment immediately
