@@ -1,10 +1,56 @@
-import { supabase } from "../lib/supabase";
-import { storage } from "../storage";
+import { createClient } from "@supabase/supabase-js";
+import pkg from "pg";
+import dotenv from "dotenv";
+import { resolve } from "path";
+
+const { Pool } = pkg;
+
+// Load environment variables from parent directory
+dotenv.config({ path: resolve(process.cwd(), '../../.env') });
 
 /**
  * Sync script to import all Supabase Auth users into the application's users table
  * This ensures users who exist in Auth but not in the users table are properly synced
  */
+
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("❌ Missing environment variables: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  console.error("   SUPABASE_URL:", supabaseUrl ? "✓" : "✗");
+  console.error("   SUPABASE_SERVICE_ROLE_KEY:", supabaseServiceKey ? "✓" : "✗");
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+// Initialize database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+async function query(text: string, params?: any[]) {
+  const start = Date.now();
+  const res = await pool.query(text, params);
+  const duration = Date.now() - start;
+  console.log('[DB Query]', { text, duration, rows: res.rowCount });
+  return res;
+}
+
+async function getUserByEmail(email: string) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE email = $1',
+    [email]
+  );
+  return result.rows[0];
+}
 
 function determineUserRole(email: string): "admin" | "agent" | "member" {
   const adminEmails = [
@@ -55,7 +101,7 @@ async function syncAuthUsers() {
 
       try {
         // Check if user already exists in users table
-        const existingUser = await storage.getUserByEmail(email);
+        const existingUser = await getUserByEmail(email);
 
         if (existingUser) {
           console.log(`⏭️  User already exists: ${email} (${existingUser.role})`);
@@ -80,20 +126,26 @@ async function syncAuthUsers() {
           "";
 
         // Create user in users table
-        const newUser = await storage.createUser({
-          id: authUser.id,
-          email: email,
-          firstName: firstName,
-          lastName: lastName,
-          emailVerified: authUser.email_confirmed_at ? true : false,
-          role: role,
-          isActive: true, // Auto-activate synced users
-          approvalStatus: "approved", // Auto-approve synced users
-          createdAt: authUser.created_at ? new Date(authUser.created_at) : new Date(),
-          updatedAt: new Date(),
-        });
+        const result = await pool.query(`
+          INSERT INTO users (
+            id, email, first_name, last_name, email_verified, 
+            role, is_active, approval_status, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          RETURNING *
+        `, [
+          authUser.id,
+          email,
+          firstName,
+          lastName,
+          authUser.email_confirmed_at ? true : false,
+          role,
+          true, // Auto-activate synced users
+          'approved', // Auto-approve synced users
+          authUser.created_at ? new Date(authUser.created_at) : new Date(),
+          new Date()
+        ]);
 
-        console.log(`✅ Synced: ${email} → role: ${role}, id: ${newUser.id}`);
+        console.log(`✅ Synced: ${email} → role: ${role}, id: ${authUser.id}`);
         syncedCount++;
 
       } catch (error) {
@@ -126,11 +178,13 @@ async function syncAuthUsers() {
 
 // Run the sync
 syncAuthUsers()
-  .then(() => {
+  .then(async () => {
     console.log("\n✨ Script finished");
+    await pool.end();
     process.exit(0);
   })
-  .catch((error) => {
+  .catch(async (error) => {
     console.error("\n💥 Script failed:", error);
+    await pool.end();
     process.exit(1);
   });
