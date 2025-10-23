@@ -459,7 +459,8 @@ export default function Confirmation() {
                   const defaultRoute = user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/";
                   setLocation(defaultRoute);
                 }}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                style={{ color: '#ffffff', backgroundColor: '#2563eb' }}
               >
                 Go to Dashboard
               </Button>
