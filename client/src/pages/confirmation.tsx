@@ -46,10 +46,13 @@ export default function Confirmation() {
     if (storedMemberData) {
       try {
         memberInfo = JSON.parse(storedMemberData);
-        console.log("Loaded member data from session:", memberInfo);
+        console.log("[Confirmation] Loaded member data from session:", memberInfo);
+        console.log("[Confirmation] Member has firstName?", !!memberInfo?.firstName, "lastName?", !!memberInfo?.lastName);
       } catch (e) {
         console.error("Failed to parse member data:", e);
       }
+    } else {
+      console.warn("[Confirmation] ⚠️ NO memberData found in sessionStorage!");
     }
 
     // Try URL first (most reliable after redirect), then sessionStorage
@@ -93,7 +96,12 @@ export default function Confirmation() {
       createdAt: new Date().toISOString()
     };
 
-    console.log("Setting immediate membership data:", immediateData);
+    console.log("[Confirmation] Setting membership data:");
+    console.log("[Confirmation]   - Using memberInfo?", !!memberInfo);
+    console.log("[Confirmation]   - firstName:", immediateData.firstName, "(from", memberInfo?.firstName ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - lastName:", immediateData.lastName, "(from", memberInfo?.lastName ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - email:", immediateData.email, "(from", memberInfo?.email ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - Full immediateData:", immediateData);
 
     // Set immediately - don't block on auth
     setMembershipData(immediateData);
