@@ -1891,7 +1891,7 @@ export async function createCommission(commission: InsertCommission): Promise<Co
     return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
   }
 
-  // Insert commission into Neon database (not Supabase)
+  // Insert commission into database (Supabase PostgreSQL)
   try {
     const result = await query(`
       INSERT INTO commissions (
@@ -2866,7 +2866,7 @@ export const storage = {
       }
       const allUsers = allUsersData || [];
 
-      // Get members, subscriptions, and commissions from Neon
+      // Get members, subscriptions, and commissions from Supabase (same database as users)
       const membersResult = await query('SELECT * FROM members WHERE status = $1', ['active']);
       const subscriptionsResult = await query('SELECT * FROM subscriptions');
       const commissionsResult = await query('SELECT * FROM commissions');
@@ -2891,10 +2891,11 @@ export const storage = {
       const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
       const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
 
-      // Calculate revenue from active subscriptions
-      const monthlyRevenue = allSubscriptions
-        .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + parseFloat(sub.amount || 0), 0);
+      // Calculate revenue from active members (not subscriptions - legacy table)
+      // Members table has total_monthly_price which is the actual enrolled plan price
+      const monthlyRevenue = allMembers
+        .filter(member => member.status === 'active')
+        .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
 
       // Calculate commissions
       const totalCommissions = allCommissions.reduce((total, comm) => 
@@ -2970,7 +2971,7 @@ export const storage = {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      // Query from Neon database (not Supabase) - this is where actual member data lives
+      // Query from Supabase database - where all data lives
       const membersResult = await query('SELECT * FROM members WHERE is_active = true ORDER BY created_at DESC');
       const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
       const commissionsResult = await query('SELECT * FROM commissions ORDER BY created_at DESC');
