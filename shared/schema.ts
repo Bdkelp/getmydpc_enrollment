@@ -128,6 +128,11 @@ export const members = pgTable("members", {
   enrolledByAgentId: varchar("enrolled_by_agent_id", { length: 255 }).references(() => users.id),
   agentNumber: varchar("agent_number", { length: 20 }), // MPP0001, MPP0002, etc.
   enrollmentDate: timestamp("enrollment_date").defaultNow(),
+  // Plan and pricing information
+  planId: integer("plan_id").references(() => plans.id), // Selected plan
+  coverageType: varchar("coverage_type", { length: 50 }), // Member Only, Member/Spouse, Member/Child, Family
+  totalMonthlyPrice: decimal("total_monthly_price", { precision: 10, scale: 2 }), // Total price including add-ons
+  addRxValet: boolean("add_rx_valet").default(false), // ProChoice Rx add-on ($21/month)
   // Status
   isActive: boolean("is_active").default(true),
   status: varchar("status", { length: 20 }).default("active"), // active, cancelled, suspended, pending

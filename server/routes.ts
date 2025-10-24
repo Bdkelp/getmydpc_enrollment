@@ -2307,6 +2307,7 @@ async function createCommissionWithCheck(
   userId: string,
   planName: string,
   memberType: string,
+  addRxValet: boolean = false,
 ) {
   try {
     // Get agent profile to check role
@@ -2325,7 +2326,7 @@ async function createCommissionWithCheck(
     }
 
     // Calculate commission using existing logic
-    const commissionResult = calculateCommission(planName, memberType);
+    const commissionResult = calculateCommission(planName, memberType, addRxValet);
     if (!commissionResult) {
       console.warn(
         `No commission rate found for plan: ${planName}, member type: ${memberType}`,
@@ -2709,7 +2710,8 @@ export async function registerRoutes(app: any) {
             
             // Calculate commission using proper commission structure
             const coverage = coverageType || memberType || 'Member Only';
-            const commissionResult = calculateCommission(planName, coverage);
+            const hasRxValet = addRxValet || false;
+            const commissionResult = calculateCommission(planName, coverage, hasRxValet);
             
             if (commissionResult) {
               await storage.createCommission({
@@ -2727,7 +2729,8 @@ export async function registerRoutes(app: any) {
                 updatedAt: new Date()
               });
               
-              console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")");
+              const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
+              console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
             } else {
               console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
             }
