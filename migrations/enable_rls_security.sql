@@ -54,72 +54,86 @@ DROP POLICY IF EXISTS "Allow public read" ON plans;
 CREATE POLICY "Block direct access" ON payment_tokens 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON billing_schedule 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON users 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON members 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON payments 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON commissions 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON subscriptions 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON sessions 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON enrollment_modifications 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON family_members 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON leads 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON lead_activities 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON recurring_billing_log 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON member_change_requests 
     FOR ALL 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 -- Plans table: Allow PUBLIC READ ONLY (for enrollment page pricing)
 -- This is safe - pricing should be public
@@ -132,12 +146,13 @@ CREATE POLICY "Allow public read" ON plans
 CREATE POLICY "Block direct access" ON plans 
     FOR INSERT 
     TO public
-    USING (false);
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON plans 
     FOR UPDATE 
     TO public
-    USING (false);
+    USING (false)
+    WITH CHECK (false);
 
 CREATE POLICY "Block direct access" ON plans 
     FOR DELETE 
