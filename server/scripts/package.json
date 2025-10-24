@@ -9,7 +9,8 @@
     "check": "tsx check-users.ts",
     "migrate": "tsx migrate-to-supabase.ts",
     "export-schema": "tsx export-schema.ts",
-    "apply-schema": "tsx apply-schema.ts"
+    "apply-schema": "tsx apply-schema.ts",
+    "seed-plans": "tsx seed-plans.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",
