@@ -96,8 +96,8 @@ export const members = pgTable("members", {
   lastName: varchar("last_name", { length: 50 }).notNull(),
   middleName: varchar("middle_name", { length: 50 }),
   email: varchar("email", { length: 100 }).unique().notNull(),
-  // Phone: US numbers only - 10 digits (no formatting: 5125551234)
-  phone: varchar("phone", { length: 10 }), // CHAR(10) in DB - digits only
+  // Phone: US numbers - stored as digits only, but allow extra space for formatting during input
+  phone: varchar("phone", { length: 20 }), // Allow formatted input, backend strips to 10 digits
   // Date of Birth: MMDDYYYY format (8 chars: 01151990 = Jan 15, 1990)
   dateOfBirth: varchar("date_of_birth", { length: 8 }), // CHAR(8) in DB
   // Gender: M, F, O (1 char)
@@ -114,8 +114,8 @@ export const members = pgTable("members", {
   zipCode: varchar("zip_code", { length: 5 }), // CHAR(5) in DB
   // Emergency contact
   emergencyContactName: varchar("emergency_contact_name", { length: 100 }),
-  // Emergency phone: 10 digits (no formatting)
-  emergencyContactPhone: varchar("emergency_contact_phone", { length: 10 }), // CHAR(10) in DB
+  // Emergency phone: Allow formatted input, backend strips to 10 digits
+  emergencyContactPhone: varchar("emergency_contact_phone", { length: 20 }), // Allow formatted input
   // Employment information
   employerName: varchar("employer_name", { length: 100 }),
   divisionName: varchar("division_name", { length: 100 }),
