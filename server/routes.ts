@@ -471,6 +471,8 @@ function determineUserRole(email: string): "admin" | "agent" | "member" {
 
   const agentEmails = [
     "mdkeener@gmail.com",
+    "mkeener@lonestarenotary.com", // Mike Keener - LoneStar Notary
+    "bdkelp@gmail.com", // Duanne Keener
     "tmatheny77@gmail.com",
     "svillarreal@cyariskmanagement.com",
   ];
