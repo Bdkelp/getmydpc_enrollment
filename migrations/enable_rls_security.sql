@@ -49,6 +49,10 @@ DROP POLICY IF EXISTS "Block direct access" ON sessions;
 DROP POLICY IF EXISTS "Block direct access" ON subscriptions;
 DROP POLICY IF EXISTS "Block direct access" ON users;
 DROP POLICY IF EXISTS "Allow public read" ON plans;
+DROP POLICY IF EXISTS "Block direct access" ON plans;
+DROP POLICY IF EXISTS "Block direct insert" ON plans;
+DROP POLICY IF EXISTS "Block direct update" ON plans;
+DROP POLICY IF EXISTS "Block direct delete" ON plans;
 
 -- Sensitive tables: DENY ALL direct access
 CREATE POLICY "Block direct access" ON payment_tokens 
@@ -143,18 +147,18 @@ CREATE POLICY "Allow public read" ON plans
     USING (true);
 
 -- Block writes to plans via PostgREST (only backend should modify)
-CREATE POLICY "Block direct access" ON plans 
+CREATE POLICY "Block direct insert" ON plans 
     FOR INSERT 
     TO public
     WITH CHECK (false);
 
-CREATE POLICY "Block direct access" ON plans 
+CREATE POLICY "Block direct update" ON plans 
     FOR UPDATE 
     TO public
     USING (false)
     WITH CHECK (false);
 
-CREATE POLICY "Block direct access" ON plans 
+CREATE POLICY "Block direct delete" ON plans 
     FOR DELETE 
     TO public
     USING (false);
