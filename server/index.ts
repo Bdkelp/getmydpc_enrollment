@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 
 // Load environment variables from .env file FIRST
-// Deployment trigger: Schema updates for members table and commission calculation fixes
+// Deployment: Fixed phone field lengths to handle formatted input
 dotenv.config();
 
 import express, { type Request, Response, NextFunction } from "express";
