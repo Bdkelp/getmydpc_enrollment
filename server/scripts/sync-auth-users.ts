@@ -125,12 +125,21 @@ async function syncAuthUsers() {
           authUser.user_metadata?.name?.split(' ').slice(1).join(' ') ||
           "";
 
+        // Get the next agent number
+        const agentNumberResult = await pool.query(`
+          SELECT COALESCE(MAX(CAST(SUBSTRING(agent_number FROM 4) AS INTEGER)), 0) + 1 as next_num
+          FROM users
+          WHERE agent_number ~ '^MPP[0-9]+$'
+        `);
+        const nextNum = agentNumberResult.rows[0].next_num;
+        const agentNumber = `MPP${String(nextNum).padStart(4, '0')}`;
+
         // Create user in users table
         const result = await pool.query(`
           INSERT INTO users (
             id, email, first_name, last_name, email_verified, 
-            role, is_active, approval_status, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            role, agent_number, is_active, approval_status, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
           RETURNING *
         `, [
           authUser.id,
@@ -139,6 +148,7 @@ async function syncAuthUsers() {
           lastName,
           authUser.email_confirmed_at ? true : false,
           role,
+          agentNumber,
           true, // Auto-activate synced users
           'approved', // Auto-approve synced users
           authUser.created_at ? new Date(authUser.created_at) : new Date(),
