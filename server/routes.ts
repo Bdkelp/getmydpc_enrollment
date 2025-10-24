@@ -25,6 +25,25 @@ router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Temporary endpoint to check Railway's outbound IP for EPX ACL whitelist
+router.get("/api/check-ip", async (req, res) => {
+  try {
+    const response = await fetch("https://api.ipify.org?format=json");
+    const data = await response.json() as { ip: string };
+    res.json({ 
+      outboundIP: data.ip,
+      timestamp: new Date().toISOString(),
+      message: "This is the IP address that Railway uses for outbound requests (needed for EPX ACL)"
+    });
+  } catch (error) {
+    console.error('[IP Check] Failed to fetch IP:', error);
+    res.status(500).json({ 
+      error: "Failed to check IP",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
 // Diagnostic endpoint for CORS testing
 router.get("/api/test-cors", (req, res) => {
   const origin = req.headers.origin;
