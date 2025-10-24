@@ -102,8 +102,8 @@ export const members = pgTable("members", {
   dateOfBirth: varchar("date_of_birth", { length: 8 }), // CHAR(8) in DB
   // Gender: M, F, O (1 char)
   gender: varchar("gender", { length: 1 }), // CHAR(1) in DB
-  // SSN: 9 digits, no dashes (123456789)
-  ssn: varchar("ssn", { length: 9 }), // CHAR(9) in DB - encrypted in app layer
+  // SSN: 9 digits encrypted (stored encrypted, needs space for IV + encrypted data)
+  ssn: varchar("ssn", { length: 200 }), // Encrypted SSN storage - needs more space for encryption
   // Address information
   address: varchar("address", { length: 100 }),
   address2: varchar("address2", { length: 50 }),
