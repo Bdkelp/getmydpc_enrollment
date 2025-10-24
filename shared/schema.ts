@@ -407,8 +407,41 @@ export const recurringBillingLog = pgTable("recurring_billing_log", {
   index("idx_billing_log_subscription").on(table.subscriptionId),
   index("idx_billing_log_member").on(table.memberId),
   index("idx_billing_log_status").on(table.status),
-  index("idx_billing_log_billing_date").on(table.billingDate),
-  index("idx_billing_log_next_retry").on(table.nextRetryDate),
+    index("idx_billing_log_billing_date").on(table.billingDate),
+]);
+
+// Member Change Requests (for plan changes, upgrades, cancellations)
+export const memberChangeRequests = pgTable("member_change_requests", {
+  id: serial("id").primaryKey(),
+  
+  // References
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  requestedBy: varchar("requested_by", { length: 255 }).references(() => users.id).notNull(), // Agent who submitted
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id), // Admin who reviewed
+  
+  // Change details
+  changeType: varchar("change_type", { length: 50 }).notNull(), // plan_upgrade, plan_downgrade, add_family_member, cancel, update_payment
+  currentPlanId: integer("current_plan_id").references(() => plans.id),
+  requestedPlanId: integer("requested_plan_id").references(() => plans.id),
+  
+  // JSON field for flexible change data
+  changeDetails: jsonb("change_details"), // Stores any additional change information
+  requestReason: text("request_reason"), // Why the change is needed
+  
+  // Status
+  status: varchar("status", { length: 50 }).default("pending").notNull(), // pending, approved, rejected, completed
+  
+  // Review
+  reviewNotes: text("review_notes"), // Admin notes on approval/rejection
+  reviewedAt: timestamp("reviewed_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_change_requests_member").on(table.memberId),
+  index("idx_change_requests_status").on(table.status),
+  index("idx_change_requests_requested_by").on(table.requestedBy),
 ]);
 
 // Relations
