@@ -177,9 +177,9 @@ BEGIN
             AND c.relrowsecurity = true
         ) THEN
             rls_count := rls_count + 1;
-            RAISE NOTICE '[OK] RLS enabled on: %', table_record.tablename;
+            RAISE NOTICE 'OK - RLS enabled on: %', table_record.tablename;
         ELSE
-            RAISE WARNING '[ERROR] RLS NOT enabled on: %', table_record.tablename;
+            RAISE WARNING 'ERROR - RLS NOT enabled on: %', table_record.tablename;
         END IF;
     END LOOP;
     
@@ -190,12 +190,12 @@ BEGIN
     RAISE NOTICE '============================================================';
     
     IF rls_count = total_count THEN
-        RAISE NOTICE '[SUCCESS] All tables secured with RLS';
-        RAISE NOTICE '[SUCCESS] Express backend will continue working (uses service role)';
-        RAISE NOTICE '[SUCCESS] Direct PostgREST API access is now blocked';
-        RAISE NOTICE '[SUCCESS] Plans table allows public read access only';
+        RAISE NOTICE 'SUCCESS: All tables secured with RLS';
+        RAISE NOTICE 'SUCCESS: Express backend will continue working (uses service role)';
+        RAISE NOTICE 'SUCCESS: Direct PostgREST API access is now blocked';
+        RAISE NOTICE 'SUCCESS: Plans table allows public read access only';
     ELSE
-        RAISE WARNING '[WARNING] Some tables may not have RLS enabled';
+        RAISE WARNING 'WARNING: Some tables may not have RLS enabled';
     END IF;
 END $$;
 
