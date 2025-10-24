@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 
 // Load environment variables from .env file FIRST
+// Updated: Added member table columns and commission calculations
 dotenv.config();
 
 import express, { type Request, Response, NextFunction } from "express";
