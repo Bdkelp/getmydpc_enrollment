@@ -10,8 +10,8 @@ SELECT
     schemaname,
     tablename,
     CASE 
-        WHEN rowsecurity THEN '✅ ENABLED'
-        ELSE '❌ DISABLED'
+        WHEN rowsecurity THEN '[ENABLED]'
+        ELSE '[DISABLED]'
     END as rls_status
 FROM pg_tables t
 LEFT JOIN pg_class c ON c.relname = t.tablename
@@ -30,8 +30,8 @@ SELECT
     tablename,
     policyname,
     CASE 
-        WHEN permissive = 'PERMISSIVE' THEN '✅ Permissive'
-        ELSE '🔒 Restrictive'
+        WHEN permissive = 'PERMISSIVE' THEN '[Permissive]'
+        ELSE '[Restrictive]'
     END as policy_type,
     CASE cmd
         WHEN '*' THEN 'ALL'
