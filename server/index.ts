@@ -4,6 +4,12 @@ import dotenv from "dotenv";
 // Deployment: Fixed phone field lengths to handle formatted input
 dotenv.config();
 
+// Fix SSL certificate validation issues in production (Railway/Vercel)
+// This is needed for Supabase connections
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
