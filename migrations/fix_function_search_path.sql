@@ -5,6 +5,11 @@
 --          potential SQL injection via search_path manipulation
 -- ============================================================
 
+-- Drop existing functions first to avoid signature conflicts
+DROP FUNCTION IF EXISTS generate_customer_number();
+DROP FUNCTION IF EXISTS format_phone(text);
+DROP FUNCTION IF EXISTS format_date_mmddyyyy(text);
+
 -- Fix: generate_customer_number function
 CREATE OR REPLACE FUNCTION generate_customer_number()
 RETURNS VARCHAR(10)
