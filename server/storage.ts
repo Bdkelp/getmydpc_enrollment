@@ -424,18 +424,18 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     if (Object.keys(updateData).length === 0) {
       // No valid updates, just return the existing user
       console.log('[Storage] updateUser: No valid fields to update, returning existing user');
-      const currentUser = await getUserByEmail(id); // id is actually email
+      const currentUser = await getUser(id); // Get user by UUID
       if (currentUser) return currentUser;
       throw new Error('User not found');
     }
 
     console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
     
-    // Use Supabase update - id is actually email (primary key)
+    // Use Supabase update - id is the UUID from Supabase Auth
     const { data, error } = await supabase
       .from('users')
       .update(updateData)
-      .eq('email', id) // Use email as identifier since there's no id column
+      .eq('id', id) // Use UUID as identifier (primary key in users table)
       .select()
       .single();
 
