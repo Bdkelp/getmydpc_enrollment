@@ -123,7 +123,7 @@ export default function Login() {
         const role = user?.role || "user";
         setTimeout(() => {
           if (role === "admin") setLocation("/admin");
-          else if (role === "agent") setLocation("/agent-dashboard");
+          else if (role === "agent") setLocation("/agent");
           else setLocation("/");
         }, 500);
 
