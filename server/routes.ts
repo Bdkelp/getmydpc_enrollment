@@ -2333,15 +2333,14 @@ async function createCommissionWithCheck(
   try {
     // Get agent profile to check role
     const agent = agentId ? await storage.getUser(agentId) : null;
-    const dpcMember = await storage.getUser(userId);
 
-    // Check if agent or DPC member is admin (admins don't earn commissions)
-    if (agent?.role === "admin" || dpcMember?.role === "admin") {
-      console.log("Commission creation skipped - admin involved:", {
+    // Check if agent is admin (admins don't earn commissions)
+    // Note: userId is the member ID (from members table), not a user account
+    // Only check agent role, not member role
+    if (agent?.role === "admin") {
+      console.log("Commission creation skipped - admin agent:", {
         agentRole: agent?.role,
-        dpcMemberRole: dpcMember?.role,
         agentId,
-        userId,
       });
       return { skipped: true, reason: "admin_no_commission" };
     }
@@ -2972,9 +2971,9 @@ export async function registerRoutes(app: any) {
           console.log("[Agent Enrollment] Creating commission for agent:", req.user.agentNumber);
           
           const commissionResult = await createCommissionWithCheck(
-            req.user.id,
-            subscription.id,
-            member.id,
+            req.user.id,       // Agent who enrolled them
+            subscription.id,   // Subscription ID
+            member.id,         // Member ID (from members table)
             planName || 'MyPremierPlan',
             coverageType || 'Individual'
           );
