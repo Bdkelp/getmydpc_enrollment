@@ -2684,16 +2684,15 @@ export async function registerRoutes(app: any) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
           
-          // CRITICAL FIX: Look up agent's UUID from email
-          // enrolledByAgentId is an email, but commissions.agent_id needs UUID
-          console.log("[Commission] Looking up agent UUID for email:", enrolledByAgentId);
-          const agentUser = await storage.getUserByEmail(enrolledByAgentId);
+          // FIXED: enrolledByAgentId is already a UUID, not an email
+          console.log("[Commission] Looking up agent by UUID:", enrolledByAgentId);
+          const agentUser = await storage.getUser(enrolledByAgentId);
           
           if (!agentUser || !agentUser.id) {
             console.error("[Commission] ❌ Agent not found in users table:", enrolledByAgentId);
             console.warn("[Registration] Commission NOT created - agent user not found");
           } else {
-            console.log("[Commission] ✅ Agent found - UUID:", agentUser.id);
+            console.log("[Commission] ✅ Agent found - UUID:", agentUser.id, "Email:", agentUser.email);
             
             let plan = null;
             let planName = 'Base'; // Default to Base plan

@@ -278,12 +278,25 @@ export async function createUser(userData: Partial<User>): Promise<User> {
 
 export async function getUser(id: string): Promise<User | null> {
   try {
-    // Supabase users table uses email as primary key, not id
-    // So id parameter is actually an email
-    return await getUserByEmail(id);
+    console.log('[Storage] getUser called with UUID:', id);
+    
+    // Look up user by UUID (Supabase Auth ID)
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error || !data) {
+      console.log('[Storage] getUser: User not found for UUID:', id);
+      return null;
+    }
+    
+    console.log('[Storage] getUser: Found user:', data.email);
+    return mapUserFromDB(data);
   } catch (error: any) {
-    console.error('Error fetching user:', error);
-    return null; // Return null instead of throwing for non-critical queries
+    console.error('[Storage] Error in getUser:', error);
+    return null;
   }
 }
 
