@@ -2325,7 +2325,7 @@ router.post(
 async function createCommissionWithCheck(
   agentId: string | null,
   subscriptionId: number,
-  userId: string,
+  memberId: number,  // Changed from userId to memberId to match schema
   planName: string,
   memberType: string,
   addRxValet: boolean = false,
@@ -2335,8 +2335,6 @@ async function createCommissionWithCheck(
     const agent = agentId ? await storage.getUser(agentId) : null;
 
     // Check if agent is admin (admins don't earn commissions)
-    // Note: userId is the member ID (from members table), not a user account
-    // Only check agent role, not member role
     if (agent?.role === "admin") {
       console.log("Commission creation skipped - admin agent:", {
         agentRole: agent?.role,
@@ -2358,12 +2356,13 @@ async function createCommissionWithCheck(
     const agentNumber = agent?.agentNumber || 'HOUSE';
     console.log(`[Commission] Agent number for commission: ${agentNumber}`);
 
-    // Create commission record
+    // Create commission record - using memberId for member enrollments
     const commission = await storage.createCommission({
       agentId: agentId || "HOUSE", // Assign to 'HOUSE' if no agent is assigned
       agentNumber: agentNumber, // Capture agent number for reporting
       subscriptionId,
-      userId,
+      userId: null,  // This is for staff enrollments - set to null for member enrollments
+      memberId,      // This is the member who was enrolled
       planName,
       planType: getPlanTypeFromMemberType(memberType),
       planTier: getPlanTierFromName(planName),

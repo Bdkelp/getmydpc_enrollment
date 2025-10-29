@@ -1910,7 +1910,9 @@ export async function createCommission(commission: InsertCommission): Promise<Co
     const result = await query(`
       INSERT INTO commissions (
         agent_id,
+        agent_number,
         subscription_id,
+        user_id,
         member_id,
         plan_name,
         plan_type,
@@ -1921,12 +1923,14 @@ export async function createCommission(commission: InsertCommission): Promise<Co
         payment_status,
         created_at,
         updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
       RETURNING *
     `, [
       commission.agentId,
+      commission.agentNumber || 'HOUSE',
       commission.subscriptionId || null,
-      commission.memberId || null, // Changed from userId to memberId
+      commission.userId || null,     // For staff enrollments
+      commission.memberId || null,   // For member enrollments
       commission.planName,
       commission.planType,
       commission.planTier,
