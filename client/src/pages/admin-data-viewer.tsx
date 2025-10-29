@@ -116,6 +116,7 @@ export default function AdminDataViewer() {
     { id: 'family_members', name: 'Family Members', description: 'Family plan members' },
     { id: 'payments', name: 'Payments', description: 'Payment records' },
     { id: 'lead_activities', name: 'Lead Activities', description: 'Lead interaction history' },
+    { id: 'commissions', name: 'Commissions', description: 'Agent commission records' },
   ];
 
   return (

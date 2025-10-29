@@ -194,6 +194,7 @@ export interface IStorage {
   getAgentCommissions(agent_Id: string, start_Date?: string, endDate?: string): Promise<Commission[]>;
   getAllCommissions(start_Date?: string, endDate?: string): Promise<Commission[]>;
   getCommissionBySubscriptionId(subscription_Id: number): Promise<Commission | undefined>;
+  getCommissionByMemberId(memberId: number): Promise<Commission | null>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
   getCommissionStats(agent_Id?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
 
@@ -2051,6 +2052,47 @@ export async function getCommissionByUserId(userId: string, agentId: string): Pr
   return data;
 }
 
+export async function getCommissionByMemberId(memberId: number): Promise<Commission | null> {
+  try {
+    console.log('[Storage] Looking up commission for member ID:', memberId);
+    const result = await query(
+      `SELECT * FROM commissions 
+       WHERE member_id = $1 
+       AND payment_status IN ('unpaid', 'pending')
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [memberId]
+    );
+    
+    if (!result.rows || result.rows.length === 0) {
+      console.log('[Storage] No unpaid commission found for member:', memberId);
+      return null;
+    }
+    
+    const row = result.rows[0];
+    console.log('[Storage] Found commission:', row.id, 'Amount:', row.commission_amount);
+    return {
+      id: row.id,
+      agentId: row.agent_id,
+      subscriptionId: row.subscription_id,
+      memberId: row.member_id,
+      planName: row.plan_name,
+      planType: row.plan_type,
+      planTier: row.plan_tier,
+      commissionAmount: parseFloat(row.commission_amount),
+      totalPlanCost: parseFloat(row.total_plan_cost),
+      status: row.status,
+      paymentStatus: row.payment_status,
+      paidDate: row.paid_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  } catch (error: any) {
+    console.error('[Storage] Error getting commission by member ID:', error);
+    return null;
+  }
+}
+
 export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
   const { data: updatedCommission, error } = await supabase
     .from('commissions')
@@ -2734,6 +2776,7 @@ export const storage = {
   getAgentCommissions,
   getAllCommissions,
   getCommissionBySubscriptionId,
+  getCommissionByMemberId,
   updateCommissionStatus: async (id: number, status: string) => {
     return updateCommission(id, { status: status as any });
   },

@@ -236,6 +236,29 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               lastPaymentDate: new Date()
             });
           }
+
+          // Update commission status when payment succeeds
+          if (result.isApproved && payment.metadata?.memberId) {
+            try {
+              console.log('[EPX Callback] Looking up commission for member:', payment.metadata.memberId);
+              const commission = await storage.getCommissionByMemberId(payment.metadata.memberId);
+              
+              if (commission) {
+                console.log('[EPX Callback] Updating commission status:', commission.id);
+                await storage.updateCommission(commission.id, {
+                  status: 'active',
+                  paymentStatus: 'paid',
+                  paidDate: new Date()
+                });
+                console.log('[EPX Callback] ✅ Commission marked as paid');
+              } else {
+                console.log('[EPX Callback] ⚠️  No unpaid commission found for member:', payment.metadata.memberId);
+              }
+            } catch (commError: any) {
+              console.error('[EPX Callback] Error updating commission:', commError);
+              // Don't fail the payment if commission update fails
+            }
+          }
         }
       } catch (storageError: any) {
         console.error('[EPX Hosted] Storage update error:', storageError);
