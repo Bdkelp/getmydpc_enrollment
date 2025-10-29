@@ -1,0 +1,12 @@
+{
+  "agent_id": "8bda1072-ab65-4733-a84b-2a3609a69450",
+  "agent_number": "MPP0009", 
+  "member_id": 5,
+  "plan_name": "MyPremierPlan",
+  "plan_type": "IE",
+  "plan_tier": "MyPremierPlan",
+  "commission_amount": 75.00,
+  "total_plan_cost": 143.52,
+  "status": "active",
+  "payment_status": "paid"
+}
