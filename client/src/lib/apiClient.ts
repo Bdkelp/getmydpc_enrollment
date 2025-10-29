@@ -42,25 +42,55 @@ const join = (base: string, path: string) =>
 
 const apiClient = {
   async get(endpoint: string) {
+    // Get auth token for authenticated requests
+    const headers: Record<string, string> = { 
+      Accept: "application/json" 
+    };
+
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+    } catch (error) {
+      console.warn('[API Client] Could not get auth token:', error);
+    }
+
     const res = await fetch(join(API_BASE_URL, endpoint), {
       credentials: "include",
-      headers: { Accept: "application/json" },
+      headers,
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
   },
 
-  async post(endpoint: string, data?: any, retryCount = 0) {
+  async post(endpoint: string, data?: any, retryCount = 0): Promise<any> {
     console.log(`[API] POST ${join(API_BASE_URL, endpoint)}`, { data, retryCount });
 
     try {
+      // Get auth token for authenticated requests
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      };
+
+      try {
+        const { supabase } = await import("@/lib/supabase");
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.access_token) {
+          headers["Authorization"] = `Bearer ${session.access_token}`;
+        }
+      } catch (error) {
+        console.warn('[API Client] Could not get auth token:', error);
+      }
+
       const res = await fetch(join(API_BASE_URL, endpoint), {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+        headers,
         body: data ? JSON.stringify(data) : undefined,
       });
 
@@ -96,28 +126,42 @@ const apiClient = {
         throw new Error(`${res.status}: ${txt || res.statusText}`);
       }
       return res.json();
-    } catch (networkError) {
+    } catch (networkError: any) {
       console.error(`[API] Network error for POST ${endpoint}:`, networkError);
 
       // Retry on network errors
-      if (retryCount === 0 && (networkError.message.includes('fetch') || networkError.message.includes('Network'))) {
+      if (retryCount === 0 && (networkError?.message?.includes('fetch') || networkError?.message?.includes('Network'))) {
         console.log(`[API] Retrying POST ${endpoint} after network error...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         return this.post(endpoint, data, retryCount + 1);
       }
 
-      throw new Error(`Network error: ${networkError.message}`);
+      throw new Error(`Network error: ${networkError?.message || 'Unknown network error'}`);
     }
   },
 
   async put(endpoint: string, data?: any) {
+    // Get auth token for authenticated requests
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+    } catch (error) {
+      console.warn('[API Client] Could not get auth token:', error);
+    }
+
     const res = await fetch(join(API_BASE_URL, endpoint), {
       method: "PUT",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers,
       body: data ? JSON.stringify(data) : undefined,
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -125,10 +169,26 @@ const apiClient = {
   },
 
   async delete(endpoint: string) {
+    // Get auth token for authenticated requests
+    const headers: Record<string, string> = { 
+      Accept: "application/json" 
+    };
+
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+    } catch (error) {
+      console.warn('[API Client] Could not get auth token:', error);
+    }
+
     const res = await fetch(join(API_BASE_URL, endpoint), {
       method: "DELETE",
       credentials: "include",
-      headers: { Accept: "application/json" },
+      headers,
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     return res.json();
