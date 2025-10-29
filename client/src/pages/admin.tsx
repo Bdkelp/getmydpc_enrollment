@@ -156,6 +156,19 @@ export default function Admin() {
           });
         }
       )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'commissions' },
+        (payload) => {
+          console.log('[AdminDashboard] Commissions change detected:', payload);
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/analytics"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/data-viewer"] });
+          toast({
+            title: "Commission Update",
+            description: "Commission data has been updated",
+          });
+        }
+      )
       .subscribe();
 
     return () => {

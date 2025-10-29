@@ -1,12 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import { DollarSign, TrendingUp, Calendar, Download, ChevronLeft } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -47,11 +48,41 @@ export default function AgentCommissions() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
+
+  // Set up real-time subscription for commissions
+  useEffect(() => {
+    console.log('[AgentCommissions] Setting up real-time commission subscription...');
+    
+    const commissionsSubscription = supabase
+      .channel('agent-commissions-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'commissions' },
+        (payload) => {
+          console.log('[AgentCommissions] Commission change detected:', payload);
+          // Only refresh if this commission belongs to the current agent
+          if (payload.new?.agent_id === user?.id || payload.old?.agent_id === user?.id) {
+            queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
+            toast({
+              title: "Commission Updated",
+              description: "Your commission data has been updated",
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[AgentCommissions] Cleaning up commission subscription...');
+      commissionsSubscription.unsubscribe();
+    };
+  }, [queryClient, toast, user?.id]);
 
   // Fetch commission stats
   const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({

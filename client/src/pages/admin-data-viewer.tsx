@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +7,7 @@ import { ArrowLeft, Download, RefreshCw, Database, Search } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 import {
   Table,
   TableBody,
@@ -26,11 +27,65 @@ import {
 
 export default function AdminDataViewer() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedTable, setSelectedTable] = useState("users");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState({ startDate: "", endDate: "" });
+
+  // Set up real-time subscriptions for data viewer
+  useEffect(() => {
+    console.log('[AdminDataViewer] Setting up real-time subscriptions...');
+    
+    const dataViewerSubscription = supabase
+      .channel('admin-data-viewer-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'users' },
+        (payload) => {
+          console.log('[AdminDataViewer] Users table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/database', 'users'] });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'members' },
+        (payload) => {
+          console.log('[AdminDataViewer] Members table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/database', 'members'] });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'commissions' },
+        (payload) => {
+          console.log('[AdminDataViewer] Commissions table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/database', 'commissions'] });
+          toast({
+            title: "Data Updated",
+            description: "Commission data has been updated in real-time",
+          });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'subscriptions' },
+        (payload) => {
+          console.log('[AdminDataViewer] Subscriptions table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/database', 'subscriptions'] });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'payments' },
+        (payload) => {
+          console.log('[AdminDataViewer] Payments table change:', payload);
+          queryClient.invalidateQueries({ queryKey: ['/api/admin/database', 'payments'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('[AdminDataViewer] Cleaning up real-time subscriptions...');
+      dataViewerSubscription.unsubscribe();
+    };
+  }, [queryClient, toast]);
   
   // Placeholder for safeAgents - replace with actual data fetching if needed
   const safeAgents = [
