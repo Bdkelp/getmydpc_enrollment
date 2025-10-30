@@ -15,6 +15,7 @@ import { z } from "zod";
 import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { nanoid } from "nanoid"; // Import nanoid for generating IDs
+import { createCommissionDualWrite, AgentCommission } from "./commission-service";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
@@ -2321,7 +2322,7 @@ router.post(
   },
 );
 
-// Helper function to create commission with admin check
+// Helper function to create commission with admin check - NEW DUAL-WRITE VERSION
 async function createCommissionWithCheck(
   agentId: string | null,
   subscriptionId: number,
@@ -2356,26 +2357,50 @@ async function createCommissionWithCheck(
     const agentNumber = agent?.agentNumber || 'HOUSE';
     console.log(`[Commission] Agent number for commission: ${agentNumber}`);
 
-    // Create commission record - using memberId for member enrollments
-    const commission = await storage.createCommission({
-      agentId: agentId || "HOUSE", // Assign to 'HOUSE' if no agent is assigned
-      agentNumber: agentNumber, // Capture agent number for reporting
-      subscriptionId,
-      userId: null,  // This is for staff enrollments - set to null for member enrollments
-      memberId,      // This is the member who was enrolled
-      planName,
-      planType: getPlanTypeFromMemberType(memberType),
-      planTier: getPlanTierFromName(planName),
-      commissionAmount: commissionResult.commission,
-      totalPlanCost: commissionResult.totalCost,
-      status: "pending",
-      paymentStatus: "unpaid",
-    });
+    // Determine coverage type from plan name/type
+    const planType = getPlanTypeFromMemberType(memberType);
+    let coverageType: AgentCommission['coverage_type'] = 'other';
+    
+    if (planType === 'ACA') coverageType = 'aca';
+    else if (planType === 'Medicare Advantage') coverageType = 'medicare_advantage';
+    else if (planType === 'Medicare Supplement') coverageType = 'medicare_supplement';
+    
+    // Prepare commission data for dual-write
+    const commissionData: AgentCommission = {
+      agent_id: agentId || "HOUSE",
+      member_id: memberId.toString(), // Convert to string for new schema
+      enrollment_id: subscriptionId.toString(), // Link to enrollment
+      commission_amount: commissionResult.commission,
+      coverage_type: coverageType,
+      policy_number: undefined, // To be updated when available
+      carrier: undefined, // To be updated when available
+      commission_percentage: undefined, // Calculate from commission amount and base premium if needed
+      base_premium: commissionResult.totalCost,
+      status: 'pending',
+      payment_status: 'unpaid'
+    };
 
-    return { success: true, commission };
+    console.log('[Commission Dual-Write] Creating commission with data:', commissionData);
+
+    // Use new dual-write commission service
+    const result = await createCommissionDualWrite(commissionData);
+    
+    if (result.success) {
+      console.log('[Commission Dual-Write] Success:', result);
+      return { 
+        success: true, 
+        commission: { 
+          id: result.agentCommissionId,
+          ...commissionData 
+        }
+      };
+    } else {
+      console.error('[Commission Dual-Write] Failed:', result.error);
+      return { error: result.error };
+    }
   } catch (error) {
     console.error("Error creating commission:", error);
-    return { error: error.message };
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 

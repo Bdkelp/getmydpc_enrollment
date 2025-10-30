@@ -189,7 +189,7 @@ export interface IStorage {
   approveUser(userId: string, approvedBy: string): Promise<User>;
   rejectUser(userId: string, reason: string): Promise<User>;
 
-  // Commission operations
+  // Commission operations (NEW: Using new agent_commissions table)
   createCommission(commission: InsertCommission): Promise<Commission>;
   getAgentCommissions(agent_Id: string, start_Date?: string, endDate?: string): Promise<Commission[]>;
   getAllCommissions(start_Date?: string, endDate?: string): Promise<Commission[]>;
@@ -197,6 +197,10 @@ export interface IStorage {
   getCommissionByMemberId(memberId: number): Promise<Commission | null>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
   getCommissionStats(agent_Id?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
+  
+  // NEW: Agent Commissions table functions (using new clean schema)
+  getAgentCommissionsNew(agent_Id: string, start_Date?: string, endDate?: string): Promise<any[]>;
+  getAllCommissionsNew(start_Date?: string, endDate?: string): Promise<any[]>;
 
   // Analytics
   getAnalytics(): Promise<any>;
@@ -2150,6 +2154,156 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
   }
 }
 
+// ========== NEW AGENT COMMISSIONS TABLE FUNCTIONS ==========
+// Using the new agent_commissions table with clean schema
+
+export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
+  try {
+    let sql = `
+      SELECT 
+        ac.*,
+        agent.email as agent_email,
+        agent.first_name as agent_first_name,
+        agent.last_name as agent_last_name,
+        member.email as member_email,
+        member.first_name as member_first_name,
+        member.last_name as member_last_name
+      FROM agent_commissions ac
+      LEFT JOIN users agent ON ac.agent_id = agent.id
+      LEFT JOIN users member ON ac.member_id = member.id
+      WHERE ac.agent_id = $1
+    `;
+    const params: any[] = [agentId];
+
+    if (startDate && endDate) {
+      sql += ' AND ac.created_at >= $2 AND ac.created_at <= $3';
+      params.push(startDate, endDate);
+    }
+
+    sql += ' ORDER BY ac.created_at DESC';
+
+    const { data, error } = await supabase.rpc('exec_sql', { 
+      query: sql, 
+      params 
+    });
+
+    if (error) {
+      throw new Error(`Supabase query failed: ${error.message}`);
+    }
+
+    return data || [];
+  } catch (error: any) {
+    console.error('Error fetching agent commissions (new table):', error);
+    // Fallback to direct Supabase query
+    try {
+      let query = supabase
+        .from('agent_commissions')
+        .select(`
+          *,
+          agent:users!agent_commissions_agent_id_fkey(email, first_name, last_name),
+          member:users!agent_commissions_member_id_fkey(email, first_name, last_name)
+        `)
+        .eq('agent_id', agentId);
+
+      if (startDate && endDate) {
+        query = query.gte('created_at', startDate).lte('created_at', endDate);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) {
+        throw new Error(`Fallback query failed: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (fallbackError: any) {
+      console.error('Fallback query also failed:', fallbackError);
+      throw new Error(`Failed to get agent commissions: ${fallbackError.message}`);
+    }
+  }
+}
+
+export async function getAllCommissionsNew(startDate?: string, endDate?: string): Promise<any[]> {
+  try {
+    let query = supabase
+      .from('agent_commissions')
+      .select(`
+        *,
+        agent:users!agent_commissions_agent_id_fkey(email, first_name, last_name),
+        member:users!agent_commissions_member_id_fkey(email, first_name, last_name)
+      `);
+
+    if (startDate && endDate) {
+      query = query.gte('created_at', startDate).lte('created_at', endDate);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to get all commissions: ${error.message}`);
+    }
+
+    return data || [];
+  } catch (error: any) {
+    console.error('Error fetching all commissions (new table):', error);
+    throw new Error(`Failed to get all commissions: ${error.message}`);
+  }
+}
+
+export async function getCommissionStatsNew(agentId?: string): Promise<{ 
+  totalEarned: number; 
+  totalPending: number; 
+  totalPaid: number;
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+}> {
+  try {
+    let query = supabase.from('agent_commissions').select('commission_amount, status, payment_status');
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to get commission stats: ${error.message}`);
+    }
+
+    let totalEarned = 0;
+    let totalPending = 0;
+    let totalPaid = 0;
+    const byStatus: Record<string, number> = {};
+    const byPaymentStatus: Record<string, number> = {};
+
+    (data || []).forEach((commission: any) => {
+      const amount = parseFloat(commission.commission_amount?.toString() || '0');
+      
+      if (commission.payment_status === 'paid') {
+        totalPaid += amount;
+        totalEarned += amount;
+      } else {
+        totalPending += amount;
+      }
+
+      // Count by status
+      byStatus[commission.status] = (byStatus[commission.status] || 0) + 1;
+      byPaymentStatus[commission.payment_status] = (byPaymentStatus[commission.payment_status] || 0) + 1;
+    });
+
+    return { 
+      totalEarned: parseFloat(totalEarned.toFixed(2)), 
+      totalPending: parseFloat(totalPending.toFixed(2)), 
+      totalPaid: parseFloat(totalPaid.toFixed(2)),
+      byStatus,
+      byPaymentStatus
+    };
+  } catch (error: any) {
+    console.error('Error fetching commission stats (new table):', error);
+    throw new Error(`Failed to get commission stats: ${error.message}`);
+  }
+}
+
 // Helper function to map database snake_case to camelCase for plans
 function mapPlanFromDB(data: any): Plan | null {
   if (!data) return null;
@@ -2788,6 +2942,11 @@ export const storage = {
     return updateCommission(id, { paymentStatus: paymentStatus as any });
   },
   getCommissionStats,
+
+  // NEW: Agent Commissions table functions
+  getAgentCommissionsNew,
+  getAllCommissionsNew,
+  getCommissionStatsNew,
 
   // Login session methods
   createLoginSession: async (sessionData: {
