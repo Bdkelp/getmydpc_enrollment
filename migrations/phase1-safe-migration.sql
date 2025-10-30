@@ -3,16 +3,17 @@
 -- This is a ZERO-RISK migration that doesn't affect existing functionality
 
 -- Step 1: Create the new agent_commissions table with clean schema
+-- NOTE: No foreign key constraints initially since we're using UUIDs for new system
 CREATE TABLE IF NOT EXISTS agent_commissions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     
-    -- Agent and member relationships (using UUIDs)
-    agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    member_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- Agent and member relationships (using clean UUIDs - no FK constraints)
+    agent_id TEXT NOT NULL,  -- Will store UUID strings, mapped in application
+    member_id TEXT NOT NULL, -- Will store UUID strings, mapped in application
     
-    -- Optional relationships for tracking
-    lead_id UUID REFERENCES leads(id) ON DELETE SET NULL,
-    enrollment_id UUID REFERENCES enrollments(id) ON DELETE SET NULL,
+    -- Optional relationships for tracking  
+    lead_id TEXT,            -- Will store UUID strings if needed
+    enrollment_id TEXT,      -- Will store enrollment reference
     
     -- Commission details
     commission_amount DECIMAL(10,2) NOT NULL CHECK (commission_amount >= 0),
@@ -76,7 +77,7 @@ ALTER TABLE agent_commissions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Agents can view own commissions" ON agent_commissions 
     FOR SELECT 
     USING (
-        agent_id = auth.uid() OR 
+        agent_id = auth.uid()::text OR 
         auth.jwt() ->> 'role' IN ('admin', 'super_admin')
     );
 
@@ -102,6 +103,7 @@ CREATE POLICY "Admins can update commissions" ON agent_commissions
 ALTER PUBLICATION supabase_realtime ADD TABLE agent_commissions;
 
 -- Step 7: Create a view for easier querying with joined data
+-- NOTE: Joins using text casting since we're using UUID strings
 CREATE OR REPLACE VIEW agent_commissions_with_details AS
 SELECT 
     ac.*,
@@ -112,8 +114,8 @@ SELECT
     member.first_name as member_first_name,
     member.last_name as member_last_name
 FROM agent_commissions ac
-LEFT JOIN users agent ON ac.agent_id = agent.id
-LEFT JOIN users member ON ac.member_id = member.id;
+LEFT JOIN users agent ON ac.agent_id = agent.id::text
+LEFT JOIN users member ON ac.member_id = member.id::text;
 
 -- Step 8: Grant appropriate permissions
 GRANT SELECT, INSERT, UPDATE ON agent_commissions TO authenticated;
