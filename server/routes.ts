@@ -2461,12 +2461,7 @@ async function createCommissionWithCheck(
   }
 }
 
-import { createServer } from "http";
-
 export async function registerRoutes(app: any) {
-  // Create HTTP server instance
-  const server = createServer(app);
-  
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
@@ -3541,6 +3536,6 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/user");
   console.log("[Route] POST /api/send-confirmation-email");
 
-  // Return the server instance (not just the app)
-  return server;
+  // Return the app (routes registered)
+  return app;
 }
