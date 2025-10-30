@@ -95,6 +95,63 @@ router.get("/api/public/test-leads-noauth", async (req, res) => {
   }
 });
 
+// TEST ENDPOINTS for new commission system
+router.post("/api/test-commission", async (req, res) => {
+  try {
+    const { createCommissionDualWrite } = await import('./commission-service.js');
+    
+    console.log('[Test Commission] Creating test commission...');
+    
+    const testCommission: AgentCommission = {
+      agent_id: 'test-agent-' + Date.now(),
+      member_id: 'test-member-' + Date.now(),
+      commission_amount: 125.50,
+      coverage_type: 'aca' as const,
+      status: 'pending' as const,
+      payment_status: 'unpaid' as const,
+      notes: 'Test commission from API - ' + new Date().toISOString()
+    };
+
+    const result = await createCommissionDualWrite(testCommission);
+    
+    if (result.success) {
+      console.log('[Test Commission] ✅ SUCCESS:', result);
+      res.json({
+        success: true,
+        message: 'NEW COMMISSION SYSTEM WORKING!',
+        commission: result,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({ success: false, error: result.error });
+    }
+  } catch (error) {
+    console.error('[Test Commission] ERROR:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get("/api/test-commission-count", async (req, res) => {
+  try {
+    const { data, error, count } = await supabase
+      .from('agent_commissions')
+      .select('*', { count: 'exact' });
+
+    if (error) throw new Error(`Query failed: ${error.message}`);
+    
+    res.json({
+      success: true,
+      message: `Found ${count} commissions in new table`,
+      count: count,
+      records: data?.length || 0,
+      sampleRecord: data?.[0] || null,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Test endpoint for leads system
 router.get("/api/test-leads", async (req, res) => {
   try {
