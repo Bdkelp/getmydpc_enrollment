@@ -3345,7 +3345,9 @@ export async function registerRoutes(app: any) {
       }
 
       const { startDate, endDate } = req.query;
-      const commissions = await storage.getAgentCommissions(
+      
+      // USE NEW AGENT_COMMISSIONS TABLE (Supabase)
+      const commissions = await storage.getAgentCommissionsNew(
         req.user.id,
         startDate as string,
         endDate as string
