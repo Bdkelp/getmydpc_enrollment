@@ -8,15 +8,15 @@ $leadData = @{
     firstName = "Test"
     lastName = "Lead"
     email = "testlead@example.com"
-    phone = "555-0123"
+    phone = "(555) 555-0123"
     message = "Testing lead form submission - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 } | ConvertTo-Json
 
-# Get the API URL from environment or use localhost
+# Get the API URL from environment or use Railway production
 $apiUrl = if ($env:RAILWAY_STATIC_URL) { 
     "https://$env:RAILWAY_STATIC_URL" 
 } else { 
-    "http://localhost:5000" 
+    "https://getmydpcenrollment-production.up.railway.app" 
 }
 
 Write-Host "API URL: $apiUrl" -ForegroundColor Yellow
