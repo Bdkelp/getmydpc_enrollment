@@ -2159,79 +2159,13 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
 
 export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
   try {
-    let sql = `
-      SELECT 
-        ac.*,
-        agent.email as agent_email,
-        agent.first_name as agent_first_name,
-        agent.last_name as agent_last_name,
-        member.email as member_email,
-        member.first_name as member_first_name,
-        member.last_name as member_last_name
-      FROM agent_commissions ac
-      LEFT JOIN users agent ON ac.agent_id = agent.id
-      LEFT JOIN users member ON ac.member_id = member.id
-      WHERE ac.agent_id = $1
-    `;
-    const params: any[] = [agentId];
-
-    if (startDate && endDate) {
-      sql += ' AND ac.created_at >= $2 AND ac.created_at <= $3';
-      params.push(startDate, endDate);
-    }
-
-    sql += ' ORDER BY ac.created_at DESC';
-
-    const { data, error } = await supabase.rpc('exec_sql', { 
-      query: sql, 
-      params 
-    });
-
-    if (error) {
-      throw new Error(`Supabase query failed: ${error.message}`);
-    }
-
-    return data || [];
-  } catch (error: any) {
-    console.error('Error fetching agent commissions (new table):', error);
-    // Fallback to direct Supabase query
-    try {
-      let query = supabase
-        .from('agent_commissions')
-        .select(`
-          *,
-          agent:users!agent_commissions_agent_id_fkey(email, first_name, last_name),
-          member:users!agent_commissions_member_id_fkey(email, first_name, last_name)
-        `)
-        .eq('agent_id', agentId);
-
-      if (startDate && endDate) {
-        query = query.gte('created_at', startDate).lte('created_at', endDate);
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false });
-
-      if (error) {
-        throw new Error(`Fallback query failed: ${error.message}`);
-      }
-
-      return data || [];
-    } catch (fallbackError: any) {
-      console.error('Fallback query also failed:', fallbackError);
-      throw new Error(`Failed to get agent commissions: ${fallbackError.message}`);
-    }
-  }
-}
-
-export async function getAllCommissionsNew(startDate?: string, endDate?: string): Promise<any[]> {
-  try {
+    console.log('[Storage] Fetching commissions from agent_commissions table for agent:', agentId);
+    
+    // Direct Supabase query - agent_commissions table
     let query = supabase
       .from('agent_commissions')
-      .select(`
-        *,
-        agent:users!agent_commissions_agent_id_fkey(email, first_name, last_name),
-        member:users!agent_commissions_member_id_fkey(email, first_name, last_name)
-      `);
+      .select('*')
+      .eq('agent_id', agentId);
 
     if (startDate && endDate) {
       query = query.gte('created_at', startDate).lte('created_at', endDate);
@@ -2240,12 +2174,71 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
+      console.error('[Storage] Error fetching commissions:', error);
+      throw new Error(`Failed to fetch commissions: ${error.message}`);
+    }
+
+    console.log('[Storage] Found', data?.length || 0, 'commissions');
+    
+    // Format for frontend - transform to match expected structure
+    return (data || []).map(commission => ({
+      id: commission.id,
+      agentId: commission.agent_id,
+      memberId: commission.member_id,
+      enrollmentId: commission.enrollment_id,
+      commissionAmount: parseFloat(commission.commission_amount || 0),
+      coverageType: commission.coverage_type,
+      status: commission.status,
+      paymentStatus: commission.payment_status,
+      basePremium: parseFloat(commission.base_premium || 0),
+      notes: commission.notes,
+      createdAt: commission.created_at,
+      updatedAt: commission.updated_at
+    }));
+  } catch (error: any) {
+    console.error('[Storage] Error in getAgentCommissionsNew:', error);
+    throw new Error(`Failed to get agent commissions: ${error.message}`);
+  }
+}
+
+export async function getAllCommissionsNew(startDate?: string, endDate?: string): Promise<any[]> {
+  try {
+    console.log('[Storage] Fetching all commissions from agent_commissions table');
+    
+    let query = supabase
+      .from('agent_commissions')
+      .select('*');
+
+    if (startDate && endDate) {
+      query = query.gte('created_at', startDate).lte('created_at', endDate);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Storage] Error fetching all commissions:', error);
       throw new Error(`Failed to get all commissions: ${error.message}`);
     }
 
-    return data || [];
+    console.log('[Storage] Found', data?.length || 0, 'total commissions');
+    
+    // Format for frontend
+    return (data || []).map(commission => ({
+      id: commission.id,
+      agentId: commission.agent_id,
+      memberId: commission.member_id,
+      enrollmentId: commission.enrollment_id,
+      commissionAmount: parseFloat(commission.commission_amount || 0),
+      coverageType: commission.coverage_type,
+      status: commission.status,
+      paymentStatus: commission.payment_status,
+      basePremium: parseFloat(commission.base_premium || 0),
+      notes: commission.notes,
+      createdAt: commission.created_at,
+      updatedAt: commission.updated_at
+    }));
   } catch (error: any) {
-    console.error('Error fetching all commissions (new table):', error);
+    console.error('[Storage] Error in getAllCommissionsNew:', error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
   }
 }
