@@ -3276,13 +3276,13 @@ export async function registerRoutes(app: any) {
       // Get active members count
       const activeMembers = enrollments.filter((e) => e.isActive).length;
 
-      // Get commission stats
-      const commissionStats = await storage.getCommissionStats(agentId);
+      // Get commission stats from NEW agent_commissions table
+      const commissionStats = await storage.getCommissionStatsNew(agentId);
       
       // Get monthly commissions (this month only)
       const startOfMonth = thisMonth.toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
-      const monthlyCommissions = await storage.getAgentCommissions(
+      const monthlyCommissions = await storage.getAgentCommissionsNew(
         agentId,
         startOfMonth,
         today
