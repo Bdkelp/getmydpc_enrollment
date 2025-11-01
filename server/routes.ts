@@ -2906,9 +2906,9 @@ export async function registerRoutes(app: any) {
               else if (planType === 'Medicare Supplement') coverageTypeEnum = 'medicare_supplement';
               
               const commissionData = {
-                agent_id: agentUser.id, // UUID
-                member_id: member.id.toString(), // Convert to string
-                enrollment_id: subscriptionId ? subscriptionId.toString() : null,
+                agent_id: agentUser.id, // UUID string from users table
+                member_id: member.id.toString(), // Store integer ID as string (agent_commissions.member_id is TEXT)
+                enrollment_id: subscriptionId ? subscriptionId.toString() : null, // Store subscription ID as string
                 commission_amount: commissionResult.commission,
                 coverage_type: coverageTypeEnum,
                 status: 'pending',
