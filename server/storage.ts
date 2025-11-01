@@ -1,4 +1,5 @@
 import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
+import { neonPool, query } from './lib/db'; // Keep for legacy storage functions still in use
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
