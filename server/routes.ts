@@ -2730,7 +2730,12 @@ export async function registerRoutes(app: any) {
       // CREATE MEMBER DIRECTLY IN SUPABASE (NO NEON)
       console.log("[Registration] Creating member directly in Supabase...");
       
+      // Generate unique ID for the new user
+      const userId = nanoid();
+      console.log("[Registration] Generated user ID:", userId);
+      
       const memberData = {
+        id: userId,
         email: email.trim().toLowerCase(),
         first_name: firstName?.trim() || "",
         last_name: lastName?.trim() || "",
