@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx --env-file=.env server/index.ts",
-    "build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "npm --prefix client install && npm --prefix client run build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "build:client": "npm --prefix client run build",
     "build:all": "npm --prefix client ci && npm --prefix client run build && npm run build",
     "start": "node dist/index.js",
