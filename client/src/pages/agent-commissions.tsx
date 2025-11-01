@@ -55,34 +55,30 @@ export default function AgentCommissions() {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
-  // Set up real-time subscription for commissions (NEW agent_commissions table)
-  useEffect(() => {
-    console.log('[AgentCommissions] Setting up real-time commission subscription...');
-    
-    const channel = supabase
-      .channel('agent-commissions-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'agent_commissions' }, // Changed from 'commissions' to 'agent_commissions'
-        (payload) => {
-          console.log('[AgentCommissions] Commission change detected:', payload);
-          // Only refresh if this commission belongs to the current agent
-          if (payload.new?.agent_id === user?.id || payload.old?.agent_id === user?.id) {
-            queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
-            toast({
-              title: "Commission Updated",
-              description: "Your commission data has been updated",
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      console.log('[AgentCommissions] Cleaning up commission subscription...');
-      supabase.removeChannel(channel); // Use removeChannel instead of unsubscribe
-    };
-  }, [queryClient, toast, user?.id]);
+  // Real-time subscription disabled temporarily to fix rendering issues
+  // TODO: Re-enable after fixing subscription cleanup
+  // useEffect(() => {
+  //   console.log('[AgentCommissions] Setting up real-time commission subscription...');
+  //   
+  //   const channel = supabase
+  //     .channel('agent-commissions-changes')
+  //     .on('postgres_changes', 
+  //       { event: '*', schema: 'public', table: 'agent_commissions' },
+  //       (payload) => {
+  //         console.log('[AgentCommissions] Commission change detected:', payload);
+  //         if (payload.new?.agent_id === user?.id || payload.old?.agent_id === user?.id) {
+  //           queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
+  //           queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
+  //         }
+  //       }
+  //     )
+  //     .subscribe();
+  //
+  //   return () => {
+  //     console.log('[AgentCommissions] Cleaning up commission subscription...');
+  //     supabase.removeChannel(channel);
+  //   };
+  // }, [queryClient, toast, user?.id]);
 
   // Fetch commission stats
   const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({
