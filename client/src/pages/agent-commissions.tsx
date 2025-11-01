@@ -55,31 +55,6 @@ export default function AgentCommissions() {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
-  // Real-time subscription disabled temporarily to fix rendering issues
-  // TODO: Re-enable after fixing subscription cleanup
-  // useEffect(() => {
-  //   console.log('[AgentCommissions] Setting up real-time commission subscription...');
-  //   
-  //   const channel = supabase
-  //     .channel('agent-commissions-changes')
-  //     .on('postgres_changes', 
-  //       { event: '*', schema: 'public', table: 'agent_commissions' },
-  //       (payload) => {
-  //         console.log('[AgentCommissions] Commission change detected:', payload);
-  //         if (payload.new?.agent_id === user?.id || payload.old?.agent_id === user?.id) {
-  //           queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
-  //           queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
-  //         }
-  //       }
-  //     )
-  //     .subscribe();
-  //
-  //   return () => {
-  //     console.log('[AgentCommissions] Cleaning up commission subscription...');
-  //     supabase.removeChannel(channel);
-  //   };
-  // }, [queryClient, toast, user?.id]);
-
   // Fetch commission stats
   const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({
     queryKey: ["/api/agent/commission-stats"],
