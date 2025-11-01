@@ -1,1 +1,0 @@
-Fixed enrollment flow to use dual-write commission system - now enrollments will create commissions in both tables

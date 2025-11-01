@@ -26,6 +26,12 @@ GRANT SELECT ON agent_commissions_with_details TO authenticated;
 -- Enable RLS on users table to fix the security warning
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view own profile" ON users;
+DROP POLICY IF EXISTS "Allow user creation" ON users;
+DROP POLICY IF EXISTS "Users can update own profile" ON users;
+DROP POLICY IF EXISTS "Admins can delete users" ON users;
+
 -- Create comprehensive RLS policies for users table
 -- Policy 1: Users can see their own profile
 CREATE POLICY "Users can view own profile" ON users 
@@ -91,11 +97,19 @@ CREATE POLICY "Admins can delete users" ON users
     );
 
 -- ========== FIX 3: Update Agent Commissions RLS Policies ==========
--- Drop existing policies and create better ones
+-- Drop ALL existing policies (old and new names)
 DROP POLICY IF EXISTS "Allow select for service role and authenticated users" ON agent_commissions;
 DROP POLICY IF EXISTS "Allow insert for service role and authenticated users" ON agent_commissions;
 DROP POLICY IF EXISTS "Allow update for service role and admins" ON agent_commissions;
 DROP POLICY IF EXISTS "Allow delete for service role and admins" ON agent_commissions;
+DROP POLICY IF EXISTS "Agent commissions select policy" ON agent_commissions;
+DROP POLICY IF EXISTS "Agent commissions insert policy" ON agent_commissions;
+DROP POLICY IF EXISTS "Agent commissions update policy" ON agent_commissions;
+DROP POLICY IF EXISTS "Agent commissions delete policy" ON agent_commissions;
+DROP POLICY IF EXISTS "Admins can update commissions" ON agent_commissions;
+DROP POLICY IF EXISTS "Admins can view all commissions" ON agent_commissions;
+DROP POLICY IF EXISTS "Agents and admins can create commissions" ON agent_commissions;
+DROP POLICY IF EXISTS "Agents can view own commissions" ON agent_commissions;
 
 -- Create improved policies that handle service role properly
 CREATE POLICY "Agent commissions select policy" ON agent_commissions 

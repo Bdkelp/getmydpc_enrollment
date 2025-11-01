@@ -974,8 +974,34 @@ router.post("/api/public/leads", async (req: any, res) => {
 
     let lead;
     try {
-      lead = await storage.createLead(leadData);
-      console.log(`[${timestamp}] [Public Leads] Lead created successfully:`, {
+      // CREATE LEAD DIRECTLY IN SUPABASE (NO AUTH REQUIRED - PUBLIC ENDPOINT)
+      const { data: newLead, error: leadError } = await supabase
+        .from('leads')
+        .insert({
+          first_name: leadData.firstName,
+          last_name: leadData.lastName,
+          email: leadData.email,
+          phone: leadData.phone,
+          message: leadData.message,
+          source: leadData.source,
+          status: leadData.status
+        })
+        .select()
+        .single();
+
+      if (leadError) {
+        console.error(`[${timestamp}] [Public Leads] Supabase error:`, leadError);
+        throw new Error(`Failed to create lead: ${leadError.message}`);
+      }
+
+      lead = {
+        id: newLead.id,
+        email: newLead.email,
+        status: newLead.status,
+        source: newLead.source
+      };
+
+      console.log(`[${timestamp}] [Public Leads] Lead created successfully in Supabase:`, {
         id: lead.id,
         email: lead.email,
         status: lead.status,
