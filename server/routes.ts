@@ -2761,7 +2761,7 @@ export async function registerRoutes(app: any) {
         plan_id: planId ? parseInt(planId) : null,
         coverage_type: coverageType || memberType || "member-only",
         total_monthly_price: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
-        add_rx_valet: addRxValet || false,
+        add_rx_valet: addRxValet || false, // ProChoice Rx add-on ($21/month)
         role: 'member' // Members are role='member' in Supabase
       };
 
