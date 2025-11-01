@@ -66,6 +66,7 @@ export default function AgentDashboard() {
     if (user?.email) return user.email.split('@')[0];
     return "Agent";
   };
+  const [location, setLocation] = useLocation();
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
