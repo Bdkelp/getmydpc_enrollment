@@ -2180,7 +2180,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
 
     console.log('[Storage] Found', data?.length || 0, 'commissions');
     
-    // Format for frontend - transform to match expected structure
+    // Format for frontend - transform to match expected structure from OLD commission system
     return (data || []).map(commission => ({
       id: commission.id,
       agentId: commission.agent_id,
@@ -2190,10 +2190,15 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       coverageType: commission.coverage_type,
       status: commission.status,
       paymentStatus: commission.payment_status,
-      basePremium: parseFloat(commission.base_premium || 0),
+      // Map new fields to old field names for frontend compatibility
+      totalPlanCost: parseFloat(commission.base_premium || 0), // basePremium → totalPlanCost
+      userName: `Member ${commission.member_id}`, // No member name in new table, use ID
+      planTier: 'N/A', // Not stored in new table
+      planType: commission.coverage_type || 'other', // Use coverage_type as plan type
       notes: commission.notes,
       createdAt: commission.created_at,
-      updatedAt: commission.updated_at
+      updatedAt: commission.updated_at,
+      paidDate: commission.paid_at
     }));
   } catch (error: any) {
     console.error('[Storage] Error in getAgentCommissionsNew:', error);
