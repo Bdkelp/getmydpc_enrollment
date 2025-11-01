@@ -2727,58 +2727,42 @@ export async function registerRoutes(app: any) {
         console.log("[Registration] Agent enrollment by:", agentNumber);
       }
 
-      // CREATE MEMBER DIRECTLY IN SUPABASE (NO NEON)
-      console.log("[Registration] Creating member directly in Supabase...");
+      // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
+      // Users table is for Supabase Auth (agents/admins)
+      // Members table is for DPC enrollees (no login access)
+      console.log("[Registration] Creating member in members table...");
       
-      // Generate unique ID for the new user
-      const userId = nanoid();
-      console.log("[Registration] Generated user ID:", userId);
-      
-      const memberData = {
-        id: userId,
+      const member = await storage.createMember({
         email: email.trim().toLowerCase(),
-        first_name: firstName?.trim() || "",
-        last_name: lastName?.trim() || "",
-        middle_name: middleName?.trim() || null,
+        firstName: firstName?.trim() || "",
+        lastName: lastName?.trim() || "",
+        middleName: middleName?.trim() || null,
         phone: phone || null,
-        date_of_birth: dateOfBirth || null,
+        dateOfBirth: dateOfBirth || null,
         gender: gender || null,
         ssn: ssn || null,
         address: address?.trim() || null,
         address2: address2?.trim() || null,
         city: city?.trim() || null,
         state: state || null,
-        zip_code: zipCode || null,
-        employer_name: employerName?.trim() || null,
-        date_of_hire: dateOfHire || null,
-        member_type: memberType || "member-only",
-        plan_start_date: planStartDate || null,
-        agent_number: agentNumber || null,
-        enrolled_by_agent_id: enrolledByAgentId || null,
-        is_active: true,
-        email_verified: false,
-        terms_accepted: termsAccepted || false,
-        privacy_accepted: privacyAccepted || false,
-        privacy_notice_acknowledged: privacyNoticeAcknowledged || false,
-        sms_consent: smsConsent || false,
-        communications_consent: communicationsConsent || false,
-        faq_downloaded: faqDownloaded || false,
-        plan_id: planId ? parseInt(planId) : null,
-        coverage_type: coverageType || memberType || "member-only",
-        total_monthly_price: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
-        add_rx_valet: addRxValet || false, // ProChoice Rx add-on ($21/month)
-        role: 'member' // Members are role='member' in Supabase
-      };
+        zipCode: zipCode || null,
+        employerName: employerName?.trim() || null,
+        dateOfHire: dateOfHire || null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate || null,
+        agentNumber: agentNumber || null,
+        enrolledByAgentId: enrolledByAgentId || null,
+        isActive: true,
+        status: 'active',
+        planId: planId ? parseInt(planId) : null,
+        coverageType: coverageType || memberType || "member-only",
+        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        addRxValet: addRxValet || false, // ProChoice Rx add-on ($21/month)
+      });
 
-      const { data: member, error: memberError } = await supabase
-        .from('users')
-        .insert(memberData)
-        .select()
-        .single();
-
-      if (memberError) {
-        console.error("[Registration] ❌ Member creation failed:", memberError);
-        throw new Error(`Member creation failed: ${memberError.message}`);
+      if (!member) {
+        console.error("[Registration] ❌ Member creation failed");
+        throw new Error(`Member creation failed`);
       }
 
       console.log("[Registration] Member created:", member.id, member.customerNumber);
@@ -2804,12 +2788,12 @@ export async function registerRoutes(app: any) {
           console.log("[Registration] Creating subscription with planId:", planId);
           
           const subscriptionData = {
-            user_id: member.id,
+            member_id: member.id, // Use member_id, not user_id (subscriptions reference members table)
             plan_id: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
-            current_period_start: new Date().toISOString(),
-            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            start_date: new Date().toISOString(),
+            next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
           };
 
           const { data: subscription, error: subscriptionError } = await supabase
