@@ -55,14 +55,14 @@ export default function AgentCommissions() {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
-  // Set up real-time subscription for commissions
+  // Set up real-time subscription for commissions (NEW agent_commissions table)
   useEffect(() => {
     console.log('[AgentCommissions] Setting up real-time commission subscription...');
     
-    const commissionsSubscription = supabase
+    const channel = supabase
       .channel('agent-commissions-changes')
       .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'commissions' },
+        { event: '*', schema: 'public', table: 'agent_commissions' }, // Changed from 'commissions' to 'agent_commissions'
         (payload) => {
           console.log('[AgentCommissions] Commission change detected:', payload);
           // Only refresh if this commission belongs to the current agent
@@ -80,7 +80,7 @@ export default function AgentCommissions() {
 
     return () => {
       console.log('[AgentCommissions] Cleaning up commission subscription...');
-      commissionsSubscription.unsubscribe();
+      supabase.removeChannel(channel); // Use removeChannel instead of unsubscribe
     };
   }, [queryClient, toast, user?.id]);
 
