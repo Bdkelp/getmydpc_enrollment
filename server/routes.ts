@@ -8,14 +8,11 @@ import {
   getPlanTierFromName,
   getPlanTypeFromMemberType,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { commissions, users, plans, subscriptions } from "@shared/schema";
 import { sendLeadNotification } from "./email";
-import { eq, and, desc, count, sum, sql } from "drizzle-orm";
 import { z } from "zod";
-import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here
+import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { nanoid } from "nanoid"; // Import nanoid for generating IDs
-import { createCommissionDualWrite, AgentCommission } from "./commission-service";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
@@ -98,32 +95,40 @@ router.get("/api/public/test-leads-noauth", async (req, res) => {
 // TEST ENDPOINTS for new commission system
 router.post("/api/test-commission", async (req, res) => {
   try {
-    const { createCommissionDualWrite } = await import('./commission-service.js');
+    console.log('[Test Commission] Creating test commission directly in Supabase...');
     
-    console.log('[Test Commission] Creating test commission...');
-    
-    const testCommission: AgentCommission = {
+    const testCommission = {
       agent_id: 'test-agent-' + Date.now(),
       member_id: 'test-member-' + Date.now(),
       commission_amount: 125.50,
-      coverage_type: 'aca' as const,
-      status: 'pending' as const,
-      payment_status: 'unpaid' as const,
+      coverage_type: 'aca',
+      status: 'pending',
+      payment_status: 'unpaid',
       notes: 'Test commission from API - ' + new Date().toISOString()
     };
 
-    const result = await createCommissionDualWrite(testCommission);
+    // Insert directly into Supabase using service role
+    const { data: newCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert(testCommission)
+      .select()
+      .single();
     
-    if (result.success) {
-      console.log('[Test Commission] ✅ SUCCESS:', result);
+    if (commissionError) {
+      console.error('[Test Commission] ERROR:', commissionError);
+      res.status(500).json({ 
+        success: false, 
+        error: commissionError.message,
+        details: commissionError.details
+      });
+    } else {
+      console.log('[Test Commission] ✅ SUCCESS:', newCommission);
       res.json({
         success: true,
         message: 'NEW COMMISSION SYSTEM WORKING!',
-        commission: result,
+        commission: newCommission,
         timestamp: new Date().toISOString()
       });
-    } else {
-      res.status(500).json({ success: false, error: result.error });
     }
   } catch (error) {
     console.error('[Test Commission] ERROR:', error);
@@ -1959,8 +1964,18 @@ router.get(
     }
 
     try {
-      const agentCommissions = await storage.getAgentCommissions(req.user!.id);
-      res.json(agentCommissions);
+      // Get agent commissions from Supabase directly
+      const { data: agentCommissions, error } = await supabase
+        .from('agent_commissions')
+        .select('*')
+        .eq('agent_id', req.user!.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      res.json(agentCommissions || []);
     } catch (error) {
       console.error("Error fetching commissions:", error);
       res.status(500).json({ message: "Failed to fetch commissions" });
@@ -1981,9 +1996,13 @@ router.get(
       // Get all users enrolled by this agent plus users they have commissions for
       const enrolledUsers = await storage.getAgentEnrollments(req.user!.id);
 
-      // Get users from commissions
-      const agentCommissions = await storage.getAgentCommissions(req.user!.id);
-      const commissionUserIds = agentCommissions.map((c) => c.userId);
+      // Get users from commissions in Supabase
+      const { data: agentCommissions } = await supabase
+        .from('agent_commissions')
+        .select('member_id')
+        .eq('agent_id', req.user!.id);
+      
+      const commissionUserIds = agentCommissions?.map((c) => c.member_id) || [];
 
       // Fetch additional users from commissions that weren't directly enrolled
       const additionalUsers = [];
@@ -2281,25 +2300,41 @@ router.get(
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
 
-      // Get enrollment counts
-      const enrollments = await storage.getAgentEnrollments(agentId);
+      // Get enrollment counts from Supabase
+      const { data: enrollments } = await supabase
+        .from('users')
+        .select('*')
+        .eq('enrolled_by_agent_id', agentId)
+        .eq('role', 'member');
+
       const thisMonth = new Date();
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
 
-      const monthlyEnrollments = enrollments.filter(
-        (e) => new Date(e.createdAt) >= thisMonth,
-      ).length;
+      const monthlyEnrollments = enrollments?.filter(
+        (e: any) => new Date(e.created_at) >= thisMonth,
+      ).length || 0;
 
-      // Get active members count
-      const activeMembers = enrollments.filter((e) => e.isActive).length;
+      const activeMembers = enrollments?.filter((e: any) => e.is_active).length || 0;
+
+      // Get commission stats from Supabase
+      const { data: commissions } = await supabase
+        .from('agent_commissions')
+        .select('commission_amount, payment_status')
+        .eq('agent_id', agentId);
+
+      const totalCommissions = commissions?.length || 0;
+      const totalEarned = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
+      const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
 
       console.log("✅ Got agent stats for", req.user!.role);
       res.json({
-        totalEnrollments: enrollments.length,
+        totalEnrollments: enrollments?.length || 0,
         monthlyEnrollments,
         activeMembers,
-        ...commissionStats,
+        totalCommissions,
+        totalEarned,
+        paidCommissions
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);
@@ -2666,43 +2701,54 @@ export async function registerRoutes(app: any) {
         console.log("[Registration] Agent enrollment by:", agentNumber);
       }
 
-      // Create member (NO Supabase Auth, NO password)
-      // Customer number auto-generates
-      // Fields auto-format (phone, DOB, SSN, etc.)
-      const member = await storage.createMember({
+      // CREATE MEMBER DIRECTLY IN SUPABASE (NO NEON)
+      console.log("[Registration] Creating member directly in Supabase...");
+      
+      const memberData = {
         email: email.trim().toLowerCase(),
-        firstName: firstName?.trim() || "",
-        lastName: lastName?.trim() || "",
-        middleName: middleName?.trim() || null,
+        first_name: firstName?.trim() || "",
+        last_name: lastName?.trim() || "",
+        middle_name: middleName?.trim() || null,
         phone: phone || null,
-        dateOfBirth: dateOfBirth || null,
+        date_of_birth: dateOfBirth || null,
         gender: gender || null,
         ssn: ssn || null,
         address: address?.trim() || null,
         address2: address2?.trim() || null,
         city: city?.trim() || null,
         state: state || null,
-        zipCode: zipCode || null,
-        employerName: employerName?.trim() || null,
-        dateOfHire: dateOfHire || null,
-        memberType: memberType || "member-only",
-        planStartDate: planStartDate || null,
-        agentNumber: agentNumber || null,
-        enrolledByAgentId: enrolledByAgentId || null,
-        isActive: true,
-        emailVerified: false,
-        termsAccepted: termsAccepted || false,
-        privacyAccepted: privacyAccepted || false,
-        privacyNoticeAcknowledged: privacyNoticeAcknowledged || false,
-        smsConsent: smsConsent || false,
-        communicationsConsent: communicationsConsent || false,
-        faqDownloaded: faqDownloaded || false,
-        // Confirmation page fields
-        planId: planId ? parseInt(planId) : null,
-        coverageType: coverageType || memberType || "member-only",
-        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
-        addRxValet: addRxValet || false
-      });
+        zip_code: zipCode || null,
+        employer_name: employerName?.trim() || null,
+        date_of_hire: dateOfHire || null,
+        member_type: memberType || "member-only",
+        plan_start_date: planStartDate || null,
+        agent_number: agentNumber || null,
+        enrolled_by_agent_id: enrolledByAgentId || null,
+        is_active: true,
+        email_verified: false,
+        terms_accepted: termsAccepted || false,
+        privacy_accepted: privacyAccepted || false,
+        privacy_notice_acknowledged: privacyNoticeAcknowledged || false,
+        sms_consent: smsConsent || false,
+        communications_consent: communicationsConsent || false,
+        faq_downloaded: faqDownloaded || false,
+        plan_id: planId ? parseInt(planId) : null,
+        coverage_type: coverageType || memberType || "member-only",
+        total_monthly_price: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        add_rx_valet: addRxValet || false,
+        role: 'member' // Members are role='member' in Supabase
+      };
+
+      const { data: member, error: memberError } = await supabase
+        .from('users')
+        .insert(memberData)
+        .select()
+        .single();
+
+      if (memberError) {
+        console.error("[Registration] ❌ Member creation failed:", memberError);
+        throw new Error(`Member creation failed: ${memberError.message}`);
+      }
 
       console.log("[Registration] Member created:", member.id, member.customerNumber);
       console.log("[Registration] Member object keys:", Object.keys(member));
@@ -2725,18 +2771,29 @@ export async function registerRoutes(app: any) {
       if (planId && totalMonthlyPrice) {
         try {
           console.log("[Registration] Creating subscription with planId:", planId);
-          const subscription = await storage.createSubscription({
-            userId: member.id,
-            planId: parseInt(planId),
+          
+          const subscriptionData = {
+            user_id: member.id,
+            plan_id: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
-            currentPeriodStart: new Date(),
-            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-            createdAt: new Date(),
-            updatedAt: new Date()
-          });
-          subscriptionId = subscription.id;
-          console.log("[Registration] Subscription created:", subscription.id);
+            current_period_start: new Date().toISOString(),
+            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          };
+
+          const { data: subscription, error: subscriptionError } = await supabase
+            .from('subscriptions')
+            .insert(subscriptionData)
+            .select()
+            .single();
+
+          if (subscriptionError) {
+            console.error("[Registration] Subscription creation failed:", subscriptionError);
+            // Continue with registration even if subscription fails
+          } else {
+            subscriptionId = subscription.id;
+            console.log("[Registration] Subscription created:", subscription.id);
+          }
         } catch (subError) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
@@ -2760,12 +2817,17 @@ export async function registerRoutes(app: any) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
           
-          // FIXED: enrolledByAgentId is already a UUID, not an email
-          console.log("[Commission] Looking up agent by UUID:", enrolledByAgentId);
-          const agentUser = await storage.getUser(enrolledByAgentId);
+          // LOOK UP AGENT IN SUPABASE DIRECTLY
+          console.log("[Commission] Looking up agent by UUID in Supabase:", enrolledByAgentId);
           
-          if (!agentUser || !agentUser.id) {
-            console.error("[Commission] ❌ Agent not found in users table:", enrolledByAgentId);
+          const { data: agentUser, error: agentError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', enrolledByAgentId)
+            .single();
+          
+          if (agentError || !agentUser) {
+            console.error("[Commission] ❌ Agent not found in Supabase:", enrolledByAgentId, agentError);
             console.warn("[Registration] Commission NOT created - agent user not found");
           } else {
             console.log("[Commission] ✅ Agent found - UUID:", agentUser.id, "Email:", agentUser.email);
@@ -2777,10 +2839,19 @@ export async function registerRoutes(app: any) {
             // Try to get plan details if planId is provided
             if (planId) {
               try {
-                plan = await storage.getPlanById(parseInt(planId));
-                planName = plan?.name || 'Base';
-                planTier = plan?.name?.includes('Elite') ? 'Elite' : plan?.name?.includes('Plus') ? 'Plus' : 'Base';
-                console.log("[Commission] Plan found from planId:", planName);
+                const { data: plan, error: planError } = await supabase
+                  .from('plans')
+                  .select('*')
+                  .eq('id', parseInt(planId))
+                  .single();
+                
+                if (plan && !planError) {
+                  planName = plan.name || 'Base';
+                  planTier = plan.name?.includes('Elite') ? 'Elite' : plan.name?.includes('Plus') ? 'Plus' : 'Base';
+                  console.log("[Commission] Plan found from planId:", planName);
+                } else {
+                  console.warn("[Commission] Could not fetch plan from Supabase, using defaults");
+                }
               } catch (planError) {
                 console.warn("[Commission] Could not fetch plan by ID, using defaults");
               }
@@ -2809,8 +2880,8 @@ export async function registerRoutes(app: any) {
             const commissionResult = calculateCommission(planName, coverage, hasRxValet);
             
             if (commissionResult) {
-              // USE NEW DUAL-WRITE COMMISSION SYSTEM
-              const { createCommissionDualWrite } = await import('./commission-service.js');
+              // CREATE COMMISSION DIRECTLY IN SUPABASE (NEW SYSTEM ONLY)
+              console.log('[Registration] Creating commission directly in agent_commissions table...');
               
               // Determine coverage type from plan name/type
               let coverageTypeEnum: 'aca' | 'medicare_advantage' | 'medicare_supplement' | 'other' = 'other';
@@ -2820,27 +2891,37 @@ export async function registerRoutes(app: any) {
               else if (planType === 'Medicare Supplement') coverageTypeEnum = 'medicare_supplement';
               
               const commissionData = {
-                agent_id: agentUser.id, // USE UUID, not email!
-                member_id: member.id.toString(), // Convert to string for new schema
-                enrollment_id: subscriptionId ? subscriptionId.toString() : undefined, // Link to enrollment if available
+                agent_id: agentUser.id, // UUID
+                member_id: member.id.toString(), // Convert to string
+                enrollment_id: subscriptionId ? subscriptionId.toString() : null,
                 commission_amount: commissionResult.commission,
                 coverage_type: coverageTypeEnum,
-                status: 'pending' as const,
-                payment_status: 'unpaid' as const,
+                status: 'pending',
+                payment_status: 'unpaid',
                 base_premium: commissionResult.totalCost,
                 notes: `Enrollment: Plan ${planName}, Coverage ${coverage}${hasRxValet ? ' (includes RxValet)' : ''}`
               };
               
-              console.log('[Registration] Creating commission with dual-write system:', commissionData);
+              console.log('[Registration] Commission data:', commissionData);
               
-              const result = await createCommissionDualWrite(commissionData);
-              
-              if (result.success) {
-                const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
-                console.log("[Registration] ✅ Commission created via dual-write: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
-                console.log("[Registration] Commission IDs - New:", result.agentCommissionId, "Legacy:", result.legacyCommissionId);
-              } else {
-                console.error("[Registration] ❌ Commission creation failed:", result.error);
+              try {
+                // Insert directly into Supabase agent_commissions table using service role
+                const { data: newCommission, error: commissionError } = await supabase
+                  .from('agent_commissions')
+                  .insert(commissionData)
+                  .select()
+                  .single();
+                
+                if (commissionError) {
+                  console.error("[Registration] ❌ Commission creation failed:", commissionError);
+                  console.error("[Registration] Commission error details:", commissionError.details);
+                } else {
+                  const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
+                  console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
+                  console.log("[Registration] Commission ID:", newCommission.id);
+                }
+              } catch (commError) {
+                console.error("[Registration] Exception creating commission:", commError);
               }
             } else {
               console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
@@ -2885,11 +2966,11 @@ export async function registerRoutes(app: any) {
         message: "Registration successful. Proceeding to payment...",
         member: {
           id: member.id,
-          customerNumber: member.customerNumber,
+          customerNumber: member.customer_number, // Snake case from Supabase
           email: member.email,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          memberType: member.memberType
+          firstName: member.first_name, // Snake case from Supabase
+          lastName: member.last_name, // Snake case from Supabase
+          memberType: member.member_type // Snake case from Supabase
         },
         enrollment: {
           planId: planId,
