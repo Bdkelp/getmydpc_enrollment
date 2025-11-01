@@ -2809,23 +2809,39 @@ export async function registerRoutes(app: any) {
             const commissionResult = calculateCommission(planName, coverage, hasRxValet);
             
             if (commissionResult) {
-              await storage.createCommission({
-                agentId: agentUser.id, // USE UUID, not email!
-                subscriptionId: subscriptionId || null, // subscription_id is nullable now
-                memberId: member.id, // Changed from userId to memberId
-                planName: planName,
-                planType: coverage,
-                planTier: planTier,
-                commissionAmount: commissionResult.commission,
-                totalPlanCost: commissionResult.totalCost,
-                status: 'pending',
-                paymentStatus: 'unpaid',
-                createdAt: new Date(),
-                updatedAt: new Date()
-              });
+              // USE NEW DUAL-WRITE COMMISSION SYSTEM
+              const { createCommissionDualWrite } = await import('./commission-service.js');
               
-              const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
-              console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
+              // Determine coverage type from plan name/type
+              let coverageTypeEnum: 'aca' | 'medicare_advantage' | 'medicare_supplement' | 'other' = 'other';
+              const planType = getPlanTypeFromMemberType(coverage);
+              if (planType === 'ACA') coverageTypeEnum = 'aca';
+              else if (planType === 'Medicare Advantage') coverageTypeEnum = 'medicare_advantage';
+              else if (planType === 'Medicare Supplement') coverageTypeEnum = 'medicare_supplement';
+              
+              const commissionData = {
+                agent_id: agentUser.id, // USE UUID, not email!
+                member_id: member.id.toString(), // Convert to string for new schema
+                enrollment_id: subscriptionId ? subscriptionId.toString() : undefined, // Link to enrollment if available
+                commission_amount: commissionResult.commission,
+                coverage_type: coverageTypeEnum,
+                status: 'pending' as const,
+                payment_status: 'unpaid' as const,
+                base_premium: commissionResult.totalCost,
+                notes: `Enrollment: Plan ${planName}, Coverage ${coverage}${hasRxValet ? ' (includes RxValet)' : ''}`
+              };
+              
+              console.log('[Registration] Creating commission with dual-write system:', commissionData);
+              
+              const result = await createCommissionDualWrite(commissionData);
+              
+              if (result.success) {
+                const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
+                console.log("[Registration] ✅ Commission created via dual-write: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
+                console.log("[Registration] Commission IDs - New:", result.agentCommissionId, "Legacy:", result.legacyCommissionId);
+              } else {
+                console.error("[Registration] ❌ Commission creation failed:", result.error);
+              }
             } else {
               console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
             }
