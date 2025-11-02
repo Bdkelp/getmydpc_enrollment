@@ -222,20 +222,27 @@ router.post('/api/auth/logout', async (req, res) => {
 
 // Helper function to determine user role based on email
 function determineUserRole(email: string): string {
-  const agentEmails = [
-    'michael@mypremierplans.com',
-    'mdkeener@mypremierplans.com'
-  ];
-  
   const adminEmails = [
-    'michael@mypremierplans.com'
+    'michael@mypremierplans.com',
+    'travis@mypremierplans.com',
+    'richard@mypremierplans.com',
+    'joaquin@mypremierplans.com'
   ];
   
-  if (adminEmails.includes(email.toLowerCase())) {
+  const agentEmails = [
+    'mdkeener@gmail.com',
+    'tmatheny77@gmail.com',
+    'svillarreal@cyariskmanagement.com',
+    'sarah.johnson@mypremierplans.com'
+  ];
+  
+  const lowerEmail = email.toLowerCase();
+  
+  if (adminEmails.some(e => e.toLowerCase() === lowerEmail)) {
     return 'admin';
   }
   
-  if (agentEmails.includes(email.toLowerCase())) {
+  if (agentEmails.some(e => e.toLowerCase() === lowerEmail)) {
     return 'agent';
   }
   
