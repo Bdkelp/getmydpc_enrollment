@@ -2277,9 +2277,12 @@ export async function getCommissionStatsNew(agentId?: string): Promise<{
     (data || []).forEach((commission: any) => {
       const amount = parseFloat(commission.commission_amount?.toString() || '0');
       
+      // Add to totalEarned (all commissions regardless of payment status)
+      totalEarned += amount;
+      
+      // Separate paid vs pending
       if (commission.payment_status === 'paid') {
         totalPaid += amount;
-        totalEarned += amount;
       } else {
         totalPending += amount;
       }
