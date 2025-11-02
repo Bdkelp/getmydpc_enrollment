@@ -389,64 +389,66 @@ export default function Admin() {
       {/* Admin Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
               <p className="text-gray-600 mt-1">Manage users, plans, and system settings</p>
             </div>
-            <div className="mt-4 sm:mt-0 flex items-center space-x-4">
+            
+            {/* Responsive Navigation Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
               <Link href="/registration">
-                <Button className="bg-white hover:bg-gray-100 text-black border border-gray-300">
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Enroll Member
+                <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 text-xs sm:text-sm">
+                  <UserPlus className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Enroll</span>
                 </Button>
               </Link>
               <Button variant="outline" 
-                      className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                      className="w-full border-orange-500 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm"
                       onClick={() => setLocation('/admin/leads')}>
-                <Users className="h-4 w-4 mr-2" />
-                Lead Management
+                <Users className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="truncate">Leads</span>
               </Button>
               <Button variant="outline" 
-                      className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm"
                       onClick={() => setLocation('/admin/enrollments')}>
-                <Users className="h-4 w-4 mr-2" />
-                View Enrollments
+                <Users className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="truncate">Enrollments</span>
               </Button>
               <Button variant="outline" 
-                      className="border-red-500 text-red-600 hover:bg-red-50"
+                      className="w-full border-red-500 text-red-600 hover:bg-red-50 text-xs sm:text-sm"
                       onClick={() => setLocation('/admin/users')}>
-                <Shield className="h-4 w-4 mr-2" />
-                User Roles
+                <Shield className="h-4 w-4 mr-1 sm:mr-2" />
+                <span className="truncate">Users</span>
               </Button>
               <Link href="/admin/analytics">
-                <Button variant="outline" className="border-green-500 text-green-600 hover:bg-green-50">
-                  <BarChart className="h-4 w-4 mr-2" />
-                  Analytics & Reports
+                <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 text-xs sm:text-sm">
+                  <BarChart className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Analytics</span>
                 </Button>
               </Link>
               <Link href="/admin/data">
-                <Button variant="outline" className="border-purple-500 text-purple-600 hover:bg-purple-50">
-                  <Database className="h-4 w-4 mr-2" />
-                  Database Viewer
+                <Button variant="outline" className="w-full border-purple-500 text-purple-600 hover:bg-purple-50 text-xs sm:text-sm">
+                  <Database className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Database</span>
                 </Button>
               </Link>
               <Link href="/admin/commissions">
-                <Button variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50">
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  Commissions
+                <Button variant="outline" className="w-full border-emerald-500 text-emerald-600 hover:bg-emerald-50 text-xs sm:text-sm">
+                  <DollarSign className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Commissions</span>
                 </Button>
               </Link>
               <Link href="/admin/agent-hierarchy">
-                <Button variant="outline" className="border-indigo-500 text-indigo-600 hover:bg-indigo-50">
-                  <Users className="h-4 w-4 mr-2" />
-                  Agent Hierarchy
+                <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 text-xs sm:text-sm">
+                  <Users className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Hierarchy</span>
                 </Button>
               </Link>
               <Link href="/agent">
-                <Button variant="outline">
-                  <Users className="h-4 w-4 mr-2" />
-                  Agent View
+                <Button variant="outline" className="w-full text-xs sm:text-sm">
+                  <Users className="h-4 w-4 mr-1 sm:mr-2" />
+                  <span className="truncate">Agent View</span>
                 </Button>
               </Link>
             </div>
