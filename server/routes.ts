@@ -561,7 +561,9 @@ function determineUserRole(email: string): "admin" | "agent" | "member" {
 
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
-  return "member";
+  // NOTE: 'member' should NEVER be in users table - members are enrolled customers in separate members table
+  // Anyone signing up through normal flow defaults to 'agent' role
+  return "agent";
 }
 
 // Authentication route (protected)
@@ -1367,12 +1369,14 @@ router.put(
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!["member", "agent", "admin"].includes(role)) {
+      // Users table should ONLY contain 'admin' and 'agent' roles
+      // 'member' is NOT a user role - members are enrolled customers in separate members table
+      if (!["agent", "admin"].includes(role)) {
         return res
           .status(400)
           .json({
             message:
-              "Invalid role. Must be 'member' (DPC plan subscriber), 'agent' (enrollment agent), or 'admin' (system administrator)",
+              "Invalid role. Must be 'agent' (enrollment agent) or 'admin' (system administrator). Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
           });
       }
 
@@ -3809,9 +3813,11 @@ export async function registerRoutes(app: any) {
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!["member", "agent", "admin"].includes(role)) {
+      // Users table should ONLY contain 'admin' and 'agent' roles
+      // 'member' is NOT a user role - members are enrolled customers in separate members table
+      if (!["agent", "admin"].includes(role)) {
         return res.status(400).json({
-          error: "Invalid role. Must be 'member', 'agent', or 'admin'"
+          error: "Invalid role. Must be 'agent' or 'admin'. Note: 'member' is not a valid user role - members are enrolled customers in the members table."
         });
       }
 

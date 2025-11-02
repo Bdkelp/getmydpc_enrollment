@@ -235,7 +235,9 @@ export async function createUser(userData: Partial<User>): Promise<User> {
     // Use Supabase to insert user
     // NOTE: The users table in Supabase uses email as primary key, not id
     let agentNumber = userData.agentNumber;
-    const role = userData.role || 'member';
+    // Users table should ONLY have 'admin' or 'agent' roles - default to 'agent'
+    // Never set 'member' here - members are in separate members table
+    const role = userData.role || 'agent';
     if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
       const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
       const ssnLast4 = userData.ssn.slice(-4);
@@ -310,8 +312,14 @@ export async function getUser(id: string): Promise<User | null> {
 function mapUserFromDB(data: any): User | null {
   if (!data) return null;
 
-  // Normalize role - handle legacy 'user' role as 'member'
-  const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
+  // Users table should ONLY contain 'admin' and 'agent' roles
+  // Legacy 'user' or 'member' should never appear here - they belong in members table
+  // If somehow a null role is found, default to 'agent' (most common)
+  const normalizedRole = data.role || 'agent';
+  
+  if (!['admin', 'agent'].includes(normalizedRole)) {
+    console.warn(`[Storage] Unexpected role "${normalizedRole}" in users table for ${data.email} - defaulting to agent`);
+  }
 
   return {
     // The Supabase users table doesn't have an id column - use email as identifier
