@@ -3647,6 +3647,42 @@ export async function registerRoutes(app: any) {
   });
 
   // Admin: Batch update commission payouts
+  // Admin: Mark commissions as paid (wrapper for batch-payout)
+  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionIds, paymentDate } = req.body;
+
+      if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
+        return res.status(400).json({ error: 'Commission IDs array is required' });
+      }
+
+      // Convert to batch update format
+      const updates = commissionIds.map((id: string) => ({
+        commissionId: id,
+        paymentStatus: 'paid',
+        paymentDate: paymentDate || new Date().toISOString(),
+        notes: `Marked as paid on ${new Date().toLocaleDateString()}`
+      }));
+
+      await storage.updateMultipleCommissionPayouts(updates);
+
+      res.json({ 
+        success: true, 
+        message: `${commissionIds.length} commission(s) marked as paid`
+      });
+    } catch (error: any) {
+      console.error('Error marking commissions as paid:', error);
+      res.status(500).json({ 
+        error: 'Failed to mark commissions as paid', 
+        details: error.message 
+      });
+    }
+  });
+
   app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
     try {
       if (req.user?.role !== 'admin') {
