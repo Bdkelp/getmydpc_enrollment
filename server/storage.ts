@@ -674,64 +674,38 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
   }
 }
 
-// Get only members (excluding agents and admins)
+// Get only members (from the members table - NOT from users table!)
+// NOTE: Members are enrolled customers in the members table, NOT in the users table
+// Users table should ONLY contain 'admin' and 'agent' roles for staff/agents
 export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching members only via Supabase...');
+    console.log('[Storage] Fetching members from members table...');
 
-    // Use Supabase instead of Neon to avoid connection issues
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select(`
-        *,
-        subscriptions (
-          id,
-          status,
-          plan_id,
-          amount,
-          plans (name)
-        )
-      `)
-      .in('role', ['user', 'member'])
-      .order('created_at', { ascending: false });
-
-    if (usersError) {
-      console.error('[Storage] Supabase members error:', usersError);
-      throw usersError;
-    }
-
-    if (!users) {
-      console.warn('[Storage] No members returned from Supabase');
-      return { users: [], totalCount: 0 };
-    }
-
-    // Process and map users
-    const result = users.map(user => {
-      const mappedUser = mapUserFromDB(user);
-      if (!mappedUser) return null;
-
-      // Handle subscription data from the join
-      const subscription = user.subscriptions?.[0];
-      return {
-        ...mappedUser,
-        subscription: subscription ? {
-          id: subscription.id,
-          status: subscription.status,
-          planId: subscription.plan_id,
-          amount: subscription.amount,
-          planName: subscription.plans?.name || 'Unknown Plan'
-        } : null
-      };
-    }).filter(u => u !== null);
+    // Call the proper getAllDPCMembers function that queries the members table
+    const membersResult = await storage.getAllDPCMembers(limit, offset);
+    
+    // Convert Member objects to User objects format for compatibility
+    // This maintains the API return structure but returns actual members from members table
+    const convertedUsers = (membersResult.members || []).map((member: any) => ({
+      id: member.id?.toString() || member.customerNumber,
+      email: member.email,
+      firstName: member.firstName,
+      lastName: member.lastName,
+      role: 'member' as const, // Members have 'member' role when returned via this API
+      agentNumber: member.agentNumber,
+      isActive: member.isActive || true,
+      approvalStatus: member.status || 'approved',
+      createdAt: member.createdAt,
+      updatedAt: member.updatedAt,
+    } as any));
 
     console.log('[Storage] Successfully fetched members:', {
-      totalMembers: result.length,
-      sampleRoles: result.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
+      totalMembers: convertedUsers.length
     });
 
     return {
-      users: result,
-      totalCount: result.length
+      users: convertedUsers,
+      totalCount: membersResult.totalCount
     };
   } catch (error: any) {
     console.error('[Storage] Error in getMembersOnly:', error);
