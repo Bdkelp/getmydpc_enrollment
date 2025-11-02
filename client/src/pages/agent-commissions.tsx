@@ -115,6 +115,24 @@ export default function AgentCommissions() {
   // Show errors if any
   if (statsError || commissionsError) {
     console.error('[AgentCommissions] Query errors:', { statsError, commissionsError });
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="max-w-md p-6">
+          <CardContent>
+            <h2 className="text-xl font-bold text-red-600 mb-2">Failed to Load Commissions</h2>
+            <p className="text-gray-600 mb-4">
+              {commissionsError ? String(commissionsError) : String(statsError)}
+            </p>
+            <Button onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
+            }}>
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (statsLoading || commissionsLoading) {
@@ -281,10 +299,12 @@ export default function AgentCommissions() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {safeCommissions.map((commission) => {
-                    if (!commission) return null;
+                  {safeCommissions.map((commission, index) => {
+                    if (!commission || !commission.id) return null;
+                    const commissionKey = `${commission.id}-${index}`;
+                    
                     return (
-                      <TableRow key={commission.id}>
+                      <TableRow key={commissionKey}>
                         <TableCell>
                           {commission.createdAt ? format(new Date(commission.createdAt), "MM/dd/yyyy") : 'N/A'}
                         </TableCell>
