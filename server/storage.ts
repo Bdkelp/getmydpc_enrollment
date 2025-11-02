@@ -2334,6 +2334,111 @@ export async function clawbackCommission(
   }
 }
 
+export async function getAgentHierarchy(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        email,
+        first_name,
+        last_name,
+        agent_number,
+        upline_agent_id,
+        override_commission_rate,
+        hierarchy_level,
+        can_receive_overrides,
+        upline:upline_agent_id(email)
+      `)
+      .eq('role', 'agent')
+      .order('hierarchy_level', { ascending: true })
+      .order('agent_number', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to get agent hierarchy: ${error.message}`);
+    }
+
+    // Get downline counts for each agent
+    const agentsWithCounts = await Promise.all((data || []).map(async (agent) => {
+      const { count } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('upline_agent_id', agent.id);
+
+      return {
+        id: agent.id,
+        email: agent.email,
+        firstName: agent.first_name,
+        lastName: agent.last_name,
+        agentNumber: agent.agent_number,
+        uplineAgentId: agent.upline_agent_id,
+        uplineEmail: agent.upline?.email,
+        overrideCommissionRate: parseFloat(agent.override_commission_rate || '0'),
+        hierarchyLevel: agent.hierarchy_level || 0,
+        canReceiveOverrides: agent.can_receive_overrides || false,
+        downlineCount: count || 0
+      };
+    }));
+
+    return agentsWithCounts;
+  } catch (error: any) {
+    console.error('[Storage] Error in getAgentHierarchy:', error);
+    throw new Error(`Failed to get agent hierarchy: ${error.message}`);
+  }
+}
+
+export async function updateAgentHierarchy(
+  agentId: string,
+  uplineId: string | null,
+  overrideAmount: number,
+  changedBy: string,
+  reason?: string
+): Promise<void> {
+  try {
+    // Get current upline for history
+    const { data: currentAgent } = await supabase
+      .from('users')
+      .select('upline_agent_id')
+      .eq('id', agentId)
+      .single();
+
+    // Update agent upline and override rate
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        upline_agent_id: uplineId,
+        override_commission_rate: overrideAmount,
+        can_receive_overrides: !!uplineId // Can receive overrides if has upline
+      })
+      .eq('id', agentId);
+
+    if (updateError) {
+      throw new Error(`Failed to update agent hierarchy: ${updateError.message}`);
+    }
+
+    // Record hierarchy change in history
+    const { error: historyError } = await supabase
+      .from('agent_hierarchy_history')
+      .insert({
+        agent_id: agentId,
+        previous_upline_id: currentAgent?.upline_agent_id,
+        new_upline_id: uplineId,
+        changed_by_admin_id: changedBy,
+        reason: reason || 'Manual update'
+      });
+
+    if (historyError) {
+      console.error('[Storage] Error recording hierarchy history:', historyError);
+      // Don't fail the update if history recording fails
+    }
+
+    console.log(`[Storage] ✅ Updated agent hierarchy for ${agentId}, new upline: ${uplineId || 'none'}, override: $${overrideAmount}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in updateAgentHierarchy:', error);
+    throw new Error(`Failed to update agent hierarchy: ${error.message}`);
+  }
+}
+
 export async function getCommissionStatsNew(agentId?: string): Promise<{ 
   totalEarned: number; 
   totalPending: number; 
