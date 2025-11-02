@@ -2181,7 +2181,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     console.log('[Storage] Found', data?.length || 0, 'commissions');
     
     // Format for frontend - transform to match expected structure from OLD commission system
-    return (data || []).map(commission => ({
+    const formatted = (data || []).map(commission => ({
       id: commission.id,
       agentId: commission.agent_id,
       memberId: commission.member_id,
@@ -2200,6 +2200,9 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       updatedAt: commission.updated_at,
       paidDate: commission.payment_date // Fix: use payment_date not paid_at
     }));
+    
+    console.log('[Storage] Sample commission data:', formatted[0]);
+    return formatted;
   } catch (error: any) {
     console.error('[Storage] Error in getAgentCommissionsNew:', error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);
