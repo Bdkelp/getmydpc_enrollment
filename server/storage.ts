@@ -681,31 +681,19 @@ export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: U
   try {
     console.log('[Storage] Fetching members from members table...');
 
-    // Call the proper getAllDPCMembers function that queries the members table
-    const membersResult = await storage.getAllDPCMembers(limit, offset);
+    // Call getAllDPCMembers which queries the members table directly
+    const members = await getAllDPCMembers();
     
-    // Convert Member objects to User objects format for compatibility
-    // This maintains the API return structure but returns actual members from members table
-    const convertedUsers = (membersResult.members || []).map((member: any) => ({
-      id: member.id?.toString() || member.customerNumber,
-      email: member.email,
-      firstName: member.firstName,
-      lastName: member.lastName,
-      role: 'member' as const, // Members have 'member' role when returned via this API
-      agentNumber: member.agentNumber,
-      isActive: member.isActive || true,
-      approvalStatus: member.status || 'approved',
-      createdAt: member.createdAt,
-      updatedAt: member.updatedAt,
-    } as any));
+    // Apply limit and offset if needed
+    const slicedMembers = members.slice(offset, offset + limit);
 
     console.log('[Storage] Successfully fetched members:', {
-      totalMembers: convertedUsers.length
+      totalMembers: members.length
     });
 
     return {
-      users: convertedUsers,
-      totalCount: membersResult.totalCount
+      users: slicedMembers as any[],
+      totalCount: members.length
     };
   } catch (error: any) {
     console.error('[Storage] Error in getMembersOnly:', error);

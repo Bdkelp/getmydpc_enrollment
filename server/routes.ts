@@ -1142,31 +1142,17 @@ router.get(
 
       const users = usersResult.users;
       console.log("[Admin Users API] Retrieved users count:", users.length);
-
       // Enhance users with subscription data - simplified approach
       const enhancedUsers = [];
       for (const user of users) {
         try {
           let enhancedUser = { ...user };
 
-          // Only try to get subscription data for members/users, and handle errors gracefully
-          if (user.role === "member" || user.role === "user") {
-            try {
-              const subscription = await storage.getUserSubscription(user.id);
-              if (subscription) {
-                enhancedUser.subscription = {
-                  status: subscription.status,
-                  planName: "Active Plan", // Simplified - avoid additional DB calls
-                  amount: subscription.amount || 0,
-                };
-              }
-            } catch (subError) {
-              console.warn(
-                `[Admin Users API] Could not fetch subscription for user ${user.id}:`,
-                subError.message,
-              );
-              // Continue without subscription data
-            }
+          // Users table should ONLY contain 'admin' and 'agent' roles
+          // No subscription data needed for these roles (members are in separate table)
+          // This code is kept for safety but should never execute
+          if (user.role !== "agent" && user.role !== "admin") {
+            console.warn(`[Admin Users API] Unexpected role in users table: ${user.role} for ${user.email}`);
           }
 
           enhancedUsers.push(enhancedUser);
@@ -2304,12 +2290,12 @@ router.get(
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
 
-      // Get enrollment counts from Supabase
+      // Get enrollment counts from members table (NOT users table)
+      // Users table should ONLY contain agents/admins, members are in the members table
       const { data: enrollments } = await supabase
-        .from('users')
+        .from('members')
         .select('*')
-        .eq('enrolled_by_agent_id', agentId)
-        .eq('role', 'member');
+        .eq('enrolled_by_agent_id', agentId);
 
       const thisMonth = new Date();
       thisMonth.setDate(1);
