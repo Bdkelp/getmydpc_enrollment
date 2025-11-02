@@ -927,11 +927,11 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         m.*,
         p.name as plan_name,
         p.price as plan_price,
-        c.commission_amount,
-        c.payment_status as commission_status
+        ac.commission_amount,
+        ac.payment_status as commission_status
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
-      LEFT JOIN commissions c ON c.member_id = m.id
+      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
       WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
     `;
     const params: any[] = [agentId];
