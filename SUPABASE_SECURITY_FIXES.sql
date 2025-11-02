@@ -48,10 +48,6 @@ SELECT parent.id AS parent_agent_id,
      LEFT JOIN users child ON child.upline_agent_id = parent.id::text
   WHERE parent.role::text = 'agent'::text;
 
--- Change view ownership to postgres to remove SECURITY DEFINER implications
-ALTER VIEW public.agent_commissions_with_details OWNER TO postgres;
-ALTER VIEW public.agent_downlines OWNER TO postgres;
-
 -- FIX 3: Enable RLS on agent_hierarchy_history table
 ALTER TABLE public.agent_hierarchy_history ENABLE ROW LEVEL SECURITY;
 
