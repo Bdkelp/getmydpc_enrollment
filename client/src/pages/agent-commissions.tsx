@@ -23,18 +23,18 @@ import { Label } from "@/components/ui/label";
 
 interface Commission {
   id: number;
-  subscriptionId: number;
-  userId: string;
-  userName: string;
-  planName: string;
-  planType: string;
-  planTier: string;
-  commissionAmount: number;
-  totalPlanCost: number;
-  status: string;
-  paymentStatus: string;
+  subscriptionId?: number;
+  userId?: string;
+  userName?: string;
+  planName?: string;
+  planType?: string;
+  planTier?: string;
+  commissionAmount?: number;
+  totalPlanCost?: number;
+  status?: string;
+  paymentStatus?: string;
   paidDate?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 interface CommissionStats {
@@ -55,13 +55,14 @@ export default function AgentCommissions() {
   });
 
   // Fetch commission stats
-  const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({
+  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<CommissionStats>({
     queryKey: ["/api/agent/commission-stats"],
     enabled: !!user,
+    retry: 1,
   });
 
   // Fetch commissions with filters
-  const { data: commissions, isLoading: commissionsLoading } = useQuery<Commission[]>({
+  const { data: commissions, isLoading: commissionsLoading, error: commissionsError } = useQuery<Commission[]>({
     queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -71,6 +72,7 @@ export default function AgentCommissions() {
       return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
     },
     enabled: !!user && !!dateFilter.startDate && !!dateFilter.endDate,
+    retry: 1,
   });
 
   const handleExport = async () => {
@@ -109,6 +111,11 @@ export default function AgentCommissions() {
       });
     }
   };
+
+  // Show errors if any
+  if (statsError || commissionsError) {
+    console.error('[AgentCommissions] Query errors:', { statsError, commissionsError });
+  }
 
   if (statsLoading || commissionsLoading) {
     return (
