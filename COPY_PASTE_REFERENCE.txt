@@ -1,0 +1,149 @@
+COPY-PASTE REFERENCE FOR SUPABASE EXECUTION
+==============================================
+
+BEFORE EXECUTING: Have this page open for reference
+
+---
+
+WHAT TO COPY FROM FILE:
+SUBABASE_SECURITY_FIXES.sql - ALL 197 LINES
+
+WHERE TO PASTE:
+Supabase Dashboard → SQL Editor → New Query
+
+WHAT YOU'RE PASTING:
+- 2 view recreations (no SECURITY DEFINER)
+- 2 ownership changes (ALTER VIEW OWNER TO postgres)
+- 2 RLS enablements (ALTER TABLE ENABLE ROW LEVEL SECURITY)
+- 10 RLS policies (5 per table)
+- 3 verification queries (SELECT statements)
+
+---
+
+EXECUTION STEPS:
+
+1. Open VS Code
+2. Open file: SUBABASE_SECURITY_FIXES.sql
+3. Select All: Ctrl+A
+4. Copy: Ctrl+C
+5. Go to Supabase: https://app.supabase.com
+6. Select your project
+7. Click: SQL Editor (left sidebar)
+8. Click: New Query
+9. Paste: Ctrl+V
+10. Execute: Click blue Execute button (or Ctrl+Enter)
+11. Wait: 10-30 seconds
+12. Verify: See 3 result tables at bottom
+
+---
+
+EXPECTED SUCCESS SIGNS:
+
+✅ Multiple "Query successful" messages
+✅ No error messages (no red text)
+✅ 3 result tables appear:
+   - Table 1: RLS status (agent_hierarchy_history and agent_override_config show "t")
+   - Table 2: Policies (10 rows with policy names)
+   - Table 3: View definitions (2 rows, NO "SECURITY DEFINER" in the SQL)
+
+---
+
+VERIFICATION QUERY 1:
+Location: At bottom of results
+Expected: 2 rows
+Row 1: agent_hierarchy_history | t
+Row 2: agent_override_config   | t
+
+VERIFICATION QUERY 2:
+Location: Second result table
+Expected: 10 rows (5 policies per table)
+Policies:
+  - admins_can_view_all_hierarchy_history
+  - agents_can_view_own_hierarchy_history
+  - only_admins_modify_hierarchy_history
+  - only_admins_update_hierarchy_history
+  - only_admins_delete_hierarchy_history
+  - admins_can_view_all_override_configs
+  - agents_can_view_own_override_configs
+  - only_admins_can_insert_override_configs
+  - only_admins_can_update_override_configs
+  - only_admins_can_delete_override_configs
+
+VERIFICATION QUERY 3:
+Location: Third result table
+Expected: 2 rows
+Row 1 viewname: agent_commissions_with_details (NO "SECURITY DEFINER")
+Row 2 viewname: agent_downlines (NO "SECURITY DEFINER")
+
+---
+
+AFTER EXECUTION:
+
+1. Take screenshot of results
+2. Go to Supabase Dashboard
+3. Click: Database → Security → Linter
+4. Run linter (if not auto-running)
+5. Expected: 0 errors (all 4 errors resolved)
+6. If 0 errors: ✅ SUCCESS, ready to deploy code
+7. If errors remain: ✅ Check screenshots, investigate
+
+---
+
+IF SOMETHING GOES WRONG:
+
+Error: "syntax error at or near..."
+→ You pasted the table format instead of SQL
+→ Copy from SUBABASE_SECURITY_FIXES.sql file directly
+
+Error: "policy already exists"
+→ Script has DROP POLICY IF EXISTS, so this shouldn't happen
+→ If it does: Drop and recreate that specific policy
+
+Error: Views still have SECURITY DEFINER
+→ Wait a moment and refresh browser
+→ Supabase UI might have cache delay
+→ Click Linter refresh button
+
+View not returning data:
+→ Views should work exactly as before
+→ Check if you're logged in as admin or agent
+→ RLS policies restrict based on role
+
+---
+
+NEXT IMMEDIATE STEPS:
+
+1. Execute this script NOW
+2. Verify 3 verification queries pass
+3. Re-run Supabase Linter
+4. If linter shows 0 errors: Deploy code changes
+5. Test in application
+
+---
+
+REFERENCE FILES:
+
+SUBABASE_SECURITY_FIXES.sql
+└─ Main script (copy and paste this)
+
+SUBABASE_EXECUTION_GUIDE.md
+└─ Detailed step-by-step instructions
+
+EXECUTION_CHECKLIST.md
+└─ Track progress through each step
+
+EXECUTION_FLOW.txt
+└─ Visual flow diagram
+
+FINAL_SUMMARY.md
+└─ Overview of all changes
+
+VIEW_DEFINITIONS_VERIFIED.md
+└─ Exact view definitions with verification
+
+THIS FILE (COPY_PASTE_REFERENCE.txt)
+└─ Quick reference (what you're reading)
+
+---
+
+READY? Execute SUBABASE_SECURITY_FIXES.sql now!
