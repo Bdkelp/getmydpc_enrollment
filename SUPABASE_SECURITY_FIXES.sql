@@ -7,13 +7,18 @@
 -- SECURITY DEFINER causes the view to run with creator's permissions
 -- which bypasses RLS policies. Views should use caller's permissions instead.
 
--- Step 1: Drop the view (this will drop dependent views/objects too)
+-- Step 1: Check current view definition to see if it has SECURITY DEFINER
+-- Query: SELECT pg_get_viewdef('public.agent_commissions_with_details', true);
+
+-- Step 2: Drop and recreate the view WITHOUT SECURITY DEFINER
+-- IMPORTANT: You must replace the SELECT statement with your actual view definition
 DROP VIEW IF EXISTS public.agent_commissions_with_details CASCADE;
 
--- Step 2: Recreate WITHOUT SECURITY DEFINER
--- Copy your original view definition but REMOVE the "SECURITY DEFINER" clause
--- Example (adjust based on your actual view definition):
-CREATE VIEW public.agent_commissions_with_details AS
+-- Recreate WITHOUT SECURITY DEFINER - Copy your exact SELECT statement here
+-- Get your actual definition from: 
+-- SELECT pg_get_viewdef('public.agent_commissions_with_details'::regclass, true)
+-- Then replace the SELECT below with that definition
+CREATE OR REPLACE VIEW public.agent_commissions_with_details AS
   SELECT 
     ac.id,
     ac.agent_id,
@@ -30,11 +35,16 @@ CREATE VIEW public.agent_commissions_with_details AS
   LEFT JOIN public.users u ON ac.agent_id = u.id;
 
 -- FIX 2: Remove SECURITY DEFINER from agent_downlines view
+-- Step 1: Check current view definition
+-- Query: SELECT pg_get_viewdef('public.agent_downlines', true);
+
+-- Step 2: Drop and recreate WITHOUT SECURITY DEFINER
 DROP VIEW IF EXISTS public.agent_downlines CASCADE;
 
--- Step 2: Recreate WITHOUT SECURITY DEFINER
--- Copy your original view definition but REMOVE the "SECURITY DEFINER" clause
-CREATE VIEW public.agent_downlines AS
+-- Get your actual definition from:
+-- SELECT pg_get_viewdef('public.agent_downlines'::regclass, true)
+-- Then replace the SELECT below with that definition
+CREATE OR REPLACE VIEW public.agent_downlines AS
   SELECT 
     parent.id as parent_agent_id,
     child.id as downline_agent_id,
@@ -62,7 +72,6 @@ CREATE POLICY "agents_can_view_own_hierarchy_history" ON public.agent_hierarchy_
   FOR SELECT
   USING (
     agent_id = auth.uid()::text OR
-    upline_agent_id = auth.uid()::text OR
     (SELECT role FROM public.users WHERE id = auth.uid()::text) = 'admin'
   );
 
@@ -129,6 +138,23 @@ CREATE POLICY "only_admins_can_delete_override_configs" ON public.agent_override
     (SELECT role FROM public.users WHERE id = auth.uid()::text) = 'admin'
   );
 
+-- ========== CRITICAL INSTRUCTIONS FOR VIEWS ==========
+-- The views above are EXAMPLES. You MUST update them with your actual view definitions.
+-- 
+-- To find your actual view definitions, run these queries FIRST:
+-- 
+-- Query 1: Get actual agent_commissions_with_details definition
+-- SELECT pg_get_viewdef('public.agent_commissions_with_details'::regclass, true);
+-- 
+-- Query 2: Get actual agent_downlines definition  
+-- SELECT pg_get_viewdef('public.agent_downlines'::regclass, true);
+--
+-- THEN: Replace the SELECT statements in FIX 1 and FIX 2 above with your actual definitions
+-- IMPORTANT: Do NOT include "SECURITY DEFINER" - that's what we're removing!
+--
+-- After getting your actual definitions and updating the script above, execute the full script.
+-- ====================================================
+
 -- IMPORTANT: After running these fixes:
 -- 1. Test that views still work correctly with the new permissions
 -- 2. Verify RLS policies don't break existing queries
@@ -146,3 +172,9 @@ FROM pg_policies
 WHERE schemaname = 'public'
 AND tablename IN ('agent_hierarchy_history', 'agent_override_config')
 ORDER BY tablename, policyname;
+
+-- Verify views have no SECURITY DEFINER
+SELECT schemaname, viewname, pg_get_viewdef(viewname::regclass, true)
+FROM pg_views
+WHERE schemaname = 'public'
+AND viewname IN ('agent_commissions_with_details', 'agent_downlines');
