@@ -2308,30 +2308,90 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       query = query.gte('created_at', startDate).lte('created_at', endDate);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('[Storage] Error fetching all commissions:', error);
       throw new Error(`Failed to get all commissions: ${error.message}`);
     }
 
-    console.log('[Storage] Found', data?.length || 0, 'total commissions');
+    console.log('[Storage] Found', commissions?.length || 0, 'total commissions');
     
-    // Format for frontend
-    return (data || []).map(commission => ({
-      id: commission.id,
-      agentId: commission.agent_id,
-      memberId: commission.member_id,
-      enrollmentId: commission.enrollment_id,
-      commissionAmount: parseFloat(commission.commission_amount || 0),
-      coverageType: commission.coverage_type,
-      status: commission.status,
-      paymentStatus: commission.payment_status,
-      basePremium: parseFloat(commission.base_premium || 0),
-      notes: commission.notes,
-      createdAt: commission.created_at,
-      updatedAt: commission.updated_at
-    }));
+    if (!commissions || commissions.length === 0) {
+      return [];
+    }
+
+    // Get unique member IDs and agent IDs for batch lookup
+    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
+    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+
+    // Batch fetch users data (both agents and members are in users table)
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, role, agent_number')
+      .in('id', [...memberIds, ...agentIds]);
+
+    if (usersError) {
+      console.warn('[Storage] Could not fetch user details:', usersError);
+    }
+
+    // Create lookup maps
+    const usersMap = new Map((users || []).map(u => [u.id, u]));
+    
+    // Format for frontend - enhanced for admin view
+    const formatted = commissions.map(commission => {
+      const member = usersMap.get(commission.member_id);
+      const agent = usersMap.get(commission.agent_id);
+
+      return {
+        id: commission.id,
+        agentId: commission.agent_id,
+        memberId: commission.member_id,
+        enrollmentId: commission.enrollment_id,
+        commissionAmount: parseFloat(commission.commission_amount || 0),
+        coverageType: commission.coverage_type || 'other',
+        status: commission.status || 'pending',
+        paymentStatus: commission.payment_status || 'unpaid',
+        basePremium: parseFloat(commission.base_premium || 0),
+        notes: commission.notes || '',
+        createdAt: commission.created_at,
+        updatedAt: commission.updated_at,
+        paidDate: commission.paid_at,
+        // Member information
+        memberEmail: member?.email || '',
+        memberName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`,
+        memberFirstName: member?.first_name || '',
+        memberLastName: member?.last_name || '',
+        // Agent information
+        agentEmail: agent?.email || '',
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown Agent',
+        agentNumber: agent?.agent_number || '',
+        agentFirstName: agent?.first_name || '',
+        agentLastName: agent?.last_name || '',
+        // Additional display fields
+        planTier: commission.coverage_type || 'N/A',
+        planType: commission.coverage_type || 'other',
+        planName: commission.coverage_type || 'Unknown',
+        planPrice: parseFloat(commission.base_premium || 0),
+        totalPlanCost: parseFloat(commission.base_premium || 0),
+        userName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`
+      };
+    });
+
+    console.log('[Storage] Sample formatted admin commission:', {
+      id: formatted[0]?.id,
+      commissionAmount: formatted[0]?.commissionAmount,
+      agentName: formatted[0]?.agentName,
+      memberName: formatted[0]?.memberName
+    });
+
+    return formatted;
   } catch (error: any) {
     console.error('[Storage] Error in getAllCommissionsNew:', error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
