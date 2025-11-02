@@ -57,11 +57,12 @@ export default function AgentCommissions() {
   // Fetch commission stats
   const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({
     queryKey: ["/api/agent/commission-stats"],
+    enabled: !!user,
   });
 
   // Fetch commissions with filters
   const { data: commissions, isLoading: commissionsLoading } = useQuery<Commission[]>({
-    queryKey: ["/api/agent/commissions", dateFilter],
+    queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate],
     queryFn: async () => {
       const params = new URLSearchParams({
         startDate: dateFilter.startDate,
@@ -69,6 +70,7 @@ export default function AgentCommissions() {
       });
       return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
     },
+    enabled: !!user && !!dateFilter.startDate && !!dateFilter.endDate,
   });
 
   const handleExport = async () => {
