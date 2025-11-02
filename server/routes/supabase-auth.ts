@@ -1,8 +1,102 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
 import { storage } from '../storage';
+import axios from 'axios';
 
 const router = Router();
+
+// ============================================
+// RATE LIMITING & BOT PROTECTION
+// ============================================
+
+// Store registration attempts by IP
+// Format: { ip: { count: number, resetTime: number } }
+const registrationAttempts = new Map<string, { count: number; resetTime: number }>();
+
+// Configuration
+const RATE_LIMIT_WINDOW = 3600000; // 1 hour in milliseconds
+const RATE_LIMIT_MAX = 5; // Max registrations per window per IP
+const RECAPTCHA_VERIFICATION_URL = 'https://www.google.com/recaptcha/api/siteverify';
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || '';
+const RECAPTCHA_SCORE_THRESHOLD = 0.5;
+
+/**
+ * Check if IP has exceeded rate limit for registrations
+ */
+function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetTime?: number } {
+  const now = Date.now();
+  const attempt = registrationAttempts.get(ip);
+
+  // Clean up old entries if they exist
+  if (attempt && now > attempt.resetTime) {
+    registrationAttempts.delete(ip);
+    return { allowed: true, remaining: RATE_LIMIT_MAX };
+  }
+
+  if (!attempt) {
+    // First attempt from this IP
+    registrationAttempts.set(ip, { count: 0, resetTime: now + RATE_LIMIT_WINDOW });
+    return { allowed: true, remaining: RATE_LIMIT_MAX };
+  }
+
+  if (attempt.count >= RATE_LIMIT_MAX) {
+    return { 
+      allowed: false, 
+      remaining: 0,
+      resetTime: attempt.resetTime
+    };
+  }
+
+  return { allowed: true, remaining: RATE_LIMIT_MAX - attempt.count };
+}
+
+/**
+ * Increment registration attempt counter for IP
+ */
+function recordRegistrationAttempt(ip: string): void {
+  const attempt = registrationAttempts.get(ip);
+  if (attempt) {
+    attempt.count++;
+  }
+}
+
+/**
+ * Verify reCAPTCHA token with Google
+ */
+async function verifyRecaptcha(token: string): Promise<{ success: boolean; score: number; action: string }> {
+  if (!RECAPTCHA_SECRET_KEY) {
+    console.warn('[reCAPTCHA] Secret key not configured - skipping verification');
+    return { success: true, score: 1.0, action: 'register' };
+  }
+
+  if (!token) {
+    return { success: false, score: 0, action: 'register' };
+  }
+
+  try {
+    console.log('[reCAPTCHA] Verifying token with Google...');
+    const response = await axios.post(
+      RECAPTCHA_VERIFICATION_URL,
+      null,
+      {
+        params: {
+          secret: RECAPTCHA_SECRET_KEY,
+          response: token
+        },
+        timeout: 5000 // 5 second timeout
+      }
+    );
+
+    const { success, score, action } = response.data;
+    console.log(`[reCAPTCHA] Verification result - success: ${success}, score: ${score}, action: ${action}`);
+
+    return { success: success === true, score: score || 0, action };
+  } catch (error) {
+    console.error('[reCAPTCHA] Verification failed:', error instanceof Error ? error.message : 'Unknown error');
+    // Fail open - allow registration if verification fails (network issue)
+    return { success: true, score: 0.5, action: 'register' };
+  }
+}
 
 // Get current user endpoint
 router.get('/api/auth/me', async (req, res) => {
@@ -142,15 +236,54 @@ router.post('/api/auth/login', async (req, res) => {
 // Register endpoint using Supabase
 router.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, firstName, lastName } = req.body;
+    const { email, password, firstName, lastName, recaptchaToken } = req.body;
     
+    // Extract client IP
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || 
+                     req.socket?.remoteAddress || 
+                     'unknown';
+
+    console.log(`[Register] New registration attempt from IP: ${clientIp}, email: ${email}`);
+
+    // ============================================
+    // VALIDATION
+    // ============================================
     if (!email || !password || !firstName || !lastName) {
       return res.status(400).json({ 
         message: 'Email, password, first name, and last name are required' 
       });
     }
-    
-    // Sign up with Supabase
+
+    // ============================================
+    // RATE LIMITING CHECK
+    // ============================================
+    const rateLimitCheck = checkRateLimit(clientIp);
+    if (!rateLimitCheck.allowed) {
+      console.warn(`[Rate Limit] IP ${clientIp} exceeded registration limit`);
+      return res.status(429).json({
+        message: 'Too many registration attempts. Please try again later.',
+        retryAfter: Math.ceil((rateLimitCheck.resetTime! - Date.now()) / 1000)
+      });
+    }
+
+    // ============================================
+    // reCAPTCHA VERIFICATION
+    // ============================================
+    const recaptchaResult = await verifyRecaptcha(recaptchaToken);
+    if (!recaptchaResult.success || recaptchaResult.score < RECAPTCHA_SCORE_THRESHOLD) {
+      console.warn(`[reCAPTCHA] Registration failed verification - score: ${recaptchaResult.score}, threshold: ${RECAPTCHA_SCORE_THRESHOLD}`);
+      recordRegistrationAttempt(clientIp);
+      return res.status(400).json({
+        message: 'Registration failed verification. Please try again or contact support if you continue to have issues.',
+        code: 'RECAPTCHA_FAILED'
+      });
+    }
+
+    console.log(`[reCAPTCHA] Registration passed verification - score: ${recaptchaResult.score}`);
+
+    // ============================================
+    // SIGN UP WITH SUPABASE
+    // ============================================
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -165,14 +298,19 @@ router.post('/api/auth/register', async (req, res) => {
     
     if (error) {
       console.error('[Register] Supabase auth error:', error);
+      recordRegistrationAttempt(clientIp);
       return res.status(400).json({ message: error.message });
     }
     
     if (!data.user) {
+      console.error('[Register] No user returned from Supabase signup');
+      recordRegistrationAttempt(clientIp);
       return res.status(400).json({ message: 'Registration failed' });
     }
-    
-    // Create user in our database
+
+    // ============================================
+    // CREATE USER IN DATABASE
+    // ============================================
     const dbUser = await storage.createUser({
       id: data.user.id,
       email: data.user.email!,
@@ -185,15 +323,21 @@ router.post('/api/auth/register', async (req, res) => {
       createdAt: new Date(),
       updatedAt: new Date()
     });
+
+    // Record successful registration attempt
+    recordRegistrationAttempt(clientIp);
     
+    console.log(`[Register] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${dbUser.role}`);
+
     res.json({
       message: 'Registration successful',
       user: data.user,
-      session: data.session
+      session: data.session,
+      success: true
     });
   } catch (error: any) {
     console.error('[Register] Error:', error);
-    res.status(500).json({ message: 'Registration failed' });
+    res.status(500).json({ message: 'Registration failed', error: error.message });
   }
 });
 
