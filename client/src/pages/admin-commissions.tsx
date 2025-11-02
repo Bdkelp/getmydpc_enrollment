@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { DollarSign, Calendar, CheckCircle } from "lucide-react";
+import { DollarSign, Calendar, CheckCircle, ChevronLeft } from "lucide-react";
 import { format, startOfWeek, endOfWeek } from "date-fns";
 import {
   Table,
@@ -43,6 +44,7 @@ interface Commission {
 }
 
 export default function AdminCommissions() {
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -179,7 +181,17 @@ export default function AdminCommissions() {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-2xl font-bold text-gray-900">Commission Management</h1>
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                onClick={() => setLocation('/admin')}
+                className="mr-4"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Back to Admin
+              </Button>
+              <h1 className="text-2xl font-bold text-gray-900">Commission Management</h1>
+            </div>
           </div>
         </div>
       </header>
