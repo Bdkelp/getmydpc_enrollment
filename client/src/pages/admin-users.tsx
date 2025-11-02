@@ -304,7 +304,7 @@ export default function AdminUsers() {
   // Suspend DPC member mutation (for members in Neon database)
   const suspendMemberMutation = useMutation({
     mutationFn: async ({ customerId, reason }: { customerId: string; reason?: string }) => {
-      const response = await fetch(`/api/admin/dpc-members/${customerId}/suspend`, {
+      const response = await fetch(`/api/admin/members/${customerId}/suspend`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -324,7 +324,7 @@ export default function AdminUsers() {
         title: "Success",
         description: "Member suspended successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/dpc-members'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/members'] });
     },
     onError: () => {
       toast({
@@ -374,7 +374,7 @@ export default function AdminUsers() {
   // Reactivate DPC member mutation (for members in Neon database)
   const reactivateMemberMutation = useMutation({
     mutationFn: async ({ customerId }: { customerId: string }) => {
-      const response = await fetch(`/api/admin/dpc-members/${customerId}/reactivate`, {
+      const response = await fetch(`/api/admin/members/${customerId}/reactivate`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -393,7 +393,7 @@ export default function AdminUsers() {
         title: "Success",
         description: "Member reactivated successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/dpc-members'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/members'] });
     },
     onError: () => {
       toast({
