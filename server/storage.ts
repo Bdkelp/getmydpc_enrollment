@@ -613,24 +613,36 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching all users...');
+    console.log('[Storage] Fetching all users via Supabase...');
 
-    // First fetch all users using direct Neon query
-    const usersResult = await query(
-      'SELECT * FROM users ORDER BY created_at DESC'
-    );
+    // Use Supabase instead of Neon to avoid connection issues
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    // Then fetch subscriptions separately
-    const subsResult = await query(
-      'SELECT * FROM subscriptions'
-    );
+    if (usersError) {
+      console.error('[Storage] Supabase users error:', usersError);
+      throw usersError;
+    }
 
-    const users = usersResult.rows || [];
-    const subscriptions = subsResult.rows || [];
+    if (!users) {
+      console.warn('[Storage] No users returned from Supabase');
+      return { users: [], totalCount: 0 };
+    }
+
+    // Fetch subscriptions separately
+    const { data: subscriptions, error: subsError } = await supabase
+      .from('subscriptions')
+      .select('*');
+
+    if (subsError) {
+      console.warn('[Storage] Supabase subscriptions error (continuing without):', subsError);
+    }
 
     // Map subscriptions to users and convert to camelCase
     const usersWithSubscriptions = users.map(user => {
-      const userSubscription = subscriptions.find(sub => sub.user_id === user.id);
+      const userSubscription = subscriptions?.find(sub => sub.user_id === user.id);
       const mappedUser = mapUserFromDB(user);
       return {
         ...mappedUser,
@@ -638,9 +650,9 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
       };
     }).filter(u => u !== null);
 
-    console.log('[Storage] Raw user data:', {
+    console.log('[Storage] Successfully fetched users:', {
       totalUsers: usersWithSubscriptions.length,
-      roles: usersWithSubscriptions.map(u => ({ email: u.email, role: u.role }))
+      roles: usersWithSubscriptions.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
     });
 
     return {
@@ -656,47 +668,54 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
 // Get only members (excluding agents and admins)
 export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching members only...');
+    console.log('[Storage] Fetching members only via Supabase...');
 
-    // Use direct Neon query to bypass RLS
-    const usersResult = await query(
-      `SELECT u.*, 
-        s.id as sub_id, s.status as sub_status, s.plan_id, s.amount,
-        p.name as plan_name
-      FROM users u
-      LEFT JOIN subscriptions s ON u.id = s.user_id
-      LEFT JOIN plans p ON s.plan_id = p.id
-      WHERE u.role IN ('user', 'member')
-      ORDER BY u.created_at DESC`
-    );
+    // Use Supabase instead of Neon to avoid connection issues
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select(`
+        *,
+        subscriptions (
+          id,
+          status,
+          plan_id,
+          amount,
+          plans (name)
+        )
+      `)
+      .in('role', ['user', 'member'])
+      .order('created_at', { ascending: false });
 
-    // Process and map users
-    const userMap = new Map();
-    for (const row of usersResult.rows) {
-      const userId = row.id;
-      if (!userMap.has(userId)) {
-        const mappedUser = mapUserFromDB(row);
-        if (mappedUser) {
-          userMap.set(userId, {
-            ...mappedUser,
-            subscription: row.sub_id ? {
-              id: row.sub_id,
-              status: row.sub_status,
-              planId: row.plan_id,
-              amount: row.amount,
-              planName: row.plan_name || 'Unknown Plan'
-            } : null
-          });
-        }
-      }
+    if (usersError) {
+      console.error('[Storage] Supabase members error:', usersError);
+      throw usersError;
     }
 
-    const mappedUsers = Array.from(userMap.values());
+    if (!users) {
+      console.warn('[Storage] No members returned from Supabase');
+      return { users: [], totalCount: 0 };
+    }
 
-    // Map users to proper format with camelCase
-    const result = mappedUsers.filter(u => u !== null);
+    // Process and map users
+    const result = users.map(user => {
+      const mappedUser = mapUserFromDB(user);
+      if (!mappedUser) return null;
 
-    console.log('[Storage] Members data:', {
+      // Handle subscription data from the join
+      const subscription = user.subscriptions?.[0];
+      return {
+        ...mappedUser,
+        subscription: subscription ? {
+          id: subscription.id,
+          status: subscription.status,
+          planId: subscription.plan_id,
+          amount: subscription.amount,
+          planName: subscription.plans?.name || 'Unknown Plan'
+        } : null
+      };
+    }).filter(u => u !== null);
+
+    console.log('[Storage] Successfully fetched members:', {
       totalMembers: result.length,
       sampleRoles: result.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
     });
@@ -2174,77 +2193,102 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
 
 export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
   try {
-    console.log('[Storage] Fetching commissions from agent_commissions table for agent:', agentId);
+    console.log('[Storage] Fetching commissions via Supabase for agent:', agentId);
     
-    // Query with PostgreSQL to JOIN with members and plans tables
-    let sql = `
-      SELECT 
-        ac.*,
-        m.email as member_email,
-        m.first_name,
-        m.last_name,
-        p.name as plan_name,
-        p.price as plan_price,
-        m.total_monthly_price
-      FROM agent_commissions ac
-      LEFT JOIN members m ON m.id::text = ac.member_id
-      LEFT JOIN plans p ON p.id = m.plan_id
-      WHERE ac.agent_id = $1
-    `;
-    
-    const params: any[] = [agentId];
-    let paramCount = 2;
-    
-    if (startDate && endDate) {
-      sql += ` AND ac.created_at >= $${paramCount++} AND ac.created_at <= $${paramCount++}`;
-      params.push(startDate, endDate);
-    }
-    
-    sql += ' ORDER BY ac.created_at DESC';
-    
-    const result = await query(sql, params);
+    // First, get basic commissions data without complex joins to avoid foreign key issues
+    let query = supabase
+      .from('agent_commissions')
+      .select('*')
+      .eq('agent_id', agentId);
 
-    console.log('[Storage] Found', result.rows.length, 'commissions');
-    if (result.rows.length > 0) {
-      console.log('[Storage] Sample raw commission:', {
-        id: result.rows[0].id,
-        commission_amount: result.rows[0].commission_amount,
-        member_email: result.rows[0].member_email,
-        plan_name: result.rows[0].plan_name,
-        plan_price: result.rows[0].plan_price
+    if (startDate && endDate) {
+      query = query.gte('created_at', startDate).lte('created_at', endDate);
+    }
+
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Storage] Supabase error fetching commissions:', error);
+      throw error;
+    }
+
+    console.log('[Storage] Found', commissions?.length || 0, 'commissions');
+    
+    if (!commissions || commissions.length === 0) {
+      return [];
+    }
+
+    // Get unique member IDs and agent IDs for batch lookup
+    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
+    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+
+    // Batch fetch users data (both agents and members are in users table)
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, role')
+      .in('id', [...memberIds, ...agentIds]);
+
+    if (usersError) {
+      console.warn('[Storage] Could not fetch user details:', usersError);
+    }
+
+    // Create lookup maps
+    const usersMap = new Map((users || []).map(u => [u.id, u]));
+
+    console.log('[Storage] Sample raw commission:', {
+      id: commissions[0].id,
+      commission_amount: commissions[0].commission_amount,
+      member_id: commissions[0].member_id,
+      agent_id: commissions[0].agent_id
+    });
+    
+    // Format for frontend - transform to match expected structure
+    const formatted = commissions.map((commission: any) => {
+      const member = usersMap.get(commission.member_id);
+      const agent = usersMap.get(commission.agent_id);
+
+      return {
+        id: commission.id,
+        agentId: commission.agent_id,
+        memberId: commission.member_id,
+        enrollmentId: commission.enrollment_id,
+        commissionAmount: parseFloat(commission.commission_amount || 0),
+        coverageType: commission.coverage_type || 'other',
+        status: commission.status || 'pending',
+        paymentStatus: commission.payment_status || 'unpaid',
+        // Map member data from lookup
+        totalPlanCost: parseFloat(commission.base_premium || 0),
+        userName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`,
+        planTier: commission.coverage_type || 'N/A',
+        planType: commission.coverage_type || 'other',
+        notes: commission.notes || '',
+        createdAt: commission.created_at,
+        updatedAt: commission.updated_at,
+        paidDate: commission.paid_at,
+        // Additional fields for display
+        memberEmail: member?.email || '',
+        firstName: member?.first_name || '',
+        lastName: member?.last_name || '',
+        planName: commission.coverage_type || 'Unknown',
+        planPrice: parseFloat(commission.base_premium || 0),
+        // Agent info
+        agentEmail: agent?.email || '',
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown Agent'
+      };
+    });
+    
+    if (formatted.length > 0) {
+      console.log('[Storage] Sample formatted commission:', {
+        id: formatted[0].id,
+        commissionAmount: formatted[0].commissionAmount,
+        userName: formatted[0].userName,
+        memberEmail: formatted[0].memberEmail
       });
     }
-    
-    // Format for frontend - transform to match expected structure from OLD commission system
-    const formatted = result.rows.map((commission: any) => ({
-      id: commission.id,
-      agentId: commission.agent_id,
-      memberId: commission.member_id,
-      enrollmentId: commission.enrollment_id,
-      commissionAmount: parseFloat(commission.commission_amount || 0),
-      coverageType: commission.coverage_type,
-      status: commission.status,
-      paymentStatus: commission.payment_status,
-      // Map new fields with actual member/plan data
-      totalPlanCost: parseFloat(commission.total_monthly_price || commission.plan_price || 0),
-      userName: commission.first_name && commission.last_name 
-        ? `${commission.first_name} ${commission.last_name}` 
-        : commission.member_email || `Member ${commission.member_id}`,
-      planTier: commission.plan_name || 'N/A',
-      planType: commission.coverage_type || 'other',
-      notes: commission.notes,
-      createdAt: commission.created_at,
-      updatedAt: commission.updated_at,
-      paidDate: commission.payment_date,
-      // Additional fields for display
-      memberEmail: commission.member_email,
-      firstName: commission.first_name,
-      lastName: commission.last_name,
-      planName: commission.plan_name,
-      planPrice: parseFloat(commission.plan_price || 0)
-    }));
-    
-    console.log('[Storage] Sample formatted commission:', formatted[0]);
     return formatted;
   } catch (error: any) {
     console.error('[Storage] Error in getAgentCommissionsNew:', error);

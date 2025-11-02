@@ -1981,33 +1981,7 @@ router.get(
   },
 );
 
-router.get(
-  "/api/agent/commissions",
-  authenticateToken,
-  async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Agent or admin access required" });
-    }
-
-    try {
-      // Get agent commissions from Supabase directly
-      const { data: agentCommissions, error } = await supabase
-        .from('agent_commissions')
-        .select('*')
-        .eq('agent_id', req.user!.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      res.json(agentCommissions || []);
-    } catch (error) {
-      console.error("Error fetching commissions:", error);
-      res.status(500).json({ message: "Failed to fetch commissions" });
-    }
-  },
-);
+// Note: /api/agent/commissions route is handled later in the file with proper storage function calls
 
 // Agent member management routes
 router.get(
