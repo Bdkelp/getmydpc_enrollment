@@ -2934,6 +2934,52 @@ export async function registerRoutes(app: any) {
                   const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
                   console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
                   console.log("[Registration] Commission ID:", newCommission.id);
+                  
+                  // Check if agent has an upline and create override commission
+                  try {
+                    const { data: agentData, error: agentError } = await supabase
+                      .from('users')
+                      .select('upline_agent_id, override_commission_rate, agent_number')
+                      .eq('id', agentUser.id)
+                      .single();
+                    
+                    if (agentError) {
+                      console.error("[Registration] Could not fetch agent upline data:", agentError);
+                    } else if (agentData?.upline_agent_id && agentData.override_commission_rate > 0) {
+                      // Create override commission for upline agent
+                      const overrideCommissionData = {
+                        agent_id: agentData.upline_agent_id,
+                        member_id: member.id.toString(),
+                        enrollment_id: subscriptionId ? subscriptionId.toString() : null,
+                        commission_amount: agentData.override_commission_rate,
+                        coverage_type: coverageTypeEnum,
+                        status: 'pending',
+                        payment_status: 'unpaid',
+                        commission_type: 'override',
+                        override_for_agent_id: agentUser.id,
+                        base_premium: commissionResult.totalCost,
+                        notes: `Override commission for downline agent #${agentData.agent_number || agentUser.id} - Plan ${planName}, Coverage ${coverage}`
+                      };
+                      
+                      const { data: overrideCommission, error: overrideError } = await supabase
+                        .from('agent_commissions')
+                        .insert(overrideCommissionData)
+                        .select()
+                        .single();
+                      
+                      if (overrideError) {
+                        console.error("[Registration] ❌ Override commission creation failed:", overrideError);
+                      } else {
+                        console.log("[Registration] ✅ Override commission created: $" + agentData.override_commission_rate.toFixed(2) + " for upline agent " + agentData.upline_agent_id);
+                        console.log("[Registration] Override Commission ID:", overrideCommission.id);
+                      }
+                    } else {
+                      console.log("[Registration] No override commission - agent has no upline or override rate is $0");
+                    }
+                  } catch (overrideError) {
+                    console.error("[Registration] Exception creating override commission:", overrideError);
+                    // Don't fail registration if override commission fails
+                  }
                 }
               } catch (commError) {
                 console.error("[Registration] Exception creating commission:", commError);
