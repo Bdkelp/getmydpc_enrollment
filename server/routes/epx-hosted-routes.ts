@@ -237,25 +237,18 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             });
           }
 
-          // Update commission status when payment succeeds
+          // Mark commission payment as captured (14-day grace period before payout)
           if (result.isApproved && payment.metadata?.memberId) {
             try {
-              console.log('[EPX Callback] Looking up commission for member:', payment.metadata.memberId);
-              const commission = await storage.getCommissionByMemberId(payment.metadata.memberId);
-              
-              if (commission) {
-                console.log('[EPX Callback] Updating commission status:', commission.id);
-                await storage.updateCommission(commission.id, {
-                  status: 'active',
-                  paymentStatus: 'paid',
-                  paidDate: new Date()
-                });
-                console.log('[EPX Callback] ✅ Commission marked as paid');
-              } else {
-                console.log('[EPX Callback] ⚠️  No unpaid commission found for member:', payment.metadata.memberId);
-              }
+              console.log('[EPX Callback] Marking commission payment captured for member:', payment.metadata.memberId);
+              await storage.markCommissionPaymentCaptured(
+                payment.metadata.memberId.toString(),
+                result.transactionId,
+                result.transactionId
+              );
+              console.log('[EPX Callback] ✅ Commission payment captured - eligible for payout in 14 days');
             } catch (commError: any) {
-              console.error('[EPX Callback] Error updating commission:', commError);
+              console.error('[EPX Callback] Error marking commission payment captured:', commError);
               // Don't fail the payment if commission update fails
             }
           }

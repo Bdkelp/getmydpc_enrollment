@@ -2198,7 +2198,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       notes: commission.notes,
       createdAt: commission.created_at,
       updatedAt: commission.updated_at,
-      paidDate: commission.paid_at
+      paidDate: commission.payment_date // Fix: use payment_date not paid_at
     }));
   } catch (error: any) {
     console.error('[Storage] Error in getAgentCommissionsNew:', error);
@@ -2245,6 +2245,92 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
   } catch (error: any) {
     console.error('[Storage] Error in getAllCommissionsNew:', error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
+  }
+}
+
+export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('agent_commissions')
+      .update({
+        payment_status: 'paid',
+        payment_date: paymentDate || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .in('id', commissionIds);
+
+    if (error) {
+      throw new Error(`Failed to mark commissions as paid: ${error.message}`);
+    }
+
+    console.log(`[Storage] Marked ${commissionIds.length} commission(s) as paid`);
+  } catch (error: any) {
+    console.error('[Storage] Error in markCommissionsAsPaid:', error);
+    throw new Error(`Failed to mark commissions as paid: ${error.message}`);
+  }
+}
+
+export async function markCommissionPaymentCaptured(
+  memberId: string, 
+  paymentIntentId: string,
+  transactionId?: string
+): Promise<void> {
+  try {
+    // Calculate eligible payout date (14 days from now)
+    const capturedAt = new Date();
+    const eligibleDate = new Date(capturedAt);
+    eligibleDate.setDate(eligibleDate.getDate() + 14);
+
+    const { error} = await supabase
+      .from('agent_commissions')
+      .update({
+        payment_captured: true,
+        payment_intent_id: paymentIntentId,
+        payment_captured_at: capturedAt.toISOString(),
+        eligible_for_payout_at: eligibleDate.toISOString(),
+        status: 'approved', // Move from pending to approved once payment captured
+        updated_at: new Date().toISOString()
+      })
+      .eq('member_id', memberId)
+      .eq('payment_captured', false); // Only update if not already captured
+
+    if (error) {
+      console.error('[Storage] Error marking commission payment as captured:', error);
+      throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+    }
+
+    console.log(`[Storage] ✅ Commission payment captured for member ${memberId}, eligible for payout on ${eligibleDate.toISOString().split('T')[0]}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in markCommissionPaymentCaptured:', error);
+    throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+  }
+}
+
+export async function clawbackCommission(
+  commissionId: string,
+  reason: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('agent_commissions')
+      .update({
+        is_clawed_back: true,
+        clawback_reason: reason,
+        clawback_date: new Date().toISOString(),
+        payment_status: 'unpaid', // Revert to unpaid
+        status: 'cancelled', // Mark as cancelled
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', commissionId);
+
+    if (error) {
+      throw new Error(`Failed to clawback commission: ${error.message}`);
+    }
+
+    console.log(`[Storage] ⚠️  Commission ${commissionId} clawed back: ${reason}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in clawbackCommission:', error);
+    throw new Error(`Failed to clawback commission: ${error.message}`);
   }
 }
 

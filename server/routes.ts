@@ -3432,6 +3432,48 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Admin: Get all commissions
+  app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { startDate, endDate } = req.query;
+      const commissions = await storage.getAllCommissionsNew(
+        startDate as string,
+        endDate as string
+      );
+      
+      res.json(commissions);
+    } catch (error: any) {
+      console.error('Error fetching all commissions:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions' });
+    }
+  });
+
+  // Admin: Mark commissions as paid
+  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionIds, paymentDate } = req.body;
+
+      if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
+        return res.status(400).json({ error: 'Commission IDs are required' });
+      }
+
+      await storage.markCommissionsAsPaid(commissionIds, paymentDate);
+      
+      res.json({ success: true, message: `${commissionIds.length} commission(s) marked as paid` });
+    } catch (error: any) {
+      console.error('Error marking commissions as paid:', error);
+      res.status(500).json({ error: 'Failed to mark commissions as paid' });
+    }
+  });
+
   app.get('/api/admin/login-sessions', authMiddleware, async (req: any, res: any) => {
     try {
       console.log("🔍 LOGIN SESSIONS ROUTE HIT");

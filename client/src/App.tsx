@@ -19,6 +19,7 @@ import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
 import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
+import AdminCommissions from "@/pages/admin-commissions";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
@@ -90,6 +91,7 @@ function Router() {
               <Route path="/admin/leads" component={AdminLeads} />
               <Route path="/admin/enrollments" component={AdminEnrollments} />
               <Route path="/admin/users" component={AdminUsers} />
+              <Route path="/admin/commissions" component={AdminCommissions} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
