@@ -18,9 +18,8 @@ DROP VIEW IF EXISTS public.agent_commissions_with_details CASCADE;
 -- Get your actual definition from: 
 -- SELECT pg_get_viewdef('public.agent_commissions_with_details'::regclass, true)
 -- Then replace the SELECT below with that definition
-CREATE OR REPLACE VIEW public.agent_commissions_with_details AS
-  SELECT 
-    ac.id,
+CREATE VIEW public.agent_commissions_with_details WITH (security_barrier=false) AS
+SELECT ac.id,
     ac.agent_id,
     ac.member_id,
     ac.enrollment_id,
@@ -28,11 +27,11 @@ CREATE OR REPLACE VIEW public.agent_commissions_with_details AS
     ac.payment_status,
     ac.created_at,
     ac.updated_at,
-    u.email as agent_email,
-    u.first_name as agent_first_name,
-    u.last_name as agent_last_name
-  FROM public.agent_commissions ac
-  LEFT JOIN public.users u ON ac.agent_id = u.id;
+    u.email AS agent_email,
+    u.first_name AS agent_first_name,
+    u.last_name AS agent_last_name
+   FROM agent_commissions ac
+     LEFT JOIN users u ON ac.agent_id = u.id::text;
 
 -- FIX 2: Remove SECURITY DEFINER from agent_downlines view
 -- Step 1: Check current view definition
@@ -44,20 +43,30 @@ DROP VIEW IF EXISTS public.agent_downlines CASCADE;
 -- Get your actual definition from:
 -- SELECT pg_get_viewdef('public.agent_downlines'::regclass, true)
 -- Then replace the SELECT below with that definition
-CREATE OR REPLACE VIEW public.agent_downlines AS
-  SELECT 
-    parent.id as parent_agent_id,
-    child.id as downline_agent_id,
-    parent.email as parent_email,
-    child.email as downline_email,
+CREATE VIEW public.agent_downlines WITH (security_barrier=false) AS
+SELECT parent.id AS parent_agent_id,
+    child.id AS downline_agent_id,
+    parent.email AS parent_email,
+    child.email AS downline_email,
     child.first_name,
     child.last_name
-  FROM public.users parent
-  LEFT JOIN public.users child ON child.upline_agent_id = parent.id
-  WHERE parent.role = 'agent';
+   FROM users parent
+     LEFT JOIN users child ON child.upline_agent_id = parent.id::text
+  WHERE parent.role::text = 'agent'::text;
+
+-- Change view ownership to postgres to remove SECURITY DEFINER implications
+ALTER VIEW public.agent_commissions_with_details OWNER TO postgres;
+ALTER VIEW public.agent_downlines OWNER TO postgres;
 
 -- FIX 3: Enable RLS on agent_hierarchy_history table
 ALTER TABLE public.agent_hierarchy_history ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "admins_can_view_all_hierarchy_history" ON public.agent_hierarchy_history;
+DROP POLICY IF EXISTS "agents_can_view_own_hierarchy_history" ON public.agent_hierarchy_history;
+DROP POLICY IF EXISTS "only_admins_modify_hierarchy_history" ON public.agent_hierarchy_history;
+DROP POLICY IF EXISTS "only_admins_update_hierarchy_history" ON public.agent_hierarchy_history;
+DROP POLICY IF EXISTS "only_admins_delete_hierarchy_history" ON public.agent_hierarchy_history;
 
 -- Create policies to control access
 -- Policy 1: Admins can see all history
@@ -99,6 +108,13 @@ CREATE POLICY "only_admins_delete_hierarchy_history" ON public.agent_hierarchy_h
 
 -- FIX 4: Enable RLS on agent_override_config table
 ALTER TABLE public.agent_override_config ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "admins_can_view_all_override_configs" ON public.agent_override_config;
+DROP POLICY IF EXISTS "agents_can_view_own_override_configs" ON public.agent_override_config;
+DROP POLICY IF EXISTS "only_admins_can_insert_override_configs" ON public.agent_override_config;
+DROP POLICY IF EXISTS "only_admins_can_update_override_configs" ON public.agent_override_config;
+DROP POLICY IF EXISTS "only_admins_can_delete_override_configs" ON public.agent_override_config;
 
 -- Create policies to control access
 -- Policy 1: Admins can see all override configs
