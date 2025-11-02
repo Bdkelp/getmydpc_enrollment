@@ -58,6 +58,7 @@ export const users = pgTable("users", {
   registrationUserAgent: text("registration_user_agent"), // Track user agent
   suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
   enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
+  createdBy: varchar("created_by"), // UUID of admin who created this user (audit trail)
   // Authentication fields
   username: varchar("username"),
   passwordHash: text("password_hash"),

@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
 import { 
   Users, 
   DollarSign, 
@@ -61,6 +62,7 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
   const [agentNumberInput, setAgentNumberInput] = useState('');
+  const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
 
   // Test authentication
   useEffect(() => {
@@ -669,7 +671,15 @@ export default function Admin() {
         <Card className="mb-8">
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => setCreateUserDialogOpen(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-2 text-blue-600" />
+                <span className="text-blue-600">Create User Account</span>
+              </Button>
               <Button 
                 className="w-full justify-start" 
                 variant="outline"

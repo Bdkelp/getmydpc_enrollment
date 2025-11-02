@@ -364,6 +364,211 @@ router.post('/api/auth/logout', async (req, res) => {
   }
 });
 
+// ============================================
+// ADMIN USER CREATION ENDPOINT
+// ============================================
+
+/**
+ * Create a new user account as an admin
+ * POST /api/admin/create-user
+ * 
+ * This endpoint allows admins to create user accounts directly from the app
+ * with automatic audit trail (created_by field tracks which admin created the user)
+ */
+router.post('/api/admin/create-user', async (req, res) => {
+  try {
+    const { email, firstName, lastName, password, role } = req.body;
+    const authHeader = req.headers.authorization;
+
+    // ============================================
+    // AUTHENTICATION CHECK
+    // ============================================
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No authentication token provided' });
+    }
+
+    const token = authHeader.substring(7);
+
+    // Verify token with Supabase
+    const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !adminUser) {
+      console.error('[Admin Create User] Token verification failed:', authError?.message);
+      return res.status(401).json({ message: 'Invalid or expired token' });
+    }
+
+    // Get admin user from database
+    const adminDbUser = await storage.getUser(adminUser.id);
+
+    if (!adminDbUser) {
+      return res.status(401).json({ message: 'Admin user not found' });
+    }
+
+    // ============================================
+    // PERMISSION CHECK
+    // ============================================
+    if (adminDbUser.role !== 'admin' && adminDbUser.role !== 'super_admin') {
+      console.warn(`[Admin Create User] Unauthorized attempt by ${adminDbUser.email} with role ${adminDbUser.role}`);
+      return res.status(403).json({ 
+        message: 'Only admins can create user accounts',
+        code: 'INSUFFICIENT_PERMISSIONS'
+      });
+    }
+
+    // ============================================
+    // INPUT VALIDATION
+    // ============================================
+    if (!email || !firstName || !lastName || !role) {
+      return res.status(400).json({
+        message: 'Email, first name, last name, and role are required',
+        code: 'MISSING_REQUIRED_FIELDS'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        message: 'Invalid email format',
+        code: 'INVALID_EMAIL'
+      });
+    }
+
+    // Validate role
+    if (!['admin', 'agent', 'user'].includes(role)) {
+      return res.status(400).json({
+        message: 'Role must be one of: admin, agent, user',
+        code: 'INVALID_ROLE'
+      });
+    }
+
+    // ============================================
+    // CHECK EMAIL UNIQUENESS
+    // ============================================
+    const existingUser = await storage.getUserByEmail(email);
+    if (existingUser) {
+      console.warn(`[Admin Create User] Email already exists: ${email}`);
+      return res.status(409).json({
+        message: 'Email already exists',
+        code: 'EMAIL_EXISTS'
+      });
+    }
+
+    // Also check Supabase Auth
+    const { data: supabaseUser } = await supabase.auth.admin.listUsers();
+    const emailExists = supabaseUser?.users?.some(u => u.email?.toLowerCase() === email.toLowerCase());
+    if (emailExists) {
+      console.warn(`[Admin Create User] Email exists in Supabase Auth: ${email}`);
+      return res.status(409).json({
+        message: 'Email already exists',
+        code: 'EMAIL_EXISTS'
+      });
+    }
+
+    // ============================================
+    // GENERATE TEMPORARY PASSWORD IF NOT PROVIDED
+    // ============================================
+    const finalPassword = password || generateTemporaryPassword();
+
+    // ============================================
+    // CREATE USER IN SUPABASE AUTH
+    // ============================================
+    console.log(`[Admin Create User] Creating Supabase Auth user: ${email}`);
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
+      email,
+      password: finalPassword,
+      email_confirm: true, // Auto-confirm email for admin-created users
+      user_metadata: {
+        firstName,
+        lastName,
+        email,
+        createdBy: adminUser.id,
+        createdByAdmin: adminDbUser.email
+      }
+    });
+
+    if (signUpError || !signUpData.user) {
+      console.error('[Admin Create User] Supabase Auth creation failed:', signUpError);
+      return res.status(400).json({
+        message: signUpError?.message || 'Failed to create user in authentication system',
+        code: 'AUTH_CREATION_FAILED'
+      });
+    }
+
+    // ============================================
+    // CREATE USER IN DATABASE WITH AUDIT TRAIL
+    // ============================================
+    console.log(`[Admin Create User] Creating database user record: ${email}`);
+
+    const dbUser = await storage.createUser({
+      id: signUpData.user.id,
+      email,
+      firstName,
+      lastName,
+      role,
+      isActive: true,
+      approvalStatus: 'approved', // Admin-created users are auto-approved
+      emailVerified: true, // Already verified by admin creation
+      createdBy: adminUser.id, // AUDIT TRAIL: Track which admin created this user
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
+
+    // ============================================
+    // RETURN SUCCESS RESPONSE
+    // ============================================
+    res.json({
+      success: true,
+      message: 'User account created successfully',
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.firstName,
+        lastName: dbUser.lastName,
+        role: dbUser.role,
+        createdAt: dbUser.createdAt,
+        createdBy: dbUser.createdBy,
+        approvalStatus: dbUser.approvalStatus,
+        emailVerified: dbUser.emailVerified
+      },
+      temporaryPassword: password ? undefined : finalPassword, // Return temp password only if we generated it
+      adminCreatedBy: {
+        id: adminDbUser.id,
+        email: adminDbUser.email,
+        name: `${adminDbUser.firstName} ${adminDbUser.lastName}`
+      }
+    });
+  } catch (error: any) {
+    console.error('[Admin Create User] Error:', error);
+    res.status(500).json({
+      message: 'Failed to create user account',
+      code: 'SERVER_ERROR',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Generate a temporary password
+ * Format: Adjective + Noun + RandomNumber + SpecialChar
+ * Example: BlueRaven42!
+ */
+function generateTemporaryPassword(): string {
+  const adjectives = ['Blue', 'Green', 'Bright', 'Swift', 'Calm', 'Mighty', 'Quick', 'Smart', 'Cool', 'Happy'];
+  const nouns = ['Eagle', 'Tiger', 'Phoenix', 'Raven', 'Falcon', 'Dragon', 'Lion', 'Wolf', 'Bear', 'Fox'];
+  const specialChars = ['!', '@', '#', '$', '%'];
+  
+  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const number = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+  const specialChar = specialChars[Math.floor(Math.random() * specialChars.length)];
+  
+  return `${adjective}${noun}${number}${specialChar}`;
+}
+
 // Helper function to determine user role based on email
 function determineUserRole(email: string): string {
   const adminEmails = [
