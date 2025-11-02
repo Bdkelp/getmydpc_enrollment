@@ -3404,6 +3404,39 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Agent: Get commission totals (MTD, YTD, Lifetime)
+  app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent or admin access required' });
+      }
+
+      const agentId = req.user.id;
+      const totals = await storage.getCommissionTotals(agentId);
+      
+      res.json(totals);
+    } catch (error: any) {
+      console.error('Error fetching commission totals:', error);
+      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
+  // Admin: Get all commission totals with agent breakdown
+  app.get('/api/admin/commission-totals', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const totals = await storage.getCommissionTotals(); // No agent ID = get all
+      
+      res.json(totals);
+    } catch (error: any) {
+      console.error('Error fetching admin commission totals:', error);
+      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
   // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
   // Dynamic routes like :agentId catch everything if they come first
   app.get("/api/agent/:agentId", async (req: any, res: any) => {

@@ -201,6 +201,7 @@ export interface IStorage {
   // NEW: Agent Commissions table functions (using new clean schema)
   getAgentCommissionsNew(agent_Id: string, start_Date?: string, endDate?: string): Promise<any[]>;
   getAllCommissionsNew(start_Date?: string, endDate?: string): Promise<any[]>;
+  getCommissionTotals(agentId?: string): Promise<any>;
 
   // Analytics
   getAnalytics(): Promise<any>;
@@ -2589,6 +2590,139 @@ export async function updateAgentHierarchy(
   }
 }
 
+export async function getCommissionTotals(agentId?: string): Promise<{
+  mtd: { earned: number; paid: number; pending: number };
+  ytd: { earned: number; paid: number; pending: number };
+  lifetime: { earned: number; paid: number; pending: number };
+  byAgent?: Array<{ agentId: string; agentName: string; mtd: number; ytd: number; lifetime: number }>;
+}> {
+  try {
+    console.log('[Storage] Calculating commission totals for agent:', agentId);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    // First day of current month
+    const mtdStart = new Date(currentYear, currentMonth, 1).toISOString();
+    // First day of current year
+    const ytdStart = new Date(currentYear, 0, 1).toISOString();
+    // Today
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+    let query = supabase
+      .from('agent_commissions')
+      .select('commission_amount, payment_status, created_at, agent_id');
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    const { data: allCommissions, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to get commission totals: ${error.message}`);
+    }
+
+    // Helper to calculate totals from commissions array
+    const calculateTotals = (commissions: any[]) => {
+      let earned = 0;
+      let paid = 0;
+      let pending = 0;
+
+      commissions.forEach((commission: any) => {
+        const amount = parseFloat(commission.commission_amount?.toString() || '0');
+        earned += amount;
+        
+        if (commission.payment_status === 'paid') {
+          paid += amount;
+        } else {
+          pending += amount;
+        }
+      });
+
+      return {
+        earned: parseFloat(earned.toFixed(2)),
+        paid: parseFloat(paid.toFixed(2)),
+        pending: parseFloat(pending.toFixed(2))
+      };
+    };
+
+    // Filter commissions by date range
+    const mtdCommissions = (allCommissions || []).filter((c: any) => 
+      new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
+    );
+
+    const ytdCommissions = (allCommissions || []).filter((c: any) =>
+      new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
+    );
+
+    console.log('[Storage] MTD commissions:', mtdCommissions.length, 'YTD commissions:', ytdCommissions.length);
+
+    const result: any = {
+      mtd: calculateTotals(mtdCommissions),
+      ytd: calculateTotals(ytdCommissions),
+      lifetime: calculateTotals(allCommissions || [])
+    };
+
+    // If no specific agent requested, also get breakdown by agent
+    if (!agentId && allCommissions && allCommissions.length > 0) {
+      // Get unique agent IDs
+      const agentIds = [...new Set((allCommissions || []).map(c => c.agent_id).filter(Boolean))];
+
+      // Fetch agent details
+      const { data: agents } = await supabase
+        .from('users')
+        .select('id, first_name, last_name')
+        .in('id', agentIds);
+
+      const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
+
+      // Calculate totals per agent
+      result.byAgent = agentIds.map(aid => {
+        const agentCommissions = (allCommissions || []).filter(c => c.agent_id === aid);
+        const agent = agentsMap.get(aid);
+        const agentName = agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : `Agent ${aid}`;
+
+        const mtdTotal = calculateTotals(
+          agentCommissions.filter((c: any) => 
+            new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
+          )
+        );
+
+        const ytdTotal = calculateTotals(
+          agentCommissions.filter((c: any) =>
+            new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
+          )
+        );
+
+        const lifetimeTotal = calculateTotals(agentCommissions);
+
+        return {
+          agentId: aid,
+          agentName,
+          mtd: mtdTotal.earned,
+          ytd: ytdTotal.earned,
+          lifetime: lifetimeTotal.earned
+        };
+      }).sort((a, b) => b.lifetime - a.lifetime); // Sort by lifetime earnings descending
+    }
+
+    console.log('[Storage] Commission totals calculated:', {
+      mtd: result.mtd.earned,
+      ytd: result.ytd.earned,
+      lifetime: result.lifetime.earned
+    });
+
+    return result;
+  } catch (error: any) {
+    console.error('[Storage] Error calculating commission totals:', error);
+    throw new Error(`Failed to get commission totals: ${error.message}`);
+  }
+}
+
 export async function getCommissionStatsNew(agentId?: string): Promise<{ 
   totalEarned: number; 
   totalPending: number; 
@@ -3288,6 +3422,7 @@ export const storage = {
   // NEW: Agent Commissions table functions
   getAgentCommissionsNew,
   getAllCommissionsNew,
+  getCommissionTotals,
   getCommissionStatsNew,
 
   // Login session methods
