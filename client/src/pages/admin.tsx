@@ -431,6 +431,18 @@ export default function Admin() {
                   Database Viewer
                 </Button>
               </Link>
+              <Link href="/admin/commissions">
+                <Button variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50">
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Commissions
+                </Button>
+              </Link>
+              <Link href="/admin/agent-hierarchy">
+                <Button variant="outline" className="border-indigo-500 text-indigo-600 hover:bg-indigo-50">
+                  <Users className="h-4 w-4 mr-2" />
+                  Agent Hierarchy
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="outline">
                   <Users className="h-4 w-4 mr-2" />
