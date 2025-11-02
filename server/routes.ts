@@ -3548,6 +3548,91 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Admin: Update single commission payout
+  app.post('/api/admin/commission/:commissionId/payout', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionId } = req.params;
+      const { paymentStatus, paymentDate, notes } = req.body;
+
+      if (!paymentStatus) {
+        return res.status(400).json({ error: 'Payment status is required' });
+      }
+
+      if (!['paid', 'pending', 'unpaid'].includes(paymentStatus)) {
+        return res.status(400).json({ error: 'Invalid payment status' });
+      }
+
+      const result = await storage.updateCommissionPayoutStatus(commissionId, {
+        paymentStatus,
+        paymentDate,
+        notes
+      });
+
+      res.json({ success: true, commission: result });
+    } catch (error: any) {
+      console.error('Error updating commission payout:', error);
+      res.status(500).json({ error: 'Failed to update commission payout', details: error.message });
+    }
+  });
+
+  // Admin: Batch update commission payouts
+  app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { updates } = req.body;
+
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return res.status(400).json({ error: 'Updates array is required' });
+      }
+
+      // Validate updates
+      for (const update of updates) {
+        if (!update.commissionId || !update.paymentStatus) {
+          return res.status(400).json({ error: 'Each update must have commissionId and paymentStatus' });
+        }
+        if (!['paid', 'pending', 'unpaid'].includes(update.paymentStatus)) {
+          return res.status(400).json({ error: `Invalid payment status: ${update.paymentStatus}` });
+        }
+      }
+
+      await storage.updateMultipleCommissionPayouts(updates);
+
+      res.json({ success: true, message: `${updates.length} commission(s) payout updated` });
+    } catch (error: any) {
+      console.error('Error batch updating commissions:', error);
+      res.status(500).json({ error: 'Failed to batch update commissions', details: error.message });
+    }
+  });
+
+  // Admin: Get commissions for payout management
+  app.get('/api/admin/commissions/payout-list', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { agentId, paymentStatus, minAmount } = req.query;
+
+      const commissions = await storage.getCommissionsForPayout(
+        agentId as string,
+        paymentStatus as string,
+        minAmount ? parseFloat(minAmount as string) : undefined
+      );
+
+      res.json(commissions);
+    } catch (error: any) {
+      console.error('Error fetching commissions for payout:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions for payout', details: error.message });
+    }
+  });
+
   // Admin: Get agent hierarchy
   app.get('/api/admin/agents/hierarchy', authMiddleware, async (req: any, res: any) => {
     try {
