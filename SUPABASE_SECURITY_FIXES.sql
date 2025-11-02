@@ -11,14 +11,10 @@
 -- Query: SELECT pg_get_viewdef('public.agent_commissions_with_details', true);
 
 -- Step 2: Drop and recreate the view WITHOUT SECURITY DEFINER
--- IMPORTANT: You must replace the SELECT statement with your actual view definition
 DROP VIEW IF EXISTS public.agent_commissions_with_details CASCADE;
 
--- Recreate WITHOUT SECURITY DEFINER - Copy your exact SELECT statement here
--- Get your actual definition from: 
--- SELECT pg_get_viewdef('public.agent_commissions_with_details'::regclass, true)
--- Then replace the SELECT below with that definition
-CREATE VIEW public.agent_commissions_with_details WITH (security_barrier=false) AS
+-- Recreate WITHOUT SECURITY DEFINER
+CREATE VIEW public.agent_commissions_with_details AS
 SELECT ac.id,
     ac.agent_id,
     ac.member_id,
@@ -40,10 +36,8 @@ SELECT ac.id,
 -- Step 2: Drop and recreate WITHOUT SECURITY DEFINER
 DROP VIEW IF EXISTS public.agent_downlines CASCADE;
 
--- Get your actual definition from:
--- SELECT pg_get_viewdef('public.agent_downlines'::regclass, true)
--- Then replace the SELECT below with that definition
-CREATE VIEW public.agent_downlines WITH (security_barrier=false) AS
+-- Recreate WITHOUT SECURITY DEFINER
+CREATE VIEW public.agent_downlines AS
 SELECT parent.id AS parent_agent_id,
     child.id AS downline_agent_id,
     parent.email AS parent_email,
