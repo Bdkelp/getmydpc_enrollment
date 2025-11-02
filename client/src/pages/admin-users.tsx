@@ -637,6 +637,18 @@ export default function AdminUsers() {
                   </div>
                 </TableCell>
                 <TableCell>
+                  {user.createdBy && user.createdByAdmin ? (
+                    <div className="flex flex-col text-sm">
+                      <span className="font-medium text-gray-900">
+                        {user.createdByAdmin.firstName} {user.createdByAdmin.lastName}
+                      </span>
+                      <span className="text-gray-500 text-xs">{user.createdByAdmin.email}</span>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 text-sm">Self-registered</span>
+                  )}
+                </TableCell>
+                <TableCell>
                   {user.createdAt ? (() => {
                     try {
                       const date = new Date(user.createdAt);
