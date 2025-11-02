@@ -2421,6 +2421,184 @@ export async function markCommissionsAsPaid(commissionIds: string[], paymentDate
   }
 }
 
+export async function updateCommissionPayoutStatus(
+  commissionId: string,
+  payoutData: {
+    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentDate?: string;
+    notes?: string;
+  }
+): Promise<any> {
+  try {
+    console.log('[Storage] Updating commission payout status:', commissionId, payoutData);
+
+    const updatePayload: any = {
+      payment_status: payoutData.paymentStatus,
+      updated_at: new Date().toISOString()
+    };
+
+    // If marking as paid, set the payment date
+    if (payoutData.paymentStatus === 'paid') {
+      updatePayload.paid_at = payoutData.paymentDate || new Date().toISOString();
+    }
+
+    // Add notes if provided
+    if (payoutData.notes) {
+      updatePayload.notes = payoutData.notes;
+    }
+
+    const { data, error } = await supabase
+      .from('agent_commissions')
+      .update(updatePayload)
+      .eq('id', commissionId)
+      .select();
+
+    if (error) {
+      throw new Error(`Failed to update commission payout status: ${error.message}`);
+    }
+
+    console.log('[Storage] Commission payout status updated successfully');
+    return data?.[0] || null;
+  } catch (error: any) {
+    console.error('[Storage] Error in updateCommissionPayoutStatus:', error);
+    throw new Error(`Failed to update commission payout status: ${error.message}`);
+  }
+}
+
+export async function updateMultipleCommissionPayouts(
+  updates: Array<{
+    commissionId: string;
+    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentDate?: string;
+  }>
+): Promise<void> {
+  try {
+    console.log('[Storage] Batch updating commission payouts for', updates.length, 'commissions');
+
+    // Process updates in batches of 100 to avoid hitting rate limits
+    const batchSize = 100;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+
+      // Update each commission individually (Supabase doesn't support batch conditional updates)
+      await Promise.all(
+        batch.map(update => {
+          const updatePayload: any = {
+            payment_status: update.paymentStatus,
+            updated_at: new Date().toISOString()
+          };
+
+          if (update.paymentStatus === 'paid') {
+            updatePayload.paid_at = update.paymentDate || new Date().toISOString();
+          }
+
+          return supabase
+            .from('agent_commissions')
+            .update(updatePayload)
+            .eq('id', update.commissionId);
+        })
+      );
+    }
+
+    console.log('[Storage] Batch payout update completed');
+  } catch (error: any) {
+    console.error('[Storage] Error in updateMultipleCommissionPayouts:', error);
+    throw new Error(`Failed to batch update commission payouts: ${error.message}`);
+  }
+}
+
+export async function getCommissionsForPayout(
+  agentId?: string,
+  paymentStatus?: string,
+  minAmount?: number
+): Promise<any[]> {
+  try {
+    console.log('[Storage] Fetching commissions for payout:', { agentId, paymentStatus, minAmount });
+
+    let query = supabase
+      .from('agent_commissions')
+      .select(`
+        id,
+        agent_id,
+        member_id,
+        enrollment_id,
+        commission_amount,
+        coverage_type,
+        status,
+        payment_status,
+        paid_at,
+        created_at,
+        updated_at,
+        base_premium,
+        notes
+      `);
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    if (paymentStatus) {
+      query = query.eq('payment_status', paymentStatus);
+    }
+
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to get commissions for payout: ${error.message}`);
+    }
+
+    // Filter by minimum amount if specified
+    let filtered = commissions || [];
+    if (minAmount) {
+      filtered = filtered.filter(c => parseFloat(c.commission_amount || '0') >= minAmount);
+    }
+
+    // Get agent and member details
+    const agentIds = [...new Set(filtered.map((c: any) => c.agent_id).filter(Boolean))];
+    const memberIds = [...new Set(filtered.map((c: any) => c.member_id).filter(Boolean))];
+
+    const { data: agents } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', agentIds);
+
+    const { data: members } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', memberIds);
+
+    const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
+    const membersMap = new Map(members?.map(m => [m.id, m]) || []);
+
+    // Enhance with agent and member details
+    const enhanced = filtered.map((commission: any) => {
+      const agent = agentsMap.get(commission.agent_id);
+      const member = membersMap.get(commission.member_id);
+
+      return {
+        ...commission,
+        commissionAmount: parseFloat(commission.commission_amount || '0'),
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown',
+        agentEmail: agent?.email || '',
+        memberName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || 'Unknown',
+        memberEmail: member?.email || '',
+        formattedAmount: `$${parseFloat(commission.commission_amount || '0').toFixed(2)}`,
+        isPaid: commission.payment_status === 'paid'
+      };
+    });
+
+    console.log('[Storage] Found', enhanced.length, 'commissions for payout');
+    return enhanced;
+  } catch (error: any) {
+    console.error('[Storage] Error in getCommissionsForPayout:', error);
+    throw new Error(`Failed to get commissions for payout: ${error.message}`);
+  }
+}
+
 export async function markCommissionPaymentCaptured(
   memberId: string, 
   paymentIntentId: string,
