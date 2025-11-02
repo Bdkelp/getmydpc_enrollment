@@ -23,7 +23,6 @@ import {
   XCircle,
   Clock,
   Shield,
-  Database,
   BarChart
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -425,12 +424,6 @@ export default function Admin() {
                 <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 text-xs sm:text-sm">
                   <BarChart className="h-4 w-4 mr-1 sm:mr-2" />
                   <span className="truncate">Analytics</span>
-                </Button>
-              </Link>
-              <Link href="/admin/data">
-                <Button variant="outline" className="w-full border-purple-500 text-purple-600 hover:bg-purple-50 text-xs sm:text-sm">
-                  <Database className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Database</span>
                 </Button>
               </Link>
               <Link href="/admin/commissions">
