@@ -1,0 +1,161 @@
+-- ========================================================================
+-- Supabase Security Linter Fixes
+-- ========================================================================
+-- These fixes address the Supabase security linter errors:
+-- 1. Remove SECURITY DEFINER from views (use caller's permissions)
+-- 2. Enable RLS on public tables
+-- ========================================================================
+
+-- ========================================================================
+-- FIX 1: Remove SECURITY DEFINER from agent_commissions_with_details view
+-- ========================================================================
+-- SECURITY DEFINER causes the view to run with creator's permissions
+-- which bypasses RLS policies. Views should use caller's permissions instead.
+
+-- Step 1: Drop the view (this will drop dependent views/objects too)
+DROP VIEW IF EXISTS public.agent_commissions_with_details CASCADE;
+
+-- Step 2: Recreate WITHOUT SECURITY DEFINER
+-- Copy your original view definition but REMOVE the "SECURITY DEFINER" clause
+-- Example (adjust based on your actual view definition):
+CREATE VIEW public.agent_commissions_with_details AS
+  SELECT 
+    ac.id,
+    ac.agent_id,
+    ac.member_id,
+    ac.enrollment_id,
+    ac.commission_amount,
+    ac.payment_status,
+    ac.created_at,
+    ac.updated_at,
+    u.email as agent_email,
+    u.first_name as agent_first_name,
+    u.last_name as agent_last_name
+  FROM public.agent_commissions ac
+  LEFT JOIN public.users u ON ac.agent_id = u.id;
+
+-- ========================================================================
+-- FIX 2: Remove SECURITY DEFINER from agent_downlines view
+-- ========================================================================
+DROP VIEW IF EXISTS public.agent_downlines CASCADE;
+
+-- Step 2: Recreate WITHOUT SECURITY DEFINER
+-- Copy your original view definition but REMOVE the "SECURITY DEFINER" clause
+CREATE VIEW public.agent_downlines AS
+  SELECT 
+    parent.id as parent_agent_id,
+    child.id as downline_agent_id,
+    parent.email as parent_email,
+    child.email as downline_email,
+    child.first_name,
+    child.last_name
+  FROM public.users parent
+  LEFT JOIN public.users child ON child.upline_agent_id = parent.id
+  WHERE parent.role = 'agent';
+
+-- ========================================================================
+-- FIX 3: Enable RLS on agent_hierarchy_history table
+-- ========================================================================
+ALTER TABLE public.agent_hierarchy_history ENABLE ROW LEVEL SECURITY;
+
+-- Create policies to control access
+-- Policy 1: Admins can see all history
+CREATE POLICY "admins_can_view_all_hierarchy_history" ON public.agent_hierarchy_history
+  FOR SELECT
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- Policy 2: Agents can see their own hierarchy changes
+CREATE POLICY "agents_can_view_own_hierarchy_history" ON public.agent_hierarchy_history
+  FOR SELECT
+  USING (
+    agent_id = auth.uid() OR
+    upline_agent_id = auth.uid() OR
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- Policy 3: Only admins can insert/update/delete history (audit trail)
+CREATE POLICY "only_admins_modify_hierarchy_history" ON public.agent_hierarchy_history
+  FOR INSERT
+  WITH CHECK (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+CREATE POLICY "only_admins_update_hierarchy_history" ON public.agent_hierarchy_history
+  FOR UPDATE
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  )
+  WITH CHECK (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+CREATE POLICY "only_admins_delete_hierarchy_history" ON public.agent_hierarchy_history
+  FOR DELETE
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- ========================================================================
+-- FIX 4: Enable RLS on agent_override_config table
+-- ========================================================================
+ALTER TABLE public.agent_override_config ENABLE ROW LEVEL SECURITY;
+
+-- Create policies to control access
+-- Policy 1: Admins can see all override configs
+CREATE POLICY "admins_can_view_all_override_configs" ON public.agent_override_config
+  FOR SELECT
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- Policy 2: Agents can see their own override configs
+CREATE POLICY "agents_can_view_own_override_configs" ON public.agent_override_config
+  FOR SELECT
+  USING (
+    agent_id = auth.uid() OR
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- Policy 3: Only admins can insert/update/delete override configs
+CREATE POLICY "only_admins_can_insert_override_configs" ON public.agent_override_config
+  FOR INSERT
+  WITH CHECK (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+CREATE POLICY "only_admins_can_update_override_configs" ON public.agent_override_config
+  FOR UPDATE
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  )
+  WITH CHECK (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+CREATE POLICY "only_admins_can_delete_override_configs" ON public.agent_override_config
+  FOR DELETE
+  USING (
+    (SELECT role FROM public.users WHERE id = auth.uid()) = 'admin'
+  );
+
+-- ========================================================================
+-- IMPORTANT: After running these fixes:
+-- 1. Test that views still work correctly with the new permissions
+-- 2. Verify RLS policies don't break existing queries
+-- 3. Re-run Supabase linter to confirm all errors are resolved
+-- ========================================================================
+
+-- Verify RLS is enabled on all tables
+SELECT tablename, rowsecurity FROM pg_tables 
+WHERE schemaname = 'public' 
+AND tablename IN ('agent_hierarchy_history', 'agent_override_config')
+ORDER BY tablename;
+
+-- List all policies on the tables
+SELECT schemaname, tablename, policyname, permissive, roles, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public'
+AND tablename IN ('agent_hierarchy_history', 'agent_override_config')
+ORDER BY tablename, policyname;
