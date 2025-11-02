@@ -1,4 +1,6 @@
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
 
 // Load environment variables from .env file FIRST
 // Deployment: Fixed phone field lengths to handle formatted input
@@ -136,9 +138,14 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  const isProduction = process.env.NODE_ENV === "production";
+  const hasDistFolder = fs.existsSync(path.resolve(process.cwd(), "dist", "public"));
+  
+  if (!isProduction || !hasDistFolder) {
+    // Development or Vercel (which needs Vite for serving frontend)
     await setupVite(app, server);
   } else {
+    // Production with built static files
     serveStatic(app);
   }
 
