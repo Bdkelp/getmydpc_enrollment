@@ -3308,9 +3308,20 @@ export async function registerRoutes(app: any) {
       }
 
       const agentId = req.user.id;
+      console.log('[Agent Stats] Fetching stats for agent:', agentId);
 
       // Get enrollment counts
       const enrollments = await storage.getAgentEnrollments(agentId);
+      console.log('[Agent Stats] Enrollments count:', enrollments.length);
+      if (enrollments.length > 0) {
+        console.log('[Agent Stats] Sample enrollment:', {
+          id: enrollments[0].id,
+          email: enrollments[0].email,
+          isActive: enrollments[0].isActive,
+          createdAt: enrollments[0].createdAt
+        });
+      }
+      
       const thisMonth = new Date();
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
@@ -3324,6 +3335,7 @@ export async function registerRoutes(app: any) {
 
       // Get commission stats from NEW agent_commissions table
       const commissionStats = await storage.getCommissionStatsNew(agentId);
+      console.log('[Agent Stats] Commission stats:', commissionStats);
       
       // Get monthly commissions (this month only)
       const startOfMonth = thisMonth.toISOString().split('T')[0];
@@ -3333,10 +3345,19 @@ export async function registerRoutes(app: any) {
         startOfMonth,
         today
       );
+      console.log('[Agent Stats] Monthly commissions count:', monthlyCommissions.length);
       
       const monthlyCommission = monthlyCommissions.reduce((sum, c) => {
         return sum + (parseFloat(c.commissionAmount?.toString() || '0'));
       }, 0);
+      
+      console.log('[Agent Stats] Final stats being sent:', {
+        totalEnrollments: enrollments.length,
+        monthlyEnrollments,
+        activeMembers: enrollments.filter((e) => e.isActive).length,
+        totalCommission: commissionStats.totalEarned,
+        monthlyCommission: parseFloat(monthlyCommission.toFixed(2))
+      });
 
       res.json({
         totalEnrollments: enrollments.length,

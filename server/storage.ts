@@ -946,6 +946,21 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
 
     const result = await query(sql, params);
     
+    console.log('[Storage] getEnrollmentsByAgent - Query params:', { agentId, startDate, endDate });
+    console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
+    if (result.rows.length > 0) {
+      console.log('[Storage] getEnrollmentsByAgent - Sample raw data:', {
+        id: result.rows[0].id,
+        email: result.rows[0].email,
+        first_name: result.rows[0].first_name,
+        plan_name: result.rows[0].plan_name,
+        plan_price: result.rows[0].plan_price,
+        commission_amount: result.rows[0].commission_amount,
+        commission_status: result.rows[0].commission_status,
+        enrolled_by_agent_id: result.rows[0].enrolled_by_agent_id
+      });
+    }
+    
     // Map member data to User format for compatibility, including plan and commission data
     return result.rows.map((row: any) => ({
       id: row.id.toString(),
