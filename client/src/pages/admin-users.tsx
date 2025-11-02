@@ -156,10 +156,10 @@ export default function AdminUsers() {
 
   // Fetch DPC members (from Neon database)
   const { data: dpcMembersData, isLoading: membersLoading, error: membersError } = useQuery({
-    queryKey: ['/api/admin/dpc-members'],
+    queryKey: ['/api/admin/members'],
     queryFn: async () => {
       console.log('[AdminUsers] Fetching DPC members...');
-      const data = await apiRequest('/api/admin/dpc-members');
+      const data = await apiRequest('/api/admin/members');
       console.log('[AdminUsers] Fetched DPC members:', data);
       return data;
     },
