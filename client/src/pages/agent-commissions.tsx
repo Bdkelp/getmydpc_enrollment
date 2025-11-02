@@ -112,6 +112,46 @@ export default function AgentCommissions() {
     }
   };
 
+  // Safe array handling for commissions data with comprehensive checks
+  const safeCommissions = useMemo(() => {
+    return Array.isArray(commissions) ? commissions : [];
+  }, [commissions]);
+
+  // Safe stats object with defaults and null checks
+  const safeStats = useMemo(() => {
+    return {
+      totalEarned: (stats && typeof stats.totalEarned === 'number') ? stats.totalEarned : 0,
+      totalPending: (stats && typeof stats.totalPending === 'number') ? stats.totalPending : 0,
+      totalPaid: (stats && typeof stats.totalPaid === 'number') ? stats.totalPaid : 0
+    };
+  }, [stats]);
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'active':
+        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
+      case 'cancelled':
+        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      default:
+        return <Badge>{status}</Badge>;
+    }
+  };
+
+  const getPaymentBadge = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return <Badge className="bg-blue-100 text-blue-800">Paid</Badge>;
+      case 'unpaid':
+        return <Badge className="bg-gray-100 text-gray-800">Unpaid</Badge>;
+      case 'cancelled':
+        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+      default:
+        return <Badge>{status}</Badge>;
+    }
+  };
+
   // Show errors if any
   if (statsError || commissionsError) {
     console.error('[AgentCommissions] Query errors:', { statsError, commissionsError });
@@ -142,46 +182,6 @@ export default function AgentCommissions() {
       </div>
     );
   }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
-      case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
-
-  const getPaymentBadge = (status: string) => {
-    switch (status) {
-      case 'paid':
-        return <Badge className="bg-blue-100 text-blue-800">Paid</Badge>;
-      case 'unpaid':
-        return <Badge className="bg-gray-100 text-gray-800">Unpaid</Badge>;
-      case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
-
-  // Safe array handling for commissions data with comprehensive checks
-  const safeCommissions = useMemo(() => {
-    return Array.isArray(commissions) ? commissions : [];
-  }, [commissions]);
-
-  // Safe stats object with defaults and null checks
-  const safeStats = useMemo(() => {
-    return {
-      totalEarned: (stats && typeof stats.totalEarned === 'number') ? stats.totalEarned : 0,
-      totalPending: (stats && typeof stats.totalPending === 'number') ? stats.totalPending : 0,
-      totalPaid: (stats && typeof stats.totalPaid === 'number') ? stats.totalPaid : 0
-    };
-  }, [stats]);
 
   return (
     <div className="min-h-screen bg-gray-50">
