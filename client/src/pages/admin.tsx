@@ -394,54 +394,54 @@ export default function Admin() {
               <p className="text-gray-600 mt-1">Manage users, plans, and system settings</p>
             </div>
             
-            {/* Responsive Navigation Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+            {/* Responsive Navigation Grid - 4x2 layout (8 buttons) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Link href="/registration">
-                <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 text-xs sm:text-sm">
-                  <UserPlus className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Enroll</span>
+                <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 h-20 flex flex-col items-center justify-center">
+                  <UserPlus className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Enroll Member</span>
                 </Button>
               </Link>
               <Button variant="outline" 
-                      className="w-full border-orange-500 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm"
+                      className="w-full border-orange-500 text-orange-600 hover:bg-orange-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/leads')}>
-                <Users className="h-4 w-4 mr-1 sm:mr-2" />
-                <span className="truncate">Leads</span>
+                <Users className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Leads</span>
               </Button>
               <Button variant="outline" 
-                      className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm"
+                      className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/enrollments')}>
-                <Users className="h-4 w-4 mr-1 sm:mr-2" />
-                <span className="truncate">Enrollments</span>
+                <Users className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Enrollments</span>
               </Button>
               <Button variant="outline" 
-                      className="w-full border-red-500 text-red-600 hover:bg-red-50 text-xs sm:text-sm"
+                      className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/users')}>
-                <Shield className="h-4 w-4 mr-1 sm:mr-2" />
-                <span className="truncate">Users</span>
+                <Shield className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Users</span>
               </Button>
               <Link href="/admin/analytics">
-                <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 text-xs sm:text-sm">
-                  <BarChart className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Analytics</span>
+                <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 h-20 flex flex-col items-center justify-center">
+                  <BarChart className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Analytics</span>
                 </Button>
               </Link>
               <Link href="/admin/commissions">
-                <Button variant="outline" className="w-full border-emerald-500 text-emerald-600 hover:bg-emerald-50 text-xs sm:text-sm">
-                  <DollarSign className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Commissions</span>
+                <Button variant="outline" className="w-full border-emerald-500 text-emerald-600 hover:bg-emerald-50 h-20 flex flex-col items-center justify-center">
+                  <DollarSign className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Commissions</span>
                 </Button>
               </Link>
               <Link href="/admin/agent-hierarchy">
-                <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 text-xs sm:text-sm">
-                  <Users className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Hierarchy</span>
+                <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
+                  <Users className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Agent Hierarchy</span>
                 </Button>
               </Link>
               <Link href="/agent">
-                <Button variant="outline" className="w-full text-xs sm:text-sm">
-                  <Users className="h-4 w-4 mr-1 sm:mr-2" />
-                  <span className="truncate">Agent View</span>
+                <Button variant="outline" className="w-full border-gray-500 text-gray-600 hover:bg-gray-50 h-20 flex flex-col items-center justify-center">
+                  <Users className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Agent View</span>
                 </Button>
               </Link>
             </div>
