@@ -20,13 +20,24 @@ const safeApiRequest = async (url: string, options: any = {}) => {
     const baseUrl = import.meta.env.VITE_API_URL || window.location.origin;
     const fullUrl = url.startsWith('http') ? url : `${baseUrl}${url}`;
     
+    // Get auth token from Supabase session
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+    } catch (error) {
+      console.warn('[SessionManager] Could not get auth token:', error);
+    }
+    
     const response = await fetch(fullUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('supabase.auth.token')}`,
-        ...options.headers,
-      },
+      headers,
       ...options,
     });
     
