@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -143,12 +143,12 @@ export default function AgentCommissions() {
   };
 
   // Safe array handling for commissions data with comprehensive checks
-  const safeCommissions = React.useMemo(() => {
+  const safeCommissions = useMemo(() => {
     return Array.isArray(commissions) ? commissions : [];
   }, [commissions]);
 
   // Safe stats object with defaults and null checks
-  const safeStats = React.useMemo(() => {
+  const safeStats = useMemo(() => {
     return {
       totalEarned: (stats && typeof stats.totalEarned === 'number') ? stats.totalEarned : 0,
       totalPending: (stats && typeof stats.totalPending === 'number') ? stats.totalPending : 0,
