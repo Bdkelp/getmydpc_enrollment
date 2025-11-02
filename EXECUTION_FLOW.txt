@@ -1,0 +1,172 @@
+EXECUTION FLOW & VERIFICATION PLAN
+===================================
+
+PHASE 1: EXECUTE (Now)
+┌─────────────────────────────────────────────┐
+│ Copy SUBABASE_SECURITY_FIXES.sql (197 lines)│
+│ ↓                                           │
+│ Paste into Supabase SQL Editor              │
+│ ↓                                           │
+│ Click Execute button                        │
+│ ↓                                           │
+│ Wait 10-30 seconds for completion           │
+│ ↓                                           │
+│ ✅ All queries show "Query successful"      │
+└─────────────────────────────────────────────┘
+
+WHAT EXECUTES:
+1. DROP VIEW IF EXISTS agent_commissions_with_details
+2. CREATE VIEW agent_commissions_with_details (no SECURITY DEFINER)
+3. ALTER VIEW agent_commissions_with_details OWNER TO postgres
+4. DROP VIEW IF EXISTS agent_downlines
+5. CREATE VIEW agent_downlines (no SECURITY DEFINER)
+6. ALTER VIEW agent_downlines OWNER TO postgres
+7. ALTER TABLE agent_hierarchy_history ENABLE ROW LEVEL SECURITY
+8. DROP POLICY IF EXISTS (5 times) on agent_hierarchy_history
+9. CREATE POLICY (5 times) on agent_hierarchy_history
+10. ALTER TABLE agent_override_config ENABLE ROW LEVEL SECURITY
+11. DROP POLICY IF EXISTS (5 times) on agent_override_config
+12. CREATE POLICY (5 times) on agent_override_config
+13. VERIFY Query 1: SELECT tablename, rowsecurity FROM pg_tables
+14. VERIFY Query 2: SELECT schemaname, tablename, policyname, permissive, roles, qual, with_check FROM pg_policies
+15. VERIFY Query 3: SELECT schemaname, viewname, pg_get_viewdef(viewname::regclass, true) FROM pg_views
+
+PHASE 2: VERIFY (After execution)
+┌─────────────────────────────────────────────┐
+│ Check Verification Query 1 Results:         │
+│ ✅ agent_hierarchy_history = t              │
+│ ✅ agent_override_config = t                │
+│ ↓                                           │
+│ Check Verification Query 2 Results:         │
+│ ✅ 10 rows (5 policies × 2 tables)          │
+│ ✅ All PERMISSIVE = true                    │
+│ ✅ All have correct USING/WITH CHECK        │
+│ ↓                                           │
+│ Check Verification Query 3 Results:         │
+│ ✅ agent_commissions_with_details           │
+│    NO "SECURITY DEFINER" in output          │
+│ ✅ agent_downlines                          │
+│    NO "SECURITY DEFINER" in output          │
+└─────────────────────────────────────────────┘
+
+PHASE 3: LINTER VERIFICATION (After verification queries pass)
+┌─────────────────────────────────────────────┐
+│ Go to Supabase Dashboard                    │
+│ ↓                                           │
+│ Navigate to: Database → Security            │
+│ ↓                                           │
+│ Click Linter (or run linter scan)           │
+│ ↓                                           │
+│ ✅ All 4 errors RESOLVED                    │
+│ ✅ Expected result: 0 errors                │
+│ ✅ Both SECURITY DEFINER errors gone        │
+└─────────────────────────────────────────────┘
+
+PHASE 4: CODE DEPLOYMENT (After linter shows 0 errors)
+┌─────────────────────────────────────────────┐
+│ Deploy server/routes.ts                     │
+│ - 7 locations with member/user fixes        │
+│ ↓                                           │
+│ Deploy server/storage.ts                    │
+│ - 3 locations with member/user fixes        │
+│ ↓                                           │
+│ ✅ Code deployed to production              │
+│ ✅ Users now display in admin panel         │
+│ ✅ Member/user architecture corrected       │
+└─────────────────────────────────────────────┘
+
+VERIFICATION CHECKLIST
+======================
+
+Pre-Execution (COMPLETED):
+☑ View definitions verified with pg_get_viewdef()
+☑ SQL syntax validated
+☑ Type casting fixed (auth.uid()::text)
+☑ Column references fixed (agent_id)
+☑ Error handling in place (DROP POLICY IF EXISTS)
+☑ View ownership commands included
+
+Execution (IN PROGRESS):
+☐ Script copied and pasted into Supabase
+☐ Execute button clicked
+☐ All queries return "Query successful"
+
+Post-Execution Verification:
+☐ Query 1: RLS enabled (both tables = t)
+☐ Query 2: 10 policies created
+☐ Query 3: Views have NO SECURITY DEFINER
+
+Linter Verification:
+☐ Linter shows 0 errors
+☐ Both SECURITY DEFINER errors resolved
+
+Code Deployment:
+☐ server/routes.ts deployed (7 fixes)
+☐ server/storage.ts deployed (3 fixes)
+☐ Application tested
+☐ Users display in admin panel
+
+SUCCESS CRITERIA
+================
+
+All of the following must be true:
+✓ Script executes without errors
+✓ Verification Query 1 shows RLS enabled
+✓ Verification Query 2 shows 10 policies
+✓ Verification Query 3 shows NO SECURITY DEFINER
+✓ Supabase Linter shows 0 errors
+✓ Code changes deployed
+✓ Users display correctly in admin panel
+
+ROLLBACK PLAN (If needed)
+=========================
+
+If anything fails, the script is safe because:
+1. DROP POLICY IF EXISTS prevents errors on re-run
+2. Policies can be recreated by re-running script
+3. Views can be dropped and recreated without data loss
+4. Script is idempotent (safe to run multiple times)
+
+If you need to rollback:
+- Re-run the original script (before our fixes)
+- Or run: ALTER TABLE DISABLE ROW LEVEL SECURITY on both tables
+- Or run: DROP VIEW CASCADE on both views and recreate with SECURITY DEFINER
+
+SUPPORT FILES
+=============
+
+1. SUBABASE_SECURITY_FIXES.sql
+   - Main script to execute
+   - 197 lines, production-ready
+   - Includes all 4 fixes + 3 verification queries
+
+2. SUBABASE_EXECUTION_GUIDE.md
+   - Detailed step-by-step instructions
+   - Expected success indicators
+   - Troubleshooting guide
+
+3. EXECUTION_CHECKLIST.md
+   - Track execution progress
+   - Verify each step
+   - Success criteria
+
+4. READY_TO_EXECUTE.txt
+   - Quick start reference
+
+5. THIS FILE (EXECUTION_FLOW.txt)
+   - Visual flow diagram
+   - Verification plan
+
+NEXT IMMEDIATE STEP
+===================
+
+Execute SUBABASE_SECURITY_FIXES.sql in Supabase SQL Editor NOW!
+
+Steps:
+1. Copy: SUBABASE_SECURITY_FIXES.sql
+2. Paste: Into Supabase SQL Editor
+3. Execute: Click Execute button
+4. Verify: Check 3 verification queries
+5. Report: Share verification results
+
+Once verified, we'll confirm linter shows 0 errors, then deploy code changes.
