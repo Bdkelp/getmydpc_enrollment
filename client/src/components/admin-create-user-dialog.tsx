@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useAuth } from '@/context/AuthContext';
 import { X, AlertCircle, CheckCircle } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface AdminCreateUserDialogProps {
   isOpen: boolean;
@@ -10,7 +10,6 @@ interface AdminCreateUserDialogProps {
 }
 
 export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminCreateUserDialogProps) {
-  const { session } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     firstName: '',
@@ -23,11 +22,18 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
 
   const createUserMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      // Get current session with access token
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('Not authenticated. Please log in again.');
+      }
+
       const response = await fetch('/api/admin/create-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`
+          Authorization: `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
           email: data.email.toLowerCase(),
@@ -45,7 +51,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
 
       return await response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setSuccessMessage(`User "${data.user.email}" created successfully!`);
       
       // Show temporary password if generated
