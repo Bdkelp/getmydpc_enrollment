@@ -3437,6 +3437,73 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Agent: Export commissions as CSV
+  app.get('/api/agent/export-commissions', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const { startDate, endDate } = req.query;
+      
+      // Fetch commissions for the agent
+      const commissions = await storage.getAgentCommissionsNew(
+        req.user.id,
+        startDate as string,
+        endDate as string
+      );
+
+      if (!commissions || commissions.length === 0) {
+        // Return empty CSV with headers
+        const csv = 'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status\n';
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
+        return res.send(csv);
+      }
+
+      // Build CSV header
+      const csv = [
+        'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status',
+        ...commissions.map(c => {
+          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
+          const member = c.userName || c.userId || 'Unknown';
+          const plan = c.planName || 'Unknown';
+          const type = c.planType || 'Unknown';
+          const commission = c.commissionAmount?.toFixed(2) || '0.00';
+          const cost = c.totalPlanCost?.toFixed(2) || '0.00';
+          const status = c.status || 'Unknown';
+          const paymentStatus = c.paymentStatus || 'Unknown';
+          
+          // Escape CSV values that contain commas or quotes
+          const escapeCSV = (val: string) => {
+            if (val.includes(',') || val.includes('"')) {
+              return `"${val.replace(/"/g, '""')}"`;
+            }
+            return val;
+          };
+          
+          return [
+            date,
+            escapeCSV(member),
+            escapeCSV(plan),
+            escapeCSV(type),
+            commission,
+            cost,
+            status,
+            paymentStatus
+          ].join(',');
+        })
+      ].join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
+      res.send(csv);
+    } catch (error: any) {
+      console.error('Error exporting commissions:', error);
+      res.status(500).json({ error: 'Failed to export commissions', details: error.message });
+    }
+  });
+
   // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
   // Dynamic routes like :agentId catch everything if they come first
   app.get("/api/agent/:agentId", async (req: any, res: any) => {
