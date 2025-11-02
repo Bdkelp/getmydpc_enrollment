@@ -2176,27 +2176,47 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
   try {
     console.log('[Storage] Fetching commissions from agent_commissions table for agent:', agentId);
     
-    // Direct Supabase query - agent_commissions table
-    let query = supabase
-      .from('agent_commissions')
-      .select('*')
-      .eq('agent_id', agentId);
-
+    // Query with PostgreSQL to JOIN with members and plans tables
+    let sql = `
+      SELECT 
+        ac.*,
+        m.email as member_email,
+        m.first_name,
+        m.last_name,
+        p.name as plan_name,
+        p.price as plan_price,
+        m.total_monthly_price
+      FROM agent_commissions ac
+      LEFT JOIN members m ON m.id::text = ac.member_id
+      LEFT JOIN plans p ON p.id = m.plan_id
+      WHERE ac.agent_id = $1
+    `;
+    
+    const params: any[] = [agentId];
+    let paramCount = 2;
+    
     if (startDate && endDate) {
-      query = query.gte('created_at', startDate).lte('created_at', endDate);
+      sql += ` AND ac.created_at >= $${paramCount++} AND ac.created_at <= $${paramCount++}`;
+      params.push(startDate, endDate);
     }
+    
+    sql += ' ORDER BY ac.created_at DESC';
+    
+    const result = await query(sql, params);
 
-    const { data, error } = await query.order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('[Storage] Error fetching commissions:', error);
-      throw new Error(`Failed to fetch commissions: ${error.message}`);
+    console.log('[Storage] Found', result.rows.length, 'commissions');
+    if (result.rows.length > 0) {
+      console.log('[Storage] Sample raw commission:', {
+        id: result.rows[0].id,
+        commission_amount: result.rows[0].commission_amount,
+        member_email: result.rows[0].member_email,
+        plan_name: result.rows[0].plan_name,
+        plan_price: result.rows[0].plan_price
+      });
     }
-
-    console.log('[Storage] Found', data?.length || 0, 'commissions');
     
     // Format for frontend - transform to match expected structure from OLD commission system
-    const formatted = (data || []).map(commission => ({
+    const formatted = result.rows.map((commission: any) => ({
       id: commission.id,
       agentId: commission.agent_id,
       memberId: commission.member_id,
@@ -2205,18 +2225,26 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       coverageType: commission.coverage_type,
       status: commission.status,
       paymentStatus: commission.payment_status,
-      // Map new fields to old field names for frontend compatibility
-      totalPlanCost: parseFloat(commission.base_premium || 0), // basePremium → totalPlanCost
-      userName: `Member ${commission.member_id}`, // No member name in new table, use ID
-      planTier: 'N/A', // Not stored in new table
-      planType: commission.coverage_type || 'other', // Use coverage_type as plan type
+      // Map new fields with actual member/plan data
+      totalPlanCost: parseFloat(commission.total_monthly_price || commission.plan_price || 0),
+      userName: commission.first_name && commission.last_name 
+        ? `${commission.first_name} ${commission.last_name}` 
+        : commission.member_email || `Member ${commission.member_id}`,
+      planTier: commission.plan_name || 'N/A',
+      planType: commission.coverage_type || 'other',
       notes: commission.notes,
       createdAt: commission.created_at,
       updatedAt: commission.updated_at,
-      paidDate: commission.payment_date // Fix: use payment_date not paid_at
+      paidDate: commission.payment_date,
+      // Additional fields for display
+      memberEmail: commission.member_email,
+      firstName: commission.first_name,
+      lastName: commission.last_name,
+      planName: commission.plan_name,
+      planPrice: parseFloat(commission.plan_price || 0)
     }));
     
-    console.log('[Storage] Sample commission data:', formatted[0]);
+    console.log('[Storage] Sample formatted commission:', formatted[0]);
     return formatted;
   } catch (error: any) {
     console.error('[Storage] Error in getAgentCommissionsNew:', error);
