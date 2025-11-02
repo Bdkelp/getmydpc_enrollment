@@ -1,7 +1,7 @@
 import React from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function AgentCommissions() {
   const [, setLocation] = useLocation();
