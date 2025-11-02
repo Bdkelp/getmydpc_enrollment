@@ -1134,6 +1134,19 @@ export default function Admin() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Admin Create User Dialog */}
+        <AdminCreateUserDialog 
+          isOpen={createUserDialogOpen}
+          onClose={() => setCreateUserDialogOpen(false)}
+          onUserCreated={(user) => {
+            toast({
+              title: "Success",
+              description: `User account created: ${user.email}`,
+            });
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
       </div>
     </div>
   );
