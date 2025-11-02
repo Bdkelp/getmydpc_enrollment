@@ -7,10 +7,10 @@ applyTo: "Supabase Database"
 
 ## Overview
 The Supabase database has 4 critical security issues that need to be addressed:
-1. ❌ View `agent_commissions_with_details` uses SECURITY DEFINER
-2. ❌ View `agent_downlines` uses SECURITY DEFINER  
-3. ❌ Table `agent_hierarchy_history` has RLS disabled
-4. ❌ Table `agent_override_config` has RLS disabled
+1. View `agent_commissions_with_details` uses SECURITY DEFINER
+2. View `agent_downlines` uses SECURITY DEFINER  
+3. Table `agent_hierarchy_history` has RLS disabled
+4. Table `agent_override_config` has RLS disabled
 
 ## Why These Are Problems
 
