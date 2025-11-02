@@ -59,6 +59,8 @@ interface UserType {
   isActive: boolean;
   approvalStatus: string;
   createdAt: string;
+  createdBy?: string; // UUID of admin who created this user
+  createdByAdmin?: { id: string; firstName: string; lastName: string; email: string }; // Creator info
   lastLoginAt?: string;
   emailVerified: boolean;
   subscription?: {
@@ -486,6 +488,7 @@ export default function AdminUsers() {
             <TableHead>Agent Number</TableHead>
             {showPlan && <TableHead>Plan</TableHead>}
             <TableHead>Status</TableHead>
+            <TableHead>Created By</TableHead>
             <TableHead>Joined</TableHead>
             <TableHead>Last Login</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -494,7 +497,7 @@ export default function AdminUsers() {
         <TableBody>
           {users.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={showRole ? 8 : 7} className="text-center py-8 text-gray-500">
+              <TableCell colSpan={showRole ? 9 : 8} className="text-center py-8 text-gray-500">
                 No users found in this category
               </TableCell>
             </TableRow>
