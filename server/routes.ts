@@ -2532,25 +2532,16 @@ router.get(
 
     try {
       const agentId = req.user!.id;
-      
-      console.log(`🔍 Debug - Agent ID from auth: "${agentId}"`);
-      console.log(`🔍 Debug - Agent email: "${req.user!.email}"`);
 
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
 
       // Get enrollment counts from members table (NOT users table)
       // Users table should ONLY contain agents/admins, members are in the members table
-      const { data: enrollments, error: enrollmentsError } = await supabase
+      const { data: enrollments } = await supabase
         .from('members')
         .select('*')
         .eq('enrolled_by_agent_id', agentId);
-
-      if (enrollmentsError) {
-        console.error("❌ Error fetching enrollments:", enrollmentsError);
-      }
-      
-      console.log(`🔍 Debug - Enrollments query result: ${enrollments?.length || 0} records`);
 
       const thisMonth = new Date();
       thisMonth.setDate(1);
