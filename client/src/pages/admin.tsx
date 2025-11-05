@@ -381,6 +381,18 @@ export default function Admin() {
                 <User className="mr-2 h-4 w-4" />
                 Profile
               </Button>
+              <div className="flex items-center space-x-3">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={user?.profile_image_url || undefined} alt={user?.full_name || "Admin"} />
+                  <AvatarFallback className="bg-medical-blue-600 text-white">
+                    {user?.full_name ? user.full_name.split(' ').map(n => n[0]).join('').toUpperCase() : 'AD'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium text-gray-900">{user?.full_name || 'Admin User'}</p>
+                  <p className="text-xs text-gray-500">Administrator</p>
+                </div>
+              </div>
               <Button variant="ghost" onClick={async () => {
                 const { signOut } = await import("@/lib/supabase");
                 await signOut();

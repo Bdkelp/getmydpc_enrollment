@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
@@ -158,9 +159,13 @@ export default function Profile() {
         profileImageUrl: publicUrl,
       });
 
-      // Invalidate both profile and auth queries to refresh the photo everywhere
+      // Invalidate all relevant queries to refresh the photo everywhere
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
+      
+      // Trigger a re-render by updating the form with the new image URL
+      form.setValue("profileImageUrl", publicUrl);
 
       toast({
         title: "Photo uploaded",
@@ -214,9 +219,12 @@ export default function Profile() {
               <CardContent className="space-y-4">
                 <div className="flex flex-col items-center space-y-4">
                   <Avatar className="h-32 w-32">
-                    <AvatarImage src={profile?.profileImageUrl} alt="Profile photo" />
-                    <AvatarFallback className="text-xl">
-                      {profile?.firstName?.[0]}{profile?.lastName?.[0]}
+                    <AvatarImage 
+                      src={profile?.profileImageUrl || getDefaultAvatar(user?.id || '', `${profile?.firstName || ''} ${profile?.lastName || ''}`)} 
+                      alt="Profile photo" 
+                    />
+                    <AvatarFallback className="text-xl bg-medical-blue-600 text-white">
+                      {getUserInitials(`${profile?.firstName || ''} ${profile?.lastName || ''}`)}
                     </AvatarFallback>
                   </Avatar>
 
