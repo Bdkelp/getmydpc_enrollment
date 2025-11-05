@@ -35,6 +35,14 @@ const profileSchema = z.object({
   agentNumber: z.string().optional(),
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
+  // Banking information for commission payouts
+  bankName: z.string().optional(),
+  routingNumber: z.string().optional().refine((val) => !val || /^\d{9}$/.test(val), {
+    message: "Routing number must be 9 digits"
+  }),
+  accountNumber: z.string().optional(),
+  accountType: z.string().optional(),
+  accountHolderName: z.string().optional(),
 });
 
 const passwordChangeSchema = z.object({
