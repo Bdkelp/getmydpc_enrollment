@@ -4053,8 +4053,8 @@ export const storage = {
         dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
         dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
         planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
-        // Format SSN to 9 digits (encrypt before storing)
-        ssn: memberData.ssn ? encryptSensitiveData(formatSSN(memberData.ssn)) : null,
+        // Format SSN to 9 digits (plain text storage for non-insurance DPC)
+        ssn: memberData.ssn ? formatSSN(memberData.ssn) : null,
         // Format ZIP to 5 digits
         zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
         // Ensure state is uppercase 2 chars
@@ -4195,7 +4195,7 @@ export const storage = {
         dateOfBirth: data.dateOfBirth ? formatDateMMDDYYYY(data.dateOfBirth) : undefined,
         dateOfHire: data.dateOfHire ? formatDateMMDDYYYY(data.dateOfHire) : undefined,
         planStartDate: data.planStartDate ? formatDateMMDDYYYY(data.planStartDate) : undefined,
-        ssn: data.ssn ? encryptSensitiveData(formatSSN(data.ssn)) : undefined,
+        ssn: data.ssn ? formatSSN(data.ssn) : undefined,
         zipCode: data.zipCode ? formatZipCode(data.zipCode) : undefined,
         state: data.state?.toUpperCase().slice(0, 2),
         gender: data.gender?.toUpperCase().slice(0, 1),

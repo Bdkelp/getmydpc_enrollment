@@ -722,6 +722,64 @@ router.get(
   },
 );
 
+// User login sessions endpoint
+router.get(
+  "/api/user/login-sessions",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 USER LOGIN SESSIONS ROUTE HIT - User:", req.user?.email);
+    try {
+      const { limit = "10" } = req.query;
+      console.log("✅ Calling getUserLoginSessions for user:", req.user!.id);
+      
+      const loginSessions = await storage.getUserLoginSessions(req.user!.id, parseInt(limit as string));
+      console.log("✅ Got", loginSessions?.length || 0, "login sessions for user");
+      
+      res.json(loginSessions);
+    } catch (error) {
+      console.error("❌ Error fetching user login sessions:", error);
+      res.status(500).json({ message: "Failed to fetch login sessions" });
+    }
+  },
+);
+
+// User enrollments endpoint for agents to see their enrollment activity
+router.get(
+  "/api/user/enrollments",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 USER ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    // Only agents can access their enrollments
+    if (req.user!.role !== "agent") {
+      return res.status(403).json({ 
+        message: "Access denied. Only agents can view their enrollment activity." 
+      });
+    }
+    
+    try {
+      const { startDate, endDate, limit = "20" } = req.query;
+      console.log("✅ Calling getEnrollmentsByAgent for agent:", req.user!.id);
+      
+      const enrollments = await storage.getEnrollmentsByAgent(
+        req.user!.id, 
+        startDate as string, 
+        endDate as string
+      );
+      
+      // Limit the results if specified
+      const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
+      
+      console.log("✅ Got", limitedEnrollments?.length || 0, "enrollments for agent");
+      
+      res.json(limitedEnrollments);
+    } catch (error) {
+      console.error("❌ Error fetching user enrollments:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
+    }
+  },
+);
+
 // Lead management routes
 router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {

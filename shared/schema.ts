@@ -82,6 +82,12 @@ export const users = pgTable("users", {
   ssn: varchar("ssn"),
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
+  // Banking information for commission payouts
+  bankName: varchar("bank_name"),
+  routingNumber: varchar("routing_number", { length: 9 }), // 9-digit ABA routing number
+  accountNumber: varchar("account_number"), // Bank account number
+  accountType: varchar("account_type"), // checking, savings
+  accountHolderName: varchar("account_holder_name"), // Name on the account (may differ from user name)
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

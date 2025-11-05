@@ -48,7 +48,7 @@
 - ✅ reCAPTCHA v3 protection
 - ✅ Rate limiting (5 registrations/hour)
 - ✅ Role-based access control
-- ✅ HIPAA compliance measures
+- ✅ Security measures (HIPAA compliance removed - non-insurance DPC product)
 - ✅ Audit trails
 
 ### Deployment ✅
@@ -93,7 +93,7 @@
 **Security:**
 
 - Bot Protection
-- HIPAA Compliance
+- Security & Data Protection
 - reCAPTCHA Setup
 
 **Testing:**

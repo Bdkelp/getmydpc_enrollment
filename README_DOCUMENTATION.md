@@ -26,8 +26,8 @@ Total Files: 16 Essential Guides
 2. **[AGENT_PERMISSIONS.md](AGENT_PERMISSIONS.md)** - Role-based permissions
 3. **[TEST_ACCOUNTS.md](TEST_ACCOUNTS.md)** - Test user credentials
 4. **[SECURITY_BOT_PROTECTION.md](SECURITY_BOT_PROTECTION.md)** - Bot protection & reCAPTCHA
-5. **[SECURITY_HIPAA_COMPLIANCE.md](SECURITY_HIPAA_COMPLIANCE.md)** - HIPAA compliance
-6. **[RECAPTCHA_SETUP.md](RECAPTCHA_SETUP.md)** - reCAPTCHA setup
+5. **[RECAPTCHA_SETUP.md](RECAPTCHA_SETUP.md)** - reCAPTCHA setup
+6. **[HIPAA_REMOVAL_BACKUP_PLAN.md](HIPAA_REMOVAL_BACKUP_PLAN.md)** - HIPAA compliance removal (Nov 5, 2025)
 
 ### **Testing & Guides**
 
