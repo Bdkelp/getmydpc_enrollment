@@ -482,6 +482,25 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
 
     console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
     
+    // Check if banking information is being updated for audit logging
+    const bankingFields = ['bank_name', 'routing_number', 'account_number', 'account_type', 'account_holder_name'];
+    const hasBankingUpdates = bankingFields.some(field => updateData[field] !== undefined);
+    
+    let oldBankingInfo = null;
+    if (hasBankingUpdates) {
+      // Get current banking info before update for audit trail
+      const currentUser = await getUser(id);
+      if (currentUser) {
+        oldBankingInfo = {
+          bankName: currentUser.bankName,
+          routingNumber: currentUser.routingNumber,
+          accountNumber: currentUser.accountNumber,
+          accountType: currentUser.accountType,
+          accountHolderName: currentUser.accountHolderName
+        };
+      }
+    }
+    
     // Use Supabase update - id is the UUID from Supabase Auth
     const { data, error } = await supabase
       .from('users')
@@ -489,6 +508,28 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
       .eq('id', id) // Use UUID as identifier (primary key in users table)
       .select()
       .single();
+    
+    // If banking info was updated and update was successful, log the change
+    if (hasBankingUpdates && data && oldBankingInfo) {
+      const newBankingInfo = {
+        bankName: updateData.bank_name,
+        routingNumber: updateData.routing_number,
+        accountNumber: updateData.account_number,
+        accountType: updateData.account_type,
+        accountHolderName: updateData.account_holder_name
+      };
+      
+      // Log the banking change (don't await to avoid blocking the response)
+      recordBankingInfoChange({
+        userId: id,
+        modifiedBy: id, // User is modifying their own info
+        oldBankingInfo,
+        newBankingInfo,
+        changeType: 'self_update'
+      }).catch(auditError => {
+        console.error('[Storage] Failed to log banking change audit:', auditError);
+      });
+    }
 
     if (error) {
       console.error('[Storage] updateUser error:', error);
@@ -1028,6 +1069,63 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
   } catch (error: any) {
     console.error('Error recording enrollment modification:', error);
     throw new Error(`Failed to record enrollment modification: ${error.message}`);
+  }
+}
+
+// Record banking information changes for audit trail
+export async function recordBankingInfoChange(data: {
+  userId: string;
+  modifiedBy: string;
+  oldBankingInfo: any;
+  newBankingInfo: any;
+  changeType: string;
+}): Promise<void> {
+  try {
+    const changeDetails = {
+      changeType: data.changeType,
+      oldValues: data.oldBankingInfo,
+      newValues: data.newBankingInfo,
+      timestamp: new Date().toISOString(),
+      userAgent: 'DPC Enrollment System'
+    };
+
+    await query(
+      'INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [data.userId, data.modifiedBy, 'banking_info_update', JSON.stringify(changeDetails), new Date()]
+    );
+    
+    console.log(`[Audit] Banking info change recorded for user ${data.userId} by ${data.modifiedBy}`);
+  } catch (error: any) {
+    console.error('Error recording banking info change:', error);
+    // Don't throw - banking updates should not fail due to audit logging issues
+    console.warn('Banking info update will proceed despite audit logging failure');
+  }
+}
+
+// Get banking information change history for a user
+export async function getBankingChangeHistory(userId: string): Promise<any[]> {
+  try {
+    const result = await query(
+      `SELECT 
+        id, 
+        modified_by, 
+        change_details, 
+        created_at 
+       FROM enrollment_modifications 
+       WHERE user_id = $1 AND change_type = 'banking_info_update' 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    
+    return result.rows.map(row => ({
+      id: row.id,
+      modifiedBy: row.modified_by,
+      changeDetails: row.change_details,
+      createdAt: row.created_at
+    }));
+  } catch (error: any) {
+    console.error('Error fetching banking change history:', error);
+    return [];
   }
 }
 
