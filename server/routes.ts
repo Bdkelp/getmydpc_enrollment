@@ -1245,6 +1245,75 @@ router.get(
   },
 );
 
+// Admin endpoint to view all user banking information
+router.get(
+  "/api/admin/user-banking",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 ADMIN USER BANKING ROUTE HIT - Admin:", req.user?.email);
+    
+    if (req.user!.role !== "admin") {
+      console.log("[Admin Banking API] Access denied - user role:", req.user!.role);
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      // Add CORS headers for external browser access
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+
+      console.log("[Admin Banking API] Fetching banking info for admin:", req.user!.email);
+      
+      // Get all users with banking information
+      const usersResult = await storage.getAllUsers();
+      
+      if (!usersResult || !usersResult.users) {
+        console.error("[Admin Banking API] No users data returned from storage");
+        return res.status(500).json({ message: "Failed to fetch users" });
+      }
+
+      // Filter users who have banking information and format the data
+      const usersWithBanking = usersResult.users
+        .filter(user => 
+          user.bankName || user.routingNumber || user.accountNumber || 
+          user.accountType || user.accountHolderName
+        )
+        .map(user => ({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          agentNumber: user.agentNumber,
+          role: user.role,
+          isActive: user.isActive,
+          // Banking information
+          bankName: user.bankName,
+          routingNumber: user.routingNumber,
+          accountType: user.accountType,
+          accountHolderName: user.accountHolderName,
+          // Mask account number for security (show only last 4 digits)
+          accountNumber: user.accountNumber ? 
+            `****${user.accountNumber.slice(-4)}` : null,
+          updatedAt: user.updatedAt
+        }));
+
+      console.log("[Admin Banking API] Users with banking info count:", usersWithBanking.length);
+
+      res.json({
+        users: usersWithBanking,
+        totalCount: usersWithBanking.length,
+        message: usersWithBanking.length === 0 ? "No users have banking information on file" : undefined
+      });
+    } catch (error) {
+      console.error("[Admin Banking API] Error fetching banking info:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch banking information", 
+        error: error.message 
+      });
+    }
+  },
+);
+
 router.get(
   "/api/admin/pending-users",
   authenticateToken,
