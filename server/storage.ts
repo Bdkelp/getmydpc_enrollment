@@ -164,6 +164,16 @@ export interface IStorage {
   // Enrollment modification operations
   recordEnrollmentModification(data: any): Promise<void>;
 
+  // Banking information audit operations
+  recordBankingInfoChange(data: {
+    userId: string;
+    modifiedBy: string;
+    oldBankingInfo: any;
+    newBankingInfo: any;
+    changeType: string;
+  }): Promise<void>;
+  getBankingChangeHistory(userId: string): Promise<any[]>;
+
   // Lead management operations
   createLead(lead: InsertLead): Promise<Lead>;
   getAgentLeads(agentId: string, status?: string): Promise<Lead[]>;
