@@ -12,6 +12,7 @@ import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, 
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
+import DashboardStats from "@/components/DashboardStats";
 import {
   Dialog,
   DialogContent,
