@@ -2723,8 +2723,6 @@ async function createCommissionWithCheck(
 }
 
 export async function registerRoutes(app: any) {
-  // Return the app directly - server creation handled in index.ts
-  const server = app;
 
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
@@ -4228,6 +4226,6 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/user");
   console.log("[Route] POST /api/send-confirmation-email");
 
-  // Return the server instance (not the app)
-  return server;
+  // Return the app with routes registered
+  return app;
 }
