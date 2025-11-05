@@ -63,9 +63,19 @@ export default function Profile() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // Function to navigate back to appropriate dashboard
+  const handleGoBack = () => {
+    if (user?.role === 'admin' || user?.role === 'super_admin') {
+      setLocation('/admin');
+    } else {
+      setLocation('/agent');
+    }
+  };
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ["/api/user/profile"],
@@ -203,6 +213,12 @@ export default function Profile() {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
+          <div className="flex items-center gap-4 mb-4">
+            <Button variant="ghost" onClick={handleGoBack} className="flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to {user?.role === 'admin' || user?.role === 'super_admin' ? 'Admin' : 'Agent'} Dashboard
+            </Button>
+          </div>
           <h1 className="text-3xl font-bold text-gray-900">Profile Settings</h1>
           <p className="text-gray-600 mt-2">Manage your personal information and account settings</p>
         </div>
