@@ -726,7 +726,6 @@ export default function Profile() {
                         />
                       </div>
                     )}
-                  </div>
                 </TabsContent>
 
                 {/* Banking Information Tab */}
