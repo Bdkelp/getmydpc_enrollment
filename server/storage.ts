@@ -374,7 +374,13 @@ function mapUserFromDB(data: any): User | null {
     appleId: data.apple_id || data.appleId,
     microsoftId: data.microsoft_id || data.microsoftId,
     linkedinId: data.linkedin_id || data.linkedinId,
-    twitterId: data.twitter_id || data.twitterId
+    twitterId: data.twitter_id || data.twitterId,
+    // Banking information for commission payouts
+    bankName: data.bank_name || data.bankName,
+    routingNumber: data.routing_number || data.routingNumber,
+    accountNumber: data.account_number || data.accountNumber,
+    accountType: data.account_type || data.accountType,
+    accountHolderName: data.account_holder_name || data.accountHolderName
   } as User;
 }
 
@@ -439,10 +445,28 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     
     if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
     if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
+    if (updates.middleName !== undefined) updateData.middle_name = updates.middleName;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth;
+    if (updates.gender !== undefined) updateData.gender = updates.gender;
+    if (updates.address !== undefined) updateData.address = updates.address;
+    if (updates.address2 !== undefined) updateData.address2 = updates.address2;
+    if (updates.city !== undefined) updateData.city = updates.city;
+    if (updates.state !== undefined) updateData.state = updates.state;
+    if (updates.zipCode !== undefined) updateData.zip_code = updates.zipCode;
+    if (updates.emergencyContactName !== undefined) updateData.emergency_contact_name = updates.emergencyContactName;
+    if (updates.emergencyContactPhone !== undefined) updateData.emergency_contact_phone = updates.emergencyContactPhone;
     if (updates.role !== undefined) updateData.role = updates.role;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
     if (updates.agentNumber !== undefined) updateData.agent_number = updates.agentNumber;
+    if (updates.employerName !== undefined) updateData.employer_name = updates.employerName;
+    if (updates.divisionName !== undefined) updateData.division_name = updates.divisionName;
+    // Banking information for commission payouts
+    if (updates.bankName !== undefined) updateData.bank_name = updates.bankName;
+    if (updates.routingNumber !== undefined) updateData.routing_number = updates.routingNumber;
+    if (updates.accountNumber !== undefined) updateData.account_number = updates.accountNumber;
+    if (updates.accountType !== undefined) updateData.account_type = updates.accountType;
+    if (updates.accountHolderName !== undefined) updateData.account_holder_name = updates.accountHolderName;
     
     // Ignore fields that don't exist in Supabase:
     // - lastLoginAt, approvalStatus, approvedAt, approvedBy, profileImageUrl

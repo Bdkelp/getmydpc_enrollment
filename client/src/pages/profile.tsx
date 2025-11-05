@@ -13,7 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload } from "lucide-react";
+import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload, CreditCard } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/apiClient";
 
@@ -542,6 +542,105 @@ export default function Profile() {
                               <FormLabel>Division/Department</FormLabel>
                               <FormControl>
                                 <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    )}
+
+                    {/* Banking Information for Commission Payouts */}
+                    {(user?.role === 'agent' || user?.role === 'admin') && (
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                          <CreditCard className="h-5 w-5" />
+                          Banking Information
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Add your banking details for commission payouts. All information is securely stored.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField
+                            control={form.control}
+                            name="bankName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Bank Name</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g., Chase, Bank of America" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="accountType"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Account Type</FormLabel>
+                                <Select onValueChange={field.onChange} value={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select account type" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    <SelectItem value="checking">Checking</SelectItem>
+                                    <SelectItem value="savings">Savings</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="routingNumber"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Routing Number</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    placeholder="9-digit ABA routing number" 
+                                    maxLength={9}
+                                    {...field} 
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="accountNumber"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Account Number</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    type="password"
+                                    placeholder="Bank account number" 
+                                    {...field} 
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="accountHolderName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Account Holder Name</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  placeholder="Full name as it appears on the account" 
+                                  {...field} 
+                                />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
