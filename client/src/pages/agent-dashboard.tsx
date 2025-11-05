@@ -11,6 +11,7 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import {
   Dialog,
   DialogContent,
@@ -189,9 +190,12 @@ export default function AgentDashboard() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <Avatar className="h-8 w-8 mr-3">
-                <AvatarImage src={user?.profileImageUrl} alt="Profile" />
+                <AvatarImage 
+                  src={user?.profileImageUrl || getDefaultAvatar(user?.id || '', `${user?.firstName || ''} ${user?.lastName || ''}`)} 
+                  alt="Profile" 
+                />
                 <AvatarFallback className="bg-blue-600 text-white text-sm">
-                  {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+                  {getUserInitials(`${user?.firstName || ''} ${user?.lastName || ''}`)}
                 </AvatarFallback>
               </Avatar>
               <div>
