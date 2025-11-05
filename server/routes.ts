@@ -2532,16 +2532,25 @@ router.get(
 
     try {
       const agentId = req.user!.id;
+      
+      console.log(`🔍 Debug - Agent ID from auth: "${agentId}"`);
+      console.log(`🔍 Debug - Agent email: "${req.user!.email}"`);
 
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
 
       // Get enrollment counts from members table (NOT users table)
       // Users table should ONLY contain agents/admins, members are in the members table
-      const { data: enrollments } = await supabase
+      const { data: enrollments, error: enrollmentsError } = await supabase
         .from('members')
         .select('*')
         .eq('enrolled_by_agent_id', agentId);
+
+      if (enrollmentsError) {
+        console.error("❌ Error fetching enrollments:", enrollmentsError);
+      }
+      
+      console.log(`🔍 Debug - Enrollments query result: ${enrollments?.length || 0} records`);
 
       const thisMonth = new Date();
       thisMonth.setDate(1);
@@ -2556,21 +2565,42 @@ router.get(
       // Get commission stats from Supabase
       const { data: commissions } = await supabase
         .from('agent_commissions')
-        .select('commission_amount, payment_status')
+        .select('commission_amount, payment_status, created_at')
         .eq('agent_id', agentId);
 
-      const totalCommissions = commissions?.length || 0;
-      const totalEarned = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
-      const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
+      console.log(`📊 Agent ${agentId} - Found ${commissions?.length || 0} commission records`);
+      console.log(`📊 Agent ${agentId} - Found ${enrollments?.length || 0} enrollment records`);
 
-      console.log("✅ Got agent stats for", req.user!.role);
+      const totalCommission = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
+      
+      // Calculate monthly commission (current month)
+      const monthlyCommission = commissions?.filter(
+        (c: any) => new Date(c.created_at) >= thisMonth
+      ).reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
+      
+      const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
+      
+      // Mock data for leads (placeholder)
+      const activeLeads = 0;
+      const conversionRate = enrollments?.length > 0 ? (enrollments.length / Math.max(enrollments.length + activeLeads, 1)) * 100 : 0;
+
+      console.log("✅ Agent stats calculated:", {
+        totalEnrollments: enrollments?.length || 0,
+        monthlyEnrollments,
+        totalCommission,
+        monthlyCommission,
+        activeLeads,
+        conversionRate
+      });
+
       res.json({
         totalEnrollments: enrollments?.length || 0,
         monthlyEnrollments,
-        activeMembers,
-        totalCommissions,
-        totalEarned,
-        paidCommissions
+        totalCommission,
+        monthlyCommission,
+        activeLeads,
+        conversionRate,
+        leads: []
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);
