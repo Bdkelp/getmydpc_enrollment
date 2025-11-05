@@ -158,6 +158,10 @@ export default function Profile() {
         profileImageUrl: publicUrl,
       });
 
+      // Invalidate both profile and auth queries to refresh the photo everywhere
+      queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["auth"] });
+
       toast({
         title: "Photo uploaded",
         description: "Your profile photo has been updated.",

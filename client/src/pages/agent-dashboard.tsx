@@ -10,6 +10,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
 import { format } from "date-fns";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -187,10 +188,18 @@ export default function AgentDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
-              <span className="ml-4 text-sm text-gray-500">
-                Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
-              </span>
+              <Avatar className="h-8 w-8 mr-3">
+                <AvatarImage src={user?.profileImageUrl} alt="Profile" />
+                <AvatarFallback className="bg-blue-600 text-white text-sm">
+                  {user?.firstName?.charAt(0)}{user?.lastName?.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
+                <span className="text-sm text-gray-500">
+                  Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center space-x-4">
               {user?.role === 'admin' && (
