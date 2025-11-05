@@ -726,9 +726,13 @@ export default function Profile() {
                         />
                       </div>
                     )}
+                  </div>
+                </TabsContent>
 
-                    {/* Banking Information for Commission Payouts */}
-                    {(user?.role === 'agent' || user?.role === 'admin') && (
+                {/* Banking Information Tab */}
+                <TabsContent value="banking" className="space-y-4">
+                  {/* Banking Information for Commission Payouts */}
+                  {(user?.role === 'agent' || user?.role === 'admin') && (
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                           <CreditCard className="h-5 w-5" />
@@ -825,6 +829,7 @@ export default function Profile() {
                         />
                       </div>
                     )}
+                </TabsContent>
 
                     <Button
                       type="submit"
@@ -845,6 +850,7 @@ export default function Profile() {
                     </Button>
                   </form>
                 </Form>
+              </Tabs>
               </CardContent>
             </Card>
 
