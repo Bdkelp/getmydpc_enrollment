@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload, CreditCard } from "lucide-react";
+import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload, CreditCard, ArrowLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/apiClient";
 
