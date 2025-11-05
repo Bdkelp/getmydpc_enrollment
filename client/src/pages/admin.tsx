@@ -31,6 +31,7 @@ import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import { Switch } from "@/components/ui/switch";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -383,9 +384,12 @@ export default function Admin() {
               </Button>
               <div className="flex items-center space-x-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.profile_image_url || undefined} alt={user?.full_name || "Admin"} />
+                  <AvatarImage 
+                    src={user?.profile_image_url || getDefaultAvatar(user?.id || '', user?.full_name)} 
+                    alt={user?.full_name || "Admin"} 
+                  />
                   <AvatarFallback className="bg-medical-blue-600 text-white">
-                    {user?.full_name ? user.full_name.split(' ').map(n => n[0]).join('').toUpperCase() : 'AD'}
+                    {getUserInitials(user?.full_name)}
                   </AvatarFallback>
                 </Avatar>
                 <div className="hidden sm:block">
