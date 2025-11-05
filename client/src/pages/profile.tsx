@@ -109,7 +109,7 @@ export default function Profile() {
       const { agentNumber, ...updateData } = data;
       return await apiClient.put("/api/user/profile", updateData);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Profile updated",
         description: "Your profile has been successfully updated.",
