@@ -453,6 +453,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     // Supabase users table columns: email, username, first_name, last_name, phone, role, agent_number, is_active, created_at
     const updateData: any = {};
     
+    if (updates.email !== undefined) updateData.email = updates.email;
     if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
     if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
     if (updates.middleName !== undefined) updateData.middle_name = updates.middleName;
@@ -477,9 +478,10 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     if (updates.accountNumber !== undefined) updateData.account_number = updates.accountNumber;
     if (updates.accountType !== undefined) updateData.account_type = updates.accountType;
     if (updates.accountHolderName !== undefined) updateData.account_holder_name = updates.accountHolderName;
+    if (updates.profileImageUrl !== undefined) updateData.profile_image_url = updates.profileImageUrl;
     
     // Ignore fields that don't exist in Supabase:
-    // - lastLoginAt, approvalStatus, approvedAt, approvedBy, profileImageUrl
+    // - lastLoginAt, approvalStatus, approvedAt, approvedBy
     // - googleId, facebookId, twitterId, emailVerified, etc.
     
     if (Object.keys(updateData).length === 0) {
@@ -491,6 +493,8 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     }
 
     console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
+    console.log('[Storage] updateUser: Update data keys:', Object.keys(updateData));
+    console.log('[Storage] updateUser: profileImageUrl in updates?', 'profile_image_url' in updateData);
     
     // Check if banking information is being updated for audit logging
     const bankingFields = ['bank_name', 'routing_number', 'account_number', 'account_type', 'account_holder_name'];

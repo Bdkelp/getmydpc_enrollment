@@ -620,12 +620,17 @@ router.put(
   authenticateToken,
   async (req: AuthRequest, res) => {
     try {
+      console.log('[Profile Update] Starting profile update for user:', req.user?.email);
+      console.log('[Profile Update] Request body:', JSON.stringify(req.body, null, 2));
+      
       const updateData = req.body;
       delete updateData.id; // Prevent ID modification
       delete updateData.role; // Prevent role modification via profile update
       delete updateData.createdAt; // Prevent creation date modification
       delete updateData.approvalStatus; // Prevent approval status modification
       delete updateData.agentNumber; // Prevent agent number modification via profile update
+
+      console.log('[Profile Update] Cleaned update data:', JSON.stringify(updateData, null, 2));
 
       // Validate phone number format if provided
       if (updateData.phone) {
@@ -652,11 +657,15 @@ router.put(
         }
       }
 
+      console.log('[Profile Update] Calling storage.updateUser with user ID:', req.user!.id);
       const updatedUser = await storage.updateUser(req.user!.id, {
         ...updateData,
         updatedAt: new Date(),
       });
 
+      console.log('[Profile Update] Update successful, returning user:', updatedUser ? 'found' : 'null');
+      console.log('[Profile Update] Updated user data:', JSON.stringify(updatedUser, null, 2));
+      
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating profile:", error);
