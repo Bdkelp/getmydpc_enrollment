@@ -85,7 +85,11 @@ export default function Profile() {
 
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    values: profile || {},
+    values: {
+      ...profile,
+      // Ensure agent number is populated from user auth data (read-only, system-assigned)
+      agentNumber: user?.agentNumber || profile?.agentNumber || '',
+    },
   });
 
   const passwordForm = useForm<PasswordChangeData>({
@@ -99,7 +103,9 @@ export default function Profile() {
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: ProfileFormData) => {
-      return await apiClient.put("/api/user/profile", data);
+      // Remove agent number from update data - it's system-assigned and read-only
+      const { agentNumber, ...updateData } = data;
+      return await apiClient.put("/api/user/profile", updateData);
     },
     onSuccess: () => {
       toast({
@@ -559,10 +565,18 @@ export default function Profile() {
                             name="agentNumber"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Agent Number</FormLabel>
+                                <FormLabel>{user?.role === 'admin' ? 'Admin ID' : 'Agent Number'}</FormLabel>
                                 <FormControl>
-                                  <Input {...field} readOnly={user?.role === 'agent'} />
+                                  <Input 
+                                    {...field} 
+                                    readOnly 
+                                    className="bg-gray-50 text-gray-700"
+                                    placeholder={user?.role === 'admin' ? 'Admin ID assigned by system' : 'Agent number assigned by system'}
+                                  />
                                 </FormControl>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  This {user?.role === 'admin' ? 'ID' : 'number'} is automatically assigned and cannot be changed
+                                </p>
                                 <FormMessage />
                               </FormItem>
                             )}
