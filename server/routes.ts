@@ -2556,42 +2556,21 @@ router.get(
       // Get commission stats from Supabase
       const { data: commissions } = await supabase
         .from('agent_commissions')
-        .select('commission_amount, payment_status, created_at')
+        .select('commission_amount, payment_status')
         .eq('agent_id', agentId);
 
-      console.log(`📊 Agent ${agentId} - Found ${commissions?.length || 0} commission records`);
-      console.log(`📊 Agent ${agentId} - Found ${enrollments?.length || 0} enrollment records`);
-
-      const totalCommission = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
-      
-      // Calculate monthly commission (current month)
-      const monthlyCommission = commissions?.filter(
-        (c: any) => new Date(c.created_at) >= thisMonth
-      ).reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
-      
+      const totalCommissions = commissions?.length || 0;
+      const totalEarned = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
       const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
-      
-      // Mock data for leads (placeholder)
-      const activeLeads = 0;
-      const conversionRate = enrollments?.length > 0 ? (enrollments.length / Math.max(enrollments.length + activeLeads, 1)) * 100 : 0;
 
-      console.log("✅ Agent stats calculated:", {
-        totalEnrollments: enrollments?.length || 0,
-        monthlyEnrollments,
-        totalCommission,
-        monthlyCommission,
-        activeLeads,
-        conversionRate
-      });
-
+      console.log("✅ Got agent stats for", req.user!.role);
       res.json({
         totalEnrollments: enrollments?.length || 0,
         monthlyEnrollments,
-        totalCommission,
-        monthlyCommission,
-        activeLeads,
-        conversionRate,
-        leads: []
+        activeMembers,
+        totalCommissions,
+        totalEarned,
+        paidCommissions
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);
