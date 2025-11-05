@@ -1314,6 +1314,86 @@ router.get(
   },
 );
 
+// Admin endpoint to view banking change history across all users
+router.get(
+  "/api/admin/banking-changes",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 ADMIN BANKING CHANGES ROUTE HIT - Admin:", req.user?.email);
+    
+    if (req.user!.role !== "admin") {
+      console.log("[Admin Banking Changes API] Access denied - user role:", req.user!.role);
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      // Add CORS headers for external browser access
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+
+      const { userId, limit = "50" } = req.query;
+      console.log("[Admin Banking Changes API] Fetching banking changes, userId:", userId, "limit:", limit);
+
+      let changeHistory = [];
+
+      if (userId) {
+        // Get changes for specific user
+        changeHistory = await storage.getBankingChangeHistory(userId as string);
+      } else {
+        // Get all banking changes across all users (admin overview)
+        // This would require a new storage function, for now let's get recent changes
+        const result = await storage.query(
+          `SELECT 
+            em.id, 
+            em.user_id, 
+            em.modified_by, 
+            em.change_details, 
+            em.created_at,
+            u.email,
+            u.first_name,
+            u.last_name,
+            u.agent_number
+           FROM enrollment_modifications em
+           LEFT JOIN users u ON u.id = em.user_id
+           WHERE em.change_type = 'banking_info_update' 
+           ORDER BY em.created_at DESC
+           LIMIT $1`,
+          [parseInt(limit as string)]
+        );
+        
+        changeHistory = result.rows.map(row => ({
+          id: row.id,
+          userId: row.user_id,
+          modifiedBy: row.modified_by,
+          changeDetails: row.change_details,
+          createdAt: row.created_at,
+          userInfo: {
+            email: row.email,
+            firstName: row.first_name,
+            lastName: row.last_name,
+            agentNumber: row.agent_number
+          }
+        }));
+      }
+
+      console.log("[Admin Banking Changes API] Retrieved changes count:", changeHistory.length);
+
+      res.json({
+        changes: changeHistory,
+        totalCount: changeHistory.length,
+        userId: userId || null,
+        message: changeHistory.length === 0 ? "No banking information changes found" : undefined
+      });
+    } catch (error) {
+      console.error("[Admin Banking Changes API] Error fetching banking changes:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch banking change history", 
+        error: error.message 
+      });
+    }
+  },
+);
+
 router.get(
   "/api/admin/pending-users",
   authenticateToken,
