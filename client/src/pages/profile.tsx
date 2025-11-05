@@ -105,7 +105,13 @@ export default function Profile() {
         title: "Profile updated",
         description: "Your profile has been successfully updated.",
       });
+      // Invalidate all relevant queries to refresh user data everywhere
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["auth"] });
+      queryClient.invalidateQueries({ queryKey: ["user"] });
+      
+      // Trigger auth state refresh for dashboard updates
+      await supabase.auth.refreshSession();
     },
     onError: () => {
       toast({
@@ -174,6 +180,9 @@ export default function Profile() {
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
       queryClient.invalidateQueries({ queryKey: ["auth"] });
       queryClient.invalidateQueries({ queryKey: ["user"] });
+      
+      // Trigger auth state refresh for dashboard updates
+      await supabase.auth.refreshSession();
       
       // Trigger a re-render by updating the form with the new image URL
       form.setValue("profileImageUrl", publicUrl);

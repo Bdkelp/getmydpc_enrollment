@@ -600,6 +600,7 @@ router.get(
         lastName: req.user.lastName,
         role: req.user.role,
         agentNumber: req.user.agentNumber, // Include agent number for agents and admins
+        profileImageUrl: req.user.profileImageUrl, // Include profile image for dashboard display
         subscription: activeSubscription,
         plan: planInfo,
         isActive: req.user.isActive,
