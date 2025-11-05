@@ -10,10 +10,8 @@ import {
   getPlanTypeFromMemberType,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { sendLeadNotification } from "./email";
-import { z } from "zod";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
-import { nanoid } from "nanoid"; // Import nanoid for generating IDs
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
@@ -407,25 +405,9 @@ router.post("/api/auth/login", async (req, res) => {
       name: error instanceof Error ? error.name : typeof error,
     });
     
-    // Log environment check for debugging
-    console.error("❌ [Login] Environment check:", {
-      hasSupabaseUrl: !!process.env.SUPABASE_URL,
-      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      hasDatabaseUrl: !!process.env.DATABASE_URL,
-      nodeEnv: process.env.NODE_ENV
-    });
-    
     res.status(500).json({ 
       message: "Login failed",
-      error: error instanceof Error ? error.message : String(error),
-      details: process.env.NODE_ENV === 'development' ? {
-        stack: error instanceof Error ? error.stack : undefined,
-        env: {
-          hasSupabaseUrl: !!process.env.SUPABASE_URL,
-          hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-          hasDatabaseUrl: !!process.env.DATABASE_URL
-        }
-      } : undefined
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -3212,7 +3194,7 @@ export async function registerRoutes(app: any) {
           }
         } catch (commError) {
           console.error("[Registration] Error creating commission:", commError);
-          console.error("[Registration] Commission error details:", commError.stack);
+          console.error("[Registration] Commission error details:", commError instanceof Error ? commError.stack : 'No stack trace');
           // Continue with registration even if commission creation fails
         }
       } else {
@@ -3286,7 +3268,7 @@ export async function registerRoutes(app: any) {
       res.status(statusCode).json({
         error: errorMessage,
         message: error.message,
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        details: "Internal error"
       });
     }
   });
@@ -3488,7 +3470,7 @@ export async function registerRoutes(app: any) {
       res.status(500).json({
         error: "Agent enrollment failed",
         message: error.message,
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        details: "Internal error"
       });
     }
   });
@@ -3800,7 +3782,7 @@ export async function registerRoutes(app: any) {
       console.error("[Agent Lookup] Error:", error);
       res.status(500).json({
         error: "Agent lookup failed",
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        details: "Internal error"
       });
     }
   });
