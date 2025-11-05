@@ -615,6 +615,35 @@ router.get(
   },
 );
 
+// GET user profile endpoint
+router.get(
+  "/api/user/profile",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      console.log('[Profile GET] Fetching profile for user:', req.user.email);
+      
+      // Get the full user profile including banking information
+      const userProfile = await storage.getUser(req.user.id);
+      
+      if (!userProfile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      console.log('[Profile GET] Profile data retrieved:', userProfile ? 'found' : 'null');
+      
+      res.json(userProfile);
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  },
+);
+
 router.put(
   "/api/user/profile",
   authenticateToken,
