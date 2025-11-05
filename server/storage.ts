@@ -3444,6 +3444,8 @@ export const storage = {
   getAllEnrollments,
   getEnrollmentsByAgent,
   recordEnrollmentModification,
+  recordBankingInfoChange,
+  getBankingChangeHistory,
 
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
