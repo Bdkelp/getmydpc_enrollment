@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
-import { createServer } from "http";
 import { paymentService } from "./services/payment-service";
 import { sendEnrollmentNotification } from "./utils/notifications";
 import {
@@ -2724,7 +2723,7 @@ async function createCommissionWithCheck(
 }
 
 export async function registerRoutes(app: any) {
-  // Create HTTP server instance from the Express app
+  // Return the app directly - server creation handled in index.ts
   const server = app;
 
   // Auth middleware - must be after session middleware
