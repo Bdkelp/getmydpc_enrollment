@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
+import DashboardStats from "@/components/DashboardStats";
 import { 
   Users, 
   DollarSign, 
@@ -509,34 +510,8 @@ export default function Admin() {
           </CardContent>
         </Card>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, index) => (
-            <Card key={index}>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className={`p-3 rounded-full ${stat.bgColor}`}>
-                    <stat.icon className={`${stat.iconColor} h-6 w-6`} />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                  </div>
-                </div>
-                {stat.change && (
-                  <div className="mt-4 flex items-center text-sm">
-                    <span className={`font-medium ${
-                      stat.changeType === "positive" ? "text-green-600" : "text-red-600"
-                    }`}>
-                      {stat.change}
-                    </span>
-                    <span className="text-gray-600 ml-2">from last month</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Enhanced Dashboard Stats */}
+        <DashboardStats userRole="admin" />
 
         {/* Pending Approvals Section */}
         <Card className="mb-8">
