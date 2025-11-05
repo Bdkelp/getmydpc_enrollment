@@ -24,7 +24,8 @@ import {
   XCircle,
   Clock,
   Shield,
-  BarChart
+  BarChart,
+  User
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -375,6 +376,10 @@ export default function Admin() {
                   Quiz
                 </Button>
               </Link>
+              <Button variant="ghost" onClick={() => setLocation('/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
+              </Button>
               <Button variant="ghost" onClick={async () => {
                 const { signOut } = await import("@/lib/supabase");
                 await signOut();

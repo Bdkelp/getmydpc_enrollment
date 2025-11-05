@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield } from "lucide-react";
+import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -205,6 +205,10 @@ export default function AgentDashboard() {
               >
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
+              </Button>
+              <Button variant="outline" onClick={() => setLocation('/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
               </Button>
               <Button variant="outline" onClick={async () => {
                 const { signOut } = await import("@/lib/supabase");

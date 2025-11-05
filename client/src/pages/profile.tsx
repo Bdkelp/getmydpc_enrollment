@@ -243,13 +243,21 @@ export default function Profile() {
                   </Button>
                 </div>
 
-                {user?.role === 'agent' && (
+                {(user?.role === 'agent' || user?.role === 'admin') && (
                   <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                    <h4 className="font-semibold text-blue-900 mb-2">Agency Information</h4>
+                    <h4 className="font-semibold text-blue-900 mb-2">
+                      {user?.role === 'admin' ? 'Administrative Information' : 'Agency Information'}
+                    </h4>
                     <div className="space-y-2 text-sm text-blue-800">
-                      <p><strong>Role:</strong> {user.role === 'agent' ? 'Insurance Agent' : user.role}</p>
+                      <p><strong>Role:</strong> {
+                        user.role === 'agent' ? 'Insurance Agent' : 
+                        user.role === 'admin' ? 'System Administrator' : 
+                        user.role
+                      }</p>
                       {profile?.agentNumber && (
-                        <p><strong>Agent #:</strong> {profile.agentNumber}</p>
+                        <p><strong>
+                          {user?.role === 'admin' ? 'Admin ID' : 'Agent #'}:
+                        </strong> {profile.agentNumber}</p>
                       )}
                     </div>
                   </div>

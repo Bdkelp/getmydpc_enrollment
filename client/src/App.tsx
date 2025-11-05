@@ -97,6 +97,7 @@ function Router() {
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
+              <Route path="/profile" component={Profile} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
@@ -115,6 +116,7 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
+              <Route path="/profile" component={Profile} />
               <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
