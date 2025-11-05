@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
+import { createServer } from "http";
 import { paymentService } from "./services/payment-service";
 import { sendEnrollmentNotification } from "./utils/notifications";
 import {
@@ -2710,8 +2711,16 @@ async function createCommissionWithCheck(
 
     console.log('[Commission Dual-Write] Creating commission with data:', commissionData);
 
-    // Use new dual-write commission service
-    const result = await createCommissionDualWrite(commissionData);
+    // Create commission directly in Supabase
+    const { data: newCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert(commissionData)
+      .select()
+      .single();
+
+    const result = commissionError ? 
+      { success: false, error: commissionError.message } : 
+      { success: true, agentCommissionId: newCommission.id };
     
     if (result.success) {
       console.log('[Commission Dual-Write] Success:', result);
@@ -2733,6 +2742,9 @@ async function createCommissionWithCheck(
 }
 
 export async function registerRoutes(app: any) {
+  // Create HTTP server instance from the Express app
+  const server = app;
+
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
@@ -4235,6 +4247,6 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/user");
   console.log("[Route] POST /api/send-confirmation-email");
 
-  // Return the app (routes registered)
-  return app;
+  // Return the server instance (not the app)
+  return server;
 }
