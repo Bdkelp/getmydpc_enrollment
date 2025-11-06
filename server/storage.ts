@@ -1028,6 +1028,18 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         commission_status: result.rows[0].commission_status,
         enrolled_by_agent_id: result.rows[0].enrolled_by_agent_id
       });
+      
+      // 🔍 DEBUG: Check commission JOIN separately
+      console.log('[DEBUG] Checking commission data separately...');
+      const commissionQuery = await query(`
+        SELECT ac.*, m.id as member_id, m.first_name, m.last_name 
+        FROM agent_commissions ac
+        INNER JOIN members m ON ac.member_id = m.id::text
+        WHERE ac.agent_id = $1
+        LIMIT 5
+      `, [agentId]);
+      console.log('[DEBUG] Commission records for agent:', commissionQuery.rows);
+      console.log('[DEBUG] Commission count for agent:', commissionQuery.rows.length);
     }
     
     // Map member data to User format for compatibility, including plan and commission data
