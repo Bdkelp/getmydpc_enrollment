@@ -155,6 +155,40 @@ router.get("/api/test-commission-count", async (req, res) => {
   }
 });
 
+// 🔍 DEBUG: Test commission calculation endpoint
+router.get("/api/test-commission-calc", async (req, res) => {
+  try {
+    const { calculateCommission } = await import('./commissionCalculator');
+    
+    const testCases = [
+      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false }
+    ];
+    
+    const results = testCases.map(test => {
+      const result = calculateCommission(test.plan, test.coverage, test.rxValet);
+      return {
+        input: test,
+        output: result,
+        expectedCommission: result?.commission || 0
+      };
+    });
+    
+    res.json({
+      success: true,
+      testCases: results,
+      message: 'Commission calculations tested'
+    });
+  } catch (error: any) {
+    console.error('Test commission calc error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to test commission calculations'
+    });
+  }
+});
+
 // Test endpoint for leads system
 router.get("/api/test-leads", async (req, res) => {
   try {
