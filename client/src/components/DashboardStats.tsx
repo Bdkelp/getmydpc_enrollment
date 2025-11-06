@@ -67,10 +67,10 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
 
   // Fetch enhanced stats data
   const { data: stats, isLoading, refetch } = useQuery<StatsData>({
-    queryKey: [`/api/${userRole}/enhanced-stats`, filterPeriod, customStartDate, customEndDate],
+    queryKey: [`/api/${userRole}/stats`, filterPeriod, customStartDate, customEndDate],
     queryFn: () => {
       const queryString = getQueryParams();
-      const url = `/api/${userRole}/enhanced-stats${queryString ? `?${queryString}` : ''}`;
+      const url = `/api/${userRole}/stats${queryString ? `?${queryString}` : ''}`;
       return apiRequest(url);
     },
     refetchInterval: 30000, // Refresh every 30 seconds
