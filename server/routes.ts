@@ -163,7 +163,11 @@ router.get("/api/test-commission-calc", async (req, res) => {
     const testCases = [
       { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: false },
       { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false }
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false },
+      // Test with RX Valet add-on (+$2.50 commission)
+      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: true },
+      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: true },
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: true }
     ];
     
     const results = testCases.map(test => {
