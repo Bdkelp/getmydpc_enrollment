@@ -101,6 +101,21 @@ router.get("/api/debug/users-count", async (req, res) => {
   }
 });
 
+// DIAGNOSTIC: Check Supabase connection details (NO AUTH - for debugging)
+router.get("/api/debug/supabase-config", async (req, res) => {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    res.json({
+      supabaseUrlConfigured: !!supabaseUrl,
+      supabaseUrlPreview: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'NOT SET',
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      hasAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Public test endpoint (NO AUTH - for debugging only)
 router.get("/api/public/test-leads-noauth", async (req, res) => {
   try {
