@@ -99,7 +99,7 @@ export default function AdminEnrollments() {
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
-    enabled: !!user && user.role === "admin",
+    enabled: !!user && (user.role === "admin" || user.role === "super_admin"),
   });
 
   // Fetch enrollments with filters
@@ -133,7 +133,7 @@ export default function AdminEnrollments() {
         throw error;
       }
     },
-    enabled: !!user && user.role === "admin",
+    enabled: !!user && (user.role === "admin" || user.role === "super_admin"),
     retry: (failureCount, error: any) => {
       // Don't retry on auth errors
       if (error?.message?.includes("401") || error?.message?.includes("403")) {

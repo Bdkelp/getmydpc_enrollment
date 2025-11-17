@@ -185,7 +185,7 @@ export default function Admin() {
 
   const { data: adminStats, isLoading: statsLoading, error: statsError } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // Handle stats error
@@ -204,7 +204,7 @@ export default function Admin() {
 
   const { data: usersData, isLoading: usersLoading, error: usersError, refetch } = useQuery<UserData>({
     queryKey: ["/api/admin/users"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // Handle users error
@@ -224,13 +224,13 @@ export default function Admin() {
   // Fetch pending users
   const { data: pendingUsers, isLoading: pendingLoading } = useQuery<PendingUser[]>({
     queryKey: ["/api/admin/pending-users"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // Fetch all login sessions for monitoring
   const { data: allLoginSessions = [], isLoading: sessionsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/login-sessions"],
-    enabled: isAuthenticated && user?.role === "admin",
+    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
   });
 
   // Approve user mutation

@@ -57,7 +57,7 @@ export default function AdminLeads() {
   // Fetch all leads - MUST be before any conditional returns
   const { data: leads, isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
     retry: (failureCount, error: any) => {
       logWarning('Query retry attempt', { failureCount, error: error?.message });
       if (error?.message?.includes('401') || error?.message?.includes('403')) {
@@ -102,7 +102,7 @@ export default function AdminLeads() {
   // Fetch agents for assignment - MUST be before any conditional returns
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ['/api/admin/agents'],
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
     queryFn: async () => {
       const response = await apiRequest('/api/admin/agents', {
         method: "GET"
