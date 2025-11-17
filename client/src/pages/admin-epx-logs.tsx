@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useLocation } from 'wouter';
+import { useLocation, Link } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { apiClient } from '@/lib/apiClient';
-import { Download, RefreshCw, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import { Download, RefreshCw, FileText, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
 
 interface EPXTransaction {
   transactionId: string;
@@ -212,6 +212,12 @@ export default function AdminEPXLogs() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/admin">
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Admin Dashboard
+            </Button>
+          </Link>
           <Button
             variant="outline"
             onClick={() => refetch()}
