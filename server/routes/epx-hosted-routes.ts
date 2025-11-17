@@ -524,24 +524,19 @@ router.get('/api/admin/epx-certification-logs', authenticateToken, async (req: A
     // Generate and export consolidated report
     const exportPath = certificationLogger.exportAllLogs();
 
-    res.json({
-      success: true,
-      summary: {
-        totalLogs: logsSummary.totalLogs,
-        logsDirectory: logsSummary.rawLogsDir,
-        exportedFile: exportPath,
-        instructions: [
-          'Each log file contains raw HTTP request/response data for EPX certification',
-          'Sensitive data (card numbers, auth tokens) has been masked',
-          'Submit the exported file or individual log files to EPX for certification review',
-          'Files are in .txt format for easy viewing and sharing'
-        ]
-      },
-      logFiles: logsSummary.logFiles,
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID,
-      exportedAt: new Date().toISOString(),
-      exportedBy: req.user?.email,
+    // Send the file for download
+    res.download(exportPath, `epx-certification-logs-${new Date().toISOString().split('T')[0]}.txt`, (err) => {
+      if (err) {
+        console.error('[EPX Certification] Download error:', err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            error: 'Failed to download certification logs'
+          });
+        }
+      } else {
+        console.log('[EPX Certification] ✅ File downloaded successfully');
+      }
     });
 
   } catch (error: any) {

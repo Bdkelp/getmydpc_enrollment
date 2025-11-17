@@ -73,42 +73,39 @@ export default function AdminEPXLogs() {
   const fetchCertificationLogs = async () => {
     setLoadingCertLogs(true);
     try {
-      const response = await apiClient.get('/api/admin/epx-certification-logs');
+      // Download the certification logs file directly
+      const link = document.createElement('a');
+      link.href = `${import.meta.env.VITE_API_URL || ''}/api/admin/epx-certification-logs`;
+      link.download = `epx-certification-logs-${new Date().toISOString().split('T')[0]}.txt`;
       
-      // Create a formatted text file for download
-      const content = `EPX CERTIFICATION LOGS EXPORT
-========================================
-Generated: ${new Date().toISOString()}
-Environment: ${response.environment}
-Terminal Profile ID: ${response.terminalProfileId}
-Total Log Files: ${response.summary.totalLogs}
-
-INSTRUCTIONS:
-${response.summary.instructions.map((i: string) => `• ${i}`).join('\n')}
-
-LOG FILES:
-${response.logFiles.map((f: string) => `  - ${f}`).join('\n')}
-
-========================================
-For detailed raw request/response data, please check:
-${response.summary.logsDirectory}
-
-Exported file location:
-${response.summary.exportedFile}
-`;
-
-      // Download the summary
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `epx-certification-logs-${new Date().toISOString().split('T')[0]}.txt`;
-      a.click();
-      
-      // Show success message
-      alert(`✅ Certification logs exported!\n\nTotal files: ${response.summary.totalLogs}\nLocation: ${response.summary.exportedFile}\n\nA summary has been downloaded. The full logs are available on the server.`);
+      // Add auth token to the request
+      const token = await (await import('@/lib/supabase')).supabase.auth.getSession().then(r => r.data.session?.access_token);
+      if (token) {
+        // Use fetch with auth header
+        const response = await fetch(link.href, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to download certification logs');
+        }
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = link.download;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        alert('✅ Certification logs downloaded successfully!\n\nThis file contains raw HTTP request/response data for EPX certification.\nSensitive data has been masked.\n\nSubmit this .txt file to EPX for certification review.');
+      }
     } catch (err: any) {
-      alert(`❌ Error fetching certification logs: ${err.message || 'Unknown error'}`);
+      alert(`❌ Error downloading certification logs: ${err.message || 'Unknown error'}`);
     } finally {
       setLoadingCertLogs(false);
     }
