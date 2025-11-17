@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,11 +48,25 @@ interface EPXLogsResponse {
 }
 
 export default function AdminEPXLogs() {
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [loadingCertLogs, setLoadingCertLogs] = useState(false);
 
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!authLoading) {
+      if (!user) {
+        setLocation('/login');
+      } else if (user.role !== 'admin' && user.role !== 'super_admin') {
+        setLocation('/no-access');
+      }
+    }
+  }, [user, authLoading, setLocation]);
+
   const { data, isLoading, error, refetch } = useQuery<EPXLogsResponse>({
     queryKey: ['/api/admin/epx-logs'],
+    enabled: isAuthenticated && (user?.role === 'admin' || user?.role === 'super_admin'),
     refetchInterval: autoRefresh ? 30000 : false,
   });
 
@@ -131,6 +147,23 @@ ${response.summary.exportedFile}
     };
     return variants[status] || 'default';
   };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-500" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect handled by useEffect, but show nothing while redirecting
+  if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+    return null;
+  }
 
   if (isLoading) {
     return (
