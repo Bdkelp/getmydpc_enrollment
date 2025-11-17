@@ -75,9 +75,14 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
   }
 };
 
-function determineUserRole(email: string): "admin" | "agent" | "member" {
+function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "member" {
+  // Super admin
+  if (email === 'michael@mypremierplans.com') {
+    return "super_admin";
+  }
+
+  // Admins
   const adminEmails = [
-    'michael@mypremierplans.com',
     'travis@mypremierplans.com', 
     'richard@mypremierplans.com',
     'joaquin@mypremierplans.com'
