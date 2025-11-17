@@ -316,12 +316,12 @@ export async function getUser(id: string): Promise<User | null> {
 function mapUserFromDB(data: any): User | null {
   if (!data) return null;
 
-  // Users table should ONLY contain 'admin' and 'agent' roles
+  // Users table should contain 'super_admin', 'admin', and 'agent' roles
   // Legacy 'user' or 'member' should never appear here - they belong in members table
   // If somehow a null role is found, default to 'agent' (most common)
   const normalizedRole = data.role || 'agent';
   
-  if (!['admin', 'agent'].includes(normalizedRole)) {
+  if (!['super_admin', 'admin', 'agent'].includes(normalizedRole)) {
     console.warn(`[Storage] Unexpected role "${normalizedRole}" in users table for ${data.email} - defaulting to agent`);
   }
 
