@@ -26,7 +26,8 @@ import {
   Clock,
   Shield,
   BarChart,
-  User
+  User,
+  FileText
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -461,6 +462,12 @@ export default function Admin() {
                 <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
                   <Users className="h-5 w-5 mb-1" />
                   <span className="text-sm font-medium">Agent Hierarchy</span>
+                </Button>
+              </Link>
+              <Link href="/admin/epx-logs">
+                <Button variant="outline" className="w-full border-purple-500 text-purple-600 hover:bg-purple-50 h-20 flex flex-col items-center justify-center">
+                  <FileText className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">EPX Logs</span>
                 </Button>
               </Link>
               <Link href="/agent">
