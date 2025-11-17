@@ -78,13 +78,22 @@ export function EPXPayment({
       // Create payment session with EPX
       console.log('[EPX Payment] Creating payment session for amount:', amount);
 
+      // Generate unique transaction number
+      const tranNbr = `DPC${Date.now()}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+
       const data = await apiClient.post('/api/epx/create-payment', {
         amount,
-        customerId,
-        customerEmail,
-        planId,
-        subscriptionId,
-        description: description || 'DPC Subscription Payment',
+        tranNbr,
+        customerData: {
+          email: customerEmail,
+          customerId,
+        },
+        metadata: {
+          planId,
+          subscriptionId,
+          description: description || 'DPC Subscription Payment',
+          tranGroup: 'ECOM',
+        },
         paymentMethod,
         ...(paymentMethod === 'ach' && {
           achRoutingNumber: achData.routingNumber,
@@ -170,20 +179,16 @@ export function EPXPayment({
         form.appendChild(input);
       });
 
-      console.log('[EPX Payment] Form fields being submitted:', {
-        actionUrl: form.action,
-        method: form.method,
-        fieldsCount: Object.keys(fields).length,
-        fields: { ...fields, TAC: '***MASKED***' } // Mask sensitive data
-      });
-
-      // Log the complete transaction POST details
-      console.log('[EPX Payment] === RAW TRANSACTION POST ===');
-      console.log('[EPX Payment] URL:', form.action);
+      console.log('[EPX Payment] ============ FORM SUBMISSION DEBUG ============');
+      console.log('[EPX Payment] Action URL:', form.action);
       console.log('[EPX Payment] Method:', form.method);
-      console.log('[EPX Payment] Form Data:', Object.entries(fields).map(([key, value]) => 
+      console.log('[EPX Payment] Field Count:', Object.keys(fields).length);
+      console.log('[EPX Payment] All Fields:', Object.keys(fields).join(', '));
+      console.log('[EPX Payment] Complete Fields:', JSON.stringify({ ...fields, TAC: '***MASKED***' }, null, 2));
+      console.log('[EPX Payment] Form URL-Encoded String:', Object.entries(fields).map(([key, value]) => 
         `${key}=${key === 'TAC' ? '***MASKED***' : value}`
       ).join('&'));
+      console.log('[EPX Payment] ====================================================');
       console.log('[EPX Payment] === END TRANSACTION POST ===');
 
       // Append form to body and submit

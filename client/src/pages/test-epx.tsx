@@ -28,12 +28,21 @@ export default function TestEPX() {
     try {
       console.log('[Test EPX] Creating test payment...');
       
+      // Generate unique transaction number
+      const tranNbr = `TEST${Date.now()}${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      
       const response = await apiClient.post('/api/epx/create-payment', {
         amount: parseFloat(testAmount),
-        customerId: user.id,
-        customerEmail: user.email,
-        planId: '1',
-        description: 'EPX Test Payment',
+        tranNbr,
+        customerData: {
+          email: user.email,
+          customerId: user.id,
+        },
+        metadata: {
+          planId: '1',
+          description: 'EPX Test Payment',
+          tranGroup: 'ECOM',
+        },
         paymentMethod: 'card'
       });
 

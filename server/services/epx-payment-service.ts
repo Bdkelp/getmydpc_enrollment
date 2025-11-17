@@ -132,6 +132,13 @@ export class EPXPaymentService {
   }
 
   /**
+   * Get the current EPX configuration
+   */
+  getConfig(): EPXConfig {
+    return this.config;
+  }
+
+  /**
    * Generate TAC (Terminal Authentication Code) for Browser Post API
    */
   async generateTAC(request: TACRequest): Promise<TACResponse> {
@@ -164,30 +171,6 @@ export class EPXPaymentService {
       // - EMAIL (not an EPX field)
       // - DESCRIPTION (not an EPX field)
 
-      console.log("[EPX] Sending TAC request to:", this.config.tacEndpoint);
-      console.log("[EPX] TAC payload structure check:", {
-        hasMAC: !!payload.MAC,
-        macLength: payload.MAC?.length,
-        custNbr: payload.CUST_NBR,
-        merchNbr: payload.MERCH_NBR,
-        dbaNbr: payload.DBA_NBR,
-        terminalNbr: payload.TERMINAL_NBR,
-        amount: payload.AMOUNT,
-        tranNbr: payload.TRAN_NBR,
-        tranCode: payload.TRAN_CODE,
-        redirectUrl: payload.REDIRECT_URL,
-        responseUrl: payload.RESPONSE_URL,
-        fieldsCount: Object.keys(payload).length,
-      });
-
-      // Convert to form data format - EPX expects form-encoded data
-      const formData = new URLSearchParams();
-      Object.entries(payload).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-          formData.append(key, value.toString());
-        }
-      });
-
       // Ensure required fields are present for keyExchange (not Browser Post)
       const requiredFields = ['MAC', 'AMOUNT', 'TRAN_NBR', 'REDIRECT_URL'];
       const missingFields = requiredFields.filter(field => !payload[field]);
@@ -199,10 +182,18 @@ export class EPXPaymentService {
         };
       }
 
-      console.log(
-        "[EPX] Form data string:",
-        formData.toString().replace(/MAC=[^&]*/g, "MAC=***MASKED***"),
-      );
+      // Convert to form data format - EPX expects form-encoded data
+      const formData = new URLSearchParams();
+      Object.entries(payload).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, value.toString());
+        }
+      });
+
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log("[EPX] Generating TAC for transaction:", request.tranNbr);
+      }
 
       // Retry logic for network issues
       const maxRetries = 3;
@@ -211,7 +202,9 @@ export class EPXPaymentService {
       let response: Response | null = null;
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        console.log(`[EPX] TAC generation attempt ${attempt}/${maxRetries}`);
+        if (process.env.NODE_ENV === 'development' && attempt > 1) {
+          console.log(`[EPX] TAC generation retry attempt ${attempt}/${maxRetries}`);
+        }
 
         try {
           const controller = new AbortController();
@@ -230,19 +223,6 @@ export class EPXPaymentService {
             body: formData.toString(),
             signal: controller.signal,
           };
-
-          console.log(
-            `[EPX] Request ${attempt} Content-Type:`,
-            requestOptions.headers["Content-Type"],
-          );
-
-          // Log the full request details
-          console.log(`[EPX] === RAW KEY EXCHANGE REQUEST ${attempt} ===`);
-          console.log(`[EPX] URL: ${this.config.tacEndpoint}`);
-          console.log(`[EPX] Method: POST`);
-          console.log(`[EPX] Headers:`, JSON.stringify(requestOptions.headers, null, 2));
-          console.log(`[EPX] Body (form-encoded):`, formData.toString().replace(/MAC=[^&]*/g, "MAC=***MASKED***"));
-          console.log(`[EPX] === END REQUEST ===`);
 
           response = await fetch(this.config.tacEndpoint, requestOptions).catch(
             (fetchError: any) => {
@@ -263,19 +243,9 @@ export class EPXPaymentService {
 
           clearTimeout(timeoutId);
 
-          // If we get here, the request succeeded
-          console.log(`[EPX] TAC request succeeded on attempt ${attempt}`);
-          console.log("[EPX] TAC response status:", response.status);
-
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[EPX] TAC request failed on attempt ${attempt}:`, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: Object.fromEntries(response.headers.entries()),
-              body: errorText,
-              contentType: requestOptions.headers["Content-Type"],
-            });
+            console.error(`[EPX] TAC request failed (${response.status}):`, response.statusText);
 
             // For 400 errors, provide specific guidance
             if (response.status === 400) {
@@ -322,32 +292,16 @@ export class EPXPaymentService {
           // Parse response - EPX returns XML format
           let data;
           const responseText = await response.text();
-          
-          // Log the full response details
-          console.log(`[EPX] === RAW KEY EXCHANGE RESPONSE ${attempt} ===`);
-          console.log(`[EPX] Status: ${response.status} ${response.statusText}`);
-          console.log(`[EPX] Headers:`, JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
-          console.log(`[EPX] Body:`, responseText);
-          console.log(`[EPX] === END RESPONSE ===`);
-          
-          console.log("[EPX] Raw response:", responseText);
 
           // Try to parse as JSON first, then handle XML
           try {
             data = JSON.parse(responseText);
-            console.log("[EPX] Parsed JSON response:", data);
           } catch (parseError) {
-            console.log(
-              "[EPX] Response is not JSON, parsing as XML:",
-              responseText,
-            );
-
             // Parse XML response to extract TAC
             const tacMatch = responseText.match(
               /<FIELD KEY="TAC">([^<]+)<\/FIELD>/,
             );
             if (tacMatch && tacMatch[1]) {
-              console.log("[EPX] TAC extracted from XML response");
               data = { TAC: tacMatch[1] };
             } else {
               // Check for error messages in XML
@@ -363,13 +317,16 @@ export class EPXPaymentService {
           }
 
           if (data.TAC) {
-            console.log("[EPX] TAC generated successfully");
+            // Only log success in development
+            if (process.env.NODE_ENV === 'development') {
+              console.log("[EPX] TAC generated successfully for transaction:", request.tranNbr);
+            }
             return {
               success: true,
               tac: data.TAC,
             };
           } else {
-            console.error("[EPX] TAC generation failed:", data);
+            console.error("[EPX] TAC generation failed:", data.error || "Unknown error");
             return {
               success: false,
               error: data.error || "Failed to generate TAC",
@@ -453,7 +410,7 @@ export class EPXPaymentService {
   ): { [key: string]: any } {
     // Browser Post transaction request - include ALL required fields per EPX feedback
     // IMPORTANT: EPX requires UPPERCASE field names for Browser Post API
-    const formData = {
+    const formData: any = {
       actionUrl: this.apiUrl,
       TAC: tac,  // MUST be uppercase
       // 4-part merchant key (required for Browser Post transaction)
@@ -464,7 +421,7 @@ export class EPXPaymentService {
       // Transaction details
       TRAN_CODE: "AUTH_CAPTURE", // Standard authorization and capture
       TRAN_GROUP: "ECOM", // E-commerce transaction group
-      AMOUNT: parseFloat(amount.toString()),
+      AMOUNT: parseFloat(amount.toString()).toFixed(2), // Ensure 2 decimal places
       TRAN_NBR: tranNbr,
       // URLs - Browser Post only needs REDIRECT_URL, NOT RESPONSE_URL
       REDIRECT_URL: this.config.redirectUrl,
@@ -475,23 +432,26 @@ export class EPXPaymentService {
       INDUSTRY_TYPE: "ECOMMERCE", // Full word as per EPX spec
       BATCH_ID: "1", // Simple batch ID
       RECEIPT: "Y", // Enable receipt
-      // AVS information for better interchange rates
-      ZIP_CODE: customerData?.zipCode || "",
-      ADDRESS: customerData?.address || "",
     };
 
-    console.log('[EPX Service] Browser Post form data:', {
-      actionUrl: formData.actionUrl,
-      hasTAC: !!formData.TAC,
-      tranCode: formData.TRAN_CODE,
-      tranGroup: formData.TRAN_GROUP,
-      industryType: formData.INDUSTRY_TYPE,
-      custNbr: formData.CUST_NBR,
-      merchNbr: formData.MERCH_NBR,
-      dbaNbr: formData.DBA_NBR,
-      terminalNbr: formData.TERMINAL_NBR,
-      hasAVS: !!(formData.ZIP_CODE || formData.ADDRESS)
-    });
+    // Only add AVS information if provided (don't send empty strings)
+    if (customerData?.zipCode) {
+      formData.ZIP_CODE = customerData.zipCode;
+    }
+    if (customerData?.address) {
+      formData.ADDRESS = customerData.address;
+    }
+
+    // Only log detailed form data in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[EPX Service] Browser Post form ready:', {
+        tranNbr: formData.TRAN_NBR,
+        amount: formData.AMOUNT,
+        hasTAC: !!formData.TAC,
+        hasAVS: !!(formData.ZIP_CODE || formData.ADDRESS),
+        totalFields: Object.keys(formData).length
+      });
+    }
 
     return formData;
   }
