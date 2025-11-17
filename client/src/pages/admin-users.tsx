@@ -440,7 +440,7 @@ export default function AdminUsers() {
   // Filter users by role
   const members = safeMembers; // DPC members from Neon database
   const agents = safeUsers.filter((u: UserType) => u && u.role === 'agent');
-  const admins = safeUsers.filter((u: UserType) => u && u.role === 'admin');
+  const admins = safeUsers.filter((u: UserType) => u && (u.role === 'admin' || u.role === 'super_admin'));
 
   // Search filter
   const filterBySearch = (users: UserType[]) => {
@@ -458,6 +458,8 @@ export default function AdminUsers() {
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
+      case 'super_admin':
+        return 'destructive'; // Red badge for super admin
       case 'admin':
         return 'default';
       case 'agent':
@@ -469,12 +471,27 @@ export default function AdminUsers() {
 
   const getRoleIcon = (role: string) => {
     switch (role) {
+      case 'super_admin':
+        return <Shield className="h-3 w-3 text-red-600" />;
       case 'admin':
         return <Shield className="h-3 w-3" />;
       case 'agent':
         return <UserCheck className="h-3 w-3" />;
       default:
         return <User className="h-3 w-3" />;
+    }
+  };
+
+  const getRoleDisplayName = (role: string) => {
+    switch (role) {
+      case 'super_admin':
+        return 'Super Admin';
+      case 'admin':
+        return 'Admin';
+      case 'agent':
+        return 'Agent';
+      default:
+        return role;
     }
   };
 
@@ -536,7 +553,7 @@ export default function AdminUsers() {
                         <SelectValue>
                           <div className="flex items-center gap-1">
                             {getRoleIcon(user.role)}
-                            <span className="capitalize">{user.role}</span>
+                            <span>{getRoleDisplayName(user.role)}</span>
                           </div>
                         </SelectValue>
                       </SelectTrigger>
