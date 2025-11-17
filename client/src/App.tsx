@@ -74,8 +74,8 @@ function Router() {
       {/* Confirmation page - accessible to authenticated agents/admins after payment */}
       <Route path="/confirmation" component={Confirmation} />
       <Route path="/confirmation/:userId" component={Confirmation} />
-      <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={user.role === "admin" ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
-      <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
+      <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={(user.role === "admin" || user.role === "super_admin") ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
+      <Route path="/register" component={isAuthenticated ? () => <Redirect to={(user?.role === "admin" || user?.role === "super_admin") ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/pending-approval" component={PendingApproval} />
@@ -86,7 +86,7 @@ function Router() {
       {isAuthenticated && (
         <>
           {/* Admin routes */}
-          {user?.role === "admin" && (
+          {(user?.role === "admin" || user?.role === "super_admin") && (
             <>
               <Route path="/admin" component={Admin} />
               <Route path="/admin/leads" component={AdminLeads} />
@@ -132,7 +132,7 @@ function Router() {
       )}
 
       {/* Registration requires authentication for agents/admins */}
-      <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin") ? Registration : () => <Redirect to="/login" />} />
+      <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") ? Registration : () => <Redirect to="/login" />} />
 
       {/* Catch protected routes that require authentication */}
       {!isAuthenticated && (
