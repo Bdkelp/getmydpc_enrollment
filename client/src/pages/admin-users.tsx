@@ -17,6 +17,13 @@ async function apiRequest(url: string, options: RequestInit = {}) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
 
+  console.log('[apiRequest] Auth check:', {
+    hasSession: !!session.data.session,
+    hasToken: !!token,
+    tokenPreview: token ? token.substring(0, 20) + '...' : 'NO TOKEN',
+    url
+  });
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -27,7 +34,14 @@ async function apiRequest(url: string, options: RequestInit = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    const errorText = await response.text();
+    console.error('[apiRequest] HTTP error:', {
+      status: response.status,
+      statusText: response.statusText,
+      body: errorText,
+      url
+    });
+    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
   }
 
   return response.json();
