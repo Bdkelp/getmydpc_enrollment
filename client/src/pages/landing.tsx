@@ -15,6 +15,9 @@ export default function Landing() {
   const { isAuthenticated, user } = useAuth();
   const [, setLocation] = useLocation();
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  
+  console.log('[Landing] Auth state:', { isAuthenticated, user: user?.email, role: user?.role });
+  
   const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ["/api/plans"],
   });
@@ -134,6 +137,22 @@ export default function Landing() {
                   <span className="text-sm text-gray-600">
                     Welcome, {user?.firstName || user?.email}
                   </span>
+                  {(user?.role === 'admin' || user?.role === 'super_admin') && (
+                    <Button 
+                      variant="default"
+                      onClick={() => setLocation("/admin")}
+                    >
+                      Admin Dashboard
+                    </Button>
+                  )}
+                  {user?.role === 'agent' && (
+                    <Button 
+                      variant="default"
+                      onClick={() => setLocation("/agent")}
+                    >
+                      Agent Dashboard
+                    </Button>
+                  )}
                   <Button 
                     variant="outline" 
                     onClick={async () => {
