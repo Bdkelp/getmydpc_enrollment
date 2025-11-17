@@ -43,46 +43,33 @@ export const users = pgTable("users", {
   zipCode: varchar("zip_code"),
   emergencyContactName: varchar("emergency_contact_name"),
   emergencyContactPhone: varchar("emergency_contact_phone"),
-  stripeCustomerId: varchar("stripe_customer_id").unique(),
-  stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
+  // Role & Agent Information
   role: varchar("role").default("agent"), // agent, admin, super_admin (NO "member" - members are in separate table)
   agentNumber: varchar("agent_number").notNull(), // Required for all users: MPP0001, MPP0002, etc.
   isActive: boolean("is_active").default(true),
+  // Approval Workflow
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
   approvedBy: varchar("approved_by"), // Admin who approved the user
   rejectionReason: text("rejection_reason"), // If rejected, the reason
+  // Email Verification
   emailVerified: boolean("email_verified").default(false),
   emailVerifiedAt: timestamp("email_verified_at"),
+  // Security & Bot Detection
   registrationIp: varchar("registration_ip"), // Track IP for bot detection
   registrationUserAgent: text("registration_user_agent"), // Track user agent
   suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
-  enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
+  // Audit Trail
   createdBy: varchar("created_by"), // UUID of admin who created this user (audit trail)
-  // Authentication fields
-  username: varchar("username"),
-  passwordHash: text("password_hash"),
-  emailVerificationToken: text("email_verification_token"),
-  resetPasswordToken: text("reset_password_token"),
-  resetPasswordExpiry: timestamp("reset_password_expiry"),
-  // Social login IDs
-  googleId: varchar("google_id"),
-  facebookId: varchar("facebook_id"),
-  appleId: varchar("apple_id"),
-  microsoftId: varchar("microsoft_id"),
-  linkedinId: varchar("linkedin_id"),
-  twitterId: varchar("twitter_id"),
-  // Session tracking
+  // Session Tracking
   lastLoginAt: timestamp("last_login_at"),
   lastActivityAt: timestamp("last_activity_at"),
-  // Employment information (usually not needed for agents/admins, kept for flexibility)
-  employerName: varchar("employer_name"),
-  divisionName: varchar("division_name"),
-  memberType: varchar("member_type"),
-  ssn: varchar("ssn"),
-  dateOfHire: varchar("date_of_hire"),
-  planStartDate: varchar("plan_start_date"),
-  // Banking information for commission payouts
+  // Agent Hierarchy (for downline/upline structure)
+  uplineAgentId: varchar("upline_agent_id"),
+  hierarchyLevel: integer("hierarchy_level").default(0),
+  canReceiveOverrides: boolean("can_receive_overrides").default(false),
+  overrideCommissionRate: decimal("override_commission_rate", { precision: 5, scale: 2 }).default("0"),
+  // Banking Information (for commission payouts)
   bankName: varchar("bank_name"),
   routingNumber: varchar("routing_number", { length: 9 }), // 9-digit ABA routing number
   accountNumber: varchar("account_number"), // Bank account number

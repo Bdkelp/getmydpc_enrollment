@@ -112,12 +112,6 @@ export interface IStorage {
   createUser(user: Partial<User>): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  getUserByGoogleId(googleId: string): Promise<User | undefined>;
-  getUserByFacebookId(facebookId: string): Promise<User | undefined>;
-  getUserByTwitterId(twitterId: string): Promise<User | undefined>;
-  getUserByVerificationToken(token: string): Promise<User | undefined>;
-  getUserByResetToken(token: string): Promise<User | undefined>;
   getUserByAgentNumber(agentNumber: string): Promise<User | undefined>;
 
   // Plan operations
@@ -361,30 +355,15 @@ function mapUserFromDB(data: any): User | null {
     registrationIp: data.registration_ip || data.registrationIp,
     registrationUserAgent: data.registration_user_agent || data.registrationUserAgent,
     suspiciousFlags: data.suspicious_flags || data.suspiciousFlags,
-    enrolledByAgentId: data.enrolled_by_agent_id || data.enrolledByAgentId,
-    employerName: data.employer_name || data.employerName,
-    divisionName: data.division_name || data.divisionName,
-    memberType: data.member_type || data.memberType,
-    ssn: data.ssn,
-    dateOfHire: data.date_of_hire || data.dateOfHire,
-    planStartDate: data.plan_start_date || data.planStartDate,
     createdAt: data.created_at || new Date(),
     updatedAt: data.updated_at || new Date(),
-    username: data.username,
-    passwordHash: data.password_hash || data.passwordHash,
-    emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
-    resetPasswordToken: data.reset_password_token || data.resetPasswordExpiry,
-    resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
     lastLoginAt: data.last_login_at || data.lastLoginAt,
     lastActivityAt: data.last_activity_at || data.lastActivityAt,
-    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
-    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
-    googleId: data.google_id || data.googleId,
-    facebookId: data.facebook_id || data.facebookId,
-    appleId: data.apple_id || data.appleId,
-    microsoftId: data.microsoft_id || data.microsoftId,
-    linkedinId: data.linkedin_id || data.linkedinId,
-    twitterId: data.twitter_id || data.twitterId,
+    // Agent hierarchy fields
+    uplineAgentId: data.upline_agent_id || data.uplineAgentId,
+    hierarchyLevel: data.hierarchy_level || data.hierarchyLevel || 0,
+    canReceiveOverrides: data.can_receive_overrides || data.canReceiveOverrides || false,
+    overrideCommissionRate: data.override_commission_rate || data.overrideCommissionRate || '0',
     // Banking information for commission payouts
     bankName: data.bank_name || data.bankName,
     routingNumber: data.routing_number || data.routingNumber,
@@ -470,8 +449,11 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     if (updates.role !== undefined) updateData.role = updates.role;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
     if (updates.agentNumber !== undefined) updateData.agent_number = updates.agentNumber;
-    if (updates.employerName !== undefined) updateData.employer_name = updates.employerName;
-    if (updates.divisionName !== undefined) updateData.division_name = updates.divisionName;
+    // Agent hierarchy fields
+    if (updates.uplineAgentId !== undefined) updateData.upline_agent_id = updates.uplineAgentId;
+    if (updates.hierarchyLevel !== undefined) updateData.hierarchy_level = updates.hierarchyLevel;
+    if (updates.canReceiveOverrides !== undefined) updateData.can_receive_overrides = updates.canReceiveOverrides;
+    if (updates.overrideCommissionRate !== undefined) updateData.override_commission_rate = updates.overrideCommissionRate;
     // Banking information for commission payouts
     if (updates.bankName !== undefined) updateData.bank_name = updates.bankName;
     if (updates.routingNumber !== undefined) updateData.routing_number = updates.routingNumber;
