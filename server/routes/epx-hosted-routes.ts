@@ -505,6 +505,55 @@ router.post('/api/epx/certification/toggle', (req: Request, res: Response) => {
 });
 
 /**
+ * ADMIN: Get EPX certification logs for support ticket
+ * Returns raw request/response logs formatted for EPX certification process
+ */
+router.get('/api/admin/epx-certification-logs', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin access
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    console.log('[EPX Certification] Fetching certification logs for admin:', req.user?.email);
+
+    // Get summary of certification logs
+    const logsSummary = certificationLogger.getLogsSummary();
+
+    // Generate and export consolidated report
+    const exportPath = certificationLogger.exportAllLogs();
+
+    res.json({
+      success: true,
+      summary: {
+        totalLogs: logsSummary.totalLogs,
+        logsDirectory: logsSummary.rawLogsDir,
+        exportedFile: exportPath,
+        instructions: [
+          'Each log file contains raw HTTP request/response data for EPX certification',
+          'Sensitive data (card numbers, auth tokens) has been masked',
+          'Submit the exported file or individual log files to EPX for certification review',
+          'Files are in .txt format for easy viewing and sharing'
+        ]
+      },
+      logFiles: logsSummary.logFiles,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID,
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.user?.email,
+    });
+
+  } catch (error: any) {
+    console.error('[EPX Certification] Export error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to export certification logs'
+    });
+  }
+});
+
+/**
  * ADMIN: Get EPX payment logs for support ticket
  * Retrieves all payment transactions with full details for EPX support
  */

@@ -21,6 +21,7 @@ import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
 import AdminCommissions from "@/pages/admin-commissions";
 import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
+import AdminEPXLogs from "@/pages/admin-epx-logs";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
@@ -96,6 +97,7 @@ function Router() {
               <Route path="/admin/agent-hierarchy" component={AdminAgentHierarchy} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
+              <Route path="/admin/epx-logs" component={AdminEPXLogs} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
               <Route path="/profile" component={Profile} />
               <Route path="/agent" component={AgentDashboard} />
