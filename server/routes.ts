@@ -76,6 +76,31 @@ router.get("/api/test-cors", (req, res) => {
   });
 });
 
+// DIAGNOSTIC: Direct database query to check users (NO AUTH - for debugging)
+router.get("/api/debug/users-count", async (req, res) => {
+  try {
+    console.log("[DEBUG] Direct database query for users...");
+    const result = await storage.getAllUsers();
+    const users = result.users || [];
+    
+    const roleBreakdown = users.reduce((acc: any, user: any) => {
+      acc[user.role] = (acc[user.role] || 0) + 1;
+      return acc;
+    }, {});
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      totalUsers: users.length,
+      roleBreakdown,
+      allEmails: users.map((u: any) => ({ email: u.email, role: u.role, isActive: u.isActive })),
+      rawCount: result.totalCount
+    });
+  } catch (error) {
+    console.error("[DEBUG] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Public test endpoint (NO AUTH - for debugging only)
 router.get("/api/public/test-leads-noauth", async (req, res) => {
   try {
