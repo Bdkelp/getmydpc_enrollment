@@ -16,6 +16,11 @@ import supabaseAuthRoutes from "./routes/supabase-auth";
 
 const router = Router();
 
+// Helper function to check if user has admin access (admin or super_admin)
+const isAdmin = (role: string | undefined): boolean => {
+  return role === "admin" || role === "super_admin";
+};
+
 // Public routes (no authentication required)
 router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -1198,7 +1203,7 @@ router.get(
   "/api/admin/stats",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       console.log(
         "[Admin Stats API] Access denied - user role:",
         req.user!.role,
@@ -1225,7 +1230,7 @@ router.get(
   "/api/admin/users",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       console.log(
         "[Admin Users API] Access denied - user role:",
         req.user!.role,
@@ -1244,7 +1249,10 @@ router.get(
       );
       const filterType = req.query.filter as string;
 
-      // If filter is 'members', only get members (exclude agents/admins)
+      // IMPORTANT: Users table = Staff (admins/agents) ONLY
+      // Members table = DPC enrollees (customers) - separate table
+      // If filter is 'members', fetch from members table (DPC customers)
+      // Otherwise fetch from users table (staff: admins/agents)
       const usersResult =
         filterType === "members"
           ? await storage.getMembersOnly()
@@ -1265,11 +1273,10 @@ router.get(
         try {
           let enhancedUser = { ...user };
 
-          // Users table should ONLY contain 'admin' and 'agent' roles
-          // No subscription data needed for these roles (members are in separate table)
-          // This code is kept for safety but should never execute
-          if (user.role !== "agent" && user.role !== "admin") {
-            console.warn(`[Admin Users API] Unexpected role in users table: ${user.role} for ${user.email}`);
+          // VALIDATION: Users table should ONLY contain 'admin', 'super_admin', and 'agent' roles
+          // Members (DPC customers) are in a separate 'members' table with NO login access
+          if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin") {
+            console.warn(`[Admin Users API] INVALID ROLE in users table: ${user.role} for ${user.email} - should be admin/super_admin/agent only`);
           }
 
           enhancedUsers.push(enhancedUser);
@@ -1311,7 +1318,7 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 ADMIN USER BANKING ROUTE HIT - Admin:", req.user?.email);
     
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       console.log("[Admin Banking API] Access denied - user role:", req.user!.role);
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -1380,7 +1387,7 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 ADMIN BANKING CHANGES ROUTE HIT - Admin:", req.user?.email);
     
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       console.log("[Admin Banking Changes API] Access denied - user role:", req.user!.role);
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -1457,7 +1464,7 @@ router.get(
   "/api/admin/pending-users",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1478,7 +1485,7 @@ router.post(
   "/api/admin/approve-user/:userId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1501,7 +1508,7 @@ router.get(
   "/api/admin/dpc-members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1528,7 +1535,7 @@ router.put(
   "/api/admin/dpc-members/:customerId/suspend",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1559,7 +1566,7 @@ router.put(
   "/api/admin/dpc-members/:customerId/reactivate",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1588,7 +1595,7 @@ router.post(
   "/api/admin/reject-user/:userId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1613,7 +1620,7 @@ router.put(
   "/api/admin/users/:userId/role",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1650,7 +1657,7 @@ router.put(
   authenticateToken,
   async (req: AuthRequest, res) => {
     // CRITICAL: Only admins can assign/modify agent numbers for commission tracking
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1726,7 +1733,7 @@ router.put(
   "/api/admin/users/:userId/suspend",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1767,7 +1774,7 @@ router.put(
   "/api/admin/users/:userId/reactivate",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1816,7 +1823,7 @@ router.put(
   "/api/admin/users/:userId/assign-agent-number",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1854,7 +1861,7 @@ router.get(
   "/api/admin/leads",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1915,7 +1922,7 @@ router.get(
   "/api/admin/agents",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1938,7 +1945,7 @@ router.get(
     console.log("Role:", req.user?.role);
     console.log("Headers:", req.headers.authorization);
 
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       console.log("❌ Access denied - not admin");
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -1960,7 +1967,7 @@ router.put(
   "/api/admin/leads/:leadId/assign",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -1981,7 +1988,7 @@ router.get(
   "/api/admin/enrollments",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2018,7 +2025,7 @@ router.get(
   "/api/admin/analytics",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2065,7 +2072,7 @@ router.post(
   "/api/admin/reports/export",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2176,7 +2183,7 @@ router.put(
   "/api/admin/users/:userId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2608,7 +2615,7 @@ router.post(
   async (req: AuthRequest, res) => {
     // Only admins can trigger commission generation directly, but the logic
     // should also be callable from subscription creation/updates.
-    if (req.user!.role !== "admin") {
+    if (!isAdmin(req.user!.role)) {
       return res
         .status(403)
         .json({ message: "Admin access required to generate commissions" });
