@@ -353,7 +353,12 @@ ${response.summary.exportedFile}
                       {new Date(transaction.createdAt).toLocaleDateString()}
                       <br />
                       <span className="text-xs text-gray-500">
-                        {new Date(transaction.createdAt).toLocaleTimeString()}
+                        {new Date(transaction.createdAt).toLocaleTimeString('en-US', { 
+                          hour: '2-digit', 
+                          minute: '2-digit',
+                          second: '2-digit',
+                          timeZoneName: 'short'
+                        })}
                       </span>
                     </td>
                     <td className="p-3">
