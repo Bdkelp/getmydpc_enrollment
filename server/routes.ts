@@ -608,15 +608,20 @@ router.post("/api/auth/logout", async (req, res) => {
 });
 
 // Helper function to determine user role
-function determineUserRole(email: string): "admin" | "agent" | "member" {
+function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "member" {
+  // Super Admin - full platform access
+  if (email === "michael@mypremierplans.com") {
+    return "super_admin";
+  }
+
+  // Admins - user management and data viewing
   const adminEmails = [
-    "michael@mypremierplans.com",
     "travis@mypremierplans.com",
-    "richard@mypremierplans.com",
     "joaquin@mypremierplans.com",
   ];
 
   const agentEmails = [
+    "richard@cyariskmanagement.com",
     "mdkeener@gmail.com",
     "mkeener@lonestarenotary.com", // Mike Keener - LoneStar Notary
     "bdkelp@gmail.com", // Duanne Keener
