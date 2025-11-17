@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { EPXHostedCheckoutService } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
+import { certificationLogger } from '../services/certification-logger';
 
 const router = Router();
 
@@ -97,6 +98,8 @@ router.get('/api/epx/hosted/config', (req: Request, res: Response) => {
 router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response) => {
   initializeService(); // Ensure service is initialized
   
+  const requestStartTime = Date.now();
+  
   try {
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
@@ -168,6 +171,60 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     // Get checkout configuration
     const config = hostedCheckoutService.getCheckoutConfig();
 
+    // Log for certification if enabled
+    if (process.env.ENABLE_CERTIFICATION_LOGGING === 'true') {
+      const processingTime = Date.now() - requestStartTime;
+      
+      try {
+        certificationLogger.logCertificationEntry({
+          transactionId: orderNumber,
+          customerId,
+          request: {
+            timestamp: new Date().toISOString(),
+            method: 'POST',
+            endpoint: '/api/epx/hosted/create-payment',
+            url: `${req.protocol}://${req.get('host')}/api/epx/hosted/create-payment`,
+            headers: {
+              'content-type': req.get('content-type') || 'application/json',
+              'user-agent': req.get('user-agent') || 'unknown'
+            },
+            body: {
+              amount,
+              customerId: '***CUSTOMER_ID***',
+              customerEmail: customerEmail?.substring(0, 2) + '***@***' || '***EMAIL***',
+              customerName: customerName || 'Customer',
+              planId,
+              description
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent')
+          },
+          response: {
+            statusCode: 200,
+            headers: {
+              'content-type': 'application/json'
+            },
+            body: {
+              success: true,
+              transactionId: orderNumber,
+              amount,
+              environment: config.environment,
+              paymentMethod: 'hosted-checkout'
+            },
+            processingTimeMs: processingTime
+          },
+          amount,
+          environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+          purpose: 'payment-creation',
+          sensitiveFieldsMasked: ['customerId', 'customerEmail', 'billingAddress'],
+          timestamp: new Date().toISOString()
+        });
+      } catch (certError: any) {
+        console.warn('[EPX Hosted] Certification logging failed:', certError.message);
+        // Don't fail the payment request if cert logging fails
+      }
+    }
+
     // Return data needed for frontend
     res.json({
       success: true,
@@ -201,6 +258,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
  * Handle success callback from EPX
  */
 router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
+  const callbackStartTime = Date.now();
+  
   try {
     if (!hostedCheckoutService) {
       return res.status(503).json({
@@ -256,6 +315,56 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       } catch (storageError: any) {
         console.error('[EPX Hosted] Storage update error:', storageError);
       }
+
+      // Log for certification if enabled
+      if (process.env.ENABLE_CERTIFICATION_LOGGING === 'true') {
+        const processingTime = Date.now() - callbackStartTime;
+        
+        try {
+          certificationLogger.logCertificationEntry({
+            transactionId: result.transactionId,
+            customerId: req.body.customerId || 'unknown',
+            request: {
+              timestamp: new Date().toISOString(),
+              method: 'POST',
+              endpoint: '/api/epx/hosted/callback',
+              url: `${req.protocol}://${req.get('host')}/api/epx/hosted/callback`,
+              headers: {
+                'content-type': req.get('content-type') || 'application/json',
+                'user-agent': req.get('user-agent') || 'unknown'
+              },
+              body: {
+                status: req.body.status,
+                transactionId: req.body.transactionId,
+                authCode: req.body.authCode ? '***MASKED***' : undefined,
+                amount: req.body.amount
+              },
+              ipAddress: req.ip,
+              userAgent: req.get('user-agent')
+            },
+            response: {
+              statusCode: 200,
+              headers: {
+                'content-type': 'application/json'
+              },
+              body: {
+                success: result.isApproved,
+                transactionId: result.transactionId,
+                status: result.isApproved ? 'completed' : 'failed'
+              },
+              processingTimeMs: processingTime
+            },
+            amount: result.amount || 0,
+            environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+            purpose: 'callback-processing',
+            sensitiveFieldsMasked: ['authCode', 'bricToken'],
+            timestamp: new Date().toISOString()
+          });
+        } catch (certError: any) {
+          console.warn('[EPX Hosted] Certification logging failed:', certError.message);
+          // Don't fail the callback if cert logging fails
+        }
+      }
     }
 
     res.json({
@@ -302,6 +411,93 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to get payment status'
+    });
+  }
+});
+
+/**
+ * Get certification logs summary
+ */
+router.get('/api/epx/certification/summary', (req: Request, res: Response) => {
+  try {
+    const summary = certificationLogger.getLogsSummary();
+    
+    res.json({
+      success: true,
+      data: summary,
+      message: `Total certification logs: ${summary.totalLogs}`,
+      directory: summary.rawLogsDir
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Summary error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get certification summary'
+    });
+  }
+});
+
+/**
+ * Generate certification report
+ */
+router.get('/api/epx/certification/report', (req: Request, res: Response) => {
+  try {
+    const report = certificationLogger.generateCertificationReport();
+    
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(report);
+  } catch (error: any) {
+    console.error('[EPX Certification] Report error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate report'
+    });
+  }
+});
+
+/**
+ * Export all certification logs to single file
+ */
+router.post('/api/epx/certification/export', (req: Request, res: Response) => {
+  try {
+    const filename = req.body.filename || undefined;
+    const filepath = certificationLogger.exportAllLogs(filename);
+    
+    res.json({
+      success: true,
+      message: 'All certification logs exported',
+      filepath,
+      note: 'File can be found in logs/certification/summaries/ directory'
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Export error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to export logs'
+    });
+  }
+});
+
+/**
+ * Enable/disable certification logging
+ */
+router.post('/api/epx/certification/toggle', (req: Request, res: Response) => {
+  try {
+    const { enable } = req.body;
+    const currentState = process.env.ENABLE_CERTIFICATION_LOGGING === 'true';
+    
+    res.json({
+      success: true,
+      message: `Certification logging is currently ${currentState ? 'ENABLED' : 'DISABLED'}`,
+      note: 'To enable, set ENABLE_CERTIFICATION_LOGGING=true in your .env file and restart the server',
+      currentState,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Toggle error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to toggle certification logging'
     });
   }
 });
