@@ -207,7 +207,7 @@ export default function AdminLeads() {
       if (!user) {
         logWarning('No user found, redirecting to login');
         setLocation('/login');
-      } else if (user.role !== 'admin') {
+      } else if (user.role !== 'admin' && user.role !== 'super_admin') {
         logWarning('User is not admin, redirecting to agent dashboard', { role: user.role });
         setLocation('/agent');
       } else {
@@ -299,7 +299,7 @@ export default function AdminLeads() {
     );
   }
 
-  if (user.role !== 'admin') {
+  if (user.role !== 'admin' && user.role !== 'super_admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">

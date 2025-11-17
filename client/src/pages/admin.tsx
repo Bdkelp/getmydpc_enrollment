@@ -115,7 +115,7 @@ export default function Admin() {
       return;
     }
 
-    if (!authLoading && user && user.role !== "admin") {
+    if (!authLoading && user && user.role !== "admin" && user.role !== "super_admin") {
       toast({
         title: "Access Denied",
         description: "Admin access required.",
@@ -289,7 +289,7 @@ export default function Admin() {
     );
   }
 
-  if (!isAuthenticated || !user || user.role !== "admin") {
+  if (!isAuthenticated || !user || (user.role !== "admin" && user.role !== "super_admin")) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Card className="w-full max-w-md mx-4">

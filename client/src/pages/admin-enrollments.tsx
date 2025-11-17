@@ -76,7 +76,7 @@ export default function AdminEnrollments() {
       if (!user) {
         console.log("[AdminEnrollments] No user found, redirecting to login");
         setLocation("/login");
-      } else if (user.role !== "admin") {
+      } else if (user.role !== "admin" && user.role !== "super_admin") {
         console.log("[AdminEnrollments] User role is not admin:", user.role);
         setLocation("/no-access");
       } else {
@@ -293,7 +293,7 @@ export default function AdminEnrollments() {
     return null; // Will redirect via useEffect
   }
 
-  if (user.role !== "admin") {
+  if (user.role !== "admin" && user.role !== "super_admin") {
     return null; // Will redirect via useEffect
   }
 
