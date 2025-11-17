@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,17 @@ import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { signUp, signInWithOAuth } from "@/lib/supabase";
-import { Heart, Mail, Lock, User, Loader2 } from "lucide-react";
+import { Heart, Mail, Lock, User, Loader2, AlertCircle } from "lucide-react";
 import { FaGoogle, FaFacebook, FaTwitter, FaLinkedin, FaMicrosoft, FaApple } from "react-icons/fa";
+
+// Declare grecaptcha global for reCAPTCHA v3
+declare global {
+  interface Window {
+    grecaptcha: {
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+    };
+  }
+}
 
 const registerSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -31,10 +40,43 @@ const registerSchema = z.object({
 
 type RegisterFormData = z.infer<typeof registerSchema>;
 
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+
 export default function Register() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [recaptchaReady, setRecaptchaReady] = useState(false);
+
+  // Load reCAPTCHA v3 script on component mount
+  useEffect(() => {
+    if (!RECAPTCHA_SITE_KEY) {
+      console.warn("[reCAPTCHA] Site key not configured - bot protection disabled");
+      setRecaptchaReady(true); // Allow registration without CAPTCHA
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      console.log("[reCAPTCHA] Script loaded successfully");
+      setRecaptchaReady(true);
+    };
+    script.onerror = () => {
+      console.warn("[reCAPTCHA] Failed to load script - proceeding without protection");
+      setRecaptchaReady(true); // Continue without CAPTCHA if script fails
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      // Cleanup: remove script on unmount
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
 
   const handleSocialLogin = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
     try {
@@ -70,10 +112,26 @@ export default function Register() {
 
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
+    console.log("[Register] Starting registration submission...");
     try {
       const { confirmPassword, agreeToTerms, ...userData } = data;
+      console.log("[Register] Form data:", { email: userData.email, firstName: userData.firstName, lastName: userData.lastName });
+
+      // Generate reCAPTCHA token if available
+      let recaptchaToken = '';
+      if (RECAPTCHA_SITE_KEY && window.grecaptcha) {
+        try {
+          console.log("[reCAPTCHA] Generating token...");
+          recaptchaToken = await window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'register' });
+          console.log("[reCAPTCHA] Token generated successfully");
+        } catch (captchaError) {
+          console.warn("[reCAPTCHA] Failed to generate token:", captchaError);
+          // Continue without token - backend will handle
+        }
+      }
 
       // Call backend API endpoint instead of Supabase directly
+      console.log("[Register] Calling /api/auth/register...");
       const response = await apiRequest('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify({
@@ -81,11 +139,15 @@ export default function Register() {
           password: userData.password,
           firstName: userData.firstName,
           lastName: userData.lastName,
-          username: userData.username
+          username: userData.username,
+          recaptchaToken // Send reCAPTCHA token to backend
         })
       });
 
+      console.log("[Register] API response:", response);
+
       if (response.success) {
+        console.log("[Register] Registration successful!");
         // Set the Supabase session if available
         if (response.session) {
           const { supabase } = await import("@/lib/supabase");
@@ -93,6 +155,7 @@ export default function Register() {
             access_token: response.session.access_token,
             refresh_token: response.session.refresh_token
           });
+          console.log("[Register] Session set successfully");
         }
 
         toast({
@@ -100,12 +163,21 @@ export default function Register() {
           description: response.message || "Your account is pending approval. You'll receive an email once approved.",
         });
 
+        console.log("[Register] Redirecting to /pending-approval in 2 seconds...");
         // Redirect to pending approval page
         setTimeout(() => {
           setLocation("/pending-approval");
         }, 2000);
+      } else {
+        console.error("[Register] Registration failed - response.success is false");
+        toast({
+          title: "Registration failed",
+          description: response.message || "Please try again",
+          variant: "destructive",
+        });
       }
     } catch (error: any) {
+      console.error("[Register] Error during registration:", error);
       toast({
         title: "Registration failed",
         description: error.message || "Please try again",
@@ -113,6 +185,7 @@ export default function Register() {
       });
     } finally {
       setIsLoading(false);
+      console.log("[Register] Form submission completed");
     }
   };
 
@@ -289,7 +362,8 @@ export default function Register() {
 
               <Button 
                 type="submit" 
-                className="w-full bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                style={{ color: '#ffffff', backgroundColor: '#2563eb' }}
                 disabled={isLoading}
               >
                 {isLoading ? (

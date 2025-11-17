@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
+import DashboardStats from "@/components/DashboardStats";
 import { 
   Users, 
   DollarSign, 
@@ -23,12 +25,14 @@ import {
   XCircle,
   Clock,
   Shield,
-  Database,
-  BarChart
+  BarChart,
+  User
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import { Switch } from "@/components/ui/switch";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +66,7 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
   const [agentNumberInput, setAgentNumberInput] = useState('');
+  const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
 
   // Test authentication
   useEffect(() => {
@@ -153,6 +158,19 @@ export default function Admin() {
           toast({
             title: "Payment Activity",
             description: "New payment activity detected",
+          });
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'commissions' },
+        (payload) => {
+          console.log('[AdminDashboard] Commissions change detected:', payload);
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/analytics"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/data-viewer"] });
+          toast({
+            title: "Commission Update",
+            description: "Commission data has been updated",
           });
         }
       )
@@ -361,6 +379,25 @@ export default function Admin() {
                   Quiz
                 </Button>
               </Link>
+              <Button variant="ghost" onClick={() => setLocation('/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
+              </Button>
+              <div className="flex items-center space-x-3">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage 
+                    src={user?.profile_image_url || getDefaultAvatar(user?.id || '', user?.full_name)} 
+                    alt={user?.full_name || "Admin"} 
+                  />
+                  <AvatarFallback className="bg-medical-blue-600 text-white">
+                    {getUserInitials(user?.full_name)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="hidden sm:block">
+                  <p className="text-sm font-medium text-gray-900">{user?.full_name || 'Admin User'}</p>
+                  <p className="text-xs text-gray-500">Administrator</p>
+                </div>
+              </div>
               <Button variant="ghost" onClick={async () => {
                 const { signOut } = await import("@/lib/supabase");
                 await signOut();
@@ -376,52 +413,60 @@ export default function Admin() {
       {/* Admin Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
               <p className="text-gray-600 mt-1">Manage users, plans, and system settings</p>
             </div>
-            <div className="mt-4 sm:mt-0 flex items-center space-x-4">
+            
+            {/* Responsive Navigation Grid - 4x2 layout (8 buttons) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Link href="/registration">
-                <Button className="bg-white hover:bg-gray-100 text-black border border-gray-300">
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Enroll Member
+                <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 h-20 flex flex-col items-center justify-center">
+                  <UserPlus className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Enroll Member</span>
                 </Button>
               </Link>
               <Button variant="outline" 
-                      className="border-orange-500 text-orange-600 hover:bg-orange-50"
+                      className="w-full border-orange-500 text-orange-600 hover:bg-orange-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/leads')}>
-                <Users className="h-4 w-4 mr-2" />
-                Lead Management
+                <Users className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Leads</span>
               </Button>
               <Button variant="outline" 
-                      className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/enrollments')}>
-                <Users className="h-4 w-4 mr-2" />
-                View Enrollments
+                <Users className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Enrollments</span>
               </Button>
               <Button variant="outline" 
-                      className="border-red-500 text-red-600 hover:bg-red-50"
+                      className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation('/admin/users')}>
-                <Shield className="h-4 w-4 mr-2" />
-                User Roles
+                <Shield className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Users</span>
               </Button>
               <Link href="/admin/analytics">
-                <Button variant="outline" className="border-green-500 text-green-600 hover:bg-green-50">
-                  <BarChart className="h-4 w-4 mr-2" />
-                  Analytics & Reports
+                <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 h-20 flex flex-col items-center justify-center">
+                  <BarChart className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Analytics</span>
                 </Button>
               </Link>
-              <Link href="/admin/data">
-                <Button variant="outline" className="border-purple-500 text-purple-600 hover:bg-purple-50">
-                  <Database className="h-4 w-4 mr-2" />
-                  Database Viewer
+              <Link href="/admin/commissions">
+                <Button variant="outline" className="w-full border-emerald-500 text-emerald-600 hover:bg-emerald-50 h-20 flex flex-col items-center justify-center">
+                  <DollarSign className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Commissions</span>
+                </Button>
+              </Link>
+              <Link href="/admin/agent-hierarchy">
+                <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
+                  <Users className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Agent Hierarchy</span>
                 </Button>
               </Link>
               <Link href="/agent">
-                <Button variant="outline">
-                  <Users className="h-4 w-4 mr-2" />
-                  Agent View
+                <Button variant="outline" className="w-full border-gray-500 text-gray-600 hover:bg-gray-50 h-20 flex flex-col items-center justify-center">
+                  <Users className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Agent View</span>
                 </Button>
               </Link>
             </div>
@@ -465,34 +510,8 @@ export default function Admin() {
           </CardContent>
         </Card>
 
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, index) => (
-            <Card key={index}>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className={`p-3 rounded-full ${stat.bgColor}`}>
-                    <stat.icon className={`${stat.iconColor} h-6 w-6`} />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">{stat.label}</p>
-                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                  </div>
-                </div>
-                {stat.change && (
-                  <div className="mt-4 flex items-center text-sm">
-                    <span className={`font-medium ${
-                      stat.changeType === "positive" ? "text-green-600" : "text-red-600"
-                    }`}>
-                      {stat.change}
-                    </span>
-                    <span className="text-gray-600 ml-2">from last month</span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* Enhanced Dashboard Stats */}
+        <DashboardStats userRole="admin" />
 
         {/* Pending Approvals Section */}
         <Card className="mb-8">
@@ -649,7 +668,15 @@ export default function Admin() {
         <Card className="mb-8">
           <CardContent className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => setCreateUserDialogOpen(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-2 text-blue-600" />
+                <span className="text-blue-600">Create User Account</span>
+              </Button>
               <Button 
                 className="w-full justify-start" 
                 variant="outline"
@@ -1104,6 +1131,19 @@ export default function Admin() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Admin Create User Dialog */}
+        <AdminCreateUserDialog 
+          isOpen={createUserDialogOpen}
+          onClose={() => setCreateUserDialogOpen(false)}
+          onUserCreated={(user) => {
+            toast({
+              title: "Success",
+              description: `User account created: ${user.email}`,
+            });
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+          }}
+        />
       </div>
     </div>
   );

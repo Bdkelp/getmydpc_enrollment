@@ -12,7 +12,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
-import { EPXPayment } from "@/components/EPXPayment";
+// import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
+import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
 
 // Function to detect card type based on card number
 const detectCardType = (cardNumber: string) => {
@@ -52,6 +53,7 @@ export default function Payment() {
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [showEPXPayment, setShowEPXPayment] = useState(false);
+  const [memberData, setMemberData] = useState<any>(null);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -75,7 +77,7 @@ export default function Payment() {
     enabled: isAuthenticated,
   });
 
-  // Load stored plan ID from registration
+  // Load stored plan ID and member data from registration
   useEffect(() => {
     const storedPlanId = sessionStorage.getItem("selectedPlanId");
     console.log("Loading stored plan ID from session:", storedPlanId);
@@ -90,6 +92,20 @@ export default function Payment() {
         description: "Please go back to registration and select a healthcare membership.",
         variant: "destructive",
       });
+    }
+
+    // Load member data for payment (use member's info, not agent's)
+    const storedMemberData = sessionStorage.getItem("memberData");
+    if (storedMemberData) {
+      try {
+        const parsedMemberData = JSON.parse(storedMemberData);
+        console.log("Loaded member data for payment:", parsedMemberData);
+        setMemberData(parsedMemberData);
+      } catch (e) {
+        console.error("Failed to parse member data:", e);
+      }
+    } else {
+      console.warn("No member data found in session storage - will use logged-in user data");
     }
   }, []);
 
@@ -143,8 +159,8 @@ export default function Payment() {
     
     // Show acknowledgment toast
     toast({
-      title: "Policy Accepted",
-      description: "Cancellation and refund policy has been downloaded. Opening payment form...",
+      title: "Terms Acknowledged",
+      description: "Cancellation and refund terms have been reviewed. Opening payment form...",
     });
     
     // Use EPX payment directly (in sandbox mode, no real charges)
@@ -251,17 +267,17 @@ export default function Payment() {
                           {sessionStorage.getItem("rxValet") === "yes" && (
                             <div className="flex justify-between text-sm">
                               <span>RxValet Add-on</span>
-                              <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between text-sm">
-                            <span>Processing Fee (4%)</span>
-                            <span>${sessionStorage.getItem("processingFee") || "0"}</span>
+                            <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                           </div>
-                          <div className="flex justify-between font-bold pt-2 border-t">
-                            <span>Total</span>
-                            <span>${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}</span>
-                          </div>
+                        )}
+                        <div className="flex justify-between text-sm">
+                          <span>Administration Fee (4%)</span>
+                          <span>${sessionStorage.getItem("processingFee") || "0"}</span>
+                        </div>
+                        <div className="flex justify-between font-bold pt-2 border-t">
+                          <span>Total</span>
+                          <span>${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}</span>
+                        </div>
                         </div>
                         
                         <button
@@ -401,24 +417,22 @@ export default function Payment() {
                       <span className="text-gray-900">${selectedPlan?.price || "0.00"}</span>
                     </div>
                     
-                    {sessionStorage.getItem("rxValet") === "yes" && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-700">RxValet Add-on</span>
-                        <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
-                      </div>
-                    )}
-                    
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Processing Fee (4%)</span>
-                      <span className="text-gray-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
+                  {sessionStorage.getItem("rxValet") === "yes" && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">RxValet Add-on</span>
+                      <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                     </div>
-                    
-                    <div className="flex justify-between text-sm text-gray-600">
-                      <span>Setup Fee</span>
-                      <span className="text-green-600">Free</span>
-                    </div>
-                    
-                    <div className="border-t border-gray-200 pt-4">
+                  )}
+                  
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Administration Fee (4%)</span>
+                    <span className="text-gray-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
+                  </div>
+                  
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>Setup Fee</span>
+                    <span className="text-green-600">Free</span>
+                  </div>                    <div className="border-t border-gray-200 pt-4">
                       <div className="flex justify-between text-lg font-bold">
                         <span>Total Due Today</span>
                         <span className="text-medical-blue-600">${sessionStorage.getItem("totalMonthlyPrice") || "0"}</span>
@@ -545,16 +559,34 @@ export default function Payment() {
       {showEPXPayment && selectedPlan && user?.id && user?.email && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <EPXPayment
-              amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
-              customerId={user.id}
-              customerEmail={user.email}
-              planId={selectedPlanId?.toString()}
-              description={`${selectedPlan.name} - DPC Subscription`}
-              onSuccess={handleEPXPaymentSuccess}
-              onError={handleEPXPaymentError}
-              onCancel={handleEPXPaymentCancel}
-            />
+            {(() => {
+              const finalCustomerName = memberData ? `${memberData.firstName || ''} ${memberData.lastName || ''}`.trim() : `${user.firstName || ''} ${user.lastName || ''}`.trim();
+              const finalCustomerEmail = memberData?.email || user.email;
+              console.log('[Payment] EPX Modal Data:', {
+                memberData,
+                finalCustomerName,
+                finalCustomerEmail,
+                userId: user.id
+              });
+              return (
+                <EPXHostedPayment
+                  amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
+                  customerId={user.id}
+                  customerEmail={finalCustomerEmail}
+                  customerName={finalCustomerName}
+                  planId={selectedPlanId?.toString()}
+                  description={`${selectedPlan.name} - DPC Subscription`}
+                  billingAddress={{
+                    streetAddress: user.address || '',
+                    city: user.city || '',
+                    state: user.state || '',
+                    postalCode: user.zipCode || ''
+                  }}
+                  onSuccess={handleEPXPaymentSuccess}
+                  onError={handleEPXPaymentError}
+                />
+              );
+            })()}
           </div>
         </div>
       )}

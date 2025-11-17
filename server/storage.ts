@@ -1,5 +1,5 @@
-import { supabase } from './lib/supabaseClient'; // Keep for auth only
-import { neonPool, query } from './lib/neonDb'; // Use for all database operations
+import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
+import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
@@ -54,8 +54,38 @@ export function encryptPaymentToken(token: string): string {
 export function decryptPaymentToken(encryptedToken: string): string {
   return decryptSensitiveData(encryptedToken);
 }
+
+// Helper functions for member field formatting (matching database CHAR fields)
+export function formatPhoneNumber(phone: string): string {
+  // Remove all non-digits and return exactly 10 digits
+  const cleaned = phone.replace(/\D/g, '');
+  if (cleaned.length === 11 && cleaned[0] === '1') {
+    return cleaned.slice(1); // Remove country code
+  }
+  return cleaned.slice(0, 10); // Ensure 10 digits max
+}
+
+export function formatDateMMDDYYYY(date: string): string {
+  // Convert date to MMDDYYYY format (8 chars)
+  const d = new Date(date);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const year = String(d.getFullYear());
+  return month + day + year; // MMDDYYYY
+}
+
+export function formatSSN(ssn: string): string {
+  // Remove all non-digits and return exactly 9 digits
+  return ssn.replace(/\D/g, '').slice(0, 9);
+}
+
+export function formatZipCode(zip: string): string {
+  // Return exactly 5 digits
+  return zip.replace(/\D/g, '').slice(0, 5);
+}
 import type {
   User,
+  Member,
   Plan,
   Subscription,
   Lead,
@@ -108,6 +138,15 @@ export interface IStorage {
   getUserPayments(user_Id: string): Promise<Payment[]>;
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
 
+  // Member operations (healthcare customers - NO authentication)
+  createMember(member: Partial<Member>): Promise<Member>;
+  getMember(id: number): Promise<Member | undefined>;
+  getMemberByEmail(email: string): Promise<Member | undefined>;
+  getMemberByCustomerNumber(customerNumber: string): Promise<Member | undefined>;
+  getAllMembers(limit?: number, offset?: number): Promise<{ members: Member[]; totalCount: number }>;
+  updateMember(id: number, data: Partial<Member>): Promise<Member>;
+  getMembersByAgent(agentId: string): Promise<Member[]>;
+
   // Family member operations
   getFamilyMembers(primary_user_id: string): Promise<FamilyMember[]>;
   addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember>;
@@ -124,6 +163,16 @@ export interface IStorage {
 
   // Enrollment modification operations
   recordEnrollmentModification(data: any): Promise<void>;
+
+  // Banking information audit operations
+  recordBankingInfoChange(data: {
+    userId: string;
+    modifiedBy: string;
+    oldBankingInfo: any;
+    newBankingInfo: any;
+    changeType: string;
+  }): Promise<void>;
+  getBankingChangeHistory(userId: string): Promise<any[]>;
 
   // Lead management operations
   createLead(lead: InsertLead): Promise<Lead>;
@@ -150,13 +199,19 @@ export interface IStorage {
   approveUser(userId: string, approvedBy: string): Promise<User>;
   rejectUser(userId: string, reason: string): Promise<User>;
 
-  // Commission operations
+  // Commission operations (NEW: Using new agent_commissions table)
   createCommission(commission: InsertCommission): Promise<Commission>;
   getAgentCommissions(agent_Id: string, start_Date?: string, endDate?: string): Promise<Commission[]>;
   getAllCommissions(start_Date?: string, endDate?: string): Promise<Commission[]>;
   getCommissionBySubscriptionId(subscription_Id: number): Promise<Commission | undefined>;
+  getCommissionByMemberId(memberId: number): Promise<Commission | null>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
   getCommissionStats(agent_Id?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
+  
+  // NEW: Agent Commissions table functions (using new clean schema)
+  getAgentCommissionsNew(agent_Id: string, start_Date?: string, endDate?: string): Promise<any[]>;
+  getAllCommissionsNew(start_Date?: string, endDate?: string): Promise<any[]>;
+  getCommissionTotals(agentId?: string): Promise<any>;
 
   // Analytics
   getAnalytics(): Promise<any>;
@@ -187,34 +242,52 @@ export interface IStorage {
 // User operations
 export async function createUser(userData: Partial<User>): Promise<User> {
   try {
-    // Use direct Neon query to bypass RLS
-    const id = userData.id || crypto.randomUUID();
-    const result = await query(
-      `INSERT INTO users (
-        id, email, first_name, last_name, phone, role, is_active, approval_status,
-        email_verified, created_at, updated_at, profile_image_url,
-        google_id, facebook_id, twitter_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING *`,
-      [
-        id,
-        userData.email,
-        userData.firstName || '',
-        userData.lastName || '',
-        userData.phone || null,
-        userData.role || 'member',
-        userData.isActive !== undefined ? userData.isActive : true,
-        userData.approvalStatus || 'approved',
-        userData.emailVerified || false,
-        userData.createdAt || new Date(),
-        userData.updatedAt || new Date(),
-        userData.profileImageUrl || null,
-        userData.googleId || null,
-        userData.facebookId || null,
-        userData.twitterId || null
-      ]
-    );
-    return mapUserFromDB(result.rows[0]);
+    // Use Supabase to insert user
+    // NOTE: The users table in Supabase uses email as primary key, not id
+    let agentNumber = userData.agentNumber;
+    // Users table should ONLY have 'admin' or 'agent' roles - default to 'agent'
+    // Never set 'member' here - members are in separate members table
+    const role = userData.role || 'agent';
+    if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
+      const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
+      const ssnLast4 = userData.ssn.slice(-4);
+      try {
+        agentNumber = generateAgentNumber(role, ssnLast4);
+        console.log(`[Agent Number] Generated: ${agentNumber} for ${role} ${userData.email}`);
+      } catch (error: any) {
+        console.warn(`[Agent Number] Generation failed: ${error.message}`);
+      }
+    }
+    
+    // Build insert object with only columns that exist in Supabase
+    const insertData: any = {
+      email: userData.email,
+      username: userData.email?.split('@')[0] || null, // Use email prefix as username
+      first_name: userData.firstName || '',
+      last_name: userData.lastName || '',
+      phone: userData.phone || null,
+      role,
+      agent_number: agentNumber || null,
+      is_active: userData.isActive !== undefined ? userData.isActive : true,
+      created_at: userData.createdAt || new Date()
+    };
+    
+    console.log('[Storage] createUser: Inserting user with data:', {
+      email: insertData.email,
+      role: insertData.role,
+      agent_number: insertData.agent_number
+    });
+    
+    const { data, error } = await supabase
+      .from('users')
+      .insert([insertData])
+      .select()
+      .single();
+    if (error) {
+      console.error('Error creating user:', error);
+      throw new Error(`Failed to create user: ${error.message}`);
+    }
+    return mapUserFromDB(data);
   } catch (error: any) {
     console.error('Error creating user:', error);
     throw new Error(`Failed to create user: ${error.message}`);
@@ -223,17 +296,25 @@ export async function createUser(userData: Partial<User>): Promise<User> {
 
 export async function getUser(id: string): Promise<User | null> {
   try {
-    // Use direct Neon query to bypass RLS
-    const result = await query(
-      'SELECT * FROM users WHERE id = $1',
-      [id]
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
+    console.log('[Storage] getUser called with UUID:', id);
+    
+    // Look up user by UUID (Supabase Auth ID)
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error || !data) {
+      console.log('[Storage] getUser: User not found for UUID:', id);
+      return null;
+    }
+    
+    console.log('[Storage] getUser: Found user:', data.email);
+    return mapUserFromDB(data);
   } catch (error: any) {
-    console.error('Error fetching user:', error);
-    return null; // Return null instead of throwing for non-critical queries
+    console.error('[Storage] Error in getUser:', error);
+    return null;
   }
 }
 
@@ -241,11 +322,18 @@ export async function getUser(id: string): Promise<User | null> {
 function mapUserFromDB(data: any): User | null {
   if (!data) return null;
 
-  // Normalize role - handle legacy 'user' role as 'member'
-  const normalizedRole = data.role === 'user' ? 'member' : (data.role || 'member');
+  // Users table should ONLY contain 'admin' and 'agent' roles
+  // Legacy 'user' or 'member' should never appear here - they belong in members table
+  // If somehow a null role is found, default to 'agent' (most common)
+  const normalizedRole = data.role || 'agent';
+  
+  if (!['admin', 'agent'].includes(normalizedRole)) {
+    console.warn(`[Storage] Unexpected role "${normalizedRole}" in users table for ${data.email} - defaulting to agent`);
+  }
 
   return {
-    id: data.id,
+    // The Supabase users table doesn't have an id column - use email as identifier
+    id: data.id || data.email,
     email: data.email,
     firstName: data.first_name || data.firstName || '',
     lastName: data.last_name || data.lastName || '',
@@ -296,119 +384,177 @@ function mapUserFromDB(data: any): User | null {
     appleId: data.apple_id || data.appleId,
     microsoftId: data.microsoft_id || data.microsoftId,
     linkedinId: data.linkedin_id || data.linkedinId,
-    twitterId: data.twitter_id || data.twitterId
+    twitterId: data.twitter_id || data.twitterId,
+    // Banking information for commission payouts
+    bankName: data.bank_name || data.bankName,
+    routingNumber: data.routing_number || data.routingNumber,
+    accountNumber: data.account_number || data.accountNumber,
+    accountType: data.account_type || data.accountType,
+    accountHolderName: data.account_holder_name || data.accountHolderName
   } as User;
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
-    // Use direct Neon query to bypass RLS
-    const result = await query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
+    console.log('[Storage] getUserByEmail called with:', email);
+    // Use Supabase to fetch user by email
+    // The users table doesn't have an 'id' column - use email as the primary identifier
+    // Column names in Supabase are snake_case (first_name, agent_number, etc.)
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+    console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
+    
+    // DEBUG: Log the actual data structure
+    if (data) {
+      console.log('[Storage] getUserByEmail RAW data:', JSON.stringify(data, null, 2));
+      console.log('[Storage] getUserByEmail data.id:', data.id);
+      console.log('[Storage] getUserByEmail data keys:', Object.keys(data));
+    }
+    
+    if (error || !data) {
+      if (error && error.code !== 'PGRST116') {
+        console.error('[Storage] getUserByEmail error:', error);
+        console.error('[Storage] getUserByEmail error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint
+        });
+      } else {
+        console.log('[Storage] getUserByEmail: User not found (expected for new users)');
+      }
+      return null;
+    }
+    console.log('[Storage] getUserByEmail: User found, mapping data');
+    const mappedUser = mapUserFromDB(data);
+    
+    // FALLBACK: If id is still undefined, use email as the identifier
+    // This handles cases where the id column doesn't exist in the database
+    if (!mappedUser.id && mappedUser.email) {
+      console.warn('[Storage] getUserByEmail: id is undefined, using email as fallback identifier');
+      mappedUser.id = mappedUser.email;
+    }
+    
+    console.log('[Storage] getUserByEmail: Mapped user:', { id: mappedUser?.id, email: mappedUser?.email, role: mappedUser?.role });
+    return mappedUser;
   } catch (error: any) {
-    console.error('Error fetching user by email:', error);
+    console.error('[Storage] getUserByEmail fatal error:', error);
+    console.error('[Storage] getUserByEmail error stack:', error.stack);
     return null;
   }
 }
 
 export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
   try {
-    // Build dynamic UPDATE query
-    const updateFields: string[] = [];
-    const values: any[] = [];
-    let paramCount = 1;
-
-    // Map the fields that might be updated
-    if (updates.firstName !== undefined) {
-      updateFields.push(`first_name = $${paramCount++}`);
-      values.push(updates.firstName);
-    }
-    if (updates.lastName !== undefined) {
-      updateFields.push(`last_name = $${paramCount++}`);
-      values.push(updates.lastName);
-    }
-    if (updates.lastLoginAt !== undefined) {
-      updateFields.push(`last_login_at = $${paramCount++}`);
-      values.push(updates.lastLoginAt);
-    }
-    if (updates.email !== undefined) {
-      updateFields.push(`email = $${paramCount++}`);
-      values.push(updates.email);
-    }
-    if (updates.phone !== undefined) {
-      updateFields.push(`phone = $${paramCount++}`);
-      values.push(updates.phone);
-    }
-    if (updates.role !== undefined) {
-      updateFields.push(`role = $${paramCount++}`);
-      values.push(updates.role);
-    }
-    if (updates.isActive !== undefined) {
-      updateFields.push(`is_active = $${paramCount++}`);
-      values.push(updates.isActive);
-    }
-    if (updates.approvalStatus !== undefined) {
-      updateFields.push(`approval_status = $${paramCount++}`);
-      values.push(updates.approvalStatus);
-    }
-    if (updates.approvedAt !== undefined) {
-      updateFields.push(`approved_at = $${paramCount++}`);
-      values.push(updates.approvedAt);
-    }
-    if (updates.approvedBy !== undefined) {
-      updateFields.push(`approved_by = $${paramCount++}`);
-      values.push(updates.approvedBy);
-    }
-    if (updates.agentNumber !== undefined) {
-      updateFields.push(`agent_number = $${paramCount++}`);
-      values.push(updates.agentNumber);
-    }
-    if (updates.profileImageUrl !== undefined) {
-      updateFields.push(`profile_image_url = $${paramCount++}`);
-      values.push(updates.profileImageUrl);
-    }
-    if (updates.googleId !== undefined) {
-      updateFields.push(`google_id = $${paramCount++}`);
-      values.push(updates.googleId);
-    }
-    if (updates.facebookId !== undefined) {
-      updateFields.push(`facebook_id = $${paramCount++}`);
-      values.push(updates.facebookId);
-    }
-    if (updates.twitterId !== undefined) {
-      updateFields.push(`twitter_id = $${paramCount++}`);
-      values.push(updates.twitterId);
-    }
-
-    // Always update the timestamp
-    updateFields.push(`updated_at = $${paramCount++}`);
-    values.push(new Date());
-
-    // Add the ID at the end
-    values.push(id);
-
-    if (updateFields.length === 1) { // Only updated_at
-      // If no actual updates, just return the existing user
-      const currentUser = await getUser(id);
+    // Build update object with only columns that exist in Supabase
+    // Supabase users table columns: email, username, first_name, last_name, phone, role, agent_number, is_active, created_at
+    const updateData: any = {};
+    
+    if (updates.email !== undefined) updateData.email = updates.email;
+    if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
+    if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
+    if (updates.middleName !== undefined) updateData.middle_name = updates.middleName;
+    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth;
+    if (updates.gender !== undefined) updateData.gender = updates.gender;
+    if (updates.address !== undefined) updateData.address = updates.address;
+    if (updates.address2 !== undefined) updateData.address2 = updates.address2;
+    if (updates.city !== undefined) updateData.city = updates.city;
+    if (updates.state !== undefined) updateData.state = updates.state;
+    if (updates.zipCode !== undefined) updateData.zip_code = updates.zipCode;
+    if (updates.emergencyContactName !== undefined) updateData.emergency_contact_name = updates.emergencyContactName;
+    if (updates.emergencyContactPhone !== undefined) updateData.emergency_contact_phone = updates.emergencyContactPhone;
+    if (updates.role !== undefined) updateData.role = updates.role;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+    if (updates.agentNumber !== undefined) updateData.agent_number = updates.agentNumber;
+    if (updates.employerName !== undefined) updateData.employer_name = updates.employerName;
+    if (updates.divisionName !== undefined) updateData.division_name = updates.divisionName;
+    // Banking information for commission payouts
+    if (updates.bankName !== undefined) updateData.bank_name = updates.bankName;
+    if (updates.routingNumber !== undefined) updateData.routing_number = updates.routingNumber;
+    if (updates.accountNumber !== undefined) updateData.account_number = updates.accountNumber;
+    if (updates.accountType !== undefined) updateData.account_type = updates.accountType;
+    if (updates.accountHolderName !== undefined) updateData.account_holder_name = updates.accountHolderName;
+    if (updates.profileImageUrl !== undefined) updateData.profile_image_url = updates.profileImageUrl;
+    
+    // Ignore fields that don't exist in Supabase:
+    // - lastLoginAt, approvalStatus, approvedAt, approvedBy
+    // - googleId, facebookId, twitterId, emailVerified, etc.
+    
+    if (Object.keys(updateData).length === 0) {
+      // No valid updates, just return the existing user
+      console.log('[Storage] updateUser: No valid fields to update, returning existing user');
+      const currentUser = await getUser(id); // Get user by UUID
       if (currentUser) return currentUser;
       throw new Error('User not found');
     }
 
-    const result = await query(
-      `UPDATE users SET ${updateFields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-      values
-    );
+    console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
+    console.log('[Storage] updateUser: Update data keys:', Object.keys(updateData));
+    console.log('[Storage] updateUser: profileImageUrl in updates?', 'profile_image_url' in updateData);
+    
+    // Check if banking information is being updated for audit logging
+    const bankingFields = ['bank_name', 'routing_number', 'account_number', 'account_type', 'account_holder_name'];
+    const hasBankingUpdates = bankingFields.some(field => updateData[field] !== undefined);
+    
+    let oldBankingInfo = null;
+    if (hasBankingUpdates) {
+      // Get current banking info before update for audit trail
+      const currentUser = await getUser(id);
+      if (currentUser) {
+        oldBankingInfo = {
+          bankName: currentUser.bankName,
+          routingNumber: currentUser.routingNumber,
+          accountNumber: currentUser.accountNumber,
+          accountType: currentUser.accountType,
+          accountHolderName: currentUser.accountHolderName
+        };
+      }
+    }
+    
+    // Use Supabase update - id is the UUID from Supabase Auth
+    const { data, error } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('id', id) // Use UUID as identifier (primary key in users table)
+      .select()
+      .single();
+    
+    // If banking info was updated and update was successful, log the change
+    if (hasBankingUpdates && data && oldBankingInfo) {
+      const newBankingInfo = {
+        bankName: updateData.bank_name,
+        routingNumber: updateData.routing_number,
+        accountNumber: updateData.account_number,
+        accountType: updateData.account_type,
+        accountHolderName: updateData.account_holder_name
+      };
+      
+      // Log the banking change (don't await to avoid blocking the response)
+      recordBankingInfoChange({
+        userId: id,
+        modifiedBy: id, // User is modifying their own info
+        oldBankingInfo,
+        newBankingInfo,
+        changeType: 'self_update'
+      }).catch(auditError => {
+        console.error('[Storage] Failed to log banking change audit:', auditError);
+      });
+    }
 
-    if (result.rows.length === 0) {
+    if (error) {
+      console.error('[Storage] updateUser error:', error);
+      throw new Error(`Failed to update user: ${error.message}`);
+    }
+
+    if (!data) {
       throw new Error('User not found');
     }
 
-    return mapUserFromDB(result.rows[0]);
+    return mapUserFromDB(data);
   } catch (error: any) {
     console.error('Error updating user:', error);
 
@@ -533,63 +679,7 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
     console.error('Error fetching user by agent number:', error);
     return null;
   }
-
-  return {
-    id: data.id,
-    email: data.email,
-    firstName: data.first_name || data.firstName || '',
-    lastName: data.last_name || data.lastName || '',
-    middleName: data.middle_name || data.middleName,
-    profileImageUrl: data.profile_image_url || data.profileImageUrl,
-    phone: data.phone,
-    dateOfBirth: data.date_of_birth || data.dateOfBirth,
-    gender: data.gender,
-    address: data.address,
-    address2: data.address2,
-    city: data.city,
-    state: data.state,
-    zipCode: data.zip_code || data.zipCode,
-    emergencyContactName: data.emergency_contact_name || data.emergencyContactName,
-    emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
-    role: normalizedRole,
-    agentNumber: data.agent_number || data.agentNumber,
-    isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
-    approvalStatus: data.approval_status || data.approvalStatus || 'approved',
-    approvedAt: data.approved_at || data.approvedAt,
-    approvedBy: data.approved_by || data.approvedBy,
-    rejectionReason: data.rejection_reason || data.rejectionReason,
-    emailVerified: data.email_verified !== undefined ? data.email_verified : (data.emailVerified !== undefined ? data.emailVerified : false),
-    emailVerifiedAt: data.email_verified_at || data.emailVerifiedAt,
-    registrationIp: data.registration_ip || data.registrationIp,
-    registrationUserAgent: data.registration_user_agent || data.registrationUserAgent,
-    suspiciousFlags: data.suspicious_flags || data.suspiciousFlags,
-    enrolledByAgentId: data.enrolled_by_agent_id || data.enrolledByAgentId,
-    employerName: data.employer_name || data.employerName,
-    divisionName: data.division_name || data.divisionName,
-    memberType: data.member_type || data.memberType,
-    ssn: data.ssn,
-    dateOfHire: data.date_of_hire || data.dateOfHire,
-    planStartDate: data.plan_start_date || data.planStartDate,
-    createdAt: data.created_at || new Date(),
-    updatedAt: data.updated_at || new Date(),
-    username: data.username,
-    passwordHash: data.password_hash || data.passwordHash,
-    emailVerificationToken: data.email_verification_token || data.emailVerificationToken,
-    resetPasswordToken: data.reset_password_token || data.resetPasswordExpiry,
-    resetPasswordExpiry: data.reset_password_expiry || data.resetPasswordExpiry,
-    lastLoginAt: data.last_login_at || data.lastLoginAt,
-    lastActivityAt: data.last_activity_at || data.lastActivityAt,
-    stripeCustomerId: data.stripe_customer_id || data.stripeCustomerId,
-    stripeSubscriptionId: data.stripe_subscription_id || data.stripeSubscriptionId,
-    googleId: data.google_id || data.googleId,
-    facebookId: data.facebook_id || data.facebookId,
-    appleId: data.apple_id || data.appleId,
-    microsoftId: data.microsoft_id || data.microsoftId,
-    linkedinId: data.linkedin_id || data.linkedinId,
-    twitterId: data.twitter_id || data.twitterId
-  } as User;
 }
-
 
 export async function upsertUser(userData: UpsertUser): Promise<User> {
   // Supabase upsert logic can be a bit more involved if preserving specific fields is critical.
@@ -611,24 +701,36 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching all users...');
+    console.log('[Storage] Fetching all users via Supabase...');
 
-    // First fetch all users using direct Neon query
-    const usersResult = await query(
-      'SELECT * FROM users ORDER BY created_at DESC'
-    );
+    // Use Supabase instead of Neon to avoid connection issues
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-    // Then fetch subscriptions separately
-    const subsResult = await query(
-      'SELECT * FROM subscriptions'
-    );
+    if (usersError) {
+      console.error('[Storage] Supabase users error:', usersError);
+      throw usersError;
+    }
 
-    const users = usersResult.rows || [];
-    const subscriptions = subsResult.rows || [];
+    if (!users) {
+      console.warn('[Storage] No users returned from Supabase');
+      return { users: [], totalCount: 0 };
+    }
+
+    // Fetch subscriptions separately
+    const { data: subscriptions, error: subsError } = await supabase
+      .from('subscriptions')
+      .select('*');
+
+    if (subsError) {
+      console.warn('[Storage] Supabase subscriptions error (continuing without):', subsError);
+    }
 
     // Map subscriptions to users and convert to camelCase
     const usersWithSubscriptions = users.map(user => {
-      const userSubscription = subscriptions.find(sub => sub.user_id === user.id);
+      const userSubscription = subscriptions?.find(sub => sub.user_id === user.id);
       const mappedUser = mapUserFromDB(user);
       return {
         ...mappedUser,
@@ -636,9 +738,9 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
       };
     }).filter(u => u !== null);
 
-    console.log('[Storage] Raw user data:', {
+    console.log('[Storage] Successfully fetched users:', {
       totalUsers: usersWithSubscriptions.length,
-      roles: usersWithSubscriptions.map(u => ({ email: u.email, role: u.role }))
+      roles: usersWithSubscriptions.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
     });
 
     return {
@@ -651,57 +753,26 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
   }
 }
 
-// Get only members (excluding agents and admins)
+// Get only members (from the members table - NOT from users table!)
+// NOTE: Members are enrolled customers in the members table, NOT in the users table
+// Users table should ONLY contain 'admin' and 'agent' roles for staff/agents
 export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching members only...');
+    console.log('[Storage] Fetching members from members table...');
 
-    // Use direct Neon query to bypass RLS
-    const usersResult = await query(
-      `SELECT u.*, 
-        s.id as sub_id, s.status as sub_status, s.plan_id, s.amount,
-        p.name as plan_name
-      FROM users u
-      LEFT JOIN subscriptions s ON u.id = s.user_id
-      LEFT JOIN plans p ON s.plan_id = p.id
-      WHERE u.role IN ('user', 'member')
-      ORDER BY u.created_at DESC`
-    );
+    // Call getAllDPCMembers which queries the members table directly
+    const members = await getAllDPCMembers();
+    
+    // Apply limit and offset if needed
+    const slicedMembers = members.slice(offset, offset + limit);
 
-    // Process and map users
-    const userMap = new Map();
-    for (const row of usersResult.rows) {
-      const userId = row.id;
-      if (!userMap.has(userId)) {
-        const mappedUser = mapUserFromDB(row);
-        if (mappedUser) {
-          userMap.set(userId, {
-            ...mappedUser,
-            subscription: row.sub_id ? {
-              id: row.sub_id,
-              status: row.sub_status,
-              planId: row.plan_id,
-              amount: row.amount,
-              planName: row.plan_name || 'Unknown Plan'
-            } : null
-          });
-        }
-      }
-    }
-
-    const mappedUsers = Array.from(userMap.values());
-
-    // Map users to proper format with camelCase
-    const result = mappedUsers.filter(u => u !== null);
-
-    console.log('[Storage] Members data:', {
-      totalMembers: result.length,
-      sampleRoles: result.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
+    console.log('[Storage] Successfully fetched members:', {
+      totalMembers: members.length
     });
 
     return {
-      users: result,
-      totalCount: result.length
+      users: slicedMembers as any[],
+      totalCount: members.length
     };
   } catch (error: any) {
     console.error('[Storage] Error in getMembersOnly:', error);
@@ -773,16 +844,68 @@ export async function getSubscriptionStats(): Promise<{ active: number; pending:
 
 export async function getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
   try {
-    let sql = 'SELECT * FROM users WHERE enrolled_by_agent_id = $1';
+    // Query members table from Neon database (not users table)
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        c.commission_amount,
+        c.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN commissions c ON c.member_id = m.id
+      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+    `;
     const params: any[] = [agentId];
 
     if (startDate && endDate) {
-      sql += ' AND created_at > $2 AND created_at < $3';
+      sql += ' AND m.created_at >= $2 AND m.created_at <= $3';
       params.push(startDate, endDate);
     }
 
+    sql += ' ORDER BY m.created_at DESC';
+
     const result = await query(sql, params);
-    return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
+    
+    // Map member data to User format for compatibility, including plan and commission info
+    return result.rows.map((row: any) => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.is_active,
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.coverage_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
+    } as any));
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
@@ -791,25 +914,175 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
 
 export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
   try {
-    let sql = "SELECT * FROM users WHERE role IN ('user', 'member')";
+    // Query members table from Neon database with plan and commission data
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        c.commission_amount,
+        c.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN commissions c ON c.member_id = m.id
+      WHERE m.is_active = true
+    `;
     const params: any[] = [];
     let paramCount = 1;
 
     if (startDate && endDate) {
-      sql += ` AND created_at > $${paramCount++} AND created_at < $${paramCount++}`;
+      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
       params.push(startDate, endDate);
     }
 
     if (agentId) {
-      sql += ` AND enrolled_by_agent_id = $${paramCount++}`;
+      sql += ` AND m.enrolled_by_agent_id = $${paramCount++}`;
       params.push(agentId);
     }
 
+    sql += " ORDER BY m.created_at DESC";
+
     const result = await query(sql, params);
-    return result.rows.map(row => mapUserFromDB(row)).filter(u => u !== null) as User[];
+    
+    // Map member data to User format for compatibility, including plan and commission data
+    return result.rows.map((row: any) => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.is_active,
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.coverage_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
+    } as any));
   } catch (error: any) {
     console.error('Error fetching all enrollments:', error);
     throw new Error(`Failed to get enrollments: ${error.message}`);
+  }
+}
+
+export async function getEnrollmentsByAgent(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+  try {
+    // Query members table from Neon database with plan and commission data
+    let sql = `
+      SELECT 
+        m.*,
+        p.name as plan_name,
+        p.price as plan_price,
+        ac.commission_amount,
+        ac.payment_status as commission_status
+      FROM members m
+      LEFT JOIN plans p ON m.plan_id = p.id
+      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
+      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+    `;
+    const params: any[] = [agentId];
+    let paramCount = 2;
+
+    if (startDate && endDate) {
+      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
+      params.push(startDate, endDate);
+    }
+
+    sql += " ORDER BY m.created_at DESC";
+
+    const result = await query(sql, params);
+    
+    console.log('[Storage] getEnrollmentsByAgent - Query params:', { agentId, startDate, endDate });
+    console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
+    if (result.rows.length > 0) {
+      console.log('[Storage] getEnrollmentsByAgent - Sample raw data:', {
+        id: result.rows[0].id,
+        email: result.rows[0].email,
+        first_name: result.rows[0].first_name,
+        plan_name: result.rows[0].plan_name,
+        plan_price: result.rows[0].plan_price,
+        commission_amount: result.rows[0].commission_amount,
+        commission_status: result.rows[0].commission_status,
+        enrolled_by_agent_id: result.rows[0].enrolled_by_agent_id
+      });
+      
+      // 🔍 DEBUG: Check commission JOIN separately
+      console.log('[DEBUG] Checking commission data separately...');
+      const commissionQuery = await query(`
+        SELECT ac.*, m.id as member_id, m.first_name, m.last_name 
+        FROM agent_commissions ac
+        INNER JOIN members m ON ac.member_id = m.id::text
+        WHERE ac.agent_id = $1
+        LIMIT 5
+      `, [agentId]);
+      console.log('[DEBUG] Commission records for agent:', commissionQuery.rows);
+      console.log('[DEBUG] Commission count for agent:', commissionQuery.rows.length);
+    }
+    
+    // Map member data to User format for compatibility, including plan and commission data
+    return result.rows.map((row: any) => ({
+      id: row.id.toString(),
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      role: 'member',
+      agentNumber: row.agent_number,
+      isActive: row.is_active,
+      emailVerified: row.email_verified || false,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      employerName: row.employer_name,
+      memberType: row.coverage_type,
+      ssn: row.ssn,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.customer_number,
+      // Include plan and commission info
+      planId: row.plan_id,
+      planName: row.plan_name,
+      planPrice: row.plan_price,
+      totalMonthlyPrice: row.total_monthly_price,
+      commissionAmount: row.commission_amount,
+      commissionStatus: row.commission_status
+    } as any));
+  } catch (error: any) {
+    console.error('Error fetching agent enrollments:', error);
+    throw new Error(`Failed to get agent enrollments: ${error.message}`);
   }
 }
 
@@ -825,6 +1098,196 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
   }
 }
 
+// Record banking information changes for audit trail
+export async function recordBankingInfoChange(data: {
+  userId: string;
+  modifiedBy: string;
+  oldBankingInfo: any;
+  newBankingInfo: any;
+  changeType: string;
+}): Promise<void> {
+  try {
+    const changeDetails = {
+      changeType: data.changeType,
+      oldValues: data.oldBankingInfo,
+      newValues: data.newBankingInfo,
+      timestamp: new Date().toISOString(),
+      userAgent: 'DPC Enrollment System'
+    };
+
+    await query(
+      'INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [data.userId, data.modifiedBy, 'banking_info_update', JSON.stringify(changeDetails), new Date()]
+    );
+    
+    console.log(`[Audit] Banking info change recorded for user ${data.userId} by ${data.modifiedBy}`);
+  } catch (error: any) {
+    console.error('Error recording banking info change:', error);
+    // Don't throw - banking updates should not fail due to audit logging issues
+    console.warn('Banking info update will proceed despite audit logging failure');
+  }
+}
+
+// Get banking information change history for a user
+export async function getBankingChangeHistory(userId: string): Promise<any[]> {
+  try {
+    const result = await query(
+      `SELECT 
+        id, 
+        modified_by, 
+        change_details, 
+        created_at 
+       FROM enrollment_modifications 
+       WHERE user_id = $1 AND change_type = 'banking_info_update' 
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    
+    return result.rows.map(row => ({
+      id: row.id,
+      modifiedBy: row.modified_by,
+      changeDetails: row.change_details,
+      createdAt: row.created_at
+    }));
+  } catch (error: any) {
+    console.error('Error fetching banking change history:', error);
+    return [];
+  }
+}
+
+// DPC Member operations (Neon database)
+export async function getAllDPCMembers(): Promise<any[]> {
+  try {
+    const result = await query(`
+      SELECT 
+        id,
+        customer_number,
+        first_name,
+        last_name,
+        middle_name,
+        email,
+        phone,
+        date_of_birth,
+        gender,
+        ssn,
+        address,
+        address2,
+        city,
+        state,
+        zip_code,
+        emergency_contact_name,
+        emergency_contact_phone,
+        employer_name,
+        division_name,
+        member_type,
+        date_of_hire,
+        plan_start_date,
+        enrolled_by_agent_id,
+        agent_number,
+        enrollment_date,
+        is_active,
+        status,
+        cancellation_date,
+        cancellation_reason,
+        created_at,
+        updated_at
+      FROM members 
+      ORDER BY created_at DESC
+    `);
+    
+    return result.rows.map((row: any) => ({
+      id: row.customer_number, // Use customer_number as ID for frontend
+      customerNumber: row.customer_number,
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      gender: row.gender,
+      address: row.address,
+      address2: row.address2,
+      city: row.city,
+      state: row.state,
+      zipCode: row.zip_code,
+      emergencyContactName: row.emergency_contact_name,
+      emergencyContactPhone: row.emergency_contact_phone,
+      employerName: row.employer_name,
+      divisionName: row.division_name,
+      memberType: row.member_type,
+      dateOfHire: row.date_of_hire,
+      planStartDate: row.plan_start_date,
+      role: 'member',
+      agentNumber: row.agent_number,
+      enrolledByAgentId: row.enrolled_by_agent_id,
+      enrollmentDate: row.enrollment_date,
+      isActive: row.is_active && row.status === 'active',
+      status: row.status,
+      approvalStatus: row.is_active && row.status === 'active' ? 'approved' : 
+                       row.status === 'suspended' ? 'suspended' : 'inactive',
+      cancellationDate: row.cancellation_date,
+      cancellationReason: row.cancellation_reason,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      emailVerified: true // Members are pre-verified through enrollment process
+    }));
+  } catch (error: any) {
+    console.error('Error fetching DPC members:', error);
+    throw new Error(`Failed to fetch DPC members: ${error.message}`);
+  }
+}
+
+export async function suspendDPCMember(customerId: string, reason?: string): Promise<any> {
+  try {
+    const result = await query(`
+      UPDATE members 
+      SET 
+        status = 'suspended',
+        is_active = false,
+        cancellation_reason = $2,
+        updated_at = NOW()
+      WHERE customer_number = $1
+      RETURNING *
+    `, [customerId, reason || 'Suspended by administrator']);
+    
+    if (result.rows.length === 0) {
+      throw new Error('Member not found');
+    }
+    
+    console.log(`✅ DPC Member ${customerId} suspended successfully`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('Error suspending DPC member:', error);
+    throw new Error(`Failed to suspend DPC member: ${error.message}`);
+  }
+}
+
+export async function reactivateDPCMember(customerId: string): Promise<any> {
+  try {
+    const result = await query(`
+      UPDATE members 
+      SET 
+        status = 'active',
+        is_active = true,
+        cancellation_reason = NULL,
+        cancellation_date = NULL,
+        updated_at = NOW()
+      WHERE customer_number = $1
+      RETURNING *
+    `, [customerId]);
+    
+    if (result.rows.length === 0) {
+      throw new Error('Member not found');
+    }
+    
+    console.log(`✅ DPC Member ${customerId} reactivated successfully`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('Error reactivating DPC member:', error);
+    throw new Error(`Failed to reactivate DPC member: ${error.message}`);
+  }
+}
+
 // Lead operations
 export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lead> {
   try {
@@ -835,19 +1298,31 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
       throw new Error('Missing required fields: firstName, lastName, email, phone');
     }
 
-    // Map camelCase to snake_case for database
-    const dbData = {
+    // Supabase leads table uses snake_case columns (as shown in screenshot)
+    // Map JavaScript camelCase to PostgreSQL snake_case
+    // ONLY include columns that currently exist in the table:
+    // id, first_name, last_name, email, phone, message, status, created_at
+    const dbData: any = {
       first_name: leadData.firstName.trim(),
       last_name: leadData.lastName.trim(),
       email: leadData.email.trim().toLowerCase(),
       phone: leadData.phone.trim(),
       message: leadData.message ? leadData.message.trim() : '',
-      source: leadData.source || 'contact_form',
-      status: leadData.status || 'new',
-      assigned_agent_id: leadData.assignedAgentId || null,
-      created_at: new Date(),
-      updated_at: new Date()
+      status: leadData.status || 'new'
+      // created_at will be auto-generated by database DEFAULT
     };
+
+    // NOTE: Optional columns (source, assigned_agent_id, notes) can be added if provided
+    // These columns now exist after running add_missing_leads_columns.sql migration
+    if (leadData.source) {
+      dbData.source = leadData.source;
+    }
+    if (leadData.assignedAgentId !== undefined) {
+      dbData.assigned_agent_id = leadData.assignedAgentId;
+    }
+    if (leadData.notes) {
+      dbData.notes = leadData.notes;
+    }
 
     console.log('[Storage] Mapped data for database:', dbData);
 
@@ -978,7 +1453,7 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
 }
 
 export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
-  // Map camelCase to snake_case for database update
+  // Map JavaScript camelCase to PostgreSQL snake_case
   const updateData: any = { updated_at: new Date().toISOString() };
 
   if (data.firstName !== undefined) updateData.first_name = data.firstName;
@@ -1587,82 +2062,140 @@ export async function createCommission(commission: InsertCommission): Promise<Co
     return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
   }
 
-  // Check if the enrolling user is an admin. If so, skip commission creation.
-  // Assuming enrolling user is available in commission object or can be fetched
-  // For now, let's assume enrolling user ID is passed or fetched via subscription
-  // If subscriptionId is available, we can fetch the user who owns the subscription
-  if (commission.subscriptionId) {
-    const subscription = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
-    if (subscription.data && subscription.data.userId) {
-      const enrollingUser = await getUser(subscription.data.userId);
-      if (enrollingUser && enrollingUser.role === 'admin') {
-        console.log(`Skipping commission for enrolling admin user: ${subscription.data.userId}`);
-        return { skipped: true, reason: 'admin_no_commission' } as any;
-      }
-    }
-  }
+  // Insert commission into database (Supabase PostgreSQL)
+  try {
+    const result = await query(`
+      INSERT INTO commissions (
+        agent_id,
+        agent_number,
+        subscription_id,
+        user_id,
+        member_id,
+        plan_name,
+        plan_type,
+        plan_tier,
+        commission_amount,
+        total_plan_cost,
+        status,
+        payment_status,
+        created_at,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+      RETURNING *
+    `, [
+      commission.agentId,
+      commission.agentNumber || 'HOUSE',
+      commission.subscriptionId || null,
+      commission.userId || null,     // For staff enrollments
+      commission.memberId || null,   // For member enrollments
+      commission.planName,
+      commission.planType,
+      commission.planTier,
+      commission.commissionAmount,
+      commission.totalPlanCost,
+      commission.status || 'pending',
+      commission.paymentStatus || 'unpaid'
+    ]);
 
-
-  const { data, error } = await supabase
-    .from('commissions')
-    .insert([{ ...commission, created_at: new Date(), updated_at: new Date() }])
-    .select()
-    .single();
-
-  if (error) {
-    console.error('Error creating commission:', error);
+    console.log(`✅ Commission created in Neon database: $${commission.commissionAmount} for agent ${commission.agentId}`);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('❌ Error creating commission in Neon:', error);
     throw new Error(`Failed to create commission: ${error.message}`);
   }
-  return data;
 }
 
 export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
-  let query = supabase.from('commissions').select('*').eq('agentId', agentId);
+  try {
+    let sql = `
+      SELECT 
+        c.id,
+        c.agent_id,
+        c.subscription_id,
+        c.member_id,
+        c.plan_name,
+        c.plan_type,
+        c.plan_tier,
+        c.commission_amount,
+        c.total_plan_cost,
+        c.status,
+        c.payment_status,
+        c.paid_date,
+        c.created_at,
+        c.updated_at,
+        m.first_name,
+        m.last_name,
+        m.email as member_email
+      FROM commissions c
+      LEFT JOIN members m ON c.member_id = m.id
+      WHERE c.agent_id = $1
+    `;
+    const params: any[] = [agentId];
 
-  if (startDate && endDate) {
-    query = query.gte('created_at', startDate).lte('created_at', endDate);
-  }
+    if (startDate && endDate) {
+      sql += ' AND c.created_at >= $2 AND c.created_at <= $3';
+      params.push(startDate, endDate);
+    }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+    sql += ' ORDER BY c.created_at DESC';
 
-  if (error) {
+    const result = await query(sql, params);
+    
+    // Transform snake_case to camelCase for frontend
+    return (result.rows || []).map(row => ({
+      id: row.id,
+      subscriptionId: row.subscription_id,
+      userId: row.agent_id,
+      userName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown',
+      planName: row.plan_name,
+      planType: row.plan_type,
+      planTier: row.plan_tier,
+      commissionAmount: parseFloat(row.commission_amount || 0),
+      totalPlanCost: parseFloat(row.total_plan_cost || 0),
+      status: row.status,
+      paymentStatus: row.payment_status,
+      paidDate: row.paid_date,
+      createdAt: row.created_at
+    }));
+  } catch (error: any) {
     console.error('Error fetching agent commissions:', error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);
   }
-
-  return data || [];
 }
 
 export async function getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
-  let query = supabase.from('commissions').select('*');
+  try {
+    let sql = 'SELECT * FROM commissions';
+    const params: any[] = [];
 
-  if (startDate && endDate) {
-    query = query.gte('created_at', startDate).lte('created_at', endDate);
-  }
+    if (startDate && endDate) {
+      sql += ' WHERE created_at >= $1 AND created_at <= $2';
+      params.push(startDate, endDate);
+    }
 
-  const { data, error } = await query.order('created_at', { ascending: false });
+    sql += ' ORDER BY created_at DESC';
 
-  if (error) {
+    const result = await query(sql, params);
+    return result.rows || [];
+  } catch (error: any) {
     console.error('Error fetching all commissions:', error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
   }
-
-  return data || [];
 }
 
 export async function getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
-  const { data, error } = await supabase
-    .from('commissions')
-    .select('*')
-    .eq('subscriptionId', subscriptionId)
-    .single();
-
-  if (error) {
-    if (error.code === 'PGRST116') return undefined;
+  try {
+    const result = await query(
+      'SELECT * FROM commissions WHERE subscription_id = $1 LIMIT 1',
+      [subscriptionId]
+    );
+    
+    if (result.rows.length === 0) return undefined;
+    return result.rows[0];
+  } catch (error: any) {
     console.error('Error fetching commission by subscription ID:', error);
     return undefined;
   }
-  return data;
 }
 
 export async function getCommissionByUserId(userId: string, agentId: string): Promise<Commission | undefined> {
@@ -1678,6 +2211,47 @@ export async function getCommissionByUserId(userId: string, agentId: string): Pr
     return undefined;
   }
   return data;
+}
+
+export async function getCommissionByMemberId(memberId: number): Promise<Commission | null> {
+  try {
+    console.log('[Storage] Looking up commission for member ID:', memberId);
+    const result = await query(
+      `SELECT * FROM commissions 
+       WHERE member_id = $1 
+       AND payment_status IN ('unpaid', 'pending')
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [memberId]
+    );
+    
+    if (!result.rows || result.rows.length === 0) {
+      console.log('[Storage] No unpaid commission found for member:', memberId);
+      return null;
+    }
+    
+    const row = result.rows[0];
+    console.log('[Storage] Found commission:', row.id, 'Amount:', row.commission_amount);
+    return {
+      id: row.id,
+      agentId: row.agent_id,
+      subscriptionId: row.subscription_id,
+      memberId: row.member_id,
+      planName: row.plan_name,
+      planType: row.plan_type,
+      planTier: row.plan_tier,
+      commissionAmount: parseFloat(row.commission_amount),
+      totalPlanCost: parseFloat(row.total_plan_cost),
+      status: row.status,
+      paymentStatus: row.payment_status,
+      paidDate: row.paid_date,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  } catch (error: any) {
+    console.error('[Storage] Error getting commission by member ID:', error);
+    return null;
+  }
 }
 
 export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
@@ -1696,36 +2270,810 @@ export async function updateCommission(id: number, data: Partial<Commission>): P
 }
 
 export async function getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
-  // This requires custom aggregation or fetching all and processing.
-  // Assuming a simplified approach by fetching relevant commissions.
-  let query = supabase.from('commissions').select('commissionAmount, paymentStatus');
+  try {
+    let sql = 'SELECT commission_amount, payment_status FROM commissions';
+    const params: any[] = [];
 
-  if (agentId) {
-    query = query.eq('agentId', agentId);
-  }
+    if (agentId) {
+      sql += ' WHERE agent_id = $1';
+      params.push(agentId);
+    }
 
-  const { data, error } = await query;
+    const result = await query(sql, params);
+    const data = result.rows || [];
 
-  if (error) {
+    let totalEarned = 0;
+    let totalPending = 0;
+    let totalPaid = 0;
+
+    data.forEach(commission => {
+      const amount = parseFloat(commission.commission_amount?.toString() || '0');
+      if (commission.payment_status === 'paid') {
+        totalPaid += amount;
+        totalEarned += amount;
+      } else if (commission.payment_status === 'unpaid' || commission.payment_status === 'pending') {
+        totalPending += amount;
+      }
+    });
+
+    return { 
+      totalEarned: parseFloat(totalEarned.toFixed(2)), 
+      totalPending: parseFloat(totalPending.toFixed(2)), 
+      totalPaid: parseFloat(totalPaid.toFixed(2)) 
+    };
+  } catch (error: any) {
     console.error('Error fetching commission stats:', error);
     throw new Error(`Failed to get commission stats: ${error.message}`);
   }
+}
 
-  let totalEarned = 0;
-  let totalPending = 0;
-  let totalPaid = 0;
+// ========== NEW AGENT COMMISSIONS TABLE FUNCTIONS ==========
+// Using the new agent_commissions table with clean schema
 
-  (data || []).forEach(commission => {
-    const amount = parseFloat(commission.commissionAmount?.toString() || '0');
-    if (commission.paymentStatus === 'paid') {
-      totalPaid += amount;
-      totalEarned += amount;
-    } else if (commission.paymentStatus === 'unpaid') {
-      totalPending += amount;
+export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
+  try {
+    console.log('[Storage] Fetching commissions via Supabase for agent:', agentId);
+    
+    // First, get basic commissions data without complex joins to avoid foreign key issues
+    let query = supabase
+      .from('agent_commissions')
+      .select('*')
+      .eq('agent_id', agentId);
+
+    if (startDate && endDate) {
+      query = query.gte('created_at', startDate).lte('created_at', endDate);
     }
-  });
 
-  return { totalEarned, totalPending, totalPaid };
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Storage] Supabase error fetching commissions:', error);
+      throw error;
+    }
+
+    console.log('[Storage] Found', commissions?.length || 0, 'commissions');
+    
+    if (!commissions || commissions.length === 0) {
+      return [];
+    }
+
+    // Get unique member IDs and agent IDs for batch lookup
+    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
+    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+
+    // Batch fetch users data (both agents and members are in users table)
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, role')
+      .in('id', [...memberIds, ...agentIds]);
+
+    if (usersError) {
+      console.warn('[Storage] Could not fetch user details:', usersError);
+    }
+
+    // Create lookup maps
+    const usersMap = new Map((users || []).map(u => [u.id, u]));
+
+    console.log('[Storage] Sample raw commission:', {
+      id: commissions[0].id,
+      commission_amount: commissions[0].commission_amount,
+      member_id: commissions[0].member_id,
+      agent_id: commissions[0].agent_id
+    });
+    
+    // Format for frontend - transform to match expected structure
+    const formatted = commissions.map((commission: any) => {
+      const member = usersMap.get(commission.member_id);
+      const agent = usersMap.get(commission.agent_id);
+
+      return {
+        id: commission.id,
+        agentId: commission.agent_id,
+        memberId: commission.member_id,
+        enrollmentId: commission.enrollment_id,
+        commissionAmount: parseFloat(commission.commission_amount || 0),
+        coverageType: commission.coverage_type || 'other',
+        status: commission.status || 'pending',
+        paymentStatus: commission.payment_status || 'unpaid',
+        // Map member data from lookup
+        totalPlanCost: parseFloat(commission.base_premium || 0),
+        userName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`,
+        planTier: commission.coverage_type || 'N/A',
+        planType: commission.coverage_type || 'other',
+        notes: commission.notes || '',
+        createdAt: commission.created_at,
+        updatedAt: commission.updated_at,
+        paidDate: commission.paid_at,
+        // Additional fields for display
+        memberEmail: member?.email || '',
+        firstName: member?.first_name || '',
+        lastName: member?.last_name || '',
+        planName: commission.coverage_type || 'Unknown',
+        planPrice: parseFloat(commission.base_premium || 0),
+        // Agent info
+        agentEmail: agent?.email || '',
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown Agent'
+      };
+    });
+    
+    if (formatted.length > 0) {
+      console.log('[Storage] Sample formatted commission:', {
+        id: formatted[0].id,
+        commissionAmount: formatted[0].commissionAmount,
+        userName: formatted[0].userName,
+        memberEmail: formatted[0].memberEmail
+      });
+    }
+    return formatted;
+  } catch (error: any) {
+    console.error('[Storage] Error in getAgentCommissionsNew:', error);
+    throw new Error(`Failed to get agent commissions: ${error.message}`);
+  }
+}
+
+export async function getAllCommissionsNew(startDate?: string, endDate?: string): Promise<any[]> {
+  try {
+    console.log('[Storage] Fetching all commissions from agent_commissions table');
+    
+    let query = supabase
+      .from('agent_commissions')
+      .select('*');
+
+    if (startDate && endDate) {
+      query = query.gte('created_at', startDate).lte('created_at', endDate);
+    }
+
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Storage] Error fetching all commissions:', error);
+      throw new Error(`Failed to get all commissions: ${error.message}`);
+    }
+
+    console.log('[Storage] Found', commissions?.length || 0, 'total commissions');
+    
+    if (!commissions || commissions.length === 0) {
+      return [];
+    }
+
+    // Get unique member IDs and agent IDs for batch lookup
+    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
+    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+
+    // Batch fetch users data (both agents and members are in users table)
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, email, first_name, last_name, role, agent_number')
+      .in('id', [...memberIds, ...agentIds]);
+
+    if (usersError) {
+      console.warn('[Storage] Could not fetch user details:', usersError);
+    }
+
+    // Create lookup maps
+    const usersMap = new Map((users || []).map(u => [u.id, u]));
+    
+    // Format for frontend - enhanced for admin view
+    const formatted = commissions.map(commission => {
+      const member = usersMap.get(commission.member_id);
+      const agent = usersMap.get(commission.agent_id);
+
+      return {
+        id: commission.id,
+        agentId: commission.agent_id,
+        memberId: commission.member_id,
+        enrollmentId: commission.enrollment_id,
+        commissionAmount: parseFloat(commission.commission_amount || 0),
+        coverageType: commission.coverage_type || 'other',
+        status: commission.status || 'pending',
+        paymentStatus: commission.payment_status || 'unpaid',
+        basePremium: parseFloat(commission.base_premium || 0),
+        notes: commission.notes || '',
+        createdAt: commission.created_at,
+        updatedAt: commission.updated_at,
+        paidDate: commission.paid_at,
+        // Member information
+        memberEmail: member?.email || '',
+        memberName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`,
+        memberFirstName: member?.first_name || '',
+        memberLastName: member?.last_name || '',
+        // Agent information
+        agentEmail: agent?.email || '',
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown Agent',
+        agentNumber: agent?.agent_number || '',
+        agentFirstName: agent?.first_name || '',
+        agentLastName: agent?.last_name || '',
+        // Additional display fields
+        planTier: commission.coverage_type || 'N/A',
+        planType: commission.coverage_type || 'other',
+        planName: commission.coverage_type || 'Unknown',
+        planPrice: parseFloat(commission.base_premium || 0),
+        totalPlanCost: parseFloat(commission.base_premium || 0),
+        userName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || `Member ${commission.member_id}`
+      };
+    });
+
+    console.log('[Storage] Sample formatted admin commission:', {
+      id: formatted[0]?.id,
+      commissionAmount: formatted[0]?.commissionAmount,
+      agentName: formatted[0]?.agentName,
+      memberName: formatted[0]?.memberName
+    });
+
+    return formatted;
+  } catch (error: any) {
+    console.error('[Storage] Error in getAllCommissionsNew:', error);
+    throw new Error(`Failed to get all commissions: ${error.message}`);
+  }
+}
+
+export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('agent_commissions')
+      .update({
+        payment_status: 'paid',
+        payment_date: paymentDate || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .in('id', commissionIds);
+
+    if (error) {
+      throw new Error(`Failed to mark commissions as paid: ${error.message}`);
+    }
+
+    console.log(`[Storage] Marked ${commissionIds.length} commission(s) as paid`);
+  } catch (error: any) {
+    console.error('[Storage] Error in markCommissionsAsPaid:', error);
+    throw new Error(`Failed to mark commissions as paid: ${error.message}`);
+  }
+}
+
+export async function updateCommissionPayoutStatus(
+  commissionId: string,
+  payoutData: {
+    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentDate?: string;
+    notes?: string;
+  }
+): Promise<any> {
+  try {
+    console.log('[Storage] Updating commission payout status:', commissionId, payoutData);
+
+    const updatePayload: any = {
+      payment_status: payoutData.paymentStatus,
+      updated_at: new Date().toISOString()
+    };
+
+    // If marking as paid, set the payment date
+    if (payoutData.paymentStatus === 'paid') {
+      updatePayload.paid_at = payoutData.paymentDate || new Date().toISOString();
+    }
+
+    // Add notes if provided
+    if (payoutData.notes) {
+      updatePayload.notes = payoutData.notes;
+    }
+
+    const { data, error } = await supabase
+      .from('agent_commissions')
+      .update(updatePayload)
+      .eq('id', commissionId)
+      .select();
+
+    if (error) {
+      throw new Error(`Failed to update commission payout status: ${error.message}`);
+    }
+
+    console.log('[Storage] Commission payout status updated successfully');
+    return data?.[0] || null;
+  } catch (error: any) {
+    console.error('[Storage] Error in updateCommissionPayoutStatus:', error);
+    throw new Error(`Failed to update commission payout status: ${error.message}`);
+  }
+}
+
+export async function updateMultipleCommissionPayouts(
+  updates: Array<{
+    commissionId: string;
+    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentDate?: string;
+  }>
+): Promise<void> {
+  try {
+    console.log('[Storage] Batch updating commission payouts for', updates.length, 'commissions');
+
+    // Process updates in batches of 100 to avoid hitting rate limits
+    const batchSize = 100;
+    for (let i = 0; i < updates.length; i += batchSize) {
+      const batch = updates.slice(i, i + batchSize);
+
+      // Update each commission individually (Supabase doesn't support batch conditional updates)
+      await Promise.all(
+        batch.map(update => {
+          const updatePayload: any = {
+            payment_status: update.paymentStatus,
+            updated_at: new Date().toISOString()
+          };
+
+          if (update.paymentStatus === 'paid') {
+            updatePayload.paid_at = update.paymentDate || new Date().toISOString();
+          }
+
+          return supabase
+            .from('agent_commissions')
+            .update(updatePayload)
+            .eq('id', update.commissionId);
+        })
+      );
+    }
+
+    console.log('[Storage] Batch payout update completed');
+  } catch (error: any) {
+    console.error('[Storage] Error in updateMultipleCommissionPayouts:', error);
+    throw new Error(`Failed to batch update commission payouts: ${error.message}`);
+  }
+}
+
+export async function getCommissionsForPayout(
+  agentId?: string,
+  paymentStatus?: string,
+  minAmount?: number
+): Promise<any[]> {
+  try {
+    console.log('[Storage] Fetching commissions for payout:', { agentId, paymentStatus, minAmount });
+
+    let query = supabase
+      .from('agent_commissions')
+      .select(`
+        id,
+        agent_id,
+        member_id,
+        enrollment_id,
+        commission_amount,
+        coverage_type,
+        status,
+        payment_status,
+        paid_at,
+        created_at,
+        updated_at,
+        base_premium,
+        notes
+      `);
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    if (paymentStatus) {
+      query = query.eq('payment_status', paymentStatus);
+    }
+
+    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+
+    if (error) {
+      throw new Error(`Failed to get commissions for payout: ${error.message}`);
+    }
+
+    // Filter by minimum amount if specified
+    let filtered = commissions || [];
+    if (minAmount) {
+      filtered = filtered.filter(c => parseFloat(c.commission_amount || '0') >= minAmount);
+    }
+
+    // Get agent and member details
+    const agentIds = [...new Set(filtered.map((c: any) => c.agent_id).filter(Boolean))];
+    const memberIds = [...new Set(filtered.map((c: any) => c.member_id).filter(Boolean))];
+
+    const { data: agents } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', agentIds);
+
+    const { data: members } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', memberIds);
+
+    const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
+    const membersMap = new Map(members?.map(m => [m.id, m]) || []);
+
+    // Enhance with agent and member details
+    const enhanced = filtered.map((commission: any) => {
+      const agent = agentsMap.get(commission.agent_id);
+      const member = membersMap.get(commission.member_id);
+
+      return {
+        ...commission,
+        commissionAmount: parseFloat(commission.commission_amount || '0'),
+        agentName: agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : agent?.email || 'Unknown',
+        agentEmail: agent?.email || '',
+        memberName: member?.first_name && member?.last_name 
+          ? `${member.first_name} ${member.last_name}` 
+          : member?.email || 'Unknown',
+        memberEmail: member?.email || '',
+        formattedAmount: `$${parseFloat(commission.commission_amount || '0').toFixed(2)}`,
+        isPaid: commission.payment_status === 'paid'
+      };
+    });
+
+    console.log('[Storage] Found', enhanced.length, 'commissions for payout');
+    return enhanced;
+  } catch (error: any) {
+    console.error('[Storage] Error in getCommissionsForPayout:', error);
+    throw new Error(`Failed to get commissions for payout: ${error.message}`);
+  }
+}
+
+export async function markCommissionPaymentCaptured(
+  memberId: string, 
+  paymentIntentId: string,
+  transactionId?: string
+): Promise<void> {
+  try {
+    // Calculate eligible payout date (14 days from now)
+    const capturedAt = new Date();
+    const eligibleDate = new Date(capturedAt);
+    eligibleDate.setDate(eligibleDate.getDate() + 14);
+
+    const { error} = await supabase
+      .from('agent_commissions')
+      .update({
+        payment_captured: true,
+        payment_intent_id: paymentIntentId,
+        payment_captured_at: capturedAt.toISOString(),
+        eligible_for_payout_at: eligibleDate.toISOString(),
+        status: 'approved', // Move from pending to approved once payment captured
+        updated_at: new Date().toISOString()
+      })
+      .eq('member_id', memberId)
+      .eq('payment_captured', false); // Only update if not already captured
+
+    if (error) {
+      console.error('[Storage] Error marking commission payment as captured:', error);
+      throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+    }
+
+    console.log(`[Storage] ✅ Commission payment captured for member ${memberId}, eligible for payout on ${eligibleDate.toISOString().split('T')[0]}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in markCommissionPaymentCaptured:', error);
+    throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+  }
+}
+
+export async function clawbackCommission(
+  commissionId: string,
+  reason: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('agent_commissions')
+      .update({
+        is_clawed_back: true,
+        clawback_reason: reason,
+        clawback_date: new Date().toISOString(),
+        payment_status: 'unpaid', // Revert to unpaid
+        status: 'cancelled', // Mark as cancelled
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', commissionId);
+
+    if (error) {
+      throw new Error(`Failed to clawback commission: ${error.message}`);
+    }
+
+    console.log(`[Storage] ⚠️  Commission ${commissionId} clawed back: ${reason}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in clawbackCommission:', error);
+    throw new Error(`Failed to clawback commission: ${error.message}`);
+  }
+}
+
+export async function getAgentHierarchy(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        email,
+        first_name,
+        last_name,
+        agent_number,
+        upline_agent_id,
+        override_commission_rate,
+        hierarchy_level,
+        can_receive_overrides,
+        upline:upline_agent_id(email)
+      `)
+      .eq('role', 'agent')
+      .order('hierarchy_level', { ascending: true })
+      .order('agent_number', { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to get agent hierarchy: ${error.message}`);
+    }
+
+    // Get downline counts for each agent
+    const agentsWithCounts = await Promise.all((data || []).map(async (agent) => {
+      const { count } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true })
+        .eq('upline_agent_id', agent.id);
+
+      return {
+        id: agent.id,
+        email: agent.email,
+        firstName: agent.first_name,
+        lastName: agent.last_name,
+        agentNumber: agent.agent_number,
+        uplineAgentId: agent.upline_agent_id,
+        uplineEmail: agent.upline?.email,
+        overrideCommissionRate: parseFloat(agent.override_commission_rate || '0'),
+        hierarchyLevel: agent.hierarchy_level || 0,
+        canReceiveOverrides: agent.can_receive_overrides || false,
+        downlineCount: count || 0
+      };
+    }));
+
+    return agentsWithCounts;
+  } catch (error: any) {
+    console.error('[Storage] Error in getAgentHierarchy:', error);
+    throw new Error(`Failed to get agent hierarchy: ${error.message}`);
+  }
+}
+
+export async function updateAgentHierarchy(
+  agentId: string,
+  uplineId: string | null,
+  overrideAmount: number,
+  changedBy: string,
+  reason?: string
+): Promise<void> {
+  try {
+    // Get current upline for history
+    const { data: currentAgent } = await supabase
+      .from('users')
+      .select('upline_agent_id')
+      .eq('id', agentId)
+      .single();
+
+    // Update agent upline and override rate
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        upline_agent_id: uplineId,
+        override_commission_rate: overrideAmount,
+        can_receive_overrides: !!uplineId // Can receive overrides if has upline
+      })
+      .eq('id', agentId);
+
+    if (updateError) {
+      throw new Error(`Failed to update agent hierarchy: ${updateError.message}`);
+    }
+
+    // Record hierarchy change in history
+    const { error: historyError } = await supabase
+      .from('agent_hierarchy_history')
+      .insert({
+        agent_id: agentId,
+        previous_upline_id: currentAgent?.upline_agent_id,
+        new_upline_id: uplineId,
+        changed_by_admin_id: changedBy,
+        reason: reason || 'Manual update'
+      });
+
+    if (historyError) {
+      console.error('[Storage] Error recording hierarchy history:', historyError);
+      // Don't fail the update if history recording fails
+    }
+
+    console.log(`[Storage] ✅ Updated agent hierarchy for ${agentId}, new upline: ${uplineId || 'none'}, override: $${overrideAmount}`);
+  } catch (error: any) {
+    console.error('[Storage] Error in updateAgentHierarchy:', error);
+    throw new Error(`Failed to update agent hierarchy: ${error.message}`);
+  }
+}
+
+export async function getCommissionTotals(agentId?: string): Promise<{
+  mtd: { earned: number; paid: number; pending: number };
+  ytd: { earned: number; paid: number; pending: number };
+  lifetime: { earned: number; paid: number; pending: number };
+  byAgent?: Array<{ agentId: string; agentName: string; mtd: number; ytd: number; lifetime: number }>;
+}> {
+  try {
+    console.log('[Storage] Calculating commission totals for agent:', agentId);
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    // First day of current month
+    const mtdStart = new Date(currentYear, currentMonth, 1).toISOString();
+    // First day of current year
+    const ytdStart = new Date(currentYear, 0, 1).toISOString();
+    // Today
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+    let query = supabase
+      .from('agent_commissions')
+      .select('commission_amount, payment_status, created_at, agent_id');
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    const { data: allCommissions, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to get commission totals: ${error.message}`);
+    }
+
+    // Helper to calculate totals from commissions array
+    const calculateTotals = (commissions: any[]) => {
+      let earned = 0;
+      let paid = 0;
+      let pending = 0;
+
+      commissions.forEach((commission: any) => {
+        const amount = parseFloat(commission.commission_amount?.toString() || '0');
+        earned += amount;
+        
+        if (commission.payment_status === 'paid') {
+          paid += amount;
+        } else {
+          pending += amount;
+        }
+      });
+
+      return {
+        earned: parseFloat(earned.toFixed(2)),
+        paid: parseFloat(paid.toFixed(2)),
+        pending: parseFloat(pending.toFixed(2))
+      };
+    };
+
+    // Filter commissions by date range
+    const mtdCommissions = (allCommissions || []).filter((c: any) => 
+      new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
+    );
+
+    const ytdCommissions = (allCommissions || []).filter((c: any) =>
+      new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
+    );
+
+    console.log('[Storage] MTD commissions:', mtdCommissions.length, 'YTD commissions:', ytdCommissions.length);
+
+    const result: any = {
+      mtd: calculateTotals(mtdCommissions),
+      ytd: calculateTotals(ytdCommissions),
+      lifetime: calculateTotals(allCommissions || [])
+    };
+
+    // If no specific agent requested, also get breakdown by agent
+    if (!agentId && allCommissions && allCommissions.length > 0) {
+      // Get unique agent IDs
+      const agentIds = [...new Set((allCommissions || []).map(c => c.agent_id).filter(Boolean))];
+
+      // Fetch agent details
+      const { data: agents } = await supabase
+        .from('users')
+        .select('id, first_name, last_name')
+        .in('id', agentIds);
+
+      const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
+
+      // Calculate totals per agent
+      result.byAgent = agentIds.map(aid => {
+        const agentCommissions = (allCommissions || []).filter(c => c.agent_id === aid);
+        const agent = agentsMap.get(aid);
+        const agentName = agent?.first_name && agent?.last_name 
+          ? `${agent.first_name} ${agent.last_name}` 
+          : `Agent ${aid}`;
+
+        const mtdTotal = calculateTotals(
+          agentCommissions.filter((c: any) => 
+            new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
+          )
+        );
+
+        const ytdTotal = calculateTotals(
+          agentCommissions.filter((c: any) =>
+            new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
+          )
+        );
+
+        const lifetimeTotal = calculateTotals(agentCommissions);
+
+        return {
+          agentId: aid,
+          agentName,
+          mtd: mtdTotal.earned,
+          ytd: ytdTotal.earned,
+          lifetime: lifetimeTotal.earned
+        };
+      }).sort((a, b) => b.lifetime - a.lifetime); // Sort by lifetime earnings descending
+    }
+
+    console.log('[Storage] Commission totals calculated:', {
+      mtd: result.mtd.earned,
+      ytd: result.ytd.earned,
+      lifetime: result.lifetime.earned
+    });
+
+    return result;
+  } catch (error: any) {
+    console.error('[Storage] Error calculating commission totals:', error);
+    throw new Error(`Failed to get commission totals: ${error.message}`);
+  }
+}
+
+export async function getCommissionStatsNew(agentId?: string): Promise<{ 
+  totalEarned: number; 
+  totalPending: number; 
+  totalPaid: number;
+  byStatus: Record<string, number>;
+  byPaymentStatus: Record<string, number>;
+}> {
+  try {
+    let query = supabase.from('agent_commissions').select('commission_amount, status, payment_status');
+
+    if (agentId) {
+      query = query.eq('agent_id', agentId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to get commission stats: ${error.message}`);
+    }
+
+    let totalEarned = 0;
+    let totalPending = 0;
+    let totalPaid = 0;
+    const byStatus: Record<string, number> = {};
+    const byPaymentStatus: Record<string, number> = {};
+
+    (data || []).forEach((commission: any) => {
+      const amount = parseFloat(commission.commission_amount?.toString() || '0');
+      
+      // Add to totalEarned (all commissions regardless of payment status)
+      totalEarned += amount;
+      
+      // Separate paid vs pending
+      if (commission.payment_status === 'paid') {
+        totalPaid += amount;
+      } else {
+        totalPending += amount;
+      }
+
+      // Count by status
+      byStatus[commission.status] = (byStatus[commission.status] || 0) + 1;
+      byPaymentStatus[commission.payment_status] = (byPaymentStatus[commission.payment_status] || 0) + 1;
+    });
+
+    return { 
+      totalEarned: parseFloat(totalEarned.toFixed(2)), 
+      totalPending: parseFloat(totalPending.toFixed(2)), 
+      totalPaid: parseFloat(totalPaid.toFixed(2)),
+      byStatus,
+      byPaymentStatus
+    };
+  } catch (error: any) {
+    console.error('Error fetching commission stats (new table):', error);
+    throw new Error(`Failed to get commission stats: ${error.message}`);
+  }
 }
 
 // Helper function to map database snake_case to camelCase for plans
@@ -1749,12 +3097,37 @@ function mapPlanFromDB(data: any): Plan | null {
 // Plan operations (add missing ones from original Drizzle implementation)
 export async function getPlans(): Promise<Plan[]> {
   try {
-    const result = await query(
-      'SELECT * FROM plans ORDER BY price ASC'
-    );
-    return (result.rows || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
+    console.log('[Storage] getPlans called');
+    const { data, error } = await supabase
+      .from('plans')
+      .select('*')
+      .order('price', { ascending: true });
+    console.log('[Storage] getPlans Supabase response:', { dataCount: data?.length || 0, error: error ? error.message : 'none' });
+    if (error) {
+      console.error('[Storage] getPlans error:', error);
+      console.error('[Storage] getPlans error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+      throw new Error(`Failed to get plans: ${error.message}`);
+    }
+    console.log('[Storage] getPlans: Mapping data for', data?.length || 0, 'plans');
+    const mappedPlans = (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
+    console.log('[Storage] getPlans: Successfully mapped', mappedPlans.length, 'plans');
+    if (mappedPlans.length > 0) {
+      console.log('[Storage] getPlans: Sample plan:', {
+        id: mappedPlans[0].id,
+        name: mappedPlans[0].name,
+        price: mappedPlans[0].price,
+        isActive: mappedPlans[0].isActive
+      });
+    }
+    return mappedPlans;
   } catch (error: any) {
-    console.error('Error fetching plans:', error);
+    console.error('[Storage] getPlans fatal error:', error);
+    console.error('[Storage] getPlans error stack:', error.stack);
     throw new Error(`Failed to get plans: ${error.message}`);
   }
 }
@@ -2095,7 +3468,10 @@ export const storage = {
   getSubscriptionStats,
   getAgentEnrollments,
   getAllEnrollments,
+  getEnrollmentsByAgent,
   recordEnrollmentModification,
+  recordBankingInfoChange,
+  getBankingChangeHistory,
 
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
@@ -2104,7 +3480,7 @@ export const storage = {
       const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
-        .eq('userId', userId)
+        .eq('user_id', userId)  // Use snake_case column name
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no records
@@ -2149,7 +3525,77 @@ export const storage = {
       updatedAt: sub.updated_at
     }));
   },
-  createSubscription: async (sub: any) => sub,
+  createSubscription: async (sub: any) => {
+    try {
+      console.log('[Storage] Creating subscription:', sub);
+      
+      // Use direct Neon database connection to bypass Supabase RLS
+      const insertQuery = `
+        INSERT INTO subscriptions (
+          user_id,
+          plan_id,
+          status,
+          amount,
+          start_date,
+          end_date,
+          pending_reason,
+          pending_details,
+          next_billing_date,
+          stripe_subscription_id,
+          created_at,
+          updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+        )
+        RETURNING *;
+      `;
+
+      const values = [
+        sub.userId,
+        sub.planId,
+        sub.status || 'pending_payment',
+        sub.amount,
+        sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
+        sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        sub.pendingReason || null,
+        sub.pendingDetails || null,
+        sub.nextBillingDate || null,
+        sub.stripeSubscriptionId || null
+      ];
+
+      console.log('[Storage] Executing direct SQL insert to Neon database');
+      const result = await query(insertQuery, values);
+
+      if (!result.rows || result.rows.length === 0) {
+        throw new Error('Subscription creation failed - no data returned');
+      }
+
+      const data = result.rows[0];
+      console.log('[Storage] ✅ Subscription created successfully:', data.id);
+
+      // Return with camelCase for application layer
+      return {
+        id: data.id,
+        userId: data.user_id,
+        planId: data.plan_id,
+        status: data.status,
+        pendingReason: data.pending_reason,
+        pendingDetails: data.pending_details,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        nextBillingDate: data.next_billing_date,
+        currentPeriodStart: data.start_date, // Map for compatibility
+        currentPeriodEnd: data.end_date, // Map for compatibility
+        amount: parseFloat(data.amount),
+        stripeSubscriptionId: data.stripe_subscription_id,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at
+      };
+    } catch (error: any) {
+      console.error('[Storage] Exception in createSubscription:', error);
+      throw error;
+    }
+  },
   updateSubscription: async (id: number, updates: any) => {
     // Convert camelCase to snake_case for database
     const dbUpdates: any = {};
@@ -2193,7 +3639,7 @@ export const storage = {
       updatedAt: updatedSub.updated_at
     };
   },
-  getActiveSubscriptions: async () => [],
+  getActiveSubscriptions,  // Use real function defined above
 
   createPayment,
 
@@ -2238,8 +3684,8 @@ export const storage = {
   getAgentLeads,
   getAllLeads,
   getLeadByEmail,
-  addLeadActivity: async (activity: any) => activity,
-  getLeadActivities: async () => [],
+  addLeadActivity,  // Use real function defined above
+  getLeadActivities,  // Use real function defined above
   getAgents: async () => {
     const { users } = await getAllUsers(); // Use the corrected getAllUsers
     const agents = users?.filter((user: any) => user.role === 'agent') || [];
@@ -2253,40 +3699,29 @@ export const storage = {
     }));
   },
   assignLead: async (leadId: number, agentId: string) => {
-    // Mock implementation - in real app this would update the database
-    return { success: true, leadId, agentId };
+    return await assignLeadToAgent(leadId, agentId);
   },
   getUnassignedLeadsCount: async () => 0,
 
-  createCommission: async (commission: any) => {
-    // Check if the agent is an admin. If so, skip commission creation.
-    const agent = await getUser(commission.agentId);
-    if (agent && agent.role === 'admin') {
-      console.log(`Skipping commission for admin agent: ${commission.agentId}`);
-      return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
-    }
-
-    // Check if the enrolling user is an admin. If so, skip commission creation.
-    if (commission.subscriptionId) {
-      const { data: subscription, error: subError } = await supabase.from('subscriptions').select('userId').eq('id', commission.subscriptionId).single();
-      if (subError) {
-        console.error('Error fetching subscription for enrolling user check:', subError);
-      } else if (subscription && subscription.userId) {
-        const enrollingUser = await getUser(subscription.userId);
-        if (enrollingUser && enrollingUser.role === 'admin') {
-          console.log(`Skipping commission for enrolling admin user: ${subscription.userId}`);
-          return { skipped: true, reason: 'admin_no_commission' } as any;
-        }
-      }
-    }
-    // Call the actual createCommission function if checks pass
-    return storage.createCommission(commission);
+  createCommission,
+  updateCommission,
+  getAgentCommissions,
+  getAllCommissions,
+  getCommissionBySubscriptionId,
+  getCommissionByMemberId,
+  updateCommissionStatus: async (id: number, status: string) => {
+    return updateCommission(id, { status: status as any });
   },
-  updateCommissionStatus: async () => {},
-  getAgentCommissions: async () => [],
-  getAllCommissions: async () => [],
-  updateCommissionPaymentStatus: async () => {},
-  getCommissionStats: async () => ({ totalUnpaid: 0, totalPaid: 0 }),
+  updateCommissionPaymentStatus: async (id: number, paymentStatus: string) => {
+    return updateCommission(id, { paymentStatus: paymentStatus as any });
+  },
+  getCommissionStats,
+
+  // NEW: Agent Commissions table functions
+  getAgentCommissionsNew,
+  getAllCommissionsNew,
+  getCommissionTotals,
+  getCommissionStatsNew,
 
   // Login session methods
   createLoginSession: async (sessionData: {
@@ -2418,59 +3853,59 @@ export const storage = {
     try {
       console.log('[Storage] Fetching admin dashboard stats...');
 
-      // Get fresh data with proper error handling
+      // Get users from Supabase (agents/admins only stored there)
       const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
-      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*');
-      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*');
-
-      if (usersError || subscriptionsError || commissionsError) {
-        console.error('[Storage] Error fetching dashboard data:', { usersError, subscriptionsError, commissionsError });
+      if (usersError) {
+        console.error('[Storage] Error fetching users:', usersError);
       }
-
       const allUsers = allUsersData || [];
-      const allSubscriptions = allSubscriptionsData || [];
-      const allCommissions = allCommissionsData || [];
+
+      // Get members, subscriptions, and commissions from Supabase (same database as users)
+      const membersResult = await query('SELECT * FROM members WHERE status = $1', ['active']);
+      const subscriptionsResult = await query('SELECT * FROM subscriptions');
+      const commissionsResult = await query('SELECT * FROM commissions');
+
+      const allMembers = membersResult.rows || [];
+      const allSubscriptions = subscriptionsResult.rows || [];
+      const allCommissions = commissionsResult.rows || [];
 
       console.log('[Storage] Raw dashboard data counts:', {
         users: allUsers.length,
+        members: allMembers.length,
         subscriptions: allSubscriptions.length,
         commissions: allCommissions.length
       });
 
-      // Filter for actual active members only (not admins/agents)
-      const actualMembers = allUsers.filter(user =>
-        (user.role === 'member' || user.role === 'user') &&
-        user.approval_status === 'approved' &&
-        user.is_active === true
-      );
-
-      const totalUsers = allUsers.length;
-      const totalMembers = actualMembers.length;
       const totalAgents = allUsers.filter(user => user.role === 'agent').length;
-      const totalAdmins = allUsers.filter(user => user.role === 'admin').length;
+      const totalAdmins = allUsers.filter(user => user.role === 'admin' || user.role === 'super_admin').length;
+      const totalMembers = allMembers.length;
+      const totalUsers = totalAgents + totalAdmins + totalMembers;
 
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
       const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
       const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
 
-      // Calculate revenue from active subscriptions only
-      const monthlyRevenue = allSubscriptions
-        .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (sub.amount || 0), 0);
+      // Calculate revenue from active members (not subscriptions - legacy table)
+      // Members table has total_monthly_price which is the actual enrolled plan price
+      const monthlyRevenue = allMembers
+        .filter(member => member.status === 'active')
+        .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
 
-      const totalCommissions = allCommissions.reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+      // Calculate commissions
+      const totalCommissions = allCommissions.reduce((total, comm) => 
+        total + parseFloat(comm.commission_amount || 0), 0);
       const paidCommissions = allCommissions
         .filter(comm => comm.payment_status === 'paid')
-        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
       const pendingCommissions = allCommissions
         .filter(comm => comm.payment_status === 'unpaid' || comm.payment_status === 'pending')
-        .reduce((total, comm) => total + (comm.commission_amount || 0), 0);
+        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
 
+      // Calculate new enrollments (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const newEnrollments = allSubscriptions.filter(sub =>
-        sub.createdAt && new Date(sub.createdAt) >= thirtyDaysAgo
+      const newEnrollments = allMembers.filter(member =>
+        member.created_at && new Date(member.created_at) >= thirtyDaysAgo
       ).length || 0;
 
       const stats = {
@@ -2481,13 +3916,13 @@ export const storage = {
         activeSubscriptions,
         pendingSubscriptions,
         cancelledSubscriptions,
-        monthlyRevenue,
-        totalCommissions,
-        paidCommissions,
-        pendingCommissions,
+        monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
+        totalCommissions: parseFloat(totalCommissions.toFixed(2)),
+        paidCommissions: parseFloat(paidCommissions.toFixed(2)),
+        pendingCommissions: parseFloat(pendingCommissions.toFixed(2)),
         newEnrollments,
-        churnRate: totalUsers > 0 ? ((cancelledSubscriptions / totalUsers) * 100) : 0,
-        averageRevenue: activeSubscriptions > 0 ? (monthlyRevenue / activeSubscriptions) : 0
+        churnRate: totalMembers > 0 ? parseFloat(((cancelledSubscriptions / totalMembers) * 100).toFixed(2)) : 0,
+        averageRevenue: activeSubscriptions > 0 ? parseFloat((monthlyRevenue / activeSubscriptions).toFixed(2)) : 0
       };
 
       console.log('[Storage] Admin stats:', stats);
@@ -2530,54 +3965,46 @@ export const storage = {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      // Get fresh data with proper date filtering
-      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-      const { data: allSubscriptionsData, error: subscriptionsError } = await supabase.from('subscriptions').select('*').order('created_at', { ascending: false });
-      const { data: allCommissionsData, error: commissionsError } = await supabase.from('commissions').select('*').order('created_at', { ascending: false });
-      const { data: allPlansData, error: plansError } = await supabase.from('plans').select('*').eq('is_active', true);
+      // Query from Supabase database - where all data lives
+      const membersResult = await query('SELECT * FROM members WHERE is_active = true ORDER BY created_at DESC');
+      const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
+      const commissionsResult = await query('SELECT * FROM commissions ORDER BY created_at DESC');
+      const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
 
-      if (usersError || subscriptionsError || commissionsError || plansError) {
-        console.error('Error fetching data for comprehensive analytics:', usersError, subscriptionsError, commissionsError, plansError);
-        throw new Error('Failed to fetch data for analytics');
-      }
-
-      const allUsers = allUsersData || [];
-      const allSubscriptions = allSubscriptionsData || [];
-      const allCommissions = allCommissionsData || [];
-      const allPlans = allPlansData || [];
+      const allMembers = membersResult.rows || [];
+      const allAgents = agentsResult.rows || [];
+      const allCommissions = commissionsResult.rows || [];
+      const allPlans = plansResult.rows || [];
 
       console.log('[Analytics] Raw data counts:', {
-        users: allUsers.length,
-        subscriptions: allSubscriptions.length,
+        members: allMembers.length,
+        agents: allAgents.length,
         commissions: allCommissions.length,
         plans: allPlans.length
       });
 
-      // Overview metrics - only count actual DPC members (not agents/admins)
-      const actualMembers = allUsers.filter(user =>
-        (user.role === 'member' || user.role === 'user') &&
-        user.approval_status === 'approved' &&
-        user.is_active === true
+      // Overview metrics - count active members from members table
+      const activeMembers = allMembers.filter(member => member.status === 'active');
+      const monthlyRevenue = activeMembers.reduce((total, member) => 
+        total + parseFloat(member.total_monthly_price || 0), 0
       );
 
-      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active');
-      const monthlyRevenue = activeSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
-
-      // Use proper date comparison with ISO strings
-      const cutoffDateISO = cutoffDate.toISOString();
-      const newEnrollmentsThisMonth = allSubscriptions.filter(sub =>
-        sub.created_at && sub.created_at >= cutoffDateISO && sub.status === 'active'
+      // Use proper date comparison
+      const newEnrollmentsThisMonth = allMembers.filter(member =>
+        member.created_at && new Date(member.created_at) >= cutoffDate && member.status === 'active'
       ).length;
 
-      const cancellationsThisMonth = allSubscriptions.filter(sub =>
-        sub.status === 'cancelled' && sub.updated_at && sub.updated_at >= cutoffDateISO
+      const cancellationsThisMonth = allMembers.filter(member =>
+        member.status === 'cancelled' && 
+        member.cancellation_date && 
+        new Date(member.cancellation_date) >= cutoffDate
       ).length;
 
-      const totalMembers = actualMembers.length;
+      const totalMembers = allMembers.length;
 
       console.log('[Analytics] Calculated metrics:', {
         totalMembers,
-        activeSubscriptions: activeSubscriptions.length,
+        activeMembers: activeMembers.length,
         monthlyRevenue,
         newEnrollments: newEnrollmentsThisMonth,
         cancellations: cancellationsThisMonth
@@ -2585,127 +4012,120 @@ export const storage = {
 
       // Plan breakdown
       const planBreakdown = allPlans.map(plan => {
-        const planSubscriptions = allSubscriptions.filter(sub => sub.planId === plan.id && sub.status === 'active');
-        const planRevenue = planSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
+        const planMembers = allMembers.filter(m => m.plan_id === plan.id && m.status === 'active');
+        const planRevenue = planMembers.reduce((total, m) => 
+          total + parseFloat(m.total_monthly_price || 0), 0
+        );
 
         return {
           planId: plan.id,
           planName: plan.name,
-          memberCount: planSubscriptions.length,
+          memberCount: planMembers.length,
           monthlyRevenue: planRevenue,
           percentage: monthlyRevenue > 0 ? (planRevenue / monthlyRevenue) * 100 : 0
         };
       });
 
       // Recent enrollments
-      const recentEnrollments = allSubscriptions
-        .filter(sub => sub.created_at && new Date(sub.created_at) >= cutoffDate)
-        .map(sub => {
-          const user = allUsers.find(u => u.id === sub.userId);
-          const plan = allPlans.find(p => p.id === sub.planId);
+      const recentEnrollments = allMembers
+        .filter(m => m.created_at && new Date(m.created_at) >= cutoffDate)
+        .map(m => {
+          const plan = allPlans.find(p => p.id === m.plan_id);
           return {
-            id: sub.id.toString(),
-            firstName: user?.firstName || '',
-            lastName: user?.lastName || '',
-            email: user?.email || '',
+            id: m.id.toString(),
+            firstName: m.first_name || '',
+            lastName: m.last_name || '',
+            email: m.email || '',
             planName: plan?.name || '',
-            amount: sub.amount || 0,
-            enrolledDate: sub.created_at?.toISOString() || '',
-            status: sub.status
+            amount: parseFloat(m.total_monthly_price || 0),
+            enrolledDate: m.created_at || '',
+            status: m.status
           };
         })
         .sort((a, b) => new Date(b.enrolledDate).getTime() - new Date(a.enrolledDate).getTime())
         .slice(0, 20);
 
       // Agent performance
-      const agentPerformance = allUsers
-        .filter(user => user.role === 'agent')
-        .map(agent => {
-          const agentCommissions = allCommissions.filter(comm => comm.agentId === agent.id);
-          const agentSubscriptions = allSubscriptions.filter(sub => {
-            // Assuming we have an enrolledByAgentId field or similar
-            return agentCommissions.some(comm => comm.subscriptionId === sub.id);
-          });
+      const agentPerformance = allAgents.map(agent => {
+        const agentCommissions = allCommissions.filter(comm => comm.agent_id === agent.id);
+        const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id);
 
-          const monthlyEnrollments = agentSubscriptions.filter(sub =>
-            sub.created_at && new Date(sub.created_at) >= cutoffDate
-          ).length;
+        const monthlyEnrollments = agentMembers.filter(m =>
+          m.created_at && new Date(m.created_at) >= cutoffDate
+        ).length;
 
-          const totalCommissions = agentCommissions.reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
-          const paidCommissions = agentCommissions
-            .filter(comm => comm.paymentStatus === 'paid')
-            .reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
-          const pendingCommissions = agentCommissions
-            .filter(comm => comm.paymentStatus !== 'paid')
-            .reduce((total, comm) => total + (comm.commissionAmount || 0), 0);
+        const totalCommissions = agentCommissions.reduce((total, comm) => 
+          total + parseFloat(comm.commission_amount || 0), 0
+        );
+        const paidCommissions = agentCommissions
+          .filter(comm => comm.payment_status === 'paid')
+          .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
+        const pendingCommissions = agentCommissions
+          .filter(comm => comm.payment_status !== 'paid')
+          .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
 
-          return {
-            agentId: agent.id,
-            agentName: `${agent.firstName} ${agent.lastName}`,
-            agentNumber: agent.agentNumber || '',
-            totalEnrollments: agentSubscriptions.length,
-            monthlyEnrollments,
-            totalCommissions,
-            paidCommissions,
-            pendingCommissions,
-            conversionRate: agentSubscriptions.length > 0 ? (agentSubscriptions.filter(sub => sub.status === 'active').length / agentSubscriptions.length) * 100 : 0,
-            averageCommission: agentCommissions.length > 0 ? totalCommissions / agentCommissions.length : 0
-          };
-        });
+        return {
+          agentId: agent.id,
+          agentName: `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
+          agentNumber: agent.agent_number || '',
+          totalEnrollments: agentMembers.length,
+          monthlyEnrollments,
+          totalCommissions,
+          paidCommissions,
+          pendingCommissions,
+          conversionRate: agentMembers.length > 0 ? (agentMembers.filter(m => m.status === 'active').length / agentMembers.length) * 100 : 0,
+          averageCommission: agentCommissions.length > 0 ? totalCommissions / agentCommissions.length : 0
+        };
+      });
 
       // Member reports
-      const memberReports = allUsers
-        .filter(user => user.role === 'member' || user.role === 'user')
-        .map(member => {
-          const memberSubscriptions = allSubscriptions.filter(sub => sub.userId === member.id);
-          const activeSub = memberSubscriptions.find(sub => sub.status === 'active');
-          const totalPaid = memberSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
+      const memberReports = allMembers.map(member => {
+        const plan = allPlans.find(p => p.id === member.plan_id);
+        const agent = allAgents.find(a => a.id === member.enrolled_by_agent_id);
 
-          const memberCommission = activeSub ? allCommissions.find(comm => comm.subscriptionId === activeSub.id) : null;
-          const agent = memberCommission ? allUsers.find(u => u.id === memberCommission.agentId) : null;
-          const plan = activeSub ? allPlans.find(p => p.id === activeSub.planId) : null;
-
-          return {
-            id: member.id,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            email: member.email,
-            phone: member.phone || '',
-            planName: plan?.name || '',
-            status: activeSub?.status || 'inactive',
-            enrolledDate: member.created_at?.toISOString() || '',
-            lastPayment: activeSub?.updated_at?.toISOString() || '',
-            totalPaid,
-            agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Direct'
-          };
-        });
+        return {
+          id: member.id,
+          firstName: member.first_name || '',
+          lastName: member.last_name || '',
+          email: member.email || '',
+          phone: member.phone || '',
+          planName: plan?.name || '',
+          status: member.status || 'inactive',
+          enrolledDate: member.created_at || '',
+          lastPayment: member.updated_at || '',
+          totalPaid: parseFloat(member.total_monthly_price || 0),
+          agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Direct'
+        };
+      });
 
       // Commission reports
       const commissionReports = allCommissions.map(commission => {
-        const agent = allUsers.find(u => u.id === commission.agentId);
-        const subscription = allSubscriptions.find(s => s.id === commission.subscriptionId);
-        const member = subscription ? allUsers.find(u => u.id === subscription.userId) : null;
+        const agent = allAgents.find(a => a.id === commission.agent_id);
+        const member = allMembers.find(m => m.id === commission.member_id);
+        const plan = allPlans.find(p => p.id === commission.plan_id);
 
         return {
           id: commission.id.toString(),
-          agentName: agent ? `${agent.firstName} ${agent.lastName}` : 'Unknown',
-          agentNumber: agent?.agentNumber || '',
-          memberName: member ? `${member.firstName} ${member.lastName}` : 'Unknown',
-          planName: commission.planName || '',
-          commissionAmount: commission.commissionAmount || 0,
-          totalPlanCost: commission.totalPlanCost || 0,
-          status: commission.status,
-          paymentStatus: commission.paymentStatus,
-          createdDate: commission.createdAt?.toISOString() || '',
-          paidDate: commission.paidAt?.toISOString() || null
+          agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Unknown',
+          agentNumber: agent?.agent_number || '',
+          memberName: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown',
+          planName: plan?.name || '',
+          commissionAmount: parseFloat(commission.commission_amount || 0),
+          totalPlanCost: parseFloat(member?.total_monthly_price || 0),
+          status: commission.status || 'pending',
+          paymentStatus: commission.payment_status || 'pending',
+          createdDate: commission.created_at || '',
+          paidDate: commission.paid_at || null
         };
       });
 
       // Revenue breakdown
-      const totalRevenue = allSubscriptions.reduce((total, sub) => total + (sub.amount || 0), 0);
-      const subscriptionRevenue = allSubscriptions
-        .filter(sub => sub.status === 'active')
-        .reduce((total, sub) => total + (sub.amount || 0), 0);
+      const totalRevenue = allMembers.reduce((total, m) => 
+        total + parseFloat(m.total_monthly_price || 0), 0
+      );
+      const subscriptionRevenue = activeMembers.reduce((total, m) => 
+        total + parseFloat(m.total_monthly_price || 0), 0
+      );
 
       const revenueBreakdown = {
         totalRevenue,
@@ -2714,7 +4134,7 @@ export const storage = {
         refunds: 0, // Add when you track refunds
         netRevenue: totalRevenue,
         projectedAnnualRevenue: subscriptionRevenue * 12,
-        averageRevenuePerUser: activeSubscriptions.length > 0 ? subscriptionRevenue / activeSubscriptions.length : 0,
+        averageRevenuePerUser: activeMembers.length > 0 ? subscriptionRevenue / activeMembers.length : 0,
         revenueByMonth: [
           {
             month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
@@ -2740,9 +4160,9 @@ export const storage = {
       const analytics = {
         overview: {
           totalMembers,
-          activeSubscriptions: activeSubscriptions.length,
+          activeSubscriptions: activeMembers.length,
           monthlyRevenue,
-          averageRevenue: activeSubscriptions.length > 0 ? monthlyRevenue / activeSubscriptions.length : 0,
+          averageRevenue: activeMembers.length > 0 ? monthlyRevenue / activeMembers.length : 0,
           churnRate: totalMembers > 0 ? (cancellationsThisMonth / totalMembers) * 100 : 0,
           growthRate: totalMembers > 0 ? (newEnrollmentsThisMonth / totalMembers) * 100 : 0,
           newEnrollmentsThisMonth,
@@ -2763,6 +4183,217 @@ export const storage = {
       console.error('[Storage] Error fetching comprehensive analytics:', error);
       console.error('[Storage] Error details:', error.message);
       throw error;
+    }
+  },
+
+  // ============================================================
+  // MEMBER OPERATIONS (Healthcare customers - NO authentication)
+  // ============================================================
+
+  createMember: async (memberData: Partial<Member>): Promise<Member> => {
+    try {
+      // Format fields to match database CHAR requirements
+      const formattedData = {
+        ...memberData,
+        // Customer number will be generated by database function
+        // Format phone numbers to 10 digits only (no formatting)
+        phone: memberData.phone ? formatPhoneNumber(memberData.phone) : null,
+        emergencyContactPhone: memberData.emergencyContactPhone ? formatPhoneNumber(memberData.emergencyContactPhone) : null,
+        // Format dates to MMDDYYYY (8 chars)
+        dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
+        dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
+        planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
+        // Format SSN to 9 digits (plain text storage for non-insurance DPC)
+        ssn: memberData.ssn ? formatSSN(memberData.ssn) : null,
+        // Format ZIP to 5 digits
+        zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
+        // Ensure state is uppercase 2 chars
+        state: memberData.state ? memberData.state.toUpperCase().slice(0, 2) : null,
+        // Gender to uppercase single char
+        gender: memberData.gender ? memberData.gender.toUpperCase().slice(0, 1) : null,
+      };
+
+      // Use database function to generate customer number
+      const result = await query(`
+        INSERT INTO members (
+          customer_number, first_name, last_name, middle_name, email,
+          phone, date_of_birth, gender, ssn, address, address2, city, state, zip_code,
+          emergency_contact_name, emergency_contact_phone,
+          employer_name, division_name, member_type,
+          date_of_hire, plan_start_date,
+          enrolled_by_agent_id, agent_number, is_active, status,
+          plan_id, coverage_type, total_monthly_price, add_rx_valet
+        ) VALUES (
+          generate_customer_number(), $1, $2, $3, $4,
+          $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15,
+          $16, $17, $18,
+          $19, $20,
+          $21, $22, $23, $24,
+          $25, $26, $27, $28
+        ) RETURNING *
+      `, [
+        formattedData.firstName, formattedData.lastName, formattedData.middleName, formattedData.email,
+        formattedData.phone, formattedData.dateOfBirth, formattedData.gender, formattedData.ssn,
+        formattedData.address, formattedData.address2, formattedData.city, formattedData.state, formattedData.zipCode,
+        formattedData.emergencyContactName, formattedData.emergencyContactPhone,
+        formattedData.employerName, formattedData.divisionName, formattedData.memberType,
+        formattedData.dateOfHire, formattedData.planStartDate,
+        formattedData.enrolledByAgentId, formattedData.agentNumber, formattedData.isActive ?? true, formattedData.status ?? 'active',
+        formattedData.planId, formattedData.coverageType, formattedData.totalMonthlyPrice, formattedData.addRxValet ?? false
+      ]);
+
+      const dbMember = result.rows[0];
+      console.log('[Storage] Created member:', dbMember.customer_number);
+      console.log('[Storage] Database returned columns:', Object.keys(dbMember));
+      
+      // Map snake_case database columns to camelCase JavaScript properties
+      const member = {
+        ...dbMember,
+        firstName: dbMember.first_name,
+        lastName: dbMember.last_name,
+        middleName: dbMember.middle_name,
+        customerNumber: dbMember.customer_number,
+        dateOfBirth: dbMember.date_of_birth,
+        zipCode: dbMember.zip_code,
+        emergencyContactName: dbMember.emergency_contact_name,
+        emergencyContactPhone: dbMember.emergency_contact_phone,
+        employerName: dbMember.employer_name,
+        divisionName: dbMember.division_name,
+        memberType: dbMember.member_type,
+        dateOfHire: dbMember.date_of_hire,
+        planStartDate: dbMember.plan_start_date,
+        enrolledByAgentId: dbMember.enrolled_by_agent_id,
+        agentNumber: dbMember.agent_number,
+        isActive: dbMember.is_active,
+        enrollmentDate: dbMember.enrollment_date,
+        cancellationDate: dbMember.cancellation_date,
+        cancellationReason: dbMember.cancellation_reason,
+        createdAt: dbMember.created_at,
+        updatedAt: dbMember.updated_at,
+        planId: dbMember.plan_id,
+        coverageType: dbMember.coverage_type,
+        totalMonthlyPrice: dbMember.total_monthly_price,
+        addRxValet: dbMember.add_rx_valet
+      };
+      
+      console.log('[Storage] Mapped to camelCase, has firstName?', !!member.firstName, 'lastName?', !!member.lastName);
+      return member;
+    } catch (error: any) {
+      console.error('[Storage] Error creating member:', error);
+      throw new Error(`Failed to create member: ${error.message}`);
+    }
+  },
+
+  getMember: async (id: number): Promise<Member | undefined> => {
+    try {
+      const result = await query('SELECT * FROM members WHERE id = $1', [id]);
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error fetching member:', error);
+      throw new Error(`Failed to get member: ${error.message}`);
+    }
+  },
+
+  getMemberByEmail: async (email: string): Promise<Member | undefined> => {
+    try {
+      const result = await query('SELECT * FROM members WHERE email = $1', [email]);
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error fetching member by email:', error);
+      throw new Error(`Failed to get member: ${error.message}`);
+    }
+  },
+
+  getMemberByCustomerNumber: async (customerNumber: string): Promise<Member | undefined> => {
+    try {
+      const result = await query('SELECT * FROM members WHERE customer_number = $1', [customerNumber]);
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error fetching member by customer number:', error);
+      throw new Error(`Failed to get member: ${error.message}`);
+    }
+  },
+
+  getAllMembers: async (limit: number = 50, offset: number = 0): Promise<{ members: Member[]; totalCount: number }> => {
+    try {
+      const countResult = await query('SELECT COUNT(*) FROM members');
+      const totalCount = parseInt(countResult.rows[0].count);
+
+      const result = await query(
+        'SELECT * FROM members ORDER BY created_at DESC LIMIT $1 OFFSET $2',
+        [limit, offset]
+      );
+
+      return {
+        members: result.rows,
+        totalCount
+      };
+    } catch (error: any) {
+      console.error('[Storage] Error fetching all members:', error);
+      throw new Error(`Failed to get members: ${error.message}`);
+    }
+  },
+
+  updateMember: async (id: number, data: Partial<Member>): Promise<Member> => {
+    try {
+      // Format fields if provided
+      const formattedData = {
+        ...data,
+        phone: data.phone ? formatPhoneNumber(data.phone) : undefined,
+        emergencyContactPhone: data.emergencyContactPhone ? formatPhoneNumber(data.emergencyContactPhone) : undefined,
+        dateOfBirth: data.dateOfBirth ? formatDateMMDDYYYY(data.dateOfBirth) : undefined,
+        dateOfHire: data.dateOfHire ? formatDateMMDDYYYY(data.dateOfHire) : undefined,
+        planStartDate: data.planStartDate ? formatDateMMDDYYYY(data.planStartDate) : undefined,
+        ssn: data.ssn ? formatSSN(data.ssn) : undefined,
+        zipCode: data.zipCode ? formatZipCode(data.zipCode) : undefined,
+        state: data.state?.toUpperCase().slice(0, 2),
+        gender: data.gender?.toUpperCase().slice(0, 1),
+      };
+
+      // Build dynamic UPDATE query
+      const updates: string[] = [];
+      const values: any[] = [];
+      let paramIndex = 1;
+
+      Object.entries(formattedData).forEach(([key, value]) => {
+        if (value !== undefined) {
+          updates.push(`${key} = $${paramIndex}`);
+          values.push(value);
+          paramIndex++;
+        }
+      });
+
+      updates.push(`updated_at = NOW()`);
+      values.push(id);
+
+      const result = await query(
+        `UPDATE members SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        values
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error('Member not found');
+      }
+
+      console.log('[Storage] Updated member:', id);
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error updating member:', error);
+      throw new Error(`Failed to update member: ${error.message}`);
+    }
+  },
+
+  getMembersByAgent: async (agentId: string): Promise<Member[]> => {
+    try {
+      const result = await query(
+        'SELECT * FROM members WHERE enrolled_by_agent_id = $1 ORDER BY created_at DESC',
+        [agentId]
+      );
+      return result.rows;
+    } catch (error: any) {
+      console.error('[Storage] Error fetching members by agent:', error);
+      throw new Error(`Failed to get members by agent: ${error.message}`);
     }
   }
 } as any;

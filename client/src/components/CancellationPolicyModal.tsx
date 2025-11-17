@@ -25,7 +25,7 @@ export function CancellationPolicyModal({
 }: CancellationPolicyModalProps) {
   const [hasAcknowledged, setHasAcknowledged] = useState(false);
 
-  const policyContent = `MyPremierPlans Membership Cancellation and Refund Policy
+  const policyContent = `MyPremierPlans Membership Cancellation and Refund Terms
 
 CANCELLATION PROCESS
 
@@ -44,7 +44,7 @@ Required Information:
 • Effective date requested for cancellation
 • Reason for cancellation (optional)
 
-REFUND POLICY
+REFUND TERMS
 
 Initial 14-Day Period
 • FULL REFUND AVAILABLE: If you cancel within the first 14 days AND have not used any services
@@ -75,7 +75,7 @@ Billing After Cancellation
 IMPORTANT INFORMATION
 
 Automatic Renewal
-• Memberships automatically renew monthly unless cancelled according to this policy
+• Memberships automatically renew monthly unless cancelled according to these terms
 • You will receive email notification of upcoming renewals
 
 Re-enrollment
@@ -91,7 +91,7 @@ Email: support@mypremierplans.com
 Business Hours: Monday-Friday 9:00 AM - 6:00 PM CT
 
 LEGAL COMPLIANCE
-This policy complies with:
+These terms comply with:
 • Federal Trade Commission regulations including the Negative Option Rule
 • State of Texas consumer protection laws
 • Payment processor requirements for recurring billing services
@@ -101,12 +101,12 @@ Effective Date: January 1, 2025
 Last Updated: January 31, 2025`;
 
   const downloadPolicy = () => {
-    // Create a blob with the policy content
+    // Create a blob with the terms content
     const blob = new Blob([policyContent], { type: 'text/plain;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'MyPremierPlans_Cancellation_Refund_Policy.txt';
+    link.download = 'MyPremierPlans_Cancellation_Refund_Terms.txt';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -115,7 +115,7 @@ Last Updated: January 31, 2025`;
 
   const handleAccept = () => {
     if (hasAcknowledged) {
-      // Download policy automatically when accepted
+      // Download terms automatically when accepted
       downloadPolicy();
       onAccept();
     }
@@ -127,10 +127,10 @@ Last Updated: January 31, 2025`;
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <FileText className="h-5 w-5" />
-            Membership Cancellation and Refund Policy
+            Membership Cancellation and Refund Terms
           </DialogTitle>
           <DialogDescription>
-            Please review and acknowledge our cancellation and refund policy before proceeding with payment
+            Please review and acknowledge our cancellation and refund terms before proceeding with payment
           </DialogDescription>
         </DialogHeader>
 
@@ -179,9 +179,9 @@ Last Updated: January 31, 2025`;
               </div>
             </div>
 
-            {/* Refund Policy */}
+            {/* Refund Terms */}
             <div>
-              <h3 className="font-bold text-base mb-3 text-blue-900">REFUND POLICY</h3>
+              <h3 className="font-bold text-base mb-3 text-blue-900">REFUND TERMS</h3>
 
               <div className="space-y-4">
                 <div className="bg-green-50 p-3 rounded-lg border border-green-200">
@@ -293,7 +293,7 @@ Last Updated: January 31, 2025`;
               htmlFor="acknowledge" 
               className="text-sm font-medium leading-relaxed cursor-pointer"
             >
-              I acknowledge that I have read and understand the cancellation and refund policy. 
+              I acknowledge that I have read and understand the cancellation and refund terms. 
               I understand this is a recurring monthly membership that will automatically renew unless 
               I provide 14 days' written notice of cancellation. I understand that refunds are only 
               available within the first 14 days if no services have been used, and that no refunds 
@@ -309,7 +309,7 @@ Last Updated: January 31, 2025`;
               className="flex items-center gap-2"
             >
               <Download className="h-4 w-4" />
-              Download Policy
+              Download Terms
             </Button>
 
             <div className="flex gap-2">

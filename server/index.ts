@@ -1,11 +1,25 @@
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+
+// Load environment variables from .env file FIRST
+// Deployment: Fixed phone field lengths to handle formatted input
+dotenv.config();
+
+// Fix SSL certificate validation issues in production (Railway/Vercel)
+// This is needed for Supabase connections
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
-import { initializeEPXService } from "./services/epx-payment-service";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
-import epxRoutes from "./routes/epx-routes";
+import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
+import adminDatabaseRoutes from "./routes/admin-database";
 import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
@@ -25,40 +39,19 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS setup - improved for Replit deployment
+// CORS setup - production deployment configuration
 app.use(
   cors({
-    origin: function (
-      origin: string | undefined,
-      callback: (err: Error | null, origin?: boolean) => void,
-    ) {
-      // Allow requests with no origin (mobile apps, etc.)
-      if (!origin) return callback(null, true);
-
-      // Allow Replit domains and production domain
-      const allowedOrigins: (string | RegExp)[] = [
-        /\.replit\.dev$/,
-        /\.replit\.app$/,
-        /^https:\/\/.*\.replit\.dev$/,
-        /^https:\/\/.*\.replit\.app$/,
-        /^https:\/\/.*\.vercel\.app$/,
-        /^https:\/\/.*\.railway\.app$/,
-        /^http:\/\/localhost:\d+$/,  // Allow any localhost port for dev
-        /^http:\/\/127\.0\.0\.1:\d+$/,  // Allow 127.0.0.1 for dev
-        "https://getmydpcenrollment-production.up.railway.app",
-        "https://enrollment.getmydpc.com",
-        process.env.VITE_PUBLIC_URL,
-      ].filter((item): item is string | RegExp => Boolean(item));
-
-      const isAllowed = allowedOrigins.some((pattern) => {
-        if (typeof pattern === "string") {
-          return origin === pattern;
-        }
-        return pattern.test(origin);
-      });
-
-      callback(null, isAllowed);
-    },
+    origin: [
+      /^https:\/\/.*\.vercel\.app$/,
+      /^https:\/\/.*\.railway\.app$/,
+      /^http:\/\/localhost:\d+$/,
+      /^http:\/\/127\.0\.0\.1:\d+$/,
+      "https://getmydpcenrollment-production.up.railway.app",
+      "https://enrollment.getmydpc.com",
+      "http://localhost:5173",
+      "http://localhost:5000"
+    ],
     credentials: true,
     optionsSuccessStatus: 200,
   }),
@@ -121,14 +114,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Register EPX routes FIRST before other routes
-  app.use('/', epxRoutes);
+  // Register EPX Hosted Checkout routes (existing, always active)
+  app.use('/', epxHostedRoutes);
   
   // Register all API routes
   const server = await registerRoutes(app);
 
   // Register additional admin/debug routes
   app.use('/', adminLogsRoutes);
+  app.use('/', adminDatabaseRoutes);
   app.use('/', debugPaymentsRoutes);
   app.use('/', debugRecentPaymentsRoutes);
   app.use('/', devUtilitiesRoutes);
@@ -144,21 +138,24 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  const isProduction = process.env.NODE_ENV === "production";
+  const hasDistFolder = fs.existsSync(path.resolve(process.cwd(), "dist", "public"));
+  
+  if (!isProduction || !hasDistFolder) {
+    // Development or Vercel (which needs Vite for serving frontend)
     await setupVite(app, server);
   } else {
+    // Production with built static files
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  // Use Railway's PORT environment variable in production, fallback to 5000 for local dev
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
   const serverInstance = server.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
       console.log(`Server running on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
-      console.log(`EPX Service configured: Browser Post ready`);
+      console.log('EPX Hosted Checkout service configured and ready');
 
       // Initialize weekly recap service
       WeeklyRecapService.scheduleWeeklyRecap();
@@ -173,8 +170,7 @@ app.use((req, res, next) => {
             EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT SET',
             EPX_MAC: process.env.EPX_MAC ? 'SET' : 'NOT SET',
             EPX_MAC_KEY: process.env.EPX_MAC_KEY ? 'SET' : 'NOT SET',
-            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET',
-            BASE_URL: process.env.REPLIT_DEV_DOMAIN
+            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET'
           });
       } catch (error) {
         console.warn('[Server] EPX configuration check failed:', error.message);

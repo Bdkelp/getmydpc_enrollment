@@ -14,7 +14,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
-// Session storage table (required for Replit Auth)
+// Session storage table (legacy - not actively used, Supabase handles sessions)
 export const sessions = pgTable(
   "sessions",
   {
@@ -25,7 +25,7 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table (required for Replit Auth)
+// User storage table - ONLY for agents/admins with login access (NOT members)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
   email: varchar("email").unique(),
@@ -45,8 +45,8 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   stripeCustomerId: varchar("stripe_customer_id").unique(),
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
-  role: varchar("role").default("member"), // member (enrolled healthcare member), admin (system administrator), agent (insurance/sales agent)
-  agentNumber: varchar("agent_number"), // Agent identifier for production tracking
+  role: varchar("role").default("agent"), // agent, admin, super_admin (NO "member" - members are in separate table)
+  agentNumber: varchar("agent_number").notNull(), // Required for all users: MPP0001, MPP0002, etc.
   isActive: boolean("is_active").default(true),
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
@@ -58,6 +58,7 @@ export const users = pgTable("users", {
   registrationUserAgent: text("registration_user_agent"), // Track user agent
   suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
   enrolledByAgentId: varchar("enrolled_by_agent_id"), // Track which agent enrolled this user
+  createdBy: varchar("created_by"), // UUID of admin who created this user (audit trail)
   // Authentication fields
   username: varchar("username"),
   passwordHash: text("password_hash"),
@@ -74,16 +75,87 @@ export const users = pgTable("users", {
   // Session tracking
   lastLoginAt: timestamp("last_login_at"),
   lastActivityAt: timestamp("last_activity_at"),
-  // Employment information
+  // Employment information (usually not needed for agents/admins, kept for flexibility)
   employerName: varchar("employer_name"),
   divisionName: varchar("division_name"),
-  memberType: varchar("member_type"), // employee, spouse, dependent
-  ssn: varchar("ssn"), // Encrypted SSN storage - used for agent number generation (last 4 digits)
+  memberType: varchar("member_type"),
+  ssn: varchar("ssn"),
   dateOfHire: varchar("date_of_hire"),
   planStartDate: varchar("plan_start_date"),
+  // Banking information for commission payouts
+  bankName: varchar("bank_name"),
+  routingNumber: varchar("routing_number", { length: 9 }), // 9-digit ABA routing number
+  accountNumber: varchar("account_number"), // Bank account number
+  accountType: varchar("account_type"), // checking, savings
+  accountHolderName: varchar("account_holder_name"), // Name on the account (may differ from user name)
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Members table - Enrolled healthcare customers (NO authentication access)
+// Field types match fresh_start_migration.sql - using CHAR for fixed-length fields
+export const members = pgTable("members", {
+  id: serial("id").primaryKey(),
+  // Customer identifier: 10-character alphanumeric (e.g., A3B7K9M2P5)
+  customerNumber: varchar("customer_number", { length: 10 }).unique().notNull(),
+  // Personal information
+  firstName: varchar("first_name", { length: 50 }).notNull(),
+  lastName: varchar("last_name", { length: 50 }).notNull(),
+  middleName: varchar("middle_name", { length: 50 }),
+  email: varchar("email", { length: 100 }).unique().notNull(),
+  // Phone: US numbers - stored as digits only, but allow extra space for formatting during input
+  phone: varchar("phone", { length: 20 }), // Allow formatted input, backend strips to 10 digits
+  // Date of Birth: MMDDYYYY format (8 chars: 01151990 = Jan 15, 1990)
+  dateOfBirth: varchar("date_of_birth", { length: 8 }), // CHAR(8) in DB
+  // Gender: M, F, O (1 char)
+  gender: varchar("gender", { length: 1 }), // CHAR(1) in DB
+  // SSN: 9 digits encrypted (stored encrypted, needs space for IV + encrypted data)
+  ssn: varchar("ssn", { length: 200 }), // Encrypted SSN storage - needs more space for encryption
+  // Address information
+  address: varchar("address", { length: 100 }),
+  address2: varchar("address2", { length: 50 }),
+  city: varchar("city", { length: 50 }),
+  // State: US state code (2 chars: TX, CA)
+  state: varchar("state", { length: 2 }), // CHAR(2) in DB
+  // ZIP code: 5 digits only (78701)
+  zipCode: varchar("zip_code", { length: 5 }), // CHAR(5) in DB
+  // Emergency contact
+  emergencyContactName: varchar("emergency_contact_name", { length: 100 }),
+  // Emergency phone: Allow formatted input, backend strips to 10 digits
+  emergencyContactPhone: varchar("emergency_contact_phone", { length: 20 }), // Allow formatted input
+  // Employment information
+  employerName: varchar("employer_name", { length: 100 }),
+  divisionName: varchar("division_name", { length: 100 }),
+  memberType: varchar("member_type", { length: 20 }), // employee, spouse, dependent
+  // Date of Hire: MMDDYYYY format (8 chars)
+  dateOfHire: varchar("date_of_hire", { length: 8 }), // CHAR(8) in DB
+  // Plan Start Date: MMDDYYYY format (8 chars)
+  planStartDate: varchar("plan_start_date", { length: 8 }), // CHAR(8) in DB
+  // Enrollment tracking
+  enrolledByAgentId: varchar("enrolled_by_agent_id", { length: 255 }).references(() => users.id),
+  agentNumber: varchar("agent_number", { length: 20 }), // MPP0001, MPP0002, etc.
+  enrollmentDate: timestamp("enrollment_date").defaultNow(),
+  // Plan and pricing information
+  planId: integer("plan_id").references(() => plans.id), // Selected plan
+  coverageType: varchar("coverage_type", { length: 50 }), // Member Only, Member/Spouse, Member/Child, Family
+  totalMonthlyPrice: decimal("total_monthly_price", { precision: 10, scale: 2 }), // Total price including add-ons
+  addRxValet: boolean("add_rx_valet").default(false), // ProChoice Rx add-on ($21/month)
+  // Status
+  isActive: boolean("is_active").default(true),
+  status: varchar("status", { length: 20 }).default("active"), // active, cancelled, suspended, pending
+  cancellationDate: timestamp("cancellation_date"),
+  cancellationReason: text("cancellation_reason"),
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_members_customer_number").on(table.customerNumber),
+  index("idx_members_email").on(table.email),
+  index("idx_members_enrolled_by").on(table.enrolledByAgentId),
+  index("idx_members_status").on(table.status),
+  index("idx_members_phone").on(table.phone),
+  index("idx_members_last_name").on(table.lastName),
+]);
 
 // Plans table
 export const plans = pgTable("plans", {
@@ -103,7 +175,9 @@ export const plans = pgTable("plans", {
 // Subscriptions table
 export const subscriptions = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // For staff subscriptions (nullable)
+  memberId: integer("member_id").references(() => members.id), // For member subscriptions (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   planId: integer("plan_id").references(() => plans.id).notNull(),
   status: varchar("status").notNull(), // active, cancelled, suspended, pending
   pendingReason: varchar("pending_reason"), // payment_required, verification_needed, missing_documents, agent_review
@@ -115,12 +189,16 @@ export const subscriptions = pgTable("subscriptions", {
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_subscriptions_member_id").on(table.memberId),
+]);
 
 // Payments table
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // For staff payments (nullable)
+  memberId: integer("member_id").references(() => members.id), // For member payments (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency").default("USD"), // Payment currency
@@ -132,12 +210,15 @@ export const payments = pgTable("payments", {
   metadata: jsonb("metadata"), // Additional payment metadata
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_payments_member_id").on(table.memberId),
+]);
 
 // Enrollment modifications audit table
 export const enrollmentModifications = pgTable("enrollment_modifications", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").references(() => users.id), // nullable - could be member
+  memberId: integer("member_id").references(() => members.id), // nullable - for member modifications
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   modifiedBy: varchar("modified_by").references(() => users.id).notNull(), // Agent or admin who made the change
   changeType: varchar("change_type").notNull(), // plan_change, info_update, status_change, etc.
@@ -151,9 +232,12 @@ export const enrollmentModifications = pgTable("enrollment_modifications", {
 // Commission tracking table
 export const commissions = pgTable("commissions", {
   id: serial("id").primaryKey(),
-  agentId: varchar("agent_id").references(() => users.id).notNull(),
+  agentId: varchar("agent_id").references(() => users.id).notNull(), // Agent earning commission
+  agentNumber: varchar("agent_number").notNull(), // Agent number at time of enrollment (MPP0001)
   subscriptionId: integer("subscription_id").references(() => subscriptions.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(), // The enrolled member
+  userId: varchar("user_id").references(() => users.id), // Legacy - for staff subscriptions (nullable)
+  memberId: integer("member_id").references(() => members.id), // The enrolled member (nullable)
+  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
   planName: varchar("plan_name").notNull(),
   planType: varchar("plan_type").notNull(), // IE, C, CH, AM
   planTier: varchar("plan_tier").notNull(), // MyPremierPlan, MyPremierPlan Plus, MyPremierElite Plan
@@ -166,7 +250,10 @@ export const commissions = pgTable("commissions", {
   cancellationReason: text("cancellation_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table: any) => [
+  index("idx_commissions_member_id").on(table.memberId),
+  index("idx_commissions_agent_number").on(table.agentNumber),
+]);
 
 // Leads table
 export const leads = pgTable("leads", {
@@ -195,7 +282,9 @@ export const leadActivities = pgTable("lead_activities", {
 
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
-  primaryUserId: varchar("primary_user_id").references(() => users.id).notNull(),
+  primaryUserId: varchar("primary_user_id").references(() => users.id), // For staff (nullable)
+  primaryMemberId: integer("primary_member_id").references(() => members.id), // For members (nullable)
+  // Note: Either primaryUserId OR primaryMemberId must be set, enforced by CHECK constraint in migration
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
   middleName: varchar("middle_name"),
@@ -214,37 +303,194 @@ export const familyMembers = pgTable("family_members", {
   planStartDate: varchar("plan_start_date"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table: any) => [
+  index("idx_family_members_primary_member_id").on(table.primaryMemberId),
+]);
+
+// ============================================================
+// EPX SERVER POST - RECURRING BILLING TABLES
+// ============================================================
+
+// Payment Tokens (Card on File - BRIC tokens)
+export const paymentTokens = pgTable("payment_tokens", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  
+  // EPX BRIC Token (treat like password - secure storage)
+  bricToken: varchar("bric_token", { length: 255 }).notNull().unique(),
+  
+  // Card display information (for member UI)
+  cardLastFour: varchar("card_last_four", { length: 4 }),
+  cardType: varchar("card_type", { length: 50 }), // Visa, Mastercard, Discover, Amex
+  expiryMonth: varchar("expiry_month", { length: 2 }),
+  expiryYear: varchar("expiry_year", { length: 4 }),
+  
+  // Card network tracking (CRITICAL for recurring charges)
+  originalNetworkTransId: varchar("original_network_trans_id", { length: 255 }),
+  
+  // Token management
+  isActive: boolean("is_active").default(true),
+  isPrimary: boolean("is_primary").default(false),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+}, (table: any) => [
+  index("idx_payment_tokens_member_id").on(table.memberId),
+  index("idx_payment_tokens_bric").on(table.bricToken),
+]);
+
+// Billing Schedule (recurring billing management)
+export const billingSchedule = pgTable("billing_schedule", {
+  id: serial("id").primaryKey(),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  paymentTokenId: integer("payment_token_id").references(() => paymentTokens.id, { onDelete: "restrict" }).notNull(),
+  
+  // Billing configuration
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  frequency: varchar("frequency", { length: 20 }).default("monthly"), // monthly, quarterly, annual
+  
+  // Schedule tracking
+  nextBillingDate: timestamp("next_billing_date").notNull(),
+  lastBillingDate: timestamp("last_billing_date"),
+  lastSuccessfulBilling: timestamp("last_successful_billing"),
+  
+  // Status management
+  status: varchar("status", { length: 20 }).default("active"), // active, paused, cancelled, suspended
+  
+  // Failure tracking
+  consecutiveFailures: integer("consecutive_failures").default(0),
+  lastFailureReason: text("last_failure_reason"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  cancelledAt: timestamp("cancelled_at"),
+  cancellationReason: text("cancellation_reason"),
+}, (table: any) => [
+  index("idx_billing_schedule_member").on(table.memberId),
+  index("idx_billing_schedule_token").on(table.paymentTokenId),
+  index("idx_billing_schedule_next_billing").on(table.nextBillingDate),
+  index("idx_billing_schedule_status").on(table.status),
+]);
+
+// Recurring Billing Log (audit trail)
+export const recurringBillingLog = pgTable("recurring_billing_log", {
+  id: serial("id").primaryKey(),
+  
+  // References
+  subscriptionId: integer("subscription_id").references(() => subscriptions.id, { onDelete: "cascade" }),
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  paymentTokenId: integer("payment_token_id").references(() => paymentTokens.id),
+  billingScheduleId: integer("billing_schedule_id").references(() => billingSchedule.id),
+  
+  // Charge details
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  billingDate: timestamp("billing_date").notNull(),
+  attemptNumber: integer("attempt_number").default(1),
+  
+  // Status
+  status: varchar("status", { length: 50 }).notNull(), // success, failed, pending, retry
+  
+  // EPX response data
+  epxTransactionId: varchar("epx_transaction_id", { length: 255 }),
+  epxNetworkTransId: varchar("epx_network_trans_id", { length: 255 }),
+  epxAuthCode: varchar("epx_auth_code", { length: 50 }),
+  epxResponseCode: varchar("epx_response_code", { length: 10 }),
+  epxResponseMessage: text("epx_response_message"),
+  
+  // Failure handling
+  failureReason: text("failure_reason"),
+  nextRetryDate: timestamp("next_retry_date"),
+  
+  // Link to payments table if successful
+  paymentId: integer("payment_id").references(() => payments.id),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (table: any) => [
+  index("idx_billing_log_subscription").on(table.subscriptionId),
+  index("idx_billing_log_member").on(table.memberId),
+  index("idx_billing_log_status").on(table.status),
+    index("idx_billing_log_billing_date").on(table.billingDate),
+]);
+
+// Member Change Requests (for plan changes, upgrades, cancellations)
+export const memberChangeRequests = pgTable("member_change_requests", {
+  id: serial("id").primaryKey(),
+  
+  // References
+  memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
+  requestedBy: varchar("requested_by", { length: 255 }).references(() => users.id).notNull(), // Agent who submitted
+  reviewedBy: varchar("reviewed_by", { length: 255 }).references(() => users.id), // Admin who reviewed
+  
+  // Change details
+  changeType: varchar("change_type", { length: 50 }).notNull(), // plan_upgrade, plan_downgrade, add_family_member, cancel, update_payment
+  currentPlanId: integer("current_plan_id").references(() => plans.id),
+  requestedPlanId: integer("requested_plan_id").references(() => plans.id),
+  
+  // JSON field for flexible change data
+  changeDetails: jsonb("change_details"), // Stores any additional change information
+  requestReason: text("request_reason"), // Why the change is needed
+  
+  // Status
+  status: varchar("status", { length: 50 }).default("pending").notNull(), // pending, approved, rejected, completed
+  
+  // Review
+  reviewNotes: text("review_notes"), // Admin notes on approval/rejection
+  reviewedAt: timestamp("reviewed_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("idx_change_requests_member").on(table.memberId),
+  index("idx_change_requests_status").on(table.status),
+  index("idx_change_requests_requested_by").on(table.requestedBy),
+]);
 
 // Relations
-export const usersRelations = relations(users, ({ many, one }) => ({
+export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
   payments: many(payments),
   familyMembers: many(familyMembers),
   commissions: many(commissions),
 }));
 
-export const plansRelations = relations(plans, ({ many }) => ({
+export const membersRelations = relations(members, ({ many, one }: any) => ({
+  subscriptions: many(subscriptions),
+  payments: many(payments),
+  familyMembers: many(familyMembers),
+  commissions: many(commissions),
+  enrolledByAgent: one(users, { fields: [members.enrolledByAgentId], references: [users.id] }),
+}));
+
+export const plansRelations = relations(plans, ({ many }: any) => ({
   subscriptions: many(subscriptions),
 }));
 
-export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
+export const subscriptionsRelations = relations(subscriptions, ({ one, many }: any) => ({
   user: one(users, { fields: [subscriptions.userId], references: [users.id] }),
+  member: one(members, { fields: [subscriptions.memberId], references: [members.id] }),
   plan: one(plans, { fields: [subscriptions.planId], references: [plans.id] }),
   payments: many(payments),
   commissions: many(commissions),
 }));
 
-export const paymentsRelations = relations(payments, ({ one }) => ({
+export const paymentsRelations = relations(payments, ({ one }: any) => ({
   user: one(users, { fields: [payments.userId], references: [users.id] }),
+  member: one(members, { fields: [payments.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [payments.subscriptionId], references: [subscriptions.id] }),
 }));
 
-export const familyMembersRelations = relations(familyMembers, ({ one }) => ({
+export const familyMembersRelations = relations(familyMembers, ({ one }: any) => ({
   primaryUser: one(users, { fields: [familyMembers.primaryUserId], references: [users.id] }),
+  primaryMember: one(members, { fields: [familyMembers.primaryMemberId], references: [members.id] }),
 }));
 
-export const leadsRelations = relations(leads, ({ one, many }) => ({
+export const leadsRelations = relations(leads, ({ one, many }: any) => ({
   assignedAgent: one(users, {
     fields: [leads.assignedAgentId],
     references: [users.id],
@@ -252,7 +498,7 @@ export const leadsRelations = relations(leads, ({ one, many }) => ({
   activities: many(leadActivities),
 }));
 
-export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
+export const leadActivitiesRelations = relations(leadActivities, ({ one }: any) => ({
   lead: one(leads, {
     fields: [leadActivities.leadId],
     references: [leads.id],
@@ -263,14 +509,21 @@ export const leadActivitiesRelations = relations(leadActivities, ({ one }) => ({
   }),
 }));
 
-export const commissionsRelations = relations(commissions, ({ one }) => ({
+export const commissionsRelations = relations(commissions, ({ one }: any) => ({
   agent: one(users, { fields: [commissions.agentId], references: [users.id] }),
   user: one(users, { fields: [commissions.userId], references: [users.id] }),
+  member: one(members, { fields: [commissions.memberId], references: [members.id] }),
   subscription: one(subscriptions, { fields: [commissions.subscriptionId], references: [subscriptions.id] }),
 }));
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertMemberSchema = createInsertSchema(members).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -313,6 +566,23 @@ export const insertCommissionSchema = createInsertSchema(commissions).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+});
+
+// EPX Server Post insert schemas
+export const insertPaymentTokenSchema = createInsertSchema(paymentTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertBillingScheduleSchema = createInsertSchema(billingSchedule).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertRecurringBillingLogSchema = createInsertSchema(recurringBillingLog).omit({
+  id: true,
+  createdAt: true,
 });
 
 // Custom validation functions
@@ -383,6 +653,8 @@ export const registrationSchema = z.object({
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type Member = typeof members.$inferSelect;
+export type InsertMember = z.infer<typeof insertMemberSchema>;
 export type Plan = typeof plans.$inferSelect;
 export type InsertPlan = z.infer<typeof insertPlanSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
@@ -398,3 +670,11 @@ export type InsertCommission = z.infer<typeof insertCommissionSchema>;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
+
+// EPX Server Post types
+export type PaymentToken = typeof paymentTokens.$inferSelect;
+export type InsertPaymentToken = z.infer<typeof insertPaymentTokenSchema>;
+export type BillingSchedule = typeof billingSchedule.$inferSelect;
+export type InsertBillingSchedule = z.infer<typeof insertBillingScheduleSchema>;
+export type RecurringBillingLog = typeof recurringBillingLog.$inferSelect;
+export type InsertRecurringBillingLog = z.infer<typeof insertRecurringBillingLogSchema>;

@@ -129,7 +129,7 @@ export function configurePassportStrategies() {
               lastName: profile.name?.familyName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "member"
+              role: "agent" // Users who register are agents, not members
             });
           }
         }
@@ -169,7 +169,7 @@ export function configurePassportStrategies() {
               lastName: profile.name?.familyName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "member"
+              role: "agent" // Users who register are agents, not members
             });
           }
         }
@@ -208,7 +208,7 @@ export function configurePassportStrategies() {
               firstName: profile.displayName,
               profileImageUrl: profile.photos?.[0]?.value,
               emailVerified: true,
-              role: "member"
+              role: "agent" // Users who register are agents, not members
             });
           }
         }

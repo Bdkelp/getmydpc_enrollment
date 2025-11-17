@@ -86,7 +86,8 @@ function determineUserRole(email: string): "admin" | "agent" | "member" {
   const agentEmails = [
     'mdkeener@gmail.com',
     'tmatheny77@gmail.com',
-    'svillarreal@cyariskmanagement.com'
+    'svillarreal@cyariskmanagement.com',
+    'sarah.johnson@mypremierplans.com'
   ];
 
   if (adminEmails.includes(email)) return "admin";

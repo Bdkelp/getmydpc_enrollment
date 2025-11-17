@@ -11,90 +11,112 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function Confirmation() {
+  console.log("[Confirmation] Component rendering - v1.1");
+  
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [membershipData, setMembershipData] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { toast } = useToast();
+  
+  console.log("[Confirmation] State:", { membershipData, user, authLoading, isProcessingPayment });
 
 
 
-  // Get stored enrollment data
+  // Get stored enrollment data - immediate load from URL and sessionStorage
   useEffect(() => {
-    // Check for EPX redirect parameters
+    // Check for EPX redirect parameters (primary source for transaction info)
     const urlParams = new URLSearchParams(window.location.search);
     const epxTransaction = urlParams.get('transaction');
     const epxAmount = urlParams.get('amount');
+    const urlPlanId = urlParams.get('planId'); // Get planId from URL (survives redirect)
     
     if (epxTransaction) {
-      console.log('EPX payment redirect detected:', { transaction: epxTransaction, amount: epxAmount });
+      console.log('EPX payment redirect detected:', { 
+        transaction: epxTransaction, 
+        amount: epxAmount,
+        planId: urlPlanId 
+      });
     }
 
-    const planId = sessionStorage.getItem("selectedPlanId");
+    // Get stored member data from registration
+    const storedMemberData = sessionStorage.getItem("memberData");
+    let memberInfo = null;
+    if (storedMemberData) {
+      try {
+        memberInfo = JSON.parse(storedMemberData);
+        console.log("[Confirmation] Loaded member data from session:", memberInfo);
+        console.log("[Confirmation] Member has firstName?", !!memberInfo?.firstName, "lastName?", !!memberInfo?.lastName);
+      } catch (e) {
+        console.error("Failed to parse member data:", e);
+      }
+    } else {
+      console.warn("[Confirmation] ⚠️ NO memberData found in sessionStorage!");
+    }
+
+    // Try URL first (most reliable after redirect), then sessionStorage
+    const planId = urlPlanId || sessionStorage.getItem("selectedPlanId");
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
-    const rxValet = sessionStorage.getItem("rxValet") === "yes"; // Changed from addRxValet and check for "yes"
+    const rxValet = sessionStorage.getItem("rxValet") === "yes";
     const coverageType = sessionStorage.getItem("coverageType");
 
-    console.log("Confirmation page - Loading data from session:", { 
-      planId, 
+    console.log("Confirmation page - Loading data from URL and session:", { 
+      urlPlanId,
+      sessionPlanId: sessionStorage.getItem("selectedPlanId"),
+      planId, // Final resolved value
       totalPrice, 
       coverageType, 
       rxValet,
-      user,
+      memberInfo,
+      epxTransaction,
+      epxAmount,
       allSessionStorage: Object.fromEntries(Object.entries(sessionStorage))
     });
 
-    if (!planId && !user) {
-      console.log("Waiting for user data...");
-      // Retry a few times before giving up
-      if (retryCount < 3) {
-        setTimeout(() => {
-          setRetryCount(retryCount + 1);
-        }, 1000);
-      }
-      return; // Wait for user data to load
-    }
-
-    if (!planId) {
-      console.error("No plan ID found in session storage");
-      // Only show error after a few retries
-      if (retryCount >= 3) {
-        toast({
-          title: "Session Expired",
-          description: "Please start the enrollment process again.",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          setLocation("/");
-        }, 2000);
-      }
-      return;
-    }
-
-    if (!user) {
-      console.error("No user data available");
-      return;
-    }
-
-    // Generate a unique customer number and transaction ID
-    const customerNumber = `MPP${new Date().getFullYear()}${String(user.id).padStart(6, '0')}`;
-    const transactionId = `TXN${Date.now()}`;
+    // Build immediate confirmation data - use actual member data from registration
     const today = new Date();
     const nextBillingDate = new Date(today.getFullYear(), today.getMonth() + 1, today.getDate());
-
-    setMembershipData({
-      memberId: `MPP${user.id}`,
-      customerNumber,
-      transactionId,
-      billingDate: today,
-      nextBillingDate: nextBillingDate,
-      totalPrice,
+    
+    const immediateData: any = {
+      planId: planId ? parseInt(planId) : null,
+      totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
       addRxValet: rxValet,
-      coverageType,
-      planId: parseInt(planId),
-      enrollmentDate: today
-    });
+      coverageType: coverageType || "individual",
+      transactionId: epxTransaction || `TXN${Date.now()}`,
+      // Use actual member data if available
+      customerNumber: memberInfo?.customerNumber || "Pending",
+      memberId: memberInfo?.id || "Pending",
+      firstName: memberInfo?.firstName || user?.firstName || "Member",
+      lastName: memberInfo?.lastName || user?.lastName || "",
+      email: memberInfo?.email || user?.email || "",
+      billingDate: today,
+      nextBillingDate,
+      enrollmentDate: today,
+      createdAt: new Date().toISOString()
+    };
+
+    console.log("[Confirmation] Setting membership data:");
+    console.log("[Confirmation]   - Using memberInfo?", !!memberInfo);
+    console.log("[Confirmation]   - firstName:", immediateData.firstName, "(from", memberInfo?.firstName ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - lastName:", immediateData.lastName, "(from", memberInfo?.lastName ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - email:", immediateData.email, "(from", memberInfo?.email ? "memberInfo" : "user", ")");
+    console.log("[Confirmation]   - Full immediateData:", immediateData);
+
+    // Set immediately - don't block on auth
+    setMembershipData(immediateData);
+
+    if (!planId && !epxTransaction && retryCount >= 3) {
+      console.error("No plan ID or transaction found after retries");
+      toast({
+        title: "Session Expired",
+        description: "Please start the enrollment process again.",
+        variant: "destructive",
+      });
+      setTimeout(() => {
+        setLocation("/");
+      }, 2000);
+    }
 
     // Clear session storage after a longer delay to prevent issues
     setTimeout(() => {
@@ -110,32 +132,45 @@ export default function Confirmation() {
 
   const { data: plans = [] } = useQuery<any[]>({
     queryKey: ["/api/plans"],
-    enabled: isAuthenticated && !!membershipData,
+    enabled: !!membershipData, // Load plans as soon as we have any membership data
   });
 
-  if (authLoading || !membershipData || isProcessingPayment) {
+  // Only show loading if we're actively processing a payment
+  // Don't block on auth loading - agents need immediate confirmation for back-to-back enrollments
+  if (isProcessingPayment) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <LoadingSpinner />
-          {isProcessingPayment && (
-            <p className="mt-4 text-gray-600">Processing your payment...</p>
-          )}
+          <p className="mt-4 text-gray-600">Processing your payment...</p>
         </div>
       </div>
     );
   }
 
-  const selectedPlan = plans?.find((plan: any) => plan.id === membershipData.planId);
+  // If no membership data at all, show loading (shouldn't happen with immediate data load)
+  if (!membershipData) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner />
+          <p className="mt-4 text-gray-600">Loading confirmation...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedPlan = plans?.find((plan: any) => plan.id === membershipData?.planId);
+  const planName = selectedPlan?.name || "";
   const planFeatures = selectedPlan ? [
     "Unlimited virtual telehealth visits 24/7",
     "Primary care physician visits",
     "Preventive care and wellness exams",
     "Chronic disease management",
     "Generic medications (when applicable)",
-    ...(selectedPlan.name.includes("Plus") ? ["Specialist referrals", "Mental health support"] : []),
-    ...(selectedPlan.name.includes("Elite") ? ["Premium provider network", "Executive health services", "Concierge support"] : []),
-    ...(membershipData.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
+    ...(planName.includes("Plus") ? ["Specialist referrals", "Mental health support"] : []),
+    ...(planName.includes("Elite") ? ["Premium provider network", "Executive health services", "Concierge support"] : []),
+    ...(membershipData?.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
   ] : [];
 
   // Print function
@@ -189,13 +224,36 @@ export default function Confirmation() {
     });
   };
 
-  // Email function (simulated)
-  const handleEmail = () => {
-    // In a real implementation, this would call an API endpoint to send an email
-    toast({
-      title: "Email Requested",
-      description: "Your enrollment confirmation will be emailed to your registered address shortly.",
-    });
+  // Email function - sends confirmation email
+  const handleEmail = async () => {
+    try {
+      const response = await apiRequest('/api/send-confirmation-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: user?.email,
+          customerNumber: membershipData?.customerNumber,
+          memberName: `${user?.firstName} ${user?.lastName}`,
+          planName: selectedPlan?.name || 'Premium Plan',
+          transactionId: membershipData?.transactionId,
+          amount: membershipData?.totalMonthlyPrice
+        })
+      });
+
+      toast({
+        title: "Email Sent",
+        description: "Your enrollment confirmation has been emailed from info@mypremierplans.com",
+      });
+    } catch (error) {
+      console.error('Error sending confirmation email:', error);
+      toast({
+        title: "Email Error",
+        description: "Failed to send confirmation email. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
@@ -245,27 +303,32 @@ export default function Confirmation() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <p className="text-sm text-gray-600">Member Name</p>
-                  <p className="font-medium">{user?.firstName} {user?.lastName}</p>
+                  <p className="font-medium">{membershipData.firstName} {membershipData.lastName}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Customer Number</p>
-                  <p className="font-medium">{membershipData.customerNumber}</p>
+                  <p className="font-medium">{membershipData?.customerNumber || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Member ID</p>
-                  <p className="font-medium">{membershipData.memberId}</p>
+                  <p className="font-medium">{membershipData?.email || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Enrollment Date</p>
-                  <p className="font-medium">{format(membershipData.enrollmentDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.enrollmentDate 
+                      ? format(new Date(membershipData.enrollmentDate), "MMMM d, yyyy")
+                      : format(new Date(), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Plan Name</p>
-                  <p className="font-medium">{selectedPlan?.name || "Plan"}</p>
+                  <p className="font-medium">{selectedPlan?.name || "Premium Plan"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Coverage Type</p>
-                  <p className="font-medium">{membershipData.coverageType || "Individual"}</p>
+                  <p className="font-medium">{membershipData?.coverageType || "Individual"}</p>
                 </div>
               </div>
 
@@ -297,19 +360,29 @@ export default function Confirmation() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Transaction ID</p>
-                  <p className="font-medium font-mono text-sm">{membershipData.transactionId}</p>
+                  <p className="font-medium font-mono text-sm">{membershipData?.transactionId || "Processing"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Monthly Amount</p>
-                  <p className="font-medium">${membershipData.totalPrice}</p>
+                  <p className="font-medium">${membershipData?.totalMonthlyPrice || membershipData?.totalPrice || "0.00"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Billing Date</p>
-                  <p className="font-medium">{format(membershipData.billingDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.billingDate 
+                      ? format(new Date(membershipData.billingDate), "MMMM d, yyyy")
+                      : format(new Date(), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Next Billing Date</p>
-                  <p className="font-medium">{format(membershipData.nextBillingDate, "MMMM d, yyyy")}</p>
+                  <p className="font-medium">
+                    {membershipData?.nextBillingDate 
+                      ? format(new Date(membershipData.nextBillingDate), "MMMM d, yyyy")
+                      : format(new Date(new Date().setMonth(new Date().getMonth() + 1)), "MMMM d, yyyy")
+                    }
+                  </p>
                 </div>
               </div>
             </div>
@@ -326,8 +399,8 @@ export default function Confirmation() {
                 </p>
                 <p className="flex items-center text-sm">
                   <Phone className="h-4 w-4 text-gray-600 mr-2" />
-                  <a href="tel:210-512-4318" className="text-blue-600 hover:underline">
-                    210-512-4318
+                  <a href="tel:888-346-9372" className="text-blue-600 hover:underline">
+                    888-346-9372 (888-34-MYDPC)
                   </a>
                 </p>
                 <p className="flex items-center text-sm">
@@ -353,7 +426,7 @@ export default function Confirmation() {
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 mt-8">
               <Button 
-                className="flex-1 medical-blue-600 hover:medical-blue-700"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                 onClick={() => setLocation("/agent")}
               >
                 Return to Dashboard
@@ -386,7 +459,8 @@ export default function Confirmation() {
                   const defaultRoute = user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/";
                   setLocation(defaultRoute);
                 }}
-                className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"
+                style={{ color: '#ffffff', backgroundColor: '#2563eb' }}
               >
                 Go to Dashboard
               </Button>

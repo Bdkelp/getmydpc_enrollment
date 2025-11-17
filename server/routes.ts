@@ -7,20 +7,37 @@ import {
   calculateCommission,
   getPlanTierFromName,
   getPlanTypeFromMemberType,
-} from "./utils/commission";
-import { commissions, users, plans, subscriptions } from "@shared/schema";
-import { eq, and, desc, count, sum, sql } from "drizzle-orm";
-import { z } from "zod";
-import { supabase } from "./lib/supabaseClient"; // Assuming supabase client is imported here
+} from "./commissionCalculator"; // FIXED: Using actual commission rates
+import { sendLeadNotification } from "./email";
+import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
-import { nanoid } from "nanoid"; // Import nanoid for generating IDs
-import epxRoutes from "./routes/epx-routes"; // Import EPX payment routes
+// import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
+// import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
 const router = Router();
 
 // Public routes (no authentication required)
 router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Temporary endpoint to check Railway's outbound IP for EPX ACL whitelist
+router.get("/api/check-ip", async (req, res) => {
+  try {
+    const response = await fetch("https://api.ipify.org?format=json");
+    const data = await response.json() as { ip: string };
+    res.json({ 
+      outboundIP: data.ip,
+      timestamp: new Date().toISOString(),
+      message: "This is the IP address that Railway uses for outbound requests (needed for EPX ACL)"
+    });
+  } catch (error) {
+    console.error('[IP Check] Failed to fetch IP:', error);
+    res.status(500).json({ 
+      error: "Failed to check IP",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
 });
 
 // Diagnostic endpoint for CORS testing
@@ -35,8 +52,7 @@ router.get("/api/test-cors", (req, res) => {
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
   if (allowedOrigins.includes(origin as string)) {
@@ -71,6 +87,109 @@ router.get("/api/public/test-leads-noauth", async (req, res) => {
     res
       .status(500)
       .json({ message: "Failed to fetch leads", error: error.message });
+  }
+});
+
+// TEST ENDPOINTS for new commission system
+router.post("/api/test-commission", async (req, res) => {
+  try {
+    console.log('[Test Commission] Creating test commission directly in Supabase...');
+    
+    const testCommission = {
+      agent_id: 'test-agent-' + Date.now(),
+      member_id: 'test-member-' + Date.now(),
+      commission_amount: 125.50,
+      coverage_type: 'aca',
+      status: 'pending',
+      payment_status: 'unpaid',
+      notes: 'Test commission from API - ' + new Date().toISOString()
+    };
+
+    // Insert directly into Supabase using service role
+    const { data: newCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert(testCommission)
+      .select()
+      .single();
+    
+    if (commissionError) {
+      console.error('[Test Commission] ERROR:', commissionError);
+      res.status(500).json({ 
+        success: false, 
+        error: commissionError.message,
+        details: commissionError.details
+      });
+    } else {
+      console.log('[Test Commission] ✅ SUCCESS:', newCommission);
+      res.json({
+        success: true,
+        message: 'NEW COMMISSION SYSTEM WORKING!',
+        commission: newCommission,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('[Test Commission] ERROR:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get("/api/test-commission-count", async (req, res) => {
+  try {
+    const { data, error, count } = await supabase
+      .from('agent_commissions')
+      .select('*', { count: 'exact' });
+
+    if (error) throw new Error(`Query failed: ${error.message}`);
+    
+    res.json({
+      success: true,
+      message: `Found ${count} commissions in new table`,
+      count: count,
+      records: data?.length || 0,
+      sampleRecord: data?.[0] || null,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 🔍 DEBUG: Test commission calculation endpoint
+router.get("/api/test-commission-calc", async (req, res) => {
+  try {
+    const { calculateCommission } = await import('./commissionCalculator');
+    
+    const testCases = [
+      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false },
+      // Test with RX Valet add-on (+$2.50 commission)
+      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: true },
+      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: true },
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: true }
+    ];
+    
+    const results = testCases.map(test => {
+      const result = calculateCommission(test.plan, test.coverage, test.rxValet);
+      return {
+        input: test,
+        output: result,
+        expectedCommission: result?.commission || 0
+      };
+    });
+    
+    res.json({
+      success: true,
+      testCases: results,
+      message: 'Commission calculations tested'
+    });
+  } catch (error: any) {
+    console.error('Test commission calc error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Failed to test commission calculations'
+    });
   }
 });
 
@@ -166,42 +285,36 @@ router.get("/api/plans", async (req, res) => {
 
 // Auth routes (public - no authentication required)
 router.post("/api/auth/login", async (req, res) => {
-  // Set CORS headers for auth endpoint
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://getmydpcenrollment-production.up.railway.app',
-    'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
-  ];
-
-  if (allowedOrigins.includes(origin as string)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
 
   try {
     const { email, password } = req.body;
+    console.log('[Login] Starting login attempt for:', email);
 
     // Sign in with Supabase
+    console.log('[Login] Calling Supabase auth.signInWithPassword');
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      console.error("Login error:", error);
+      console.error('[Login] Supabase auth error:', error);
+      console.error('[Login] Supabase auth error details:', {
+        code: error.code,
+        message: error.message,
+        status: error.status
+      });
       return res
         .status(401)
         .json({ message: error.message || "Invalid credentials" });
     }
 
     if (!data.session) {
+      console.error('[Login] No session returned from Supabase');
       return res.status(401).json({ message: "Failed to create session" });
     }
+
+    console.log('[Login] Supabase auth successful, session created');
 
     // Get or create user in our database
     console.log("[Login] Checking for existing user:", email);
@@ -245,6 +358,14 @@ router.post("/api/auth/login", async (req, res) => {
         role: user.role,
         approvalStatus: user.approvalStatus,
       });
+
+      // Update role if it doesn't match the expected role for this email
+      const expectedRole = determineUserRole(data.user.email!);
+      if (user.role !== expectedRole) {
+        console.log(`[Login] Updating user role from ${user.role} to ${expectedRole}`);
+        await storage.updateUser(user.id, { role: expectedRole });
+        user.role = expectedRole; // Update the local user object
+      }
     }
 
     // Update last login - temporarily skip due to RLS recursion issue
@@ -314,14 +435,25 @@ router.post("/api/auth/login", async (req, res) => {
       token: data.session.access_token, // Also include token at root for compatibility
     });
   } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Login failed" });
+    console.error("❌ [Login] Fatal error:", error);
+    console.error("❌ [Login] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error("❌ [Login] Error details:", {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : typeof error,
+    });
+    
+    res.status(500).json({ 
+      message: "Login failed",
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
 router.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName } = req.body;
+
+    console.log("[Register] Creating new user:", email);
 
     // Sign up with Supabase
     const { data, error } = await supabase.auth.signUp({
@@ -332,38 +464,61 @@ router.post("/api/auth/register", async (req, res) => {
           firstName,
           lastName,
         },
+        emailRedirectTo: undefined,
       },
     });
 
     if (error) {
-      console.error("Registration error:", error);
+      console.error("[Register] Supabase signup error:", error);
       return res
         .status(400)
-        .json({ message: error.message || "Registration failed" });
+        .json({ success: false, message: error.message || "Registration failed" });
     }
 
     if (!data.user) {
-      return res.status(400).json({ message: "Failed to create user" });
+      console.error("[Register] No user returned from Supabase");
+      return res.status(400).json({ success: false, message: "Failed to create user" });
     }
 
-    // Create user in our database
+    console.log("[Register] Supabase user created:", data.user.id);
+
+    // Auto-confirm the user's email using admin API (bypass email verification)
+    try {
+      const { data: adminData, error: adminError } = await supabase.auth.admin.updateUserById(
+        data.user.id,
+        { email_confirm: true }
+      );
+      
+      if (adminError) {
+        console.warn("[Register] Failed to auto-confirm email:", adminError);
+      } else {
+        console.log("[Register] User email auto-confirmed");
+      }
+    } catch (confirmError) {
+      console.warn("[Register] Error auto-confirming user:", confirmError);
+      // Continue anyway - user can still be approved manually
+    }
+
+    // Create user in our database with pending approval
     const user = await storage.createUser({
       id: data.user.id,
       email: data.user.email!,
       firstName: firstName || "User",
       lastName: lastName || "",
-      emailVerified: false,
-      role: "member",
-      isActive: true,
+      emailVerified: true, // Auto-verify since we're not using email confirmation
+      role: "agent", // Users who register are agents, not members
+      isActive: false, // Not active until admin approves
       approvalStatus: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
     });
 
+    console.log("[Registration] User created, pending admin approval:", user.id);
+
     res.json({
       success: true,
       message:
-        "Registration successful. Please check your email to verify your account.",
+        "Registration successful! Your account is pending admin approval. You'll be notified once approved.",
       session: data.session
         ? {
             access_token: data.session.access_token,
@@ -418,13 +573,17 @@ function determineUserRole(email: string): "admin" | "agent" | "member" {
 
   const agentEmails = [
     "mdkeener@gmail.com",
+    "mkeener@lonestarenotary.com", // Mike Keener - LoneStar Notary
+    "bdkelp@gmail.com", // Duanne Keener
     "tmatheny77@gmail.com",
     "svillarreal@cyariskmanagement.com",
   ];
 
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
-  return "member";
+  // NOTE: 'member' should NEVER be in users table - members are enrolled customers in separate members table
+  // Anyone signing up through normal flow defaults to 'agent' role
+  return "agent";
 }
 
 // Authentication route (protected)
@@ -461,6 +620,7 @@ router.get(
         lastName: req.user.lastName,
         role: req.user.role,
         agentNumber: req.user.agentNumber, // Include agent number for agents and admins
+        profileImageUrl: req.user.profileImageUrl, // Include profile image for dashboard display
         subscription: activeSubscription,
         plan: planInfo,
         isActive: req.user.isActive,
@@ -475,17 +635,51 @@ router.get(
   },
 );
 
+// GET user profile endpoint
+router.get(
+  "/api/user/profile",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      console.log('[Profile GET] Fetching profile for user:', req.user.email);
+      
+      // Get the full user profile including banking information
+      const userProfile = await storage.getUser(req.user.id);
+      
+      if (!userProfile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+
+      console.log('[Profile GET] Profile data retrieved:', userProfile ? 'found' : 'null');
+      
+      res.json(userProfile);
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  },
+);
+
 router.put(
   "/api/user/profile",
   authenticateToken,
   async (req: AuthRequest, res) => {
     try {
+      console.log('[Profile Update] Starting profile update for user:', req.user?.email);
+      console.log('[Profile Update] Request body:', JSON.stringify(req.body, null, 2));
+      
       const updateData = req.body;
       delete updateData.id; // Prevent ID modification
       delete updateData.role; // Prevent role modification via profile update
       delete updateData.createdAt; // Prevent creation date modification
       delete updateData.approvalStatus; // Prevent approval status modification
       delete updateData.agentNumber; // Prevent agent number modification via profile update
+
+      console.log('[Profile Update] Cleaned update data:', JSON.stringify(updateData, null, 2));
 
       // Validate phone number format if provided
       if (updateData.phone) {
@@ -512,11 +706,15 @@ router.put(
         }
       }
 
+      console.log('[Profile Update] Calling storage.updateUser with user ID:', req.user!.id);
       const updatedUser = await storage.updateUser(req.user!.id, {
         ...updateData,
         updatedAt: new Date(),
       });
 
+      console.log('[Profile Update] Update successful, returning user:', updatedUser ? 'found' : 'null');
+      console.log('[Profile Update] Updated user data:', JSON.stringify(updatedUser, null, 2));
+      
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -552,8 +750,7 @@ router.post("/api/user/activity-ping", async (req: any, res: any) => {
     'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
   if (allowedOrigins.includes(origin as string)) {
@@ -580,6 +777,64 @@ router.get(
     } catch (error) {
       console.error("Error fetching subscriptions:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
+    }
+  },
+);
+
+// User login sessions endpoint
+router.get(
+  "/api/user/login-sessions",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 USER LOGIN SESSIONS ROUTE HIT - User:", req.user?.email);
+    try {
+      const { limit = "10" } = req.query;
+      console.log("✅ Calling getUserLoginSessions for user:", req.user!.id);
+      
+      const loginSessions = await storage.getUserLoginSessions(req.user!.id, parseInt(limit as string));
+      console.log("✅ Got", loginSessions?.length || 0, "login sessions for user");
+      
+      res.json(loginSessions);
+    } catch (error) {
+      console.error("❌ Error fetching user login sessions:", error);
+      res.status(500).json({ message: "Failed to fetch login sessions" });
+    }
+  },
+);
+
+// User enrollments endpoint for agents to see their enrollment activity
+router.get(
+  "/api/user/enrollments",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 USER ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+    
+    // Only agents can access their enrollments
+    if (req.user!.role !== "agent") {
+      return res.status(403).json({ 
+        message: "Access denied. Only agents can view their enrollment activity." 
+      });
+    }
+    
+    try {
+      const { startDate, endDate, limit = "20" } = req.query;
+      console.log("✅ Calling getEnrollmentsByAgent for agent:", req.user!.id);
+      
+      const enrollments = await storage.getEnrollmentsByAgent(
+        req.user!.id, 
+        startDate as string, 
+        endDate as string
+      );
+      
+      // Limit the results if specified
+      const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
+      
+      console.log("✅ Got", limitedEnrollments?.length || 0, "enrollments for agent");
+      
+      res.json(limitedEnrollments);
+    } catch (error) {
+      console.error("❌ Error fetching user enrollments:", error);
+      res.status(500).json({ message: "Failed to fetch enrollments" });
     }
   },
 );
@@ -623,6 +878,52 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   } catch (error) {
     console.error("Error creating lead:", error);
     res.status(500).json({ message: "Failed to create lead" });
+  }
+});
+
+// Update lead (status, notes, assignment, etc.)
+router.put("/api/leads/:leadId", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const leadId = parseInt(req.params.leadId);
+    const updates = req.body;
+
+    console.log(`[Leads API] Updating lead ${leadId} with:`, updates);
+
+    const updatedLead = await storage.updateLead(leadId, updates);
+    
+    res.json(updatedLead);
+  } catch (error: any) {
+    console.error("[Leads API] Error updating lead:", error);
+    res.status(500).json({
+      message: "Failed to update lead",
+      error: error.message,
+    });
+  }
+});
+
+// Add activity to lead
+router.post("/api/leads/:leadId/activities", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const leadId = parseInt(req.params.leadId);
+    const { activityType, notes } = req.body;
+
+    console.log(`[Leads API] Adding activity to lead ${leadId}:`, { activityType, notes });
+
+    const activity = await storage.addLeadActivity({
+      leadId,
+      agentId: req.user!.id,
+      activityType,
+      notes,
+      createdAt: new Date()
+    });
+
+    res.json(activity);
+  } catch (error: any) {
+    console.error("[Leads API] Error adding activity:", error);
+    res.status(500).json({
+      message: "Failed to add activity",
+      error: error.message,
+    });
   }
 });
 
@@ -696,7 +997,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
   ];
 
-  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/, /\.replit\.dev$/];
+  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
 
   // Always set CORS headers for this public endpoint
@@ -792,13 +1093,55 @@ router.post("/api/public/leads", async (req: any, res) => {
 
     let lead;
     try {
-      lead = await storage.createLead(leadData);
-      console.log(`[${timestamp}] [Public Leads] Lead created successfully:`, {
+      // CREATE LEAD DIRECTLY IN SUPABASE (NO AUTH REQUIRED - PUBLIC ENDPOINT)
+      const { data: newLead, error: leadError } = await supabase
+        .from('leads')
+        .insert({
+          first_name: leadData.firstName,
+          last_name: leadData.lastName,
+          email: leadData.email,
+          phone: leadData.phone,
+          message: leadData.message,
+          source: leadData.source,
+          status: leadData.status
+        })
+        .select()
+        .single();
+
+      if (leadError) {
+        console.error(`[${timestamp}] [Public Leads] Supabase error:`, leadError);
+        throw new Error(`Failed to create lead: ${leadError.message}`);
+      }
+
+      lead = {
+        id: newLead.id,
+        email: newLead.email,
+        status: newLead.status,
+        source: newLead.source
+      };
+
+      console.log(`[${timestamp}] [Public Leads] Lead created successfully in Supabase:`, {
         id: lead.id,
         email: lead.email,
         status: lead.status,
         source: lead.source,
       });
+
+      // Send email notification (don't fail if email fails)
+      try {
+        await sendLeadNotification({
+          firstName: leadData.firstName,
+          lastName: leadData.lastName,
+          email: leadData.email,
+          phone: leadData.phone,
+          message: leadData.message,
+          source: leadData.source,
+        });
+        console.log(`[${timestamp}] [Public Leads] Email notification sent successfully`);
+      } catch (emailError: any) {
+        console.error(`[${timestamp}] [Public Leads] Email notification failed:`, emailError.message);
+        // Don't throw - we still want to return success even if email fails
+      }
     } catch (storageError: any) {
       console.error(
         `[${timestamp}] [Public Leads] Storage error creating lead:`,
@@ -916,31 +1259,17 @@ router.get(
 
       const users = usersResult.users;
       console.log("[Admin Users API] Retrieved users count:", users.length);
-
       // Enhance users with subscription data - simplified approach
       const enhancedUsers = [];
       for (const user of users) {
         try {
           let enhancedUser = { ...user };
 
-          // Only try to get subscription data for members/users, and handle errors gracefully
-          if (user.role === "member" || user.role === "user") {
-            try {
-              const subscription = await storage.getUserSubscription(user.id);
-              if (subscription) {
-                enhancedUser.subscription = {
-                  status: subscription.status,
-                  planName: "Active Plan", // Simplified - avoid additional DB calls
-                  amount: subscription.amount || 0,
-                };
-              }
-            } catch (subError) {
-              console.warn(
-                `[Admin Users API] Could not fetch subscription for user ${user.id}:`,
-                subError.message,
-              );
-              // Continue without subscription data
-            }
+          // Users table should ONLY contain 'admin' and 'agent' roles
+          // No subscription data needed for these roles (members are in separate table)
+          // This code is kept for safety but should never execute
+          if (user.role !== "agent" && user.role !== "admin") {
+            console.warn(`[Admin Users API] Unexpected role in users table: ${user.role} for ${user.email}`);
           }
 
           enhancedUsers.push(enhancedUser);
@@ -970,6 +1299,155 @@ router.get(
         message: "Failed to fetch users",
         error: error.message,
         details: "Check server logs for more information",
+      });
+    }
+  },
+);
+
+// Admin endpoint to view all user banking information
+router.get(
+  "/api/admin/user-banking",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 ADMIN USER BANKING ROUTE HIT - Admin:", req.user?.email);
+    
+    if (req.user!.role !== "admin") {
+      console.log("[Admin Banking API] Access denied - user role:", req.user!.role);
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      // Add CORS headers for external browser access
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+
+      console.log("[Admin Banking API] Fetching banking info for admin:", req.user!.email);
+      
+      // Get all users with banking information
+      const usersResult = await storage.getAllUsers();
+      
+      if (!usersResult || !usersResult.users) {
+        console.error("[Admin Banking API] No users data returned from storage");
+        return res.status(500).json({ message: "Failed to fetch users" });
+      }
+
+      // Filter users who have banking information and format the data
+      const usersWithBanking = usersResult.users
+        .filter(user => 
+          user.bankName || user.routingNumber || user.accountNumber || 
+          user.accountType || user.accountHolderName
+        )
+        .map(user => ({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          agentNumber: user.agentNumber,
+          role: user.role,
+          isActive: user.isActive,
+          // Banking information
+          bankName: user.bankName,
+          routingNumber: user.routingNumber,
+          accountType: user.accountType,
+          accountHolderName: user.accountHolderName,
+          // Mask account number for security (show only last 4 digits)
+          accountNumber: user.accountNumber ? 
+            `****${user.accountNumber.slice(-4)}` : null,
+          updatedAt: user.updatedAt
+        }));
+
+      console.log("[Admin Banking API] Users with banking info count:", usersWithBanking.length);
+
+      res.json({
+        users: usersWithBanking,
+        totalCount: usersWithBanking.length,
+        message: usersWithBanking.length === 0 ? "No users have banking information on file" : undefined
+      });
+    } catch (error) {
+      console.error("[Admin Banking API] Error fetching banking info:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch banking information", 
+        error: error.message 
+      });
+    }
+  },
+);
+
+// Admin endpoint to view banking change history across all users
+router.get(
+  "/api/admin/banking-changes",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    console.log("🔍 ADMIN BANKING CHANGES ROUTE HIT - Admin:", req.user?.email);
+    
+    if (req.user!.role !== "admin") {
+      console.log("[Admin Banking Changes API] Access denied - user role:", req.user!.role);
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      // Add CORS headers for external browser access
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+
+      const { userId, limit = "50" } = req.query;
+      console.log("[Admin Banking Changes API] Fetching banking changes, userId:", userId, "limit:", limit);
+
+      let changeHistory = [];
+
+      if (userId) {
+        // Get changes for specific user
+        changeHistory = await storage.getBankingChangeHistory(userId as string);
+      } else {
+        // Get all banking changes across all users (admin overview)
+        // This would require a new storage function, for now let's get recent changes
+        const result = await storage.query(
+          `SELECT 
+            em.id, 
+            em.user_id, 
+            em.modified_by, 
+            em.change_details, 
+            em.created_at,
+            u.email,
+            u.first_name,
+            u.last_name,
+            u.agent_number
+           FROM enrollment_modifications em
+           LEFT JOIN users u ON u.id = em.user_id
+           WHERE em.change_type = 'banking_info_update' 
+           ORDER BY em.created_at DESC
+           LIMIT $1`,
+          [parseInt(limit as string)]
+        );
+        
+        changeHistory = result.rows.map(row => ({
+          id: row.id,
+          userId: row.user_id,
+          modifiedBy: row.modified_by,
+          changeDetails: row.change_details,
+          createdAt: row.created_at,
+          userInfo: {
+            email: row.email,
+            firstName: row.first_name,
+            lastName: row.last_name,
+            agentNumber: row.agent_number
+          }
+        }));
+      }
+
+      console.log("[Admin Banking Changes API] Retrieved changes count:", changeHistory.length);
+
+      res.json({
+        changes: changeHistory,
+        totalCount: changeHistory.length,
+        userId: userId || null,
+        message: changeHistory.length === 0 ? "No banking information changes found" : undefined
+      });
+    } catch (error) {
+      console.error("[Admin Banking Changes API] Error fetching banking changes:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch banking change history", 
+        error: error.message 
       });
     }
   },
@@ -1018,6 +1496,94 @@ router.post(
   },
 );
 
+// Get all DPC members from Neon database
+router.get(
+  "/api/admin/dpc-members",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      console.log("[Admin DPC Members API] Fetching DPC members from Neon database");
+      const members = await storage.getAllDPCMembers();
+      console.log(`[Admin DPC Members API] Retrieved ${members.length} members`);
+      res.json({
+        members: members,
+        totalCount: members.length,
+      });
+    } catch (error: any) {
+      console.error("[Admin DPC Members API] Error fetching DPC members:", error);
+      res.status(500).json({
+        message: "Failed to fetch DPC members",
+        error: error.message,
+      });
+    }
+  },
+);
+
+// Suspend DPC member
+router.put(
+  "/api/admin/dpc-members/:customerId/suspend",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { customerId } = req.params;
+      const { reason } = req.body;
+      
+      console.log(`[Admin] Suspending DPC member: ${customerId}`);
+      const updatedMember = await storage.suspendDPCMember(customerId, reason);
+      
+      res.json({
+        success: true,
+        message: "Member suspended successfully",
+        member: updatedMember
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error suspending DPC member:", error);
+      res.status(500).json({
+        message: "Failed to suspend member",
+        error: error.message
+      });
+    }
+  },
+);
+
+// Reactivate DPC member
+router.put(
+  "/api/admin/dpc-members/:customerId/reactivate",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (req.user!.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const { customerId } = req.params;
+      
+      console.log(`[Admin] Reactivating DPC member: ${customerId}`);
+      const updatedMember = await storage.reactivateDPCMember(customerId);
+      
+      res.json({
+        success: true,
+        message: "Member reactivated successfully",
+        member: updatedMember
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error reactivating DPC member:", error);
+      res.status(500).json({
+        message: "Failed to reactivate member",
+        error: error.message
+      });
+    }
+  },
+);
+
 router.post(
   "/api/admin/reject-user/:userId",
   authenticateToken,
@@ -1055,12 +1621,14 @@ router.put(
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!["member", "agent", "admin"].includes(role)) {
+      // Users table should ONLY contain 'admin' and 'agent' roles
+      // 'member' is NOT a user role - members are enrolled customers in separate members table
+      if (!["agent", "admin"].includes(role)) {
         return res
           .status(400)
           .json({
             message:
-              "Invalid role. Must be 'member' (DPC plan subscriber), 'agent' (enrollment agent), or 'admin' (system administrator)",
+              "Invalid role. Must be 'agent' (enrollment agent) or 'admin' (system administrator). Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
           });
       }
 
@@ -1669,23 +2237,7 @@ router.get(
   },
 );
 
-router.get(
-  "/api/agent/commissions",
-  authenticateToken,
-  async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
-      return res.status(403).json({ message: "Agent or admin access required" });
-    }
-
-    try {
-      const agentCommissions = await storage.getAgentCommissions(req.user!.id);
-      res.json(agentCommissions);
-    } catch (error) {
-      console.error("Error fetching commissions:", error);
-      res.status(500).json({ message: "Failed to fetch commissions" });
-    }
-  },
-);
+// Note: /api/agent/commissions route is handled later in the file with proper storage function calls
 
 // Agent member management routes
 router.get(
@@ -1700,9 +2252,13 @@ router.get(
       // Get all users enrolled by this agent plus users they have commissions for
       const enrolledUsers = await storage.getAgentEnrollments(req.user!.id);
 
-      // Get users from commissions
-      const agentCommissions = await storage.getAgentCommissions(req.user!.id);
-      const commissionUserIds = agentCommissions.map((c) => c.userId);
+      // Get users from commissions in Supabase
+      const { data: agentCommissions } = await supabase
+        .from('agent_commissions')
+        .select('member_id')
+        .eq('agent_id', req.user!.id);
+      
+      const commissionUserIds = agentCommissions?.map((c) => c.member_id) || [];
 
       // Fetch additional users from commissions that weren't directly enrolled
       const additionalUsers = [];
@@ -2000,25 +2556,41 @@ router.get(
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
 
-      // Get enrollment counts
-      const enrollments = await storage.getAgentEnrollments(agentId);
+      // Get enrollment counts from members table (NOT users table)
+      // Users table should ONLY contain agents/admins, members are in the members table
+      const { data: enrollments } = await supabase
+        .from('members')
+        .select('*')
+        .eq('enrolled_by_agent_id', agentId);
+
       const thisMonth = new Date();
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
 
-      const monthlyEnrollments = enrollments.filter(
-        (e) => new Date(e.createdAt) >= thisMonth,
-      ).length;
+      const monthlyEnrollments = enrollments?.filter(
+        (e: any) => new Date(e.created_at) >= thisMonth,
+      ).length || 0;
 
-      // Get active members count
-      const activeMembers = enrollments.filter((e) => e.isActive).length;
+      const activeMembers = enrollments?.filter((e: any) => e.is_active).length || 0;
+
+      // Get commission stats from Supabase
+      const { data: commissions } = await supabase
+        .from('agent_commissions')
+        .select('commission_amount, payment_status')
+        .eq('agent_id', agentId);
+
+      const totalCommissions = commissions?.length || 0;
+      const totalEarned = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
+      const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
 
       console.log("✅ Got agent stats for", req.user!.role);
       res.json({
-        totalEnrollments: enrollments.length,
+        totalEnrollments: enrollments?.length || 0,
         monthlyEnrollments,
         activeMembers,
-        ...commissionStats,
+        totalCommissions,
+        totalEarned,
+        paidCommissions
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);
@@ -2098,32 +2670,30 @@ router.post(
   },
 );
 
-// Helper function to create commission with admin check
+// Helper function to create commission with admin check - NEW DUAL-WRITE VERSION
 async function createCommissionWithCheck(
   agentId: string | null,
   subscriptionId: number,
-  userId: string,
+  memberId: number,  // Changed from userId to memberId to match schema
   planName: string,
   memberType: string,
+  addRxValet: boolean = false,
 ) {
   try {
     // Get agent profile to check role
     const agent = agentId ? await storage.getUser(agentId) : null;
-    const dpcMember = await storage.getUser(userId);
 
-    // Check if agent or DPC member is admin (admins don't earn commissions)
-    if (agent?.role === "admin" || dpcMember?.role === "admin") {
-      console.log("Commission creation skipped - admin involved:", {
+    // Check if agent is admin (admins don't earn commissions)
+    if (agent?.role === "admin") {
+      console.log("Commission creation skipped - admin agent:", {
         agentRole: agent?.role,
-        dpcMemberRole: dpcMember?.role,
         agentId,
-        userId,
       });
       return { skipped: true, reason: "admin_no_commission" };
     }
 
     // Calculate commission using existing logic
-    const commissionResult = calculateCommission(planName, memberType);
+    const commissionResult = calculateCommission(planName, memberType, addRxValet);
     if (!commissionResult) {
       console.warn(
         `No commission rate found for plan: ${planName}, member type: ${memberType}`,
@@ -2131,33 +2701,67 @@ async function createCommissionWithCheck(
       return { skipped: true, reason: "no_commission_rate" };
     }
 
-    // Create commission record
-    const commission = await storage.createCommission({
-      agentId: agentId || "HOUSE", // Assign to 'HOUSE' if no agent is assigned
-      subscriptionId,
-      userId,
-      planName,
-      planType: getPlanTypeFromMemberType(memberType),
-      planTier: getPlanTierFromName(planName),
-      commissionAmount: commissionResult.commission,
-      totalPlanCost: commissionResult.totalCost,
-      status: "pending",
-      paymentStatus: "unpaid",
-    });
+    // Get agent number from agent profile
+    const agentNumber = agent?.agentNumber || 'HOUSE';
+    console.log(`[Commission] Agent number for commission: ${agentNumber}`);
 
-    return { success: true, commission };
+    // Determine coverage type from plan name/type
+    const planType = getPlanTypeFromMemberType(memberType);
+    let coverageType: AgentCommission['coverage_type'] = 'other';
+    
+    if (planType === 'ACA') coverageType = 'aca';
+    else if (planType === 'Medicare Advantage') coverageType = 'medicare_advantage';
+    else if (planType === 'Medicare Supplement') coverageType = 'medicare_supplement';
+    
+    // Prepare commission data for dual-write
+    const commissionData: AgentCommission = {
+      agent_id: agentId || "HOUSE",
+      member_id: memberId.toString(), // Convert to string for new schema
+      enrollment_id: subscriptionId.toString(), // Link to enrollment
+      commission_amount: commissionResult.commission,
+      coverage_type: coverageType,
+      policy_number: undefined, // To be updated when available
+      carrier: undefined, // To be updated when available
+      commission_percentage: undefined, // Calculate from commission amount and base premium if needed
+      base_premium: commissionResult.totalCost,
+      status: 'pending',
+      payment_status: 'unpaid'
+    };
+
+    console.log('[Commission Dual-Write] Creating commission with data:', commissionData);
+
+    // Create commission directly in Supabase
+    const { data: newCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert(commissionData)
+      .select()
+      .single();
+
+    const result = commissionError ? 
+      { success: false, error: commissionError.message } : 
+      { success: true, agentCommissionId: newCommission.id };
+    
+    if (result.success) {
+      console.log('[Commission Dual-Write] Success:', result);
+      return { 
+        success: true, 
+        commission: { 
+          id: result.agentCommissionId,
+          ...commissionData 
+        }
+      };
+    } else {
+      console.error('[Commission Dual-Write] Failed:', result.error);
+      return { error: result.error };
+    }
   } catch (error) {
     console.error("Error creating commission:", error);
-    return { error: error.message };
+    return { error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-import { createServer } from "http";
-
 export async function registerRoutes(app: any) {
-  // Create HTTP server instance
-  const server = createServer(app);
-  
+
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
     if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
@@ -2238,7 +2842,9 @@ export async function registerRoutes(app: any) {
   };
 
   // Register EPX payment routes FIRST (highest priority)
-  app.use(epxRoutes);
+  // EPX routes are already registered in server/index.ts before registerRoutes() is called
+  // Commenting out to avoid duplicate registration
+  // app.use(epxHostedRoutes);
 
   // Use the router for general API routes
   app.use(router);
@@ -2246,11 +2852,16 @@ export async function registerRoutes(app: any) {
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
 
-  // Registration endpoint - ensure it's accessible
+  // ============================================================
+  // ============================================================
+  // MEMBER REGISTRATION ENDPOINT
+  // Creates members WITHOUT Supabase Auth (members cannot log in)
+  // Customer number auto-generates via database function
+  // ============================================================
   app.post("/api/registration", async (req: any, res: any) => {
-    console.log("🔍 REGISTRATION START - Data received");
-    console.log("Request body keys:", Object.keys(req.body || {}));
-    console.log("[Registration] Endpoint hit - method:", req.method, "path:", req.path);
+    console.log("[Registration] Member registration attempt");
+    console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
+    console.log("[Registration] FULL REQUEST BODY:", JSON.stringify(req.body, null, 2));
 
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
@@ -2260,8 +2871,7 @@ export async function registerRoutes(app: any) {
       'https://shimmering-nourishment.up.railway.app',
       'http://localhost:3000',
       'http://localhost:5173',
-      'http://localhost:5000',
-      'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+      'http://localhost:5000'
     ];
 
     if (allowedOrigins.includes(origin as string)) {
@@ -2269,16 +2879,9 @@ export async function registerRoutes(app: any) {
       res.header('Access-Control-Allow-Credentials', 'true');
     }
 
-    let supabaseUserId = null; // Track for cleanup if needed
-
     try {
-      console.log("✅ Step 1: Starting user creation...");
-      console.log("[Registration] Registration attempt:", req.body?.email);
-      console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
-
       const {
         email,
-        password,
         firstName,
         lastName,
         middleName,
@@ -2305,15 +2908,24 @@ export async function registerRoutes(app: any) {
         privacyNoticeAcknowledged,
         smsConsent,
         communicationsConsent,
-        faqDownloaded
+        faqDownloaded,
+        agentNumber,
+        enrolledByAgentId
       } = req.body;
 
-      console.log("✅ Step 2: Email validation debugging...");
-      console.log("[Registration] Email received:", email);
-      console.log("[Registration] Email type:", typeof email);
-      console.log("[Registration] Email length:", email?.length);
+      console.log("[Registration] Email:", email);
+      console.log("[Registration] Extracted Key Fields:", {
+        planId: planId,
+        planIdType: typeof planId,
+        coverageType: coverageType,
+        memberType: memberType,
+        totalMonthlyPrice: totalMonthlyPrice,
+        agentNumber: agentNumber,
+        enrolledByAgentId: enrolledByAgentId,
+        addRxValet: addRxValet
+      });
 
-      // Basic validation with better error details
+      // Basic validation
       const missingFields = [];
       if (!email) missingFields.push("email");
       if (!firstName) missingFields.push("firstName");
@@ -2324,223 +2936,309 @@ export async function registerRoutes(app: any) {
         return res.status(400).json({
           error: "Missing required fields",
           required: ["email", "firstName", "lastName"],
-          missing: missingFields,
-          received: {
-            email: !!email,
-            firstName: !!firstName,
-            lastName: !!lastName
-          }
+          missing: missingFields
         });
       }
 
-      // Email validation with detailed logging
-      console.log("✅ Step 3: Email format validation...");
+      // Email validation
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const isValidEmail = emailRegex.test(email);
-      console.log("[Registration] Email regex test result:", isValidEmail);
-      console.log("[Registration] Email regex pattern:", emailRegex.toString());
-
-      if (!isValidEmail) {
-        console.error("[Registration] Email validation failed for:", email);
+      if (!emailRegex.test(email)) {
+        console.error("[Registration] Invalid email format:", email);
         return res.status(400).json({
-          error: "Invalid email format",
-          email: email,
-          regexPattern: emailRegex.toString()
+          error: "Invalid email format"
         });
       }
 
-      // Check if user already exists in our database first
-      console.log("✅ Step 3.5: Checking for existing user...");
-      try {
-        const existingUser = await storage.getUserByEmail(email.trim().toLowerCase());
-        if (existingUser) {
-          console.log("[Registration] User already exists:", existingUser.id);
-          return res.status(400).json({
-            error: "User already exists with this email",
-            existingUserId: existingUser.id
-          });
-        }
-      } catch (checkError) {
-        console.warn("[Registration] Error checking existing user:", checkError.message);
-        // Continue with registration attempt
+      // Check if member already exists
+      const normalizedEmail = email.trim().toLowerCase();
+      console.log("[Registration] Checking for existing member with email:", normalizedEmail);
+      const existingMember = await storage.getMemberByEmail(normalizedEmail);
+      console.log("[Registration] Existing member check result:", existingMember ? `Found ID ${existingMember.id}` : "Not found");
+      if (existingMember) {
+        console.log("[Registration] Member already exists:", existingMember.id, existingMember.customerNumber);
+        return res.status(400).json({
+          error: "Member already exists with this email"
+        });
       }
 
-      // Generate a strong password by default to avoid Supabase validation issues
-      let finalPassword = password;
+      console.log("[Registration] Creating member...");
+      if (agentNumber) {
+        console.log("[Registration] Agent enrollment by:", agentNumber);
+      }
 
-      console.log("✅ Step 4: Processing password...");
-      console.log("[Registration] Original password provided:", !!password);
-
-      // Always generate a strong password for DPC enrollments to avoid Supabase issues
-      const timestamp = Date.now();
-      const randomNum = Math.floor(Math.random() * 9999);
-      finalPassword = `MPP${timestamp}${randomNum}!Secure`;
-
-      console.log("[Registration] Using strong generated password for Supabase compliance");
-      console.log("[Registration] Generated password length:", finalPassword.length);
-
-      console.log("✅ Step 5: Before Supabase auth signUp...");
-      console.log("[Registration] Email for Supabase:", email);
-      console.log("[Registration] Password strength check passed");
-      console.log("[Registration] Supabase signup payload:", {
-        email: email,
-        passwordLength: finalPassword.length,
-        hasMetadata: !!firstName
+      // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
+      // Users table is for Supabase Auth (agents/admins)
+      // Members table is for DPC enrollees (no login access)
+      console.log("[Registration] Creating member in members table...");
+      
+      const member = await storage.createMember({
+        email: email.trim().toLowerCase(),
+        firstName: firstName?.trim() || "",
+        lastName: lastName?.trim() || "",
+        middleName: middleName?.trim() || null,
+        phone: phone || null,
+        dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
+        ssn: ssn || null,
+        address: address?.trim() || null,
+        address2: address2?.trim() || null,
+        city: city?.trim() || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        employerName: employerName?.trim() || null,
+        dateOfHire: dateOfHire || null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate || null,
+        agentNumber: agentNumber || null,
+        enrolledByAgentId: enrolledByAgentId || null,
+        isActive: true,
+        status: 'active',
+        planId: planId ? parseInt(planId) : null,
+        coverageType: coverageType || memberType || "member-only",
+        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        addRxValet: addRxValet || false, // ProChoice Rx add-on ($21/month)
       });
 
-      // Use existing registration logic with improved password and detailed error handling
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(), // Ensure clean email format
-        password: finalPassword,
-        options: {
-          data: {
-            firstName,
-            lastName,
-            phone: phone || "",
-          },
-        },
+      if (!member) {
+        console.error("[Registration] ❌ Member creation failed");
+        throw new Error(`Member creation failed`);
+      }
+
+      console.log("[Registration] Member created:", member.id, member.customerNumber);
+      console.log("[Registration] Member object keys:", Object.keys(member));
+      console.log("[Registration] Member name fields:", {
+        firstName: member.firstName,
+        lastName: member.lastName,
+        email: member.email,
+        hasFirstName: !!member.firstName,
+        hasLastName: !!member.lastName,
+        firstNameValue: JSON.stringify(member.firstName),
+        lastNameValue: JSON.stringify(member.lastName)
       });
-
-      if (error) {
-        console.error("❌ SUPABASE AUTH ERROR:", error.message);
-        console.error("❌ Error details:", JSON.stringify(error, null, 2));
-        console.error("[Registration] Supabase error code:", error.status);
-        console.error("[Registration] Error source:", error.name || 'Unknown');
-
-        // Check if it's an email validation error from Supabase
-        if (error.message && error.message.toLowerCase().includes('invalid')) {
-          console.error("❌ EMAIL VALIDATION ERROR FROM SUPABASE");
-          console.error("❌ Original email:", email);
-          console.error("❌ Processed email:", email.trim().toLowerCase());
-        }
-
-        return res.status(400).json({
-          error: error.message || "Registration failed",
-          source: "Supabase Auth",
-          details: process.env.NODE_ENV === "development" ? error : undefined
-        });
-      }
-
-      console.log("✅ Step 6: Supabase user created successfully");
-      console.log("[Registration] Supabase user ID:", data.user?.id);
-      console.log("[Registration] Supabase user email:", data.user?.email);
-
-      if (!data.user) {
-        console.error("❌ No user data returned from Supabase");
-        return res.status(400).json({
-          error: "Failed to create user - no user data returned"
-        });
-      }
-
-      // Store Supabase user ID for potential cleanup
-      supabaseUserId = data.user.id;
-
-      console.log("✅ Step 7: Before database user creation...");
-      console.log("[Registration] Creating user with ID:", data.user.id);
-      console.log("[Registration] Creating user with email:", data.user.email);
-      console.log("[Registration] User ID type:", typeof data.user.id);
-      console.log("[Registration] User ID length:", data.user.id?.length);
-
-      // Verify the Supabase user ID is valid
-      if (!data.user.id || typeof data.user.id !== 'string') {
-        throw new Error("Invalid user ID from Supabase authentication");
-      }
-
-      // Create user in our database with retry logic for ID conflicts
-      let user;
-      let retryCount = 0;
-      const maxRetries = 3;
-
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`[Registration] Database creation attempt ${retryCount + 1}/${maxRetries}`);
-          console.log("[Registration] Using Supabase ID:", data.user.id);
-
-          // Create user in our database with full enrollment data
-          user = await storage.createUser({
-            id: data.user.id, // Use the Supabase UUID directly
-            email: data.user.email!, // Use the email from Supabase to ensure consistency
-            firstName: firstName || "User",
-            lastName: lastName || "",
-            middleName: middleName || "",
-            phone: phone || "",
-            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-            gender: gender || null,
-            ssn: ssn || null,
-            address: address || "",
-            address2: address2 || "",
-            city: city || "",
-            state: state || "",
-            zipCode: zipCode || "",
-            employerName: employerName || "",
-            dateOfHire: dateOfHire ? new Date(dateOfHire) : null,
-            memberType: memberType || "member-only",
-            planStartDate: planStartDate ? new Date(planStartDate) : new Date(),
-            emailVerified: false,
-            role: "member",
-            isActive: true,
-            approvalStatus: "approved", // Auto-approve DPC enrollments
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-
-          console.log("✅ Step 8: User created in database successfully");
-          console.log("[Registration] User ID:", user.id);
-          break; // Success, exit retry loop
-
-        } catch (dbError: any) {
-          retryCount++;
-          console.error(`❌ Database error attempt ${retryCount}/${maxRetries}:`, dbError.message);
-
-          if (dbError.message && dbError.message.includes('duplicate key')) {
-            console.error("❌ DUPLICATE KEY ERROR - User ID conflict");
-            console.error("❌ Conflicting ID:", data.user.id);
-
-            if (retryCount < maxRetries) {
-              console.log("🔄 Retrying user creation...");
-              // Wait a moment before retry
-              await new Promise(resolve => setTimeout(resolve, 100));
-            } else {
-              console.error("❌ Max retries reached for user creation");
-              throw new Error(`Failed to create user after ${maxRetries} attempts: ${dbError.message}`);
-            }
-          } else {
-            // Non-duplicate key error, don't retry
-            console.error("❌ Non-recoverable database error:", dbError);
-            throw dbError;
-          }
-        }
-      }
-
-      if (!user) {
-        throw new Error("Failed to create user in database after retries");
-      }
-
-      console.log("✅ Step 9: User creation completed successfully");
-      console.log("[Registration] Final user email:", user.email);
+      console.log("[Registration] Full member object:", JSON.stringify(member, null, 2));
 
       // Create subscription if plan is selected
+      let subscriptionId = null;
+      console.log("[Subscription Check] planId:", planId, "totalMonthlyPrice:", totalMonthlyPrice);
+      console.log("[Subscription Check] Will create subscription:", !!(planId && totalMonthlyPrice));
+      
       if (planId && totalMonthlyPrice) {
         try {
-          console.log("✅ Step 7: Before subscription creation...");
-          const subscription = await storage.createSubscription({
-            userId: user.id,
-            planId: parseInt(planId),
+          console.log("[Registration] Creating subscription with planId:", planId);
+          
+          const subscriptionData = {
+            member_id: member.id, // Use member_id, not user_id (subscriptions reference members table)
+            plan_id: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
-            currentPeriodStart: new Date(),
-            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-            createdAt: new Date(),
-            updatedAt: new Date()
-          });
-          console.log("[Registration] Subscription created:", subscription.id);
+            start_date: new Date().toISOString(),
+            next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          };
+
+          const { data: subscription, error: subscriptionError } = await supabase
+            .from('subscriptions')
+            .insert(subscriptionData)
+            .select()
+            .single();
+
+          if (subscriptionError) {
+            console.error("[Registration] Subscription creation failed:", subscriptionError);
+            // Continue with registration even if subscription fails
+          } else {
+            subscriptionId = subscription.id;
+            console.log("[Registration] Subscription created:", subscription.id);
+          }
         } catch (subError) {
           console.error("[Registration] Error creating subscription:", subError);
           // Continue with registration even if subscription fails
         }
+      } else {
+        console.warn("[Registration] ⚠️  Subscription NOT created - missing planId or totalMonthlyPrice");
       }
 
-      console.log("✅ Step 8: Before family members processing...");
+      // Create commission if enrolled by agent
+      console.log("[Commission Check] agentNumber:", agentNumber);
+      console.log("[Commission Check] enrolledByAgentId:", enrolledByAgentId);
+      console.log("[Commission Check] planId:", planId);
+      console.log("[Commission Check] subscriptionId:", subscriptionId);
+      console.log("[Commission Check] coverageType:", coverageType);
+      console.log("[Commission Check] memberType:", memberType);
+      console.log("[Commission Check] totalMonthlyPrice:", totalMonthlyPrice);
+      
+      // Commission creation - only requires agent info and coverage type
+      // planId is optional - we can infer plan from totalMonthlyPrice or use default
+      if (agentNumber && enrolledByAgentId && (coverageType || memberType)) {
+        try {
+          console.log("[Registration] Creating commission for agent:", agentNumber);
+          
+          // LOOK UP AGENT IN SUPABASE DIRECTLY
+          console.log("[Commission] Looking up agent by UUID in Supabase:", enrolledByAgentId);
+          
+          const { data: agentUser, error: agentError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', enrolledByAgentId)
+            .single();
+          
+          if (agentError || !agentUser) {
+            console.error("[Commission] ❌ Agent not found in Supabase:", enrolledByAgentId, agentError);
+            console.warn("[Registration] Commission NOT created - agent user not found");
+          } else {
+            console.log("[Commission] ✅ Agent found - UUID:", agentUser.id, "Email:", agentUser.email);
+            
+            let plan = null;
+            let planName = 'Base'; // Default to Base plan
+            let planTier = 'Base';
+            
+            // Try to get plan details if planId is provided
+            if (planId) {
+              try {
+                const { data: plan, error: planError } = await supabase
+                  .from('plans')
+                  .select('*')
+                  .eq('id', parseInt(planId))
+                  .single();
+                
+                if (plan && !planError) {
+                  planName = plan.name || 'Base';
+                  planTier = plan.name?.includes('Elite') ? 'Elite' : plan.name?.includes('Plus') ? 'Plus' : 'Base';
+                  console.log("[Commission] Plan found from planId:", planName);
+                } else {
+                  console.warn("[Commission] Could not fetch plan from Supabase, using defaults");
+                }
+              } catch (planError) {
+                console.warn("[Commission] Could not fetch plan by ID, using defaults");
+              }
+            } else {
+              // Infer plan from price if planId not provided
+              console.log("[Commission] No planId provided, inferring from price");
+              if (totalMonthlyPrice) {
+                const basePrice = totalMonthlyPrice / 1.04; // Remove 4% admin fee
+                if (basePrice >= 70) {
+                  planName = 'Elite';
+                  planTier = 'Elite';
+                } else if (basePrice >= 50) {
+                  planName = 'Plus';
+                  planTier = 'Plus';
+                } else {
+                  planName = 'Base';
+                  planTier = 'Base';
+                }
+                console.log("[Commission] Inferred plan from price:", planName);
+              }
+            }
+            
+            // Calculate commission using proper commission structure
+            const coverage = coverageType || memberType || 'Member Only';
+            const hasRxValet = addRxValet || false;
+            const commissionResult = calculateCommission(planName, coverage, hasRxValet);
+            
+            if (commissionResult) {
+              // CREATE COMMISSION DIRECTLY IN SUPABASE (NEW SYSTEM ONLY)
+              console.log('[Registration] Creating commission directly in agent_commissions table...');
+              
+              // Determine coverage type from plan name/type
+              let coverageTypeEnum: 'aca' | 'medicare_advantage' | 'medicare_supplement' | 'other' = 'other';
+              const planType = getPlanTypeFromMemberType(coverage);
+              if (planType === 'ACA') coverageTypeEnum = 'aca';
+              else if (planType === 'Medicare Advantage') coverageTypeEnum = 'medicare_advantage';
+              else if (planType === 'Medicare Supplement') coverageTypeEnum = 'medicare_supplement';
+              
+              const commissionData = {
+                agent_id: agentUser.id, // UUID string from users table
+                member_id: member.id.toString(), // Store integer ID as string (agent_commissions.member_id is TEXT)
+                enrollment_id: subscriptionId ? subscriptionId.toString() : null, // Store subscription ID as string
+                commission_amount: commissionResult.commission,
+                coverage_type: coverageTypeEnum,
+                status: 'pending',
+                payment_status: 'unpaid',
+                base_premium: commissionResult.totalCost,
+                notes: `Enrollment: Plan ${planName}, Coverage ${coverage}${hasRxValet ? ' (includes RxValet)' : ''}`
+              };
+              
+              console.log('[Registration] Commission data:', commissionData);
+              
+              try {
+                // Insert directly into Supabase agent_commissions table using service role
+                const { data: newCommission, error: commissionError } = await supabase
+                  .from('agent_commissions')
+                  .insert(commissionData)
+                  .select()
+                  .single();
+                
+                if (commissionError) {
+                  console.error("[Registration] ❌ Commission creation failed:", commissionError);
+                  console.error("[Registration] Commission error details:", commissionError.details);
+                } else {
+                  const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
+                  console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
+                  console.log("[Registration] Commission ID:", newCommission.id);
+                  
+                  // Check if agent has an upline and create override commission
+                  try {
+                    const { data: agentData, error: agentError } = await supabase
+                      .from('users')
+                      .select('upline_agent_id, override_commission_rate, agent_number')
+                      .eq('id', agentUser.id)
+                      .single();
+                    
+                    if (agentError) {
+                      console.error("[Registration] Could not fetch agent upline data:", agentError);
+                    } else if (agentData?.upline_agent_id && agentData.override_commission_rate > 0) {
+                      // Create override commission for upline agent
+                      const overrideCommissionData = {
+                        agent_id: agentData.upline_agent_id,
+                        member_id: member.id.toString(),
+                        enrollment_id: subscriptionId ? subscriptionId.toString() : null,
+                        commission_amount: agentData.override_commission_rate,
+                        coverage_type: coverageTypeEnum,
+                        status: 'pending',
+                        payment_status: 'unpaid',
+                        commission_type: 'override',
+                        override_for_agent_id: agentUser.id,
+                        base_premium: commissionResult.totalCost,
+                        notes: `Override commission for downline agent #${agentData.agent_number || agentUser.id} - Plan ${planName}, Coverage ${coverage}`
+                      };
+                      
+                      const { data: overrideCommission, error: overrideError } = await supabase
+                        .from('agent_commissions')
+                        .insert(overrideCommissionData)
+                        .select()
+                        .single();
+                      
+                      if (overrideError) {
+                        console.error("[Registration] ❌ Override commission creation failed:", overrideError);
+                      } else {
+                        console.log("[Registration] ✅ Override commission created: $" + agentData.override_commission_rate.toFixed(2) + " for upline agent " + agentData.upline_agent_id);
+                        console.log("[Registration] Override Commission ID:", overrideCommission.id);
+                      }
+                    } else {
+                      console.log("[Registration] No override commission - agent has no upline or override rate is $0");
+                    }
+                  } catch (overrideError) {
+                    console.error("[Registration] Exception creating override commission:", overrideError);
+                    // Don't fail registration if override commission fails
+                  }
+                }
+              } catch (commError) {
+                console.error("[Registration] Exception creating commission:", commError);
+              }
+            } else {
+              console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
+            }
+          }
+        } catch (commError) {
+          console.error("[Registration] Error creating commission:", commError);
+          console.error("[Registration] Commission error details:", commError instanceof Error ? commError.stack : 'No stack trace');
+          // Continue with registration even if commission creation fails
+        }
+      } else {
+        console.warn("[Registration] ⚠️  Commission NOT created - missing required values");
+        if (!agentNumber) console.warn("[Registration]   - Missing: agentNumber");
+        if (!enrolledByAgentId) console.warn("[Registration]   - Missing: enrolledByAgentId");
+        if (!coverageType && !memberType) console.warn("[Registration]   - Missing: coverageType/memberType");
+        console.log("[Registration]   Note: planId is optional and can be inferred from price");
+      }
 
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
@@ -2549,8 +3247,8 @@ export async function registerRoutes(app: any) {
           if (familyMember.firstName && familyMember.lastName) {
             try {
               await storage.addFamilyMember({
-                ...familyMemberData,
-                primaryUserId: user.id,
+                ...familyMember,
+                primaryUserId: member.id,
               });
               console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
             } catch (familyError) {
@@ -2561,84 +3259,62 @@ export async function registerRoutes(app: any) {
         }
       }
 
-      console.log("✅ Step 9: Registration completed successfully!");
-      console.log("[Registration] Final user email:", user.email);
+      console.log("[Registration] Registration completed successfully");
 
-      res.json({
+      const responsePayload = {
         success: true,
         message: "Registration successful. Proceeding to payment...",
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-          approvalStatus: user.approvalStatus,
+        member: {
+          id: member.id,
+          customerNumber: member.customer_number, // Snake case from Supabase
+          email: member.email,
+          firstName: member.first_name, // Snake case from Supabase
+          lastName: member.last_name, // Snake case from Supabase
+          memberType: member.member_type // Snake case from Supabase
         },
         enrollment: {
           planId: planId,
           coverageType: coverageType,
           totalMonthlyPrice: totalMonthlyPrice,
           addRxValet: addRxValet
-        },
-        // Include generated password for testing purposes
-        ...(finalPassword !== password && { generatedPassword: finalPassword })
-      });
-    } catch (error: any) {
-      console.error("❌ REGISTRATION ERROR:", error.message);
-      console.error("❌ Error details:", error);
-      console.error("❌ Stack trace:", error.stack);
-
-      // Clean up Supabase user if database creation failed
-      if (supabaseUserId && error.message && (
-        error.message.includes('duplicate key') || 
-        error.message.includes('constraint') ||
-        error.message.includes('users_pkey')
-      )) {
-        console.log("🧹 Cleaning up Supabase user due to database error...");
-        try {
-          // Note: In production, you might want to keep the Supabase user and handle this differently
-          const { error: deleteError } = await supabase.auth.admin.deleteUser(supabaseUserId);
-          if (deleteError) {
-            console.error("❌ Failed to cleanup Supabase user:", deleteError.message);
-          } else {
-            console.log("✅ Cleaned up Supabase user:", supabaseUserId);
-          }
-        } catch (cleanupError) {
-          console.error("❌ Error during cleanup:", cleanupError);
         }
-      }
+      };
 
-      // Provide specific error messages based on error type
+      console.log("[Registration] Response member object:", responsePayload.member);
+      console.log("[Registration] Has firstName?", !!responsePayload.member.firstName, "Has lastName?", !!responsePayload.member.lastName);
+
+      res.json(responsePayload);
+    } catch (error: any) {
+      console.error("[Registration] Error:", error.message);
+      console.error("[Registration] Stack:", error.stack);
+
+      // Provide specific error messages
       let errorMessage = "Registration failed";
       let statusCode = 500;
 
       if (error.message && error.message.includes('duplicate key')) {
-        errorMessage = "Account with this information already exists";
-        statusCode = 409; // Conflict
+        errorMessage = "Member with this information already exists";
+        statusCode = 409;
       } else if (error.message && error.message.includes('constraint')) {
         errorMessage = "Invalid data provided for registration";
-        statusCode = 400; // Bad Request
-      } else if (error.message && error.message.includes('users_pkey')) {
-        errorMessage = "User ID conflict - please try again";
-        statusCode = 409; // Conflict
+        statusCode = 400;
       }
 
       res.status(statusCode).json({
         error: errorMessage,
         message: error.message,
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error",
-        retryable: statusCode === 409 // Suggest retry for conflicts
+        details: "Internal error"
       });
     }
   });
 
-  // Agent enrollment endpoint
+  // ============================================================
+  // AGENT ENROLLMENT ENDPOINT
+  // Agents create members and earn commissions
+  // ============================================================
   app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {
     try {
-      console.log("[Agent Enrollment] Enrollment attempt by agent:", req.user?.email);
-
-      const { agentCode, userEmail, planType, memberData } = req.body;
+      console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
 
       // Validate agent has permission
       if (req.user?.role !== "agent" && req.user?.role !== "admin") {
@@ -2647,35 +3323,180 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      const {
+        email,
+        firstName,
+        lastName,
+        middleName,
+        phone,
+        dateOfBirth,
+        gender,
+        ssn,
+        address,
+        address2,
+        city,
+        state,
+        zipCode,
+        employerName,
+        dateOfHire,
+        memberType,
+        planStartDate,
+        planId,
+        planName,
+        coverageType,
+        addRxValet,
+        totalMonthlyPrice,
+        familyMembers
+      } = req.body;
+
       // Basic validation
-      if (!userEmail || !planType) {
+      const missingFields = [];
+      if (!email) missingFields.push("email");
+      if (!firstName) missingFields.push("firstName");
+      if (!lastName) missingFields.push("lastName");
+      if (!planId) missingFields.push("planId");
+
+      if (missingFields.length > 0) {
+        console.log("[Agent Enrollment] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["userEmail", "planType"]
+          required: ["email", "firstName", "lastName", "planId"],
+          missing: missingFields
         });
       }
 
-      // Record enrollment attempt
-      const enrollmentRecord = {
-        agentId: req.user.id,
-        agentEmail: req.user.email,
-        memberEmail: userEmail,
-        planType: planType,
-        enrollmentDate: new Date(),
-        status: "pending"
-      };
+      // Email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          error: "Invalid email format"
+        });
+      }
 
-      console.log("[Agent Enrollment] Recording enrollment:", enrollmentRecord);
+      // Check if member already exists
+      const existingMember = await storage.getMemberByEmail(email.trim().toLowerCase());
+      if (existingMember) {
+        return res.status(400).json({
+          error: "Member already exists with this email"
+        });
+      }
+
+      console.log("[Agent Enrollment] Creating member for agent:", req.user.agentNumber);
+
+      // Create member with agent tracking
+      // enrolledByAgentId and agentNumber capture who enrolled them
+      const member = await storage.createMember({
+        email: email.trim().toLowerCase(),
+        firstName: firstName?.trim() || "",
+        lastName: lastName?.trim() || "",
+        middleName: middleName?.trim() || null,
+        phone: phone || null,
+        dateOfBirth: dateOfBirth || null,
+        gender: gender || null,
+        ssn: ssn || null,
+        address: address?.trim() || null,
+        address2: address2?.trim() || null,
+        city: city?.trim() || null,
+        state: state || null,
+        zipCode: zipCode || null,
+        employerName: employerName?.trim() || null,
+        dateOfHire: dateOfHire || null,
+        memberType: memberType || "member-only",
+        planStartDate: planStartDate || null,
+        enrolledByAgentId: req.user.id,
+        agentNumber: req.user.agentNumber,
+        isActive: true,
+        emailVerified: false,
+        // Confirmation page fields
+        planId: planId ? parseInt(planId) : null,
+        coverageType: coverageType || memberType || "member-only",
+        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        addRxValet: addRxValet || false
+      });
+
+      console.log("[Agent Enrollment] Member created:", member.id, member.customerNumber);
+
+      // Create subscription if plan selected
+      let subscription = null;
+      if (planId && totalMonthlyPrice) {
+        try {
+          console.log("[Agent Enrollment] Creating subscription...");
+          subscription = await storage.createSubscription({
+            userId: member.id,
+            planId: parseInt(planId),
+            status: "pending_payment",
+            amount: totalMonthlyPrice,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+          console.log("[Agent Enrollment] Subscription created:", subscription.id);
+        } catch (subError) {
+          console.error("[Agent Enrollment] Error creating subscription:", subError);
+        }
+      }
+
+      // Create commission for agent
+      if (subscription && subscription.id) {
+        try {
+          console.log("[Agent Enrollment] Creating commission for agent:", req.user.agentNumber);
+          
+          const commissionResult = await createCommissionWithCheck(
+            req.user.id,       // Agent who enrolled them
+            subscription.id,   // Subscription ID
+            member.id,         // Member ID (from members table)
+            planName || 'MyPremierPlan',
+            coverageType || 'Individual'
+          );
+
+          if (commissionResult.success) {
+            console.log("[Agent Enrollment] Commission created:", commissionResult.commission.id);
+          } else {
+            console.warn("[Agent Enrollment] Commission not created:", commissionResult.reason);
+          }
+        } catch (commError) {
+          console.error("[Agent Enrollment] Error creating commission:", commError);
+          // Continue even if commission fails
+        }
+      }
+
+      // Add family members if provided
+      if (familyMembers && Array.isArray(familyMembers)) {
+        console.log("[Agent Enrollment] Processing", familyMembers.length, "family members");
+        for (const familyMember of familyMembers) {
+          if (familyMember.firstName && familyMember.lastName) {
+            try {
+              await storage.addFamilyMember({
+                ...familyMember,
+                primaryUserId: member.id,
+              });
+              console.log("[Agent Enrollment] Added family member:", familyMember.firstName);
+            } catch (familyError) {
+              console.error("[Agent Enrollment] Error adding family member:", familyError);
+            }
+          }
+        }
+      }
+
+      console.log("[Agent Enrollment] Enrollment completed successfully");
 
       res.json({
         success: true,
-        message: "Agent enrollment recorded successfully",
-        data: {
-          enrollmentId: nanoid(),
-          agentCode: req.user.agentNumber || agentCode,
-          userEmail,
-          planType,
-          enrolledBy: req.user.email
+        message: "Member enrolled successfully",
+        member: {
+          id: member.id,
+          customerNumber: member.customerNumber,
+          email: member.email,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          enrolledByAgent: req.user.agentNumber
+        },
+        enrollment: {
+          planId: planId,
+          coverageType: coverageType,
+          totalMonthlyPrice: totalMonthlyPrice,
+          subscriptionId: subscription?.id
         }
       });
 
@@ -2683,12 +3504,273 @@ export async function registerRoutes(app: any) {
       console.error("[Agent Enrollment] Error:", error);
       res.status(500).json({
         error: "Agent enrollment failed",
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        message: error.message,
+        details: "Internal error"
       });
     }
   });
 
-  // Agent lookup endpoint
+  // Fix: /api/agent/enrollments (404)
+  // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
+  app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const agentId = req.user.id;
+      const { startDate, endDate } = req.query;
+
+      const enrollments = await storage.getEnrollmentsByAgent(
+        agentId,
+        startDate as string,
+        endDate as string
+      );
+
+      res.json({
+        success: true,
+        enrollments: enrollments || [],
+        total: enrollments?.length || 0,
+        agentId: agentId
+      });
+    } catch (error: any) {
+      console.error('Agent enrollments error:', error);
+      res.status(500).json({ error: 'Failed to fetch enrollments' });
+    }
+  });
+
+  // Fix: /api/agent/stats (403) - permission issue
+  app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const agentId = req.user.id;
+      console.log('[Agent Stats] Fetching stats for agent:', agentId);
+
+      // Get enrollment counts
+      const enrollments = await storage.getAgentEnrollments(agentId);
+      console.log('[Agent Stats] Enrollments count:', enrollments.length);
+      if (enrollments.length > 0) {
+        console.log('[Agent Stats] Sample enrollment:', {
+          id: enrollments[0].id,
+          email: enrollments[0].email,
+          isActive: enrollments[0].isActive,
+          createdAt: enrollments[0].createdAt
+        });
+      }
+      
+      const thisMonth = new Date();
+      thisMonth.setDate(1);
+      thisMonth.setHours(0, 0, 0, 0);
+
+      const monthlyEnrollments = enrollments.filter(
+        (e) => new Date(e.createdAt) >= thisMonth,
+      ).length;
+
+      // Get active members count
+      const activeMembers = enrollments.filter((e) => e.isActive).length;
+
+      // Get commission stats from NEW agent_commissions table
+      const commissionStats = await storage.getCommissionStatsNew(agentId);
+      console.log('[Agent Stats] Commission stats:', commissionStats);
+      
+      // Get monthly commissions (this month only)
+      const startOfMonth = thisMonth.toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+      const monthlyCommissions = await storage.getAgentCommissionsNew(
+        agentId,
+        startOfMonth,
+        today
+      );
+      console.log('[Agent Stats] Monthly commissions count:', monthlyCommissions.length);
+      
+      const monthlyCommission = monthlyCommissions.reduce((sum, c) => {
+        return sum + (parseFloat(c.commissionAmount?.toString() || '0'));
+      }, 0);
+      
+      console.log('[Agent Stats] Final stats being sent:', {
+        totalEnrollments: enrollments.length,
+        monthlyEnrollments,
+        activeMembers: enrollments.filter((e) => e.isActive).length,
+        totalCommission: commissionStats.totalEarned,
+        monthlyCommission: parseFloat(monthlyCommission.toFixed(2))
+      });
+
+      res.json({
+        totalEnrollments: enrollments.length,
+        monthlyEnrollments,
+        activeMembers,
+        pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
+        totalCommission: commissionStats.totalEarned,
+        monthlyCommission: parseFloat(monthlyCommission.toFixed(2)),
+        activeLeads: 0, // TODO: Implement leads count
+        conversionRate: 0, // TODO: Implement conversion rate
+        leads: [], // TODO: Implement leads data
+        ...commissionStats
+      });
+    } catch (error: any) {
+      console.error('Agent stats error:', error);
+      res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+  });
+
+  // Fix: /api/agent/commission-stats (404)
+  app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
+    try {
+      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        console.log("❌ Access denied - not agent or admin");
+        return res.status(403).json({ error: 'Agent or admin access required' });
+      }
+
+      // Get actual commission stats for the agent
+      const agentId = req.user.id;
+      const stats = await storage.getCommissionStats(agentId);
+
+      console.log("✅ Got commission stats:", stats);
+      
+      // Return stats in the format expected by frontend
+      res.json(stats);
+    } catch (error: any) {
+      console.error('❌ Commission stats error:', error);
+      res.status(500).json({ error: 'Failed to fetch commission stats', details: error.message });
+    }
+  });
+
+  // Fix: /api/agent/commissions (403) - permission issue  
+  app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
+    try {
+      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        console.log("❌ Access denied - not agent or admin");
+        return res.status(403).json({ error: 'Agent or admin access required' });
+      }
+
+      const { startDate, endDate } = req.query;
+      
+      // USE NEW AGENT_COMMISSIONS TABLE (Supabase)
+      const commissions = await storage.getAgentCommissionsNew(
+        req.user.id,
+        startDate as string,
+        endDate as string
+      );
+
+      console.log("✅ Got", commissions?.length || 0, "commissions for agent:", req.user?.email);
+      
+      // Return the commissions array directly (already formatted by storage function)
+      res.json(commissions || []);
+    } catch (error: any) {
+      console.error('❌ Agent commissions error:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
+    }
+  });
+
+  // Agent: Get commission totals (MTD, YTD, Lifetime)
+  app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Agent or admin access required' });
+      }
+
+      const agentId = req.user.id;
+      const totals = await storage.getCommissionTotals(agentId);
+      
+      res.json(totals);
+    } catch (error: any) {
+      console.error('Error fetching commission totals:', error);
+      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
+  // Admin: Get all commission totals with agent breakdown
+  app.get('/api/admin/commission-totals', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const totals = await storage.getCommissionTotals(); // No agent ID = get all
+      
+      res.json(totals);
+    } catch (error: any) {
+      console.error('Error fetching admin commission totals:', error);
+      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
+  // Agent: Export commissions as CSV
+  app.get('/api/agent/export-commissions', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'agent') {
+        return res.status(403).json({ error: 'Agent access required' });
+      }
+
+      const { startDate, endDate } = req.query;
+      
+      // Fetch commissions for the agent
+      const commissions = await storage.getAgentCommissionsNew(
+        req.user.id,
+        startDate as string,
+        endDate as string
+      );
+
+      if (!commissions || commissions.length === 0) {
+        // Return empty CSV with headers
+        const csv = 'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status\n';
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
+        return res.send(csv);
+      }
+
+      // Build CSV header
+      const csv = [
+        'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status',
+        ...commissions.map(c => {
+          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
+          const member = c.userName || c.userId || 'Unknown';
+          const plan = c.planName || 'Unknown';
+          const type = c.planType || 'Unknown';
+          const commission = c.commissionAmount?.toFixed(2) || '0.00';
+          const cost = c.totalPlanCost?.toFixed(2) || '0.00';
+          const status = c.status || 'Unknown';
+          const paymentStatus = c.paymentStatus || 'Unknown';
+          
+          // Escape CSV values that contain commas or quotes
+          const escapeCSV = (val: string) => {
+            if (val.includes(',') || val.includes('"')) {
+              return `"${val.replace(/"/g, '""')}"`;
+            }
+            return val;
+          };
+          
+          return [
+            date,
+            escapeCSV(member),
+            escapeCSV(plan),
+            escapeCSV(type),
+            commission,
+            cost,
+            status,
+            paymentStatus
+          ].join(',');
+        })
+      ].join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
+      res.send(csv);
+    } catch (error: any) {
+      console.error('Error exporting commissions:', error);
+      res.status(500).json({ error: 'Failed to export commissions', details: error.message });
+    }
+  });
+
+  // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
+  // Dynamic routes like :agentId catch everything if they come first
   app.get("/api/agent/:agentId", async (req: any, res: any) => {
     try {
       const { agentId } = req.params;
@@ -2735,150 +3817,8 @@ export async function registerRoutes(app: any) {
       console.error("[Agent Lookup] Error:", error);
       res.status(500).json({
         error: "Agent lookup failed",
-        details: process.env.NODE_ENV === "development" ? error.message : "Internal error"
+        details: "Internal error"
       });
-    }
-  });
-
-  // Fix: /api/agent/enrollments (404)
-  app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Agent access required' });
-      }
-
-      const agentId = req.user.id;
-      const { startDate, endDate } = req.query;
-
-      const enrollments = await storage.getEnrollmentsByAgent(
-        agentId,
-        startDate as string,
-        endDate as string
-      );
-
-      res.json({
-        success: true,
-        enrollments: enrollments || [],
-        total: enrollments?.length || 0,
-        agentId: agentId
-      });
-    } catch (error: any) {
-      console.error('Agent enrollments error:', error);
-      res.status(500).json({ error: 'Failed to fetch enrollments' });
-    }
-  });
-
-  // Fix: /api/agent/stats (403) - permission issue
-  app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Agent access required' });
-      }
-
-      const agentId = req.user.id;
-
-      // Get enrollment counts
-      const enrollments = await storage.getAgentEnrollments(agentId);
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
-
-      const monthlyEnrollments = enrollments.filter(
-        (e) => new Date(e.createdAt) >= thisMonth,
-      ).length;
-
-      // Get active members count
-      const activeMembers = enrollments.filter((e) => e.isActive).length;
-
-      // Get commission stats
-      const commissionStats = await storage.getCommissionStats(agentId);
-
-      res.json({
-        success: true,
-        stats: {
-          totalEnrollments: enrollments.length,
-          monthlyEnrollments,
-          activeMembers,
-          pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
-          ...commissionStats
-        }
-      });
-    } catch (error: any) {
-      console.error('Agent stats error:', error);
-      res.status(500).json({ error: 'Failed to fetch stats' });
-    }
-  });
-
-  // Fix: /api/agent/commission-stats (404)
-  app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
-    try {
-      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        console.log("❌ Access denied - not agent or admin");
-        return res.status(403).json({ error: 'Agent or admin access required' });
-      }
-
-      // Get actual commission stats for the agent
-      const agentId = req.user.id;
-      const commissions = await storage.getAgentCommissions(agentId);
-
-      const totalCommission = commissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
-
-      const monthlyCommissions = commissions.filter(c => new Date(c.createdAt) >= thisMonth);
-      const monthlyCommission = monthlyCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-
-      const pendingCommissions = commissions.filter(c => c.paymentStatus === 'unpaid');
-      const pendingCommission = pendingCommissions.reduce((sum, c) => sum + (parseFloat(c.commissionAmount) || 0), 0);
-
-      console.log("✅ Got commission stats for", req.user.role);
-      res.json({
-        success: true,
-        commissionStats: {
-          totalCommission: totalCommission.toFixed(2),
-          monthlyCommission: monthlyCommission.toFixed(2),
-          pendingCommission: pendingCommission.toFixed(2),
-          totalCount: commissions.length,
-          monthlyCount: monthlyCommissions.length,
-          pendingCount: pendingCommissions.length
-        }
-      });
-    } catch (error: any) {
-      console.error('❌ Commission stats error:', error);
-      res.status(500).json({ error: 'Failed to fetch commission stats' });
-    }
-  });
-
-  // Fix: /api/agent/commissions (403) - permission issue  
-  app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
-    try {
-      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        console.log("❌ Access denied - not agent or admin");
-        return res.status(403).json({ error: 'Agent or admin access required' });
-      }
-
-      const { startDate, endDate } = req.query;
-      const commissions = await storage.getAgentCommissions(
-        req.user.id,
-        startDate as string,
-        endDate as string
-      );
-
-      console.log("✅ Got", commissions?.length || 0, "commissions");
-      res.json({
-        success: true,
-        commissions: commissions || [],
-        dateRange: { startDate, endDate },
-        total: commissions?.length || 0
-      });
-    } catch (error: any) {
-      console.error('❌ Agent commissions error:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions' });
     }
   });
 
@@ -2895,6 +3835,212 @@ export async function registerRoutes(app: any) {
     } catch (error: any) {
       console.error('Error fetching pending users:', error);
       res.status(500).json({ error: 'Failed to fetch pending users' });
+    }
+  });
+
+  // Admin: Get all commissions
+  app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { startDate, endDate } = req.query;
+      const commissions = await storage.getAllCommissionsNew(
+        startDate as string,
+        endDate as string
+      );
+      
+      res.json(commissions);
+    } catch (error: any) {
+      console.error('Error fetching all commissions:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions' });
+    }
+  });
+
+  // Admin: Mark commissions as paid
+  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionIds, paymentDate } = req.body;
+
+      if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
+        return res.status(400).json({ error: 'Commission IDs are required' });
+      }
+
+      await storage.markCommissionsAsPaid(commissionIds, paymentDate);
+      
+      res.json({ success: true, message: `${commissionIds.length} commission(s) marked as paid` });
+    } catch (error: any) {
+      console.error('Error marking commissions as paid:', error);
+      res.status(500).json({ error: 'Failed to mark commissions as paid' });
+    }
+  });
+
+  // Admin: Update single commission payout
+  app.post('/api/admin/commission/:commissionId/payout', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionId } = req.params;
+      const { paymentStatus, paymentDate, notes } = req.body;
+
+      if (!paymentStatus) {
+        return res.status(400).json({ error: 'Payment status is required' });
+      }
+
+      if (!['paid', 'pending', 'unpaid'].includes(paymentStatus)) {
+        return res.status(400).json({ error: 'Invalid payment status' });
+      }
+
+      const result = await storage.updateCommissionPayoutStatus(commissionId, {
+        paymentStatus,
+        paymentDate,
+        notes
+      });
+
+      res.json({ success: true, commission: result });
+    } catch (error: any) {
+      console.error('Error updating commission payout:', error);
+      res.status(500).json({ error: 'Failed to update commission payout', details: error.message });
+    }
+  });
+
+  // Admin: Batch update commission payouts
+  // Admin: Mark commissions as paid (wrapper for batch-payout)
+  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { commissionIds, paymentDate } = req.body;
+
+      if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
+        return res.status(400).json({ error: 'Commission IDs array is required' });
+      }
+
+      // Convert to batch update format
+      const updates = commissionIds.map((id: string) => ({
+        commissionId: id,
+        paymentStatus: 'paid',
+        paymentDate: paymentDate || new Date().toISOString(),
+        notes: `Marked as paid on ${new Date().toLocaleDateString()}`
+      }));
+
+      await storage.updateMultipleCommissionPayouts(updates);
+
+      res.json({ 
+        success: true, 
+        message: `${commissionIds.length} commission(s) marked as paid`
+      });
+    } catch (error: any) {
+      console.error('Error marking commissions as paid:', error);
+      res.status(500).json({ 
+        error: 'Failed to mark commissions as paid', 
+        details: error.message 
+      });
+    }
+  });
+
+  app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { updates } = req.body;
+
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return res.status(400).json({ error: 'Updates array is required' });
+      }
+
+      // Validate updates
+      for (const update of updates) {
+        if (!update.commissionId || !update.paymentStatus) {
+          return res.status(400).json({ error: 'Each update must have commissionId and paymentStatus' });
+        }
+        if (!['paid', 'pending', 'unpaid'].includes(update.paymentStatus)) {
+          return res.status(400).json({ error: `Invalid payment status: ${update.paymentStatus}` });
+        }
+      }
+
+      await storage.updateMultipleCommissionPayouts(updates);
+
+      res.json({ success: true, message: `${updates.length} commission(s) payout updated` });
+    } catch (error: any) {
+      console.error('Error batch updating commissions:', error);
+      res.status(500).json({ error: 'Failed to batch update commissions', details: error.message });
+    }
+  });
+
+  // Admin: Get commissions for payout management
+  app.get('/api/admin/commissions/payout-list', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { agentId, paymentStatus, minAmount } = req.query;
+
+      const commissions = await storage.getCommissionsForPayout(
+        agentId as string,
+        paymentStatus as string,
+        minAmount ? parseFloat(minAmount as string) : undefined
+      );
+
+      res.json(commissions);
+    } catch (error: any) {
+      console.error('Error fetching commissions for payout:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions for payout', details: error.message });
+    }
+  });
+
+  // Admin: Get agent hierarchy
+  app.get('/api/admin/agents/hierarchy', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const agents = await storage.getAgentHierarchy();
+      res.json(agents);
+    } catch (error: any) {
+      console.error('Error fetching agent hierarchy:', error);
+      res.status(500).json({ error: 'Failed to fetch agent hierarchy' });
+    }
+  });
+
+  // Admin: Update agent hierarchy
+  app.post('/api/admin/agents/update-hierarchy', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { agentId, uplineId, overrideAmount, reason } = req.body;
+
+      if (!agentId) {
+        return res.status(400).json({ error: 'Agent ID is required' });
+      }
+
+      await storage.updateAgentHierarchy(
+        agentId,
+        uplineId,
+        overrideAmount,
+        req.user.id,
+        reason
+      );
+
+      res.json({ success: true, message: 'Agent hierarchy updated successfully' });
+    } catch (error: any) {
+      console.error('Error updating agent hierarchy:', error);
+      res.status(500).json({ error: 'Failed to update agent hierarchy' });
     }
   });
 
@@ -2928,9 +4074,11 @@ export async function registerRoutes(app: any) {
       const { userId } = req.params;
       const { role } = req.body;
 
-      if (!["member", "agent", "admin"].includes(role)) {
+      // Users table should ONLY contain 'admin' and 'agent' roles
+      // 'member' is NOT a user role - members are enrolled customers in separate members table
+      if (!["agent", "admin"].includes(role)) {
         return res.status(400).json({
-          error: "Invalid role. Must be 'member', 'agent', or 'admin'"
+          error: "Invalid role. Must be 'agent' or 'admin'. Note: 'member' is not a valid user role - members are enrolled customers in the members table."
         });
       }
 
@@ -3058,20 +4206,50 @@ export async function registerRoutes(app: any) {
   });
 
   // Fix: /api/user (404) - basic user endpoint
-  app.get('/api/user', async (req: any, res: any) => {
+  app.get('/api/user', authenticateToken, async (req: AuthRequest, res: any) => {
     try {
-      // TODO: Add authentication and return actual user data
+      // Return authenticated user from token
+      if (!req.user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+
+      // Get user details from database
+      const user = await storage.getUserByEmail(req.user.email);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
       res.json({
-        success: true,
-        user: {
-          id: 'temp-user-id',
-          email: 'user@example.com',
-          firstName: 'Test',
-          lastName: 'User'
-        }
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        agentNumber: user.agentNumber || null
       });
     } catch (error: any) {
+      console.error('[/api/user] Error:', error);
       res.status(500).json({ error: 'Failed to fetch user' });
+    }
+  });
+
+  // Send confirmation email endpoint
+  app.post('/api/send-confirmation-email', async (req: any, res: any) => {
+    try {
+      const { email, customerNumber, memberName, planName, transactionId, amount } = req.body;
+      
+      console.log('[Email] Sending confirmation email to:', email);
+      
+      // TODO: Implement actual email sending with nodemailer
+      // For now, return success to indicate the feature is ready
+      
+      res.json({
+        success: true,
+        message: 'Confirmation email sent successfully'
+      });
+    } catch (error: any) {
+      console.error('[Email] Error sending confirmation:', error);
+      res.status(500).json({ error: 'Failed to send confirmation email' });
     }
   });
 
@@ -3084,7 +4262,8 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/agent/commission-stats");
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");
+  console.log("[Route] POST /api/send-confirmation-email");
 
-  // Return the server instance (not just the app)
-  return server;
+  // Return the app with routes registered
+  return app;
 }

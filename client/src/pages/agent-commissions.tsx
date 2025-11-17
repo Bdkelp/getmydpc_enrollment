@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -23,44 +23,51 @@ import { Label } from "@/components/ui/label";
 
 interface Commission {
   id: number;
-  subscriptionId: number;
-  userId: string;
-  userName: string;
-  planName: string;
-  planType: string;
-  planTier: string;
-  commissionAmount: number;
-  totalPlanCost: number;
-  status: string;
-  paymentStatus: string;
+  subscriptionId?: number;
+  userId?: string;
+  userName?: string;
+  planName?: string;
+  planType?: string;
+  planTier?: string;
+  commissionAmount?: number;
+  totalPlanCost?: number;
+  status?: string;
+  paymentStatus?: string;
   paidDate?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 interface CommissionStats {
-  totalEarned: number;
-  totalPending: number;
-  totalPaid: number;
+  mtd: number;
+  ytd: number;
+  lifetime: number;
+  pending: number;
 }
 
 export default function AgentCommissions() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
-  // Fetch commission stats
-  const { data: stats, isLoading: statsLoading } = useQuery<CommissionStats>({
-    queryKey: ["/api/agent/commission-stats"],
+  // Fetch commission stats (using the new commission-totals endpoint for MTD/YTD/Lifetime)
+  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<CommissionStats>({
+    queryKey: ["/api/agent/commission-totals"],
+    queryFn: async () => {
+      return await apiRequest(`/api/agent/commission-totals`, { method: "GET" });
+    },
+    enabled: !!user,
+    retry: 1,
   });
 
   // Fetch commissions with filters
-  const { data: commissions, isLoading: commissionsLoading } = useQuery<Commission[]>({
-    queryKey: ["/api/agent/commissions", dateFilter],
+  const { data: commissions, isLoading: commissionsLoading, error: commissionsError } = useQuery<Commission[]>({
+    queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate],
     queryFn: async () => {
       const params = new URLSearchParams({
         startDate: dateFilter.startDate,
@@ -68,6 +75,8 @@ export default function AgentCommissions() {
       });
       return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
     },
+    enabled: !!user && !!dateFilter.startDate && !!dateFilter.endDate,
+    retry: 1,
   });
 
   const handleExport = async () => {
@@ -107,13 +116,20 @@ export default function AgentCommissions() {
     }
   };
 
-  if (statsLoading || commissionsLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  // Safe array handling for commissions data with comprehensive checks
+  const safeCommissions = useMemo(() => {
+    return Array.isArray(commissions) ? commissions : [];
+  }, [commissions]);
+
+  // Safe stats object with defaults and null checks
+  const safeStats = useMemo(() => {
+    return {
+      mtd: (stats && typeof stats.mtd === 'number') ? stats.mtd : 0,
+      ytd: (stats && typeof stats.ytd === 'number') ? stats.ytd : 0,
+      lifetime: (stats && typeof stats.lifetime === 'number') ? stats.lifetime : 0,
+      pending: (stats && typeof stats.pending === 'number') ? stats.pending : 0
+    };
+  }, [stats]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -141,19 +157,36 @@ export default function AgentCommissions() {
     }
   };
 
-  // Safe array handling for commissions data with comprehensive checks
-  const safeCommissions = React.useMemo(() => {
-    return Array.isArray(commissions) ? commissions : [];
-  }, [commissions]);
+  // Show errors if any
+  if (statsError || commissionsError) {
+    console.error('[AgentCommissions] Query errors:', { statsError, commissionsError });
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="max-w-md p-6">
+          <CardContent>
+            <h2 className="text-xl font-bold text-red-600 mb-2">Failed to Load Commissions</h2>
+            <p className="text-gray-600 mb-4">
+              {commissionsError ? String(commissionsError) : String(statsError)}
+            </p>
+            <Button onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
+            }}>
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-  // Safe stats object with defaults and null checks
-  const safeStats = React.useMemo(() => {
-    return {
-      totalEarned: (stats && typeof stats.totalEarned === 'number') ? stats.totalEarned : 0,
-      totalPending: (stats && typeof stats.totalPending === 'number') ? stats.totalPending : 0,
-      totalPaid: (stats && typeof stats.totalPaid === 'number') ? stats.totalPaid : 0
-    };
-  }, [stats]);
+  if (statsLoading || commissionsLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -182,14 +215,36 @@ export default function AgentCommissions() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Earned</CardTitle>
+              <CardTitle className="text-sm font-medium">This Month</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${safeStats.mtd.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Month-to-date earnings</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">This Year</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${safeStats.ytd.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Year-to-date earnings</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Lifetime Earned</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${safeStats.totalEarned.toFixed(2)}</div>
+              <div className="text-2xl font-bold">${safeStats.lifetime.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">All time earnings</p>
             </CardContent>
           </Card>
@@ -200,19 +255,8 @@ export default function AgentCommissions() {
               <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">${safeStats.totalPending.toFixed(2)}</div>
+              <div className="text-2xl font-bold">${safeStats.pending.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">Awaiting payment</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Paid Commissions</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${safeStats.totalPaid.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">Already received</p>
             </CardContent>
           </Card>
         </div>
@@ -271,10 +315,12 @@ export default function AgentCommissions() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {safeCommissions.map((commission) => {
-                    if (!commission) return null;
+                  {safeCommissions.map((commission, index) => {
+                    if (!commission || !commission.id) return null;
+                    const commissionKey = `${commission.id}-${index}`;
+                    
                     return (
-                      <TableRow key={commission.id}>
+                      <TableRow key={commissionKey}>
                         <TableCell>
                           {commission.createdAt ? format(new Date(commission.createdAt), "MM/dd/yyyy") : 'N/A'}
                         </TableCell>

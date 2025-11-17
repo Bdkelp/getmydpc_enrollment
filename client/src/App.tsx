@@ -19,6 +19,8 @@ import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
 import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
+import AdminCommissions from "@/pages/admin-commissions";
+import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
@@ -69,6 +71,9 @@ function Router() {
       <Route path="/payment/failed" component={PaymentFailed} />
       <Route path="/payment/cancel" component={PaymentCancel} />
       <Route path="/payment/error" component={PaymentFailed} />
+      {/* Confirmation page - accessible to authenticated agents/admins after payment */}
+      <Route path="/confirmation" component={Confirmation} />
+      <Route path="/confirmation/:userId" component={Confirmation} />
       <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={user.role === "admin" ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
       <Route path="/register" component={isAuthenticated ? () => <Redirect to={user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
@@ -87,9 +92,12 @@ function Router() {
               <Route path="/admin/leads" component={AdminLeads} />
               <Route path="/admin/enrollments" component={AdminEnrollments} />
               <Route path="/admin/users" component={AdminUsers} />
+              <Route path="/admin/commissions" component={AdminCommissions} />
+              <Route path="/admin/agent-hierarchy" component={AdminAgentHierarchy} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
+              <Route path="/profile" component={Profile} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
@@ -108,6 +116,7 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
+              <Route path="/profile" component={Profile} />
               <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />

@@ -2,7 +2,8 @@
 import express from 'express';
 import cors from 'cors';
 import { registerRoutes } from './routes';
-import epxRoutes from './routes/epx-routes';
+// import epxRoutes from './routes/epx-routes'; // Browser Post (old - removed)
+import epxHostedRoutes from './routes/epx-hosted-routes'; // Hosted Checkout (new)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,13 +46,14 @@ app.get('/api/epx/health-check', (req, res) => {
   console.log('[Railway] EPX health check called');
   res.json({
     status: 'ok',
-    service: 'EPX Payment Service',
+    service: 'EPX Hosted Checkout Service',
     environment: process.env.EPX_ENVIRONMENT || 'sandbox',
     timestamp: new Date().toISOString(),
     endpoints: {
-      redirect: '/api/epx/redirect',
-      webhook: '/api/epx/webhook', 
-      createPayment: '/api/epx/create-payment'
+      health: '/api/epx/hosted/health',
+      config: '/api/epx/hosted/config', 
+      createPayment: '/api/epx/hosted/create-payment',
+      callback: '/api/epx/hosted/callback'
     }
   });
 });
@@ -62,7 +64,7 @@ app.get('/api/epx/health-check', (req, res) => {
     await registerRoutes(app);
     
     // Register EPX routes after other routes are loaded
-    app.use('/', epxRoutes);
+    app.use('/', epxHostedRoutes); // Using Hosted Checkout routes
     
     // Add route debugging
     console.log('✅ Registered routes:');
@@ -82,9 +84,10 @@ app.get('/api/epx/health-check', (req, res) => {
       console.log(`✅ Railway server running on port ${PORT}`);
       console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`✅ CORS enabled for enrollment.getmydpc.com`);
-      console.log(`✅ EPX endpoints available at /api/epx/*`);
-      console.log(`✅ EPX redirect endpoint: /api/epx/redirect`);
-      console.log(`✅ EPX webhook endpoint: /api/epx/webhook`);
+      console.log(`✅ EPX Hosted Checkout endpoints available at /api/epx/hosted/*`);
+      console.log(`✅ EPX health endpoint: /api/epx/hosted/health`);
+      console.log(`✅ EPX create payment endpoint: /api/epx/hosted/create-payment`);
+      console.log(`✅ EPX callback endpoint: /api/epx/hosted/callback`);
     });
   } catch (error) {
     console.error('❌ Failed to start Railway server:', error);

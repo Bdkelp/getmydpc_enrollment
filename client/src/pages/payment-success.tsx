@@ -14,9 +14,14 @@ export default function PaymentSuccess() {
     const params = new URLSearchParams(window.location.search);
     const txn = params.get('transaction');
     const amt = params.get('amount');
-    
     if (txn) setTransactionId(txn);
     if (amt) setAmount(amt);
+
+    // Redirect to confirmation after 3 seconds
+    const timer = setTimeout(() => {
+      window.location.href = '/confirmation';
+    }, 3000);
+    return () => clearTimeout(timer);
   }, [location]);
 
   return (

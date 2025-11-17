@@ -47,7 +47,7 @@ interface Enrollment {
   email: string;
   planName: string;
   memberType: string;
-  monthlyPrice: number;
+  totalMonthlyPrice: number;
   status: string;
   enrolledBy: string;
   enrolledByAgentId: string;
@@ -272,7 +272,7 @@ export default function AdminEnrollments() {
       return (
         sum +
         (enrollment?.status === "active"
-          ? Number(enrollment.monthlyPrice || 0)
+          ? Number(enrollment.totalMonthlyPrice || 0)
           : 0)
       );
     }, 0);
@@ -586,7 +586,7 @@ export default function AdminEnrollments() {
                       <TableCell className="capitalize">
                         {enrollment.memberType}
                       </TableCell>
-                      <TableCell>${enrollment.monthlyPrice}</TableCell>
+                      <TableCell>${enrollment.totalMonthlyPrice}</TableCell>
                       <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
                       <TableCell>

@@ -8,8 +8,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield } from "lucide-react";
+import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
 import { format } from "date-fns";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
+import DashboardStats from "@/components/DashboardStats";
 import {
   Dialog,
   DialogContent,
@@ -38,8 +41,8 @@ interface Enrollment {
   lastName: string;
   planName: string;
   memberType: string;
-  monthlyPrice: number;
-  commission: number;
+  totalMonthlyPrice: number;
+  commissionAmount: number;
   status: string;
   pendingReason?: string;
   pendingDetails?: string;
@@ -66,6 +69,7 @@ export default function AgentDashboard() {
     if (user?.email) return user.email.split('@')[0];
     return "Agent";
   };
+  
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
@@ -186,10 +190,21 @@ export default function AgentDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
-              <span className="ml-4 text-sm text-gray-500">
-                Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
-              </span>
+              <Avatar className="h-8 w-8 mr-3">
+                <AvatarImage 
+                  src={user?.profileImageUrl || getDefaultAvatar(user?.id || '', `${user?.firstName || ''} ${user?.lastName || ''}`)} 
+                  alt="Profile" 
+                />
+                <AvatarFallback className="bg-blue-600 text-white text-sm">
+                  {getUserInitials(`${user?.firstName || ''} ${user?.lastName || ''}`)}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
+                <span className="text-sm text-gray-500">
+                  Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
+                </span>
+              </div>
             </div>
             <div className="flex items-center space-x-4">
               {user?.role === 'admin' && (
@@ -204,6 +219,10 @@ export default function AgentDashboard() {
               >
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
+              </Button>
+              <Button variant="outline" onClick={() => setLocation('/profile')}>
+                <User className="mr-2 h-4 w-4" />
+                Profile
               </Button>
               <Button variant="outline" onClick={async () => {
                 const { signOut } = await import("@/lib/supabase");
@@ -258,55 +277,8 @@ export default function AgentDashboard() {
           </CardContent>
         </Card>
         
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Enrollments</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats?.totalEnrollments || 0}</div>
-              <p className="text-xs text-muted-foreground">This month: {stats?.monthlyEnrollments || 0}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setLocation('/agent/commissions')}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Commission</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">${stats?.totalCommission?.toFixed(2) || "0.00"}</div>
-              <p className="text-xs text-muted-foreground">This month: ${stats?.monthlyCommission?.toFixed(2) || "0.00"}</p>
-              <Button variant="link" className="p-0 h-auto text-xs mt-2">
-                View Commission Details →
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Leads</CardTitle>
-              <Phone className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats?.activeLeads || 0}</div>
-              <p className="text-xs text-muted-foreground">Follow up needed</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Conversion Rate</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats?.conversionRate?.toFixed(1) || "0"}%</div>
-              <p className="text-xs text-muted-foreground">Last 30 days</p>
-            </CardContent>
-          </Card>
-        </div>
+        {/* Enhanced Dashboard Stats */}
+        <DashboardStats userRole="agent" agentId={user?.id} />
 
         {/* Recent Enrollments */}
         <Card>
@@ -373,8 +345,8 @@ export default function AgentDashboard() {
                       <td className="py-2">{enrollment.firstName} {enrollment.lastName}</td>
                       <td className="py-2">{enrollment.planName}</td>
                       <td className="py-2">{enrollment.memberType}</td>
-                      <td className="py-2">${enrollment.monthlyPrice}</td>
-                      <td className="py-2 text-green-600">${enrollment.commission?.toFixed(2)}</td>
+                      <td className="py-2">${enrollment.totalMonthlyPrice}</td>
+                      <td className="py-2 text-green-600">${enrollment.commissionAmount ? Number(enrollment.commissionAmount).toFixed(2) : '0.00'}</td>
                       <td className="py-2">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           enrollment.status === 'active' 
@@ -464,7 +436,7 @@ export default function AgentDashboard() {
                   <div><span className="font-medium">Name:</span> {selectedEnrollment.firstName} {selectedEnrollment.lastName}</div>
                   <div><span className="font-medium">Plan:</span> {selectedEnrollment.planName}</div>
                   <div><span className="font-medium">Type:</span> {selectedEnrollment.memberType}</div>
-                  <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.monthlyPrice}</div>
+                  <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.totalMonthlyPrice}</div>
                 </div>
               </div>
 

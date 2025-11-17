@@ -74,7 +74,14 @@ export default function Registration() {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   // Query to get current user data
-  const { data: currentUser } = useQuery<{ role?: string }>({
+  const { data: currentUser } = useQuery<{ 
+    id?: string;
+    role?: string;
+    agentNumber?: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+  }>({
     queryKey: ['/api/user'],
     enabled: isAuthenticated,
   });
@@ -143,7 +150,7 @@ export default function Registration() {
     mutationFn: async (data: RegistrationForm) => {
       const subtotal = selectedPlan ? 
         parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
-      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% processing fee
+      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% administration fee
       
       // Ensure all required fields are present
       const submissionData = {
@@ -165,7 +172,11 @@ export default function Registration() {
         termsAccepted: data.termsAccepted,
         privacyAccepted: data.privacyNoticeAcknowledged,
         smsConsent: data.communicationsConsent,
-        faqDownloaded: data.faqDownloaded
+        faqDownloaded: data.faqDownloaded,
+        
+        // Agent information (if enrolled by agent)
+        agentNumber: currentUser?.agentNumber || null,
+        enrolledByAgentId: currentUser?.id || null
       };
       
       console.log('Submitting registration data:', {
@@ -176,12 +187,26 @@ export default function Registration() {
         hasPassword: !!submissionData.password
       });
       
-      await apiRequest("/api/registration", {
+      // CRITICAL: Must RETURN the API response so onSuccess receives the data
+      return await apiRequest("/api/registration", {
         method: "POST",
         body: JSON.stringify(submissionData)
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("[Registration] API response received:", data);
+      console.log("[Registration] Member object:", data.member);
+      console.log("[Registration] Member has firstName?", !!data.member?.firstName, "lastName?", !!data.member?.lastName);
+      
+      // Store member data for confirmation page
+      if (data.member) {
+        sessionStorage.setItem("memberData", JSON.stringify(data.member));
+        console.log("[Registration] Stored to sessionStorage:", data.member);
+        console.log("[Registration] Verify stored data:", JSON.parse(sessionStorage.getItem("memberData") || "{}"));
+      } else {
+        console.error("[Registration] ⚠️ No member object in response!");
+      }
+      
       // Invalidate cache to show new enrollment immediately
       queryClient.invalidateQueries({ queryKey: ['/api/agent/stats'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/enrollments'] });
@@ -223,19 +248,11 @@ export default function Registration() {
         totalMonthlyPrice: totalWithFees
       });
       
-      // Always go directly to payment now that family members are included in registration
-      // Check if Stripe is configured
-      if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-        toast({
-          title: "Registration Complete",
-          description: "Redirecting to mock payment for testing...",
-        });
-      } else {
-        toast({
-          title: "Registration Complete",
-          description: "Your information has been saved. Proceeding to payment...",
-        });
-      }
+      // Registration complete - proceed to EPX payment
+      toast({
+        title: "Registration Complete",
+        description: "Your information has been saved. Proceeding to payment...",
+      });
       setLocation("/payment");
     },
     onError: (error) => {
@@ -1205,9 +1222,9 @@ export default function Registration() {
                               .filter((plan: any) => {
                                 // Map coverage types to plan name patterns
                                 const coverageMapping: { [key: string]: string[] } = {
-                                  "Member Only": ["Member Only", "Mem Only"],
-                                  "Member/Spouse": ["Member/Spouse", "Mem/Spouse"],
-                                  "Member/Child": ["Member/Child", "Mem/Child", "Parent/Child"],
+                                  "Member Only": ["Member Only", "Individual Plan"],
+                                  "Member/Spouse": ["Member/Spouse"],
+                                  "Member/Child": ["Member/Child", "Parent/Child"],
                                   "Family": ["Family"]
                                 };
                                 
@@ -1224,22 +1241,31 @@ export default function Registration() {
                             return filteredPlans || [];
                           })()
                             ?.filter((plan: any) => {
+                              // Filter for tier-based plans (Base, Plus, Elite)
+                              // Also allow "Individual Plan" and "Family Plan" for legacy compatibility
                               if (plan.name.includes("Base")) return true;
                               if (plan.name.includes("Plus") || plan.name.includes("+")) return true;
                               if (plan.name.includes("Elite")) return true;
+                              if (plan.name.includes("Individual Plan")) return true;
+                              if (plan.name === "Family Plan") return true;
                               return false;
                             })
                             .sort((a: any, b: any) => {
                               const order = ["Base", "Plus", "Elite"];
                               const aIndex = order.findIndex(tier => a.name.includes(tier));
                               const bIndex = order.findIndex(tier => b.name.includes(tier));
+                              // Legacy plans go last
+                              if (aIndex === -1) return 1;
+                              if (bIndex === -1) return -1;
                               return aIndex - bIndex;
                             })
                             .map((plan: any) => {
                               const planTier = plan.name.includes("Base") ? "Base" : 
-                                              plan.name.includes("Plus") || plan.name.includes("+") ? "Plus" : "Elite";
+                                              plan.name.includes("Plus") || plan.name.includes("+") ? "Plus" : 
+                                              plan.name.includes("Elite") ? "Elite" : "Standard";
                               const tierColor = planTier === "Base" ? "gray" : 
-                                               planTier === "Plus" ? "blue" : "purple";
+                                               planTier === "Plus" ? "blue" : 
+                                               planTier === "Elite" ? "purple" : "green";
                               const isRecommended = recommendedTier && planTier.toLowerCase() === recommendedTier.toLowerCase();
                               
                               return (
@@ -1407,7 +1433,7 @@ export default function Registration() {
                               Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)).toFixed(2)}
                             </div>
                             <div className="text-sm">
-                              Processing Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
+                              Administration Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
                             </div>
                             <div className="text-lg font-semibold border-t pt-1">
                               Total Monthly: <span className="text-green-600">

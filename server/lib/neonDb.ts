@@ -1,21 +1,26 @@
 import { Pool } from 'pg';
 
-// Connect directly to Neon database using DATABASE_URL
+// Connect to PostgreSQL database using DATABASE_URL
+// Supports Neon, Supabase, or any PostgreSQL provider
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
+  console.error('❌ DATABASE_URL is not set. Please configure your database connection.');
+  console.error('   For Supabase: Get from Project Settings > Database > Connection string (URI)');
   throw new Error('DATABASE_URL is not set');
 }
 
-// Create a connection pool for Neon
+console.log(`[Database] Connecting to: ${connectionString.split('@')[1]?.split('?')[0] || 'database'}`);
+
+// Create a connection pool
 export const neonPool = new Pool({
   connectionString,
   ssl: {
-    rejectUnauthorized: false // Required for Neon
+    rejectUnauthorized: false // Required for hosted databases (Supabase, Neon, etc.)
   },
-  max: 10, // Reduced pool size for stability
+  max: 10, // Connection pool size
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000, // Increased timeout to 10 seconds
+  connectionTimeoutMillis: 10000, // 10 second timeout
   query_timeout: 30000, // 30 second query timeout
 });
 
@@ -24,16 +29,27 @@ const testConnection = async (retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
       const client = await neonPool.connect();
-      console.log('[NeonDB] Successfully connected to Neon database');
+      console.log('✅ [Database] Successfully connected to PostgreSQL database');
       client.release();
       return;
     } catch (err: any) {
-      console.error(`[NeonDB] Connection attempt ${i + 1}/${retries} failed:`, err.message);
+      console.error(`❌ [Database] Connection attempt ${i + 1}/${retries} failed:`, err.message);
+      
+      // Check for common errors and provide helpful messages
+      if (err.message.includes('endpoint') && err.message.includes('disabled')) {
+        console.error('   ⚠️  Database endpoint is suspended. If using Neon, activate it in the console.');
+        console.error('   💡 Consider switching to Supabase database (doesn\'t auto-suspend)');
+      } else if (err.message.includes('authentication failed')) {
+        console.error('   ⚠️  Database authentication failed. Check your DATABASE_URL credentials.');
+      }
+      
       if (i < retries - 1) {
-        console.log('[NeonDB] Retrying connection in 2 seconds...');
+        console.log(`   ⏳ Retrying connection in 2 seconds...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
       } else {
-        console.error('[NeonDB] Failed to connect after', retries, 'attempts');
+        console.error(`❌ [Database] Failed to connect after ${retries} attempts`);
+        console.error('   The app will start but database operations will fail.');
+        console.error('   Please check your DATABASE_URL environment variable.');
         // Don't throw - allow the app to start even if initial connection fails
       }
     }
@@ -49,7 +65,13 @@ export async function query(text: string, params?: any[]) {
     const result = await neonPool.query(text, params);
     return result;
   } catch (error: any) {
-    console.error('[NeonDB] Query error:', error.message);
+    console.error('❌ [Database] Query error:', error.message);
+    
+    // Provide helpful error context
+    if (error.message.includes('endpoint') && error.message.includes('disabled')) {
+      console.error('   💡 Your database endpoint is suspended. See instructions above to reactivate.');
+    }
+    
     throw error;
   }
 }

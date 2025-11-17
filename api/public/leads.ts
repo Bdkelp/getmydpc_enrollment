@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { drizzle } from 'drizzle-orm/neon-http';
-import { neon } from '@neondatabase/serverless';
+// import { drizzle } from 'drizzle-orm/postgres-http'; // If using drizzle with Supabase, update to correct driver
+// import { createClient } from '@supabase/supabase-js'; // If using Supabase client
 import { leads } from '../../shared/schema';
 
 // Get database URL from environment variable
@@ -11,8 +11,7 @@ if (!DATABASE_URL) {
 }
 
 // Create database connection
-const sql = neon(DATABASE_URL);
-const db = drizzle(sql);
+// const db = drizzle(DATABASE_URL); // Update to correct driver for Supabase
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Set CORS headers

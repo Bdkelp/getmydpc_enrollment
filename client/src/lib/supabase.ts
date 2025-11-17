@@ -133,7 +133,7 @@ export const onAuthStateChange = (callback: (event: any, session: any) => void) 
 
 // Monitor and handle token refresh
 export const setupTokenRefreshHandling = () => {
-  return supabase.auth.onAuthStateChange((event, session) => {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
     console.log('[Supabase] Auth event:', event);
     
     switch (event) {
@@ -160,6 +160,8 @@ export const setupTokenRefreshHandling = () => {
         break;
     }
   });
+  
+  return data.subscription;
 };
 
 // Force token refresh if needed
