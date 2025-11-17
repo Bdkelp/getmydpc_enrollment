@@ -76,7 +76,7 @@ END $$;
 -- ============================================================
 DO $$
 DECLARE
-  col RECORD;
+  col_name TEXT;
   columns_to_remove TEXT[] := ARRAY[
     'stripe_customer_id',
     'stripe_subscription_id',
@@ -104,13 +104,13 @@ BEGIN
   RAISE NOTICE 'Columns that will be removed:';
   RAISE NOTICE '============================================================';
   
-  FOREACH col.column_name IN ARRAY columns_to_remove
+  FOREACH col_name IN ARRAY columns_to_remove
   LOOP
     IF EXISTS (
       SELECT 1 FROM information_schema.columns 
-      WHERE table_name = 'users' AND column_name = col.column_name
+      WHERE table_name = 'users' AND column_name = col_name
     ) THEN
-      RAISE NOTICE '  - %', col.column_name;
+      RAISE NOTICE '  - %', col_name;
     END IF;
   END LOOP;
   
@@ -220,6 +220,7 @@ END $$;
 DO $$
 DECLARE
   col_count INTEGER;
+  col_rec RECORD;
 BEGIN
   RAISE NOTICE '============================================================';
   RAISE NOTICE 'FINAL USERS TABLE STRUCTURE';
@@ -233,14 +234,14 @@ BEGIN
   RAISE NOTICE '';
   RAISE NOTICE 'Remaining columns:';
   
-  FOR col_count IN (
+  FOR col_rec IN (
     SELECT column_name, data_type
     FROM information_schema.columns 
     WHERE table_name = 'users'
     ORDER BY ordinal_position
   )
   LOOP
-    RAISE NOTICE '  - % (%)', col_count.column_name, col_count.data_type;
+    RAISE NOTICE '  - % (%)', col_rec.column_name, col_rec.data_type;
   END LOOP;
   
   RAISE NOTICE '============================================================';
