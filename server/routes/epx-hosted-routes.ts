@@ -7,6 +7,8 @@ import { Router, Request, Response } from 'express';
 import { EPXHostedCheckoutService } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { certificationLogger } from '../services/certification-logger';
+import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
+import { supabase } from '../lib/supabaseClient';
 
 const router = Router();
 
@@ -498,6 +500,97 @@ router.post('/api/epx/certification/toggle', (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to toggle certification logging'
+    });
+  }
+});
+
+/**
+ * ADMIN: Get EPX payment logs for support ticket
+ * Retrieves all payment transactions with full details for EPX support
+ */
+router.get('/api/admin/epx-logs', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin access
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    console.log('[EPX Logs] Fetching payment logs for admin:', req.user?.email);
+
+    // Get all payments from database
+    const { data: payments, error } = await supabase
+      .from('payments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[EPX Logs] Database error:', error);
+      return res.status(500).json({ error: 'Failed to fetch payments' });
+    }
+
+    // Format for EPX support ticket
+    const epxLogs = payments.map((payment: any) => ({
+      // Transaction identifiers
+      transactionId: payment.transaction_id,
+      paymentId: payment.id,
+      subscriptionId: payment.subscription_id,
+      
+      // Timing
+      createdAt: payment.created_at,
+      processedAt: payment.metadata?.processedAt || null,
+      
+      // Payment details
+      amount: payment.amount,
+      currency: payment.currency || 'USD',
+      status: payment.status,
+      paymentMethod: payment.payment_method,
+      
+      // EPX specific
+      authorizationCode: payment.authorization_code,
+      bricToken: payment.bric_token,
+      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      
+      // Request/Response data
+      requestData: payment.metadata?.requestData || null,
+      callbackData: payment.metadata?.callbackData || null,
+      
+      // Member info (sanitized)
+      memberEmail: payment.metadata?.memberEmail || null,
+      planName: payment.metadata?.planName || null,
+    }));
+
+    // Summary statistics
+    const stats = {
+      totalTransactions: payments.length,
+      successful: payments.filter((p: any) => p.status === 'completed').length,
+      failed: payments.filter((p: any) => p.status === 'failed').length,
+      pending: payments.filter((p: any) => p.status === 'pending').length,
+      totalAmount: payments
+        .filter((p: any) => p.status === 'completed')
+        .reduce((sum: number, p: any) => sum + parseFloat(p.amount || 0), 0),
+      dateRange: {
+        earliest: payments[payments.length - 1]?.created_at,
+        latest: payments[0]?.created_at
+      }
+    };
+
+    res.json({
+      success: true,
+      stats,
+      transactions: epxLogs,
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.user?.email,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID,
+    });
+
+  } catch (error: any) {
+    console.error('[EPX Logs] Export error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to export EPX logs'
     });
   }
 });
