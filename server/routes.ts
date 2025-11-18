@@ -7,6 +7,7 @@ import {
   calculateCommission,
   getPlanTierFromName,
   getPlanTypeFromMemberType,
+  RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { sendLeadNotification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
@@ -3139,62 +3140,68 @@ export async function registerRoutes(app: any) {
             console.log("[Commission] ✅ Agent found - UUID:", agentUser.id, "Email:", agentUser.email);
             
             let plan = null;
-            let planName = 'Base'; // Default to Base plan
+            let planName = 'MyPremierPlan Base'; // Default to full Base plan name
             let planTier = 'Base';
             
             // Try to get plan details if planId is provided
             if (planId) {
               try {
-                const { data: plan, error: planError } = await supabase
+                const { data: planData, error: planError } = await supabase
                   .from('plans')
                   .select('*')
                   .eq('id', parseInt(planId))
                   .single();
                 
-                if (plan && !planError) {
-                  planName = plan.name || 'Base';
-                  planTier = plan.name?.includes('Elite') ? 'Elite' : plan.name?.includes('Plus') ? 'Plus' : 'Base';
-                  console.log("[Commission] Plan found from planId:", planName);
+                if (planData && !planError) {
+                  plan = planData;
+                  planName = planData.name || 'MyPremierPlan Base';
+                  planTier = planData.name?.includes('Elite') ? 'Elite' : planData.name?.includes('Plus') ? 'Plus' : 'Base';
+                  console.log("[Commission] ✅ Plan found from planId:", planName, "(Tier:", planTier + ")");
                 } else {
-                  console.warn("[Commission] Could not fetch plan from Supabase, using defaults");
+                  console.warn("[Commission] ⚠️ Could not fetch plan from Supabase, using defaults");
                 }
               } catch (planError) {
-                console.warn("[Commission] Could not fetch plan by ID, using defaults");
+                console.warn("[Commission] ⚠️ Could not fetch plan by ID, using defaults");
               }
             } else {
-              // Infer plan from price if planId not provided
-              console.log("[Commission] No planId provided, inferring from price");
+              // Infer plan from price if planId not provided (USE FULL PLAN NAMES)
+              console.log("[Commission] No planId provided, inferring from totalMonthlyPrice:", totalMonthlyPrice);
               if (totalMonthlyPrice) {
                 const basePrice = totalMonthlyPrice / 1.04; // Remove 4% admin fee
+                console.log("[Commission] Base price (minus 4% fee):", basePrice);
+                
                 if (basePrice >= 70) {
-                  planName = 'Elite';
+                  planName = 'MyPremierPlan Elite';
                   planTier = 'Elite';
                 } else if (basePrice >= 50) {
-                  planName = 'Plus';
+                  planName = 'MyPremierPlan+';
                   planTier = 'Plus';
                 } else {
-                  planName = 'Base';
+                  planName = 'MyPremierPlan Base';
                   planTier = 'Base';
                 }
-                console.log("[Commission] Inferred plan from price:", planName);
+                console.log("[Commission] ✅ Inferred plan from price:", planName, "(Tier:", planTier + ")");
               }
             }
             
             // Calculate commission using proper commission structure
             const coverage = coverageType || memberType || 'Member Only';
+            console.log("[Commission] Coverage input:", coverage);
+            
             const hasRxValet = addRxValet || false;
             const commissionResult = calculateCommission(planName, coverage, hasRxValet);
             
             if (commissionResult) {
+              // Map coverage to plan type for better tracking (EE, ESP, ECH, FAM)
+              const planType = getPlanTypeFromMemberType(coverage);
+              console.log("[Commission] ✅ Mapped coverage '" + coverage + "' to plan type:", planType);
+              
               // CREATE COMMISSION DIRECTLY IN SUPABASE (NEW SYSTEM ONLY)
               console.log('[Registration] Creating commission directly in agent_commissions table...');
               
               // Determine coverage type from plan name/type
+              // For DPC plans, we use 'other' - in future could add specific DPC enum values
               let coverageTypeEnum: 'aca' | 'medicare_advantage' | 'medicare_supplement' | 'other' = 'other';
-              const planType = getPlanTypeFromMemberType(coverage);
-              if (planType === 'ACA') coverageTypeEnum = 'aca';
-              else if (planType === 'Medicare Advantage') coverageTypeEnum = 'medicare_advantage';
-              else if (planType === 'Medicare Supplement') coverageTypeEnum = 'medicare_supplement';
               
               const commissionData = {
                 agent_id: agentUser.id, // UUID string from users table
@@ -3205,10 +3212,10 @@ export async function registerRoutes(app: any) {
                 status: 'pending',
                 payment_status: 'unpaid',
                 base_premium: commissionResult.totalCost,
-                notes: `Enrollment: Plan ${planName}, Coverage ${coverage}${hasRxValet ? ' (includes RxValet)' : ''}`
+                notes: `Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Base Premium: $${commissionResult.totalCost}${hasRxValet ? ', RxValet: +$' + RX_VALET_COMMISSION : ''}, Total Commission: $${commissionResult.commission}`
               };
               
-              console.log('[Registration] Commission data:', commissionData);
+              console.log('[Registration] Commission data:', JSON.stringify(commissionData, null, 2));
               
               try {
                 // Insert directly into Supabase agent_commissions table using service role
@@ -3249,7 +3256,7 @@ export async function registerRoutes(app: any) {
                         commission_type: 'override',
                         override_for_agent_id: agentUser.id,
                         base_premium: commissionResult.totalCost,
-                        notes: `Override commission for downline agent #${agentData.agent_number || agentUser.id} - Plan ${planName}, Coverage ${coverage}`
+                        notes: `Override for Agent #${agentData.agent_number || agentUser.id} - Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Override Rate: $${agentData.override_commission_rate}`
                       };
                       
                       const { data: overrideCommission, error: overrideError } = await supabase
@@ -3276,7 +3283,15 @@ export async function registerRoutes(app: any) {
                 console.error("[Registration] Exception creating commission:", commError);
               }
             } else {
-              console.warn("[Registration] Could not calculate commission - no matching rate found for plan:", planName, "coverage:", coverage);
+              // ENHANCED ERROR LOGGING: Show exactly why commission calculation failed
+              console.error("[Registration] ❌ COMMISSION CALCULATION FAILED");
+              console.error("[Registration]   Plan Name Sent:", planName);
+              console.error("[Registration]   Coverage Sent:", coverage);
+              console.error("[Registration]   RxValet:", hasRxValet);
+              console.error("[Registration]   Expected Plan Names: 'MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'");
+              console.error("[Registration]   Expected Coverage Types: 'Member Only', 'Member/Spouse', 'Member/Child', 'Family' (case-insensitive)");
+              console.error("[Registration]   Check commissionCalculator.ts for exact matching logic");
+              console.warn("[Registration] ⚠️  Commission NOT created - calculateCommission returned null");
             }
           }
         } catch (commError) {
