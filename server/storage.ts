@@ -263,13 +263,25 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       role,
       agent_number: agentNumber || null,
       is_active: userData.isActive !== undefined ? userData.isActive : true,
-      created_at: userData.createdAt || new Date()
+      approval_status: userData.approvalStatus || 'approved',
+      email_verified: userData.emailVerified !== undefined ? userData.emailVerified : false,
+      created_by: userData.createdBy || null,
+      created_at: userData.createdAt || new Date(),
+      updated_at: userData.updatedAt || new Date()
     };
     
+    // Include ID if provided (for admin-created users with Supabase Auth ID)
+    if (userData.id) {
+      insertData.id = userData.id;
+    }
+    
     console.log('[Storage] createUser: Inserting user with data:', {
+      id: insertData.id,
       email: insertData.email,
       role: insertData.role,
-      agent_number: insertData.agent_number
+      agent_number: insertData.agent_number,
+      approval_status: insertData.approval_status,
+      created_by: insertData.created_by
     });
     
     const { data, error } = await supabase
