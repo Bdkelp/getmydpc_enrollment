@@ -396,4 +396,94 @@ router.get('/api/dev/users', requireDevelopmentMode, async (req, res) => {
   }
 });
 
+// Find orphaned Supabase Auth users (in Auth but not in database)
+router.get('/api/dev/orphaned-auth-users', requireDevelopmentMode, async (req, res) => {
+  try {
+    console.log('[Dev Utilities] Checking for orphaned Supabase Auth users...');
+    
+    // Get all Supabase Auth users
+    const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+    if (authError) {
+      throw new Error(`Auth error: ${authError.message}`);
+    }
+    
+    // Get all database users
+    const dbUsers = await storage.getAllUsers();
+    const dbUserIds = new Set(dbUsers.map(u => u.id));
+    
+    // Find auth users not in database
+    const orphanedUsers = authData?.users?.filter(authUser => 
+      !dbUserIds.has(authUser.id)
+    ) || [];
+    
+    console.log(`[Dev Utilities] Found ${orphanedUsers.length} orphaned auth users`);
+    
+    res.json({
+      totalAuthUsers: authData?.users?.length || 0,
+      totalDbUsers: dbUsers.length,
+      orphanedCount: orphanedUsers.length,
+      orphanedUsers: orphanedUsers.map(u => ({
+        id: u.id,
+        email: u.email,
+        createdAt: u.created_at,
+        emailConfirmed: u.email_confirmed_at ? true : false,
+        metadata: u.user_metadata
+      }))
+    });
+  } catch (error: any) {
+    console.error('[Dev Utilities] Error checking orphaned users:', error);
+    res.status(500).json({ 
+      message: 'Failed to check orphaned users',
+      error: error.message 
+    });
+  }
+});
+
+// Delete orphaned Supabase Auth user
+router.delete('/api/dev/orphaned-auth-user/:email', requireDevelopmentMode, async (req, res) => {
+  try {
+    const { email } = req.params;
+    console.log(`[Dev Utilities] Deleting orphaned auth user: ${email}`);
+    
+    // Find user in Supabase Auth
+    const { data: authData } = await supabase.auth.admin.listUsers();
+    const authUser = authData?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    if (!authUser) {
+      return res.status(404).json({ message: 'Auth user not found' });
+    }
+    
+    // Check if user exists in database (should NOT exist for orphaned users)
+    const dbUser = await storage.getUserByEmail(email);
+    if (dbUser) {
+      return res.status(400).json({ 
+        message: 'User exists in database - not orphaned. Use regular user deletion.' 
+      });
+    }
+    
+    // Delete from Supabase Auth
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(authUser.id);
+    if (deleteError) {
+      throw new Error(`Failed to delete auth user: ${deleteError.message}`);
+    }
+    
+    console.log(`[Dev Utilities] ✅ Deleted orphaned auth user: ${email}`);
+    
+    res.json({
+      success: true,
+      message: `Orphaned auth user "${email}" deleted successfully`,
+      deletedUser: {
+        id: authUser.id,
+        email: authUser.email
+      }
+    });
+  } catch (error: any) {
+    console.error('[Dev Utilities] Error deleting orphaned user:', error);
+    res.status(500).json({ 
+      message: 'Failed to delete orphaned user',
+      error: error.message 
+    });
+  }
+});
+
 export default router;
