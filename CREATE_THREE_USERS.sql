@@ -204,6 +204,8 @@ BEGIN
       false,
       'authenticated',
       'authenticated'
+    );
+    
     -- Create in public.users
     INSERT INTO public.users (
       id,
@@ -234,8 +236,6 @@ BEGIN
       'approved',
       NOW(),
       NOW(),
-      NOW()
-    );NOW(),
       NOW()
     );
     
