@@ -52,6 +52,8 @@ export default function AdminEPXLogs() {
   const [, setLocation] = useLocation();
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [loadingCertLogs, setLoadingCertLogs] = useState(false);
+  const [loadingOctober, setLoadingOctober] = useState(false);
+  const [loadingCleanup, setLoadingCleanup] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [certStatus, setCertStatus] = useState<{
@@ -163,6 +165,79 @@ export default function AdminEPXLogs() {
       alert(`❌ Error downloading certification logs:\n\n${err.message || 'Unknown error'}\n\nCheck the console for details.`);
     } finally {
       setLoadingCertLogs(false);
+    }
+  };
+
+  const generateOctoberLogs = async () => {
+    if (!confirm('Generate temporary certification logs from October successful transactions?\n\n⚠️ This creates TEMPORARY files for certification only.\nYou should delete these after EPX approval.')) {
+      return;
+    }
+
+    setLoadingOctober(true);
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const { API_BASE_URL } = await import('@/lib/apiClient');
+      const response = await fetch(`${API_BASE_URL}/api/admin/epx-certification-logs/generate-october`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Server returned ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `epx-certification-october-successful-${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      alert('✅ October successful transactions exported!\n\nThis is a TEMPORARY export for EPX certification.\nAfter certification approval, use the "Cleanup Temp Files" button to delete these files.');
+      
+      // Refresh status to show temp files
+      fetchCertificationStatus();
+    } catch (err: any) {
+      console.error('[EPX Logs] October generation error:', err);
+      alert(`❌ Error generating October logs:\n\n${err.message || 'Unknown error'}\n\n${err.message?.includes('No successful') ? 'No successful transactions found in October 2025.' : 'Check the console for details.'}`);
+    } finally {
+      setLoadingOctober(false);
+    }
+  };
+
+  const cleanupTempFiles = async () => {
+    if (!confirm('Delete all temporary certification files?\n\n⚠️ This will permanently delete files in logs/certification/temp-export/\nOnly do this AFTER EPX certification is approved.')) {
+      return;
+    }
+
+    setLoadingCleanup(true);
+    try {
+      const response = await apiClient.delete('/api/admin/epx-certification-logs/cleanup-temp');
+      
+      if (response.success) {
+        alert(`✅ ${response.message}\n\n${response.filesDeleted} file(s) deleted.`);
+        fetchCertificationStatus(); // Refresh status
+      } else {
+        throw new Error(response.error || 'Cleanup failed');
+      }
+    } catch (err: any) {
+      console.error('[EPX Logs] Cleanup error:', err);
+      alert(`❌ Error cleaning up temp files:\n\n${err.message || 'Unknown error'}`);
+    } finally {
+      setLoadingCleanup(false);
     }
   };
 
@@ -321,6 +396,58 @@ export default function AdminEPXLogs() {
               <li>.txt format files ready to submit to EPX</li>
             </ul>
           </div>
+
+          {/* Quick Action: October Successful Transactions */}
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded">
+            <p className="text-sm font-semibold text-green-900 mb-2">
+              🎯 Quick Export: October Successful Transactions
+            </p>
+            <p className="text-xs text-green-700 mb-3">
+              Generate certification logs from <strong>all successful transactions in October 2025</strong>. 
+              Creates temporary files that can be deleted after EPX approval.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={generateOctoberLogs}
+                disabled={loadingOctober}
+                size="sm"
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {loadingOctober ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3 w-3 mr-2" />
+                    Export October Successful Only
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={cleanupTempFiles}
+                disabled={loadingCleanup}
+                size="sm"
+                variant="destructive"
+              >
+                {loadingCleanup ? (
+                  <>
+                    <RefreshCw className="h-3 w-3 mr-2 animate-spin" />
+                    Cleaning...
+                  </>
+                ) : (
+                  <>
+                    🧹 Cleanup Temp Files
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-green-600 mt-2">
+              ⚠️ Delete temp files after EPX certification is approved to save space
+            </p>
+          </div>
+
           <div className="flex gap-2 mt-4">
             <Button
               onClick={fetchCertificationLogs}

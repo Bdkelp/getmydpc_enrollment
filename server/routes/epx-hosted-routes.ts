@@ -712,4 +712,112 @@ router.get('/api/admin/epx-certification-logs/by-date', authenticateToken, async
   }
 });
 
+/**
+ * ADMIN: Generate temporary certification logs from successful October transactions
+ * This is a RETROACTIVE one-time export for certification purposes
+ */
+router.post('/api/admin/epx-certification-logs/generate-october', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin permissions
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    console.log('[EPX Certification] Generating retroactive logs for October successful transactions');
+
+    // Query successful transactions from October 2025
+    const { data: payments, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('status', 'completed')
+      .gte('created_at', '2025-10-01T00:00:00Z')
+      .lt('created_at', '2025-11-01T00:00:00Z')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[EPX Certification] Database query error:', error);
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to query October transactions' 
+      });
+    }
+
+    if (!payments || payments.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No successful transactions found for October 2025',
+        count: 0
+      });
+    }
+
+    // Format transactions for certification logger
+    const formattedTransactions = payments.map((payment: any) => ({
+      transactionId: payment.transaction_id,
+      paymentId: payment.id,
+      amount: payment.amount,
+      status: payment.status,
+      createdAt: payment.created_at,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      authorizationCode: payment.authorization_code,
+      bricToken: payment.bric_token,
+      planName: payment.metadata?.planName || null,
+      memberEmail: payment.metadata?.memberEmail || null,
+      paymentMethod: payment.payment_method,
+      metadata: payment.metadata
+    }));
+
+    // Generate logs in TEMPORARY directory
+    const exportPath = certificationLogger.generateLogsFromTransactions(formattedTransactions, true);
+    const fileContent = fs.readFileSync(exportPath, 'utf-8');
+
+    console.log(`[EPX Certification] ✅ Generated ${formattedTransactions.length} temporary certification logs for October`);
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="epx-certification-october-successful-${new Date().toISOString().split('T')[0]}.txt"`);
+    res.send(fileContent);
+
+  } catch (error: any) {
+    console.error('[EPX Certification] October generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate October certification logs'
+    });
+  }
+});
+
+/**
+ * ADMIN: Clean up temporary certification files
+ * Deletes all files in logs/certification/temp-export/
+ */
+router.delete('/api/admin/epx-certification-logs/cleanup-temp', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin permissions
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    console.log('[EPX Certification] Cleaning up temporary certification files');
+
+    const result = certificationLogger.cleanupTempCertification();
+
+    res.json({
+      success: result.success,
+      message: result.success 
+        ? `Successfully deleted ${result.filesDeleted} temporary certification file(s)`
+        : 'Failed to cleanup temporary files',
+      filesDeleted: result.filesDeleted
+    });
+
+  } catch (error: any) {
+    console.error('[EPX Certification] Cleanup error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to cleanup temporary certification logs'
+    });
+  }
+});
+
 export default router;

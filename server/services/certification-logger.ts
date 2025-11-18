@@ -345,6 +345,169 @@ export class CertificationLogger {
   }
 
   /**
+   * Get temporary certification directory for one-time exports
+   */
+  getTempCertificationDir(): string {
+    const tempDir = path.join(process.cwd(), 'logs', 'certification', 'temp-export');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    return tempDir;
+  }
+
+  /**
+   * Clean up temporary certification files
+   */
+  cleanupTempCertification(): { filesDeleted: number; success: boolean } {
+    try {
+      const tempDir = this.getTempCertificationDir();
+      const files = fs.readdirSync(tempDir);
+      
+      files.forEach(file => {
+        fs.unlinkSync(path.join(tempDir, file));
+      });
+
+      console.log(`[Certification Logger] 🧹 Cleaned up ${files.length} temporary certification files`);
+      
+      return {
+        filesDeleted: files.length,
+        success: true
+      };
+    } catch (error: any) {
+      console.error('[Certification Logger] Cleanup error:', error);
+      return {
+        filesDeleted: 0,
+        success: false
+      };
+    }
+  }
+
+  /**
+   * Generate certification logs from database transactions (retroactive)
+   * Used for creating logs from past transactions for certification purposes
+   */
+  generateLogsFromTransactions(transactions: any[], useTemp = true): string {
+    try {
+      const targetDir = useTemp ? this.getTempCertificationDir() : this.rawLogsDir;
+      
+      // Generate individual log files for each transaction
+      transactions.forEach((txn, index) => {
+        const filename = `${txn.transactionId}_retroactive-cert.txt`;
+        const filepath = path.join(targetDir, filename);
+        
+        const logContent = this.formatRetroactiveLog(txn, index + 1, transactions.length);
+        fs.writeFileSync(filepath, logContent, 'utf-8');
+      });
+
+      console.log(`[Certification Logger] ✅ Generated ${transactions.length} retroactive certification logs in ${useTemp ? 'TEMP' : 'permanent'} directory`);
+
+      // Create consolidated export
+      const exportFilename = `certification_october_successful_${new Date().toISOString().split('T')[0]}.txt`;
+      const exportPath = path.join(targetDir, exportFilename);
+
+      const files = fs.readdirSync(targetDir).filter(f => f.endsWith('.txt') && f !== exportFilename);
+
+      const lines: string[] = [];
+      lines.push('='.repeat(80));
+      lines.push('EPX CERTIFICATION LOG EXPORT - OCTOBER SUCCESSFUL TRANSACTIONS');
+      lines.push('='.repeat(80));
+      lines.push(`Generated: ${new Date().toISOString()}`);
+      lines.push(`Total Successful Transactions: ${transactions.length}`);
+      lines.push(`Period: October 2025`);
+      lines.push(`Status Filter: Completed transactions only`);
+      lines.push(`⚠️ TEMPORARY EXPORT - Delete after EPX certification`);
+      lines.push('='.repeat(80));
+      lines.push('');
+
+      // Concatenate all logs
+      files.sort().forEach((file, index) => {
+        const filepath = path.join(targetDir, file);
+        const content = fs.readFileSync(filepath, 'utf-8');
+        lines.push(content);
+        if (index < files.length - 1) {
+          lines.push('\n\n');
+        }
+      });
+
+      fs.writeFileSync(exportPath, lines.join('\n'), 'utf-8');
+
+      return exportPath;
+    } catch (error: any) {
+      console.error('[Certification Logger] Retroactive generation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Format a retroactive certification log from database transaction
+   */
+  private formatRetroactiveLog(txn: any, index: number, total: number): string {
+    const lines: string[] = [];
+    
+    lines.push('='.repeat(80));
+    lines.push(`RETROACTIVE CERTIFICATION LOG - Transaction ${index} of ${total}`);
+    lines.push('='.repeat(80));
+    lines.push('');
+    
+    lines.push(`Transaction ID: ${txn.transactionId || 'N/A'}`);
+    lines.push(`Payment ID: ${txn.paymentId || 'N/A'}`);
+    lines.push(`Amount: $${parseFloat(txn.amount || 0).toFixed(2)}`);
+    lines.push(`Status: ${txn.status || 'N/A'}`);
+    lines.push(`Created: ${txn.createdAt || 'N/A'}`);
+    lines.push(`Environment: ${txn.environment || 'sandbox'}`);
+    lines.push(`Purpose: Retroactive certification export (October successful transactions)`);
+    lines.push('');
+
+    lines.push('NOTE: This is a retroactive certification log generated from database records.');
+    lines.push('Real-time logging was not enabled during the original transaction.');
+    lines.push('Sensitive data masked for security compliance.');
+    lines.push('');
+
+    // REQUEST SECTION (reconstructed from metadata)
+    lines.push('-'.repeat(80));
+    lines.push('HTTP REQUEST (Reconstructed):');
+    lines.push('-'.repeat(80));
+    lines.push('');
+    
+    lines.push('Method: POST');
+    lines.push('Endpoint: /api/epx/hosted/callback');
+    lines.push('');
+    
+    lines.push('Request Data:');
+    if (txn.metadata?.callbackData) {
+      const maskedData = this.maskSensitiveData(txn.metadata.callbackData);
+      const dataJson = JSON.stringify(maskedData, null, 2);
+      dataJson.split('\n').forEach(line => lines.push(`  ${line}`));
+    } else {
+      lines.push('  (Callback data not stored in database)');
+    }
+    lines.push('');
+
+    // RESPONSE SECTION
+    lines.push('-'.repeat(80));
+    lines.push('HTTP RESPONSE:');
+    lines.push('-'.repeat(80));
+    lines.push('');
+
+    lines.push(`Status: ${txn.status === 'completed' ? '200 OK' : '400 Error'}`);
+    lines.push(`Authorization Code: ${txn.authorizationCode || 'N/A'}`);
+    lines.push(`BRIC Token: ${txn.bricToken ? this.maskSensitiveData(txn.bricToken) : 'N/A'}`);
+    lines.push('');
+
+    lines.push('Transaction Details:');
+    lines.push(`  Plan: ${txn.planName || 'N/A'}`);
+    lines.push(`  Member Email: ${txn.memberEmail || 'N/A'}`);
+    lines.push(`  Payment Method: ${txn.paymentMethod || 'N/A'}`);
+    lines.push('');
+
+    lines.push('='.repeat(80));
+    lines.push('END OF RETROACTIVE LOG');
+    lines.push('='.repeat(80));
+
+    return lines.join('\n');
+  }
+
+  /**
    * Get summary of logs
    */
   getLogsSummary(): {
