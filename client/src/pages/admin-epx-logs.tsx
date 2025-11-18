@@ -56,6 +56,8 @@ export default function AdminEPXLogs() {
   const [loadingCleanup, setLoadingCleanup] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [filterStartDate, setFilterStartDate] = useState('');
+  const [filterEndDate, setFilterEndDate] = useState('');
   const [certStatus, setCertStatus] = useState<{
     enabled: boolean;
     totalLogs: number;
@@ -320,6 +322,48 @@ export default function AdminEPXLogs() {
     return null;
   }
 
+  // Filter transactions by date range
+  const filteredTransactions = data.transactions.filter(transaction => {
+    const txDate = new Date(transaction.createdAt);
+    
+    if (filterStartDate) {
+      const start = new Date(filterStartDate);
+      start.setHours(0, 0, 0, 0);
+      if (txDate < start) return false;
+    }
+    
+    if (filterEndDate) {
+      const end = new Date(filterEndDate);
+      end.setHours(23, 59, 59, 999);
+      if (txDate > end) return false;
+    }
+    
+    return true;
+  });
+
+  // Calculate filtered stats
+  const filteredStats = {
+    totalTransactions: filteredTransactions.length,
+    successful: filteredTransactions.filter(t => t.status === 'completed').length,
+    failed: filteredTransactions.filter(t => t.status === 'failed').length,
+    pending: filteredTransactions.filter(t => t.status === 'pending').length,
+    totalAmount: filteredTransactions
+      .filter(t => t.status === 'completed')
+      .reduce((sum, t) => sum + t.amount, 0),
+    dateRange: filteredTransactions.length > 0 ? {
+      earliest: filteredTransactions[filteredTransactions.length - 1].createdAt,
+      latest: filteredTransactions[0].createdAt
+    } : {
+      earliest: null,
+      latest: null
+    }
+  };
+
+  const clearFilters = () => {
+    setFilterStartDate('');
+    setFilterEndDate('');
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -353,6 +397,63 @@ export default function AdminEPXLogs() {
           </Button>
         </div>
       </div>
+
+      {/* Date Range Filter */}
+      <Card className="border-purple-200 bg-purple-50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-purple-900 flex items-center justify-between">
+            <span>Filter Transaction History</span>
+            {(filterStartDate || filterEndDate) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearFilters}
+                className="gap-1"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Clear Filters
+              </Button>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="text-sm font-medium text-purple-900 block mb-2">
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
+                className="w-full px-3 py-2 border border-purple-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-sm font-medium text-purple-900 block mb-2">
+                End Date
+              </label>
+              <input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-purple-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              />
+            </div>
+            <div className="text-sm text-purple-700">
+              {filterStartDate || filterEndDate ? (
+                <div>
+                  Showing: <strong>{filteredStats.totalTransactions}</strong> of <strong>{data.stats.totalTransactions}</strong> transactions
+                </div>
+              ) : (
+                <div>
+                  Showing all <strong>{data.stats.totalTransactions}</strong> transactions
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* EPX Certification Section */}
       <Alert className="border-blue-200 bg-blue-50">
@@ -539,31 +640,31 @@ export default function AdminEPXLogs() {
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Total Transactions</CardDescription>
-            <CardTitle className="text-3xl">{data.stats.totalTransactions}</CardTitle>
+            <CardTitle className="text-3xl">{filteredStats.totalTransactions}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Successful</CardDescription>
-            <CardTitle className="text-3xl text-green-600">{data.stats.successful}</CardTitle>
+            <CardTitle className="text-3xl text-green-600">{filteredStats.successful}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Failed</CardDescription>
-            <CardTitle className="text-3xl text-red-600">{data.stats.failed}</CardTitle>
+            <CardTitle className="text-3xl text-red-600">{filteredStats.failed}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Pending</CardDescription>
-            <CardTitle className="text-3xl text-yellow-600">{data.stats.pending}</CardTitle>
+            <CardTitle className="text-3xl text-yellow-600">{filteredStats.pending}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-3">
             <CardDescription>Total Amount</CardDescription>
-            <CardTitle className="text-3xl">{formatCurrency(data.stats.totalAmount)}</CardTitle>
+            <CardTitle className="text-3xl">{formatCurrency(filteredStats.totalAmount)}</CardTitle>
           </CardHeader>
         </Card>
       </div>
@@ -602,27 +703,44 @@ export default function AdminEPXLogs() {
         <CardHeader>
           <CardTitle>Transaction History</CardTitle>
           <CardDescription>
-            {data.transactions.length} transactions from {new Date(data.stats.dateRange.earliest).toLocaleDateString()} to {new Date(data.stats.dateRange.latest).toLocaleDateString()}
+            {filteredStats.totalTransactions > 0 ? (
+              <>
+                {filteredStats.totalTransactions} transaction{filteredStats.totalTransactions !== 1 ? 's' : ''} 
+                {filteredStats.dateRange.earliest && filteredStats.dateRange.latest && (
+                  <> from {new Date(filteredStats.dateRange.earliest).toLocaleDateString()} to {new Date(filteredStats.dateRange.latest).toLocaleDateString()}</>
+                )}
+              </>
+            ) : (
+              'No transactions found' + ((filterStartDate || filterEndDate) ? ' for selected date range' : '')
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left p-3 font-semibold">Date</th>
-                  <th className="text-left p-3 font-semibold">Transaction ID</th>
-                  <th className="text-left p-3 font-semibold">Amount</th>
-                  <th className="text-left p-3 font-semibold">Status</th>
-                  <th className="text-left p-3 font-semibold">Method</th>
-                  <th className="text-left p-3 font-semibold">Auth Code</th>
-                  <th className="text-left p-3 font-semibold">Plan</th>
-                  <th className="text-left p-3 font-semibold">Member</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.transactions.map((transaction) => (
-                  <tr key={transaction.transactionId} className="border-b hover:bg-gray-50">
+          {filteredTransactions.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg font-medium">No transactions to display</p>
+              {(filterStartDate || filterEndDate) && (
+                <p className="text-sm mt-2">Try adjusting your date filter or <button onClick={clearFilters} className="text-blue-600 hover:underline">clear filters</button></p>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-semibold">Date</th>
+                    <th className="text-left p-3 font-semibold">Transaction ID</th>
+                    <th className="text-left p-3 font-semibold">Amount</th>
+                    <th className="text-left p-3 font-semibold">Status</th>
+                    <th className="text-left p-3 font-semibold">Method</th>
+                    <th className="text-left p-3 font-semibold">Auth Code</th>
+                    <th className="text-left p-3 font-semibold">Plan</th>
+                    <th className="text-left p-3 font-semibold">Member</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTransactions.map((transaction) => (
+                    <tr key={transaction.transactionId} className="border-b hover:bg-gray-50">
                     <td className="p-3 text-sm">
                       {new Date(transaction.createdAt).toLocaleDateString()}
                       <br />
@@ -665,6 +783,7 @@ export default function AdminEPXLogs() {
               </tbody>
             </table>
           </div>
+          )}
         </CardContent>
       </Card>
     </div>
