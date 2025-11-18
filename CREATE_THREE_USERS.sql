@@ -68,7 +68,6 @@ BEGIN
     INSERT INTO public.users (
       id,
       email,
-      username,
       first_name,
       last_name,
       phone,
@@ -83,7 +82,6 @@ BEGIN
     ) VALUES (
       ana_id,
       'addsumbalance@gmail.com',
-      'addsumbalance',
       'Ana',
       'Vasquez',
       '956.221.2464',
@@ -139,7 +137,6 @@ BEGIN
     INSERT INTO public.users (
       id,
       email,
-      username,
       first_name,
       last_name,
       phone,
@@ -154,7 +151,6 @@ BEGIN
     ) VALUES (
       sean_id,
       'sean@sciahealthins.com',
-      'sean',
       'Sean',
       'Casados',
       '720.584.6097',
@@ -208,9 +204,10 @@ BEGIN
     
     -- Create in public.users
     INSERT INTO public.users (
+    -- Create in public.users
+    INSERT INTO public.users (
       id,
       email,
-      username,
       first_name,
       last_name,
       phone,
@@ -225,7 +222,6 @@ BEGIN
     ) VALUES (
       richard_id,
       'penningtonfinancialservices@gmail.com',
-      'penningtonfinancialservices',
       'Richard',
       'Pennington',
       '832.997.9323',
@@ -237,9 +233,7 @@ BEGIN
       NOW(),
       NOW(),
       NOW()
-    );
-    
-    RAISE NOTICE '✅ Created: Richard Pennington (penningtonfinancialservices@gmail.com)';
+    );ISE NOTICE '✅ Created: Richard Pennington (penningtonfinancialservices@gmail.com)';
   ELSE
     RAISE NOTICE '⚠️  Richard Pennington already exists, skipping...';
   END IF;
