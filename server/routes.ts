@@ -592,13 +592,20 @@ router.post("/api/auth/login", async (req, res) => {
       }
     }
 
-    // Update last login - temporarily skip due to RLS recursion issue
+    // Update last login using Supabase service role (bypasses RLS)
     try {
-      await storage.updateUser(user.id, {
-        lastLoginAt: new Date(),
-      });
+      const { error: lastLoginError } = await supabase
+        .from('users')
+        .update({ last_login_at: new Date().toISOString() })
+        .eq('id', user.id);
+      
+      if (lastLoginError) {
+        console.warn("[Login] Could not update last login time:", lastLoginError);
+      } else {
+        console.log("[Login] ✅ Updated last_login_at for user:", user.email);
+      }
     } catch (updateError) {
-      console.warn("[Login] Could not update last login time:", updateError);
+      console.warn("[Login] Exception updating last login:", updateError);
       // Continue with login even if update fails
     }
 
