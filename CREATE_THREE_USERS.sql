@@ -1,10 +1,13 @@
 -- ============================================================================
--- CREATE THREE NEW USERS
--- Run this in Supabase SQL Editor
+-- CREATE THREE NEW AGENT USERS
+-- Run this entire script in Supabase SQL Editor
 -- ============================================================================
--- Ana Vasquez - addsumbalance@gmail.com - Agent
--- Sean Casados - sean@sciahealthins.com - Agent  
--- Richard Pennington - penningtonfinancialservices@gmail.com - Agent
+-- Users to create:
+--   1. Ana Vasquez - addsumbalance@gmail.com - 956.221.2464
+--   2. Sean Casados - sean@sciahealthins.com - 720.584.6097
+--   3. Richard Pennington - penningtonfinancialservices@gmail.com - 832.997.9323
+-- 
+-- Temporary Password: Welcome123!
 -- ============================================================================
 
 DO $$
@@ -13,7 +16,7 @@ DECLARE
   sean_id uuid;
   richard_id uuid;
   encrypted_password text;
-  temp_password text := 'Welcome123!'; -- Temporary password for all three users
+  temp_password text := 'Welcome123!';
 BEGIN
   -- Generate UUIDs
   ana_id := gen_random_uuid();
@@ -242,24 +245,23 @@ BEGIN
   END IF;
   
   RAISE NOTICE '========================================';
-  RAISE NOTICE 'User creation complete!';
-  RAISE NOTICE 'Temporary Password: %', temp_password;
-  RAISE NOTICE 'Users should change this on first login';
+  RAISE NOTICE 'SUCCESS! All users created.';
+  RAISE NOTICE 'Temporary Password for all: %', temp_password;
   RAISE NOTICE '========================================';
   
 END $$;
 
 -- ============================================================================
--- VERIFICATION: Check that users were created
+-- VERIFICATION QUERY: Run this to see the created users
 -- ============================================================================
 SELECT 
-  u.email,
-  u.first_name || ' ' || u.last_name AS name,
-  u.phone,
-  u.role,
-  u.is_active,
-  u.approval_status,
-  u.created_at
+  u.first_name || ' ' || u.last_name AS "Name",
+  u.email AS "Email",
+  u.phone AS "Phone",
+  u.role AS "Role",
+  CASE WHEN u.is_active THEN 'Active' ELSE 'Inactive' END AS "Status",
+  u.approval_status AS "Approval",
+  u.created_at AS "Created At"
 FROM public.users u
 WHERE u.email IN (
   'addsumbalance@gmail.com',
