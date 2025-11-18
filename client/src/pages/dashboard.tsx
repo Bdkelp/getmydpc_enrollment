@@ -190,20 +190,20 @@ export default function Dashboard() {
                 </p>
                 <div className="mt-4 flex items-center space-x-6">
                   <div>
-                    <p className="text-sm text-blue-200">Membership Status</p>
+                    <p className="text-sm text-blue-100 font-medium">Membership Status</p>
                     <p className="text-lg font-semibold flex items-center">
                       <CheckCircle className="h-5 w-5 mr-1" />
                       {user.subscription?.status === "active" ? "Active" : "Pending"}
                     </p>
                   </div>
                   <div className="border-l border-blue-300 pl-6">
-                    <p className="text-sm text-blue-200">Your Membership</p>
+                    <p className="text-sm text-blue-100 font-medium">Your Membership</p>
                     <p className="text-lg font-semibold">
                       {user.plan?.name || "MyPremierPlan"}
                     </p>
                   </div>
                   <div className="border-l border-blue-300 pl-6">
-                    <p className="text-sm text-blue-200">24/7 Support</p>
+                    <p className="text-sm text-blue-100 font-medium">24/7 Support</p>
                     <p className="text-lg font-semibold flex items-center">
                       <Phone className="h-5 w-5 mr-1" />
                       1-800-PREMIER
