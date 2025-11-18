@@ -422,6 +422,14 @@ export default function Admin() {
             
             {/* Responsive Navigation Grid - 4x2 layout (8 buttons) */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Button 
+                variant="outline"
+                className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
+                onClick={() => setCreateUserDialogOpen(true)}
+              >
+                <UserPlus className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Create User</span>
+              </Button>
               <Link href="/registration">
                 <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 h-20 flex flex-col items-center justify-center">
                   <UserPlus className="h-5 w-5 mb-1" />
@@ -468,12 +476,6 @@ export default function Admin() {
                 <Button variant="outline" className="w-full border-purple-500 text-purple-600 hover:bg-purple-50 h-20 flex flex-col items-center justify-center">
                   <FileText className="h-5 w-5 mb-1" />
                   <span className="text-sm font-medium">EPX Logs</span>
-                </Button>
-              </Link>
-              <Link href="/agent">
-                <Button variant="outline" className="w-full border-gray-500 text-gray-600 hover:bg-gray-50 h-20 flex flex-col items-center justify-center">
-                  <Users className="h-5 w-5 mb-1" />
-                  <span className="text-sm font-medium">Agent View</span>
                 </Button>
               </Link>
             </div>
@@ -667,64 +669,6 @@ export default function Admin() {
                   <p>No recent login activity</p>
                 </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions */}
-        <Card className="mb-8">
-          <CardContent className="p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={() => setCreateUserDialogOpen(true)}
-              >
-                <UserPlus className="h-4 w-4 mr-2 text-blue-600" />
-                <span className="text-blue-600">Create User Account</span>
-              </Button>
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={() => setLocation('/registration')}
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Enroll New Member
-              </Button>
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={() => {
-                  console.log('[Admin] Navigating to enrollments');
-                  setLocation('/admin/enrollments');
-                }}
-              >
-                <Users className="h-4 w-4 mr-2" />
-                View All Enrollments
-              </Button>
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={() => {
-                  console.log('[Admin] Navigating to leads');
-                  setLocation('/admin/leads');
-                }}
-              >
-                <TrendingUp className="h-4 w-4 mr-2" />
-                Manage Leads
-              </Button>
-              <Button 
-                className="w-full justify-start bg-red-50 border-red-200 hover:bg-red-100" 
-                variant="outline"
-                onClick={() => {
-                  console.log('[Admin] Navigating to user management');
-                  setLocation('/admin/users');
-                }}
-              >
-                <Shield className="h-4 w-4 mr-2 text-red-600" />
-                <span className="text-red-700">Manage User Roles</span>
-              </Button>
             </div>
           </CardContent>
         </Card>
