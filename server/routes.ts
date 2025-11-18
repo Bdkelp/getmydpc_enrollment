@@ -360,33 +360,46 @@ router.get("/api/debug/commission-diagnostic", async (req, res) => {
     console.log("[Commission Diagnostic] Testing commission calculations...");
     
     const testCases = [
-      // Base plan tests
-      { plan: 'MyPremierPlan Base', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan Base', coverage: 'Member/Spouse', rxValet: false },
-      { plan: 'MyPremierPlan Base', coverage: 'Member/Child', rxValet: false },
-      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: false },
-      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: true },
+      // Test with ACTUAL database plan names (with coverage suffix)
+      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false, note: 'Real DB name' },
+      { plan: 'MyPremierPlan Base - Family', coverage: 'Family', rxValet: false, note: 'Real DB name' },
+      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: true, note: 'Real DB name + RxValet' },
+      { plan: 'MyPremierPlan Elite - Family', coverage: 'Family', rxValet: false, note: 'Real DB name' },
+      
+      // Test with extracted plan names (what calculator expects)
+      { plan: 'MyPremierPlan Base', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan Base', coverage: 'Member/Spouse', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan Base', coverage: 'Member/Child', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: true, note: 'Extracted tier + RxValet' },
       
       // Plus plan tests
-      { plan: 'MyPremierPlan+', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan+', coverage: 'Family', rxValet: false },
+      { plan: 'MyPremierPlan+', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan+', coverage: 'Family', rxValet: false, note: 'Extracted tier' },
       
       // Elite plan tests
-      { plan: 'MyPremierPlan Elite', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan Elite', coverage: 'Family', rxValet: true },
+      { plan: 'MyPremierPlan Elite', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
+      { plan: 'MyPremierPlan Elite', coverage: 'Family', rxValet: true, note: 'Extracted tier + RxValet' },
       
       // Test old incorrect names (should fail)
-      { plan: 'Base', coverage: 'Member Only', rxValet: false },
-      { plan: 'Plus', coverage: 'Family', rxValet: false },
-      { plan: 'Elite', coverage: 'Family', rxValet: false },
+      { plan: 'Base', coverage: 'Member Only', rxValet: false, note: 'Old broken name' },
+      { plan: 'Plus', coverage: 'Family', rxValet: false, note: 'Old broken name' },
+      { plan: 'Elite', coverage: 'Family', rxValet: false, note: 'Old broken name' },
     ];
     
     const results = testCases.map(test => {
-      const result = calculateCommission(test.plan, test.coverage, test.rxValet);
+      // Apply the same extraction logic as registration
+      let planNameForCalculation = test.plan;
+      if (planNameForCalculation.includes(' - ')) {
+        planNameForCalculation = planNameForCalculation.split(' - ')[0].trim();
+      }
+      
+      const result = calculateCommission(planNameForCalculation, test.coverage, test.rxValet);
       const planType = getPlanTypeFromMemberType(test.coverage);
       
       return {
         input: test,
+        extractedPlan: planNameForCalculation !== test.plan ? planNameForCalculation : null,
         planType: planType,
         success: result !== null,
         commission: result?.commission || null,
@@ -402,9 +415,10 @@ router.get("/api/debug/commission-diagnostic", async (req, res) => {
       failed: results.filter(r => !r.success).length,
       results: results,
       summary: {
-        allCorrectNamesWork: results.slice(0, 9).every(r => r.success),
-        allIncorrectNamesFail: results.slice(9).every(r => !r.success),
-        readyForProduction: results.slice(0, 9).every(r => r.success) && results.slice(9).every(r => !r.success)
+        realDatabaseNamesWork: results.slice(0, 4).every(r => r.success),
+        extractedNamesWork: results.slice(4, 13).every(r => r.success),
+        oldIncorrectNamesFail: results.slice(13).every(r => !r.success),
+        readyForProduction: results.slice(0, 13).every(r => r.success) && results.slice(13).every(r => !r.success)
       }
     };
     
@@ -3318,8 +3332,20 @@ export async function registerRoutes(app: any) {
                 
                 if (planData && !planError) {
                   plan = planData;
-                  planName = planData.name || 'MyPremierPlan Base';
-                  planTier = planData.name?.includes('Elite') ? 'Elite' : planData.name?.includes('Plus') ? 'Plus' : 'Base';
+                  // CRITICAL FIX: Extract plan tier from full plan name
+                  // Database has: "MyPremierPlan Base - Member Only"
+                  // Calculator expects: "MyPremierPlan Base"
+                  let rawPlanName = planData.name || 'MyPremierPlan Base';
+                  
+                  // Extract tier by removing coverage type suffix (e.g. " - Member Only")
+                  if (rawPlanName.includes(' - ')) {
+                    planName = rawPlanName.split(' - ')[0].trim();
+                    console.log("[Commission] 🔧 Extracted plan tier from:", rawPlanName, "→", planName);
+                  } else {
+                    planName = rawPlanName;
+                  }
+                  
+                  planTier = planName.includes('Elite') ? 'Elite' : planName.includes('Plus') ? 'Plus' : 'Base';
                   console.log("[Commission] ✅ Plan found from planId:", planName, "(Tier:", planTier + ")");
                 } else {
                   console.warn("[Commission] ⚠️ Could not fetch plan from Supabase, using defaults");
