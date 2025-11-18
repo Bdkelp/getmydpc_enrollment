@@ -173,12 +173,6 @@ export default function Landing() {
                     Sign In
                   </Button>
                   <Button 
-                    variant="outline"
-                    onClick={() => setLocation("/register")}
-                  >
-                    Create Account
-                  </Button>
-                  <Button 
                     className="bg-white hover:bg-gray-100 text-black border border-gray-300"
                     onClick={() => setIsContactModalOpen(true)}
                   >
