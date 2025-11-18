@@ -204,8 +204,6 @@ BEGIN
     
     -- Create in public.users
     INSERT INTO public.users (
-    -- Create in public.users
-    INSERT INTO public.users (
       id,
       email,
       first_name,
@@ -233,7 +231,9 @@ BEGIN
       NOW(),
       NOW(),
       NOW()
-    );ISE NOTICE '✅ Created: Richard Pennington (penningtonfinancialservices@gmail.com)';
+    );
+    
+    RAISE NOTICE '✅ Created: Richard Pennington (penningtonfinancialservices@gmail.com)';
   ELSE
     RAISE NOTICE '⚠️  Richard Pennington already exists, skipping...';
   END IF;
