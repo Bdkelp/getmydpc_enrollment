@@ -299,6 +299,170 @@ router.get("/api/test-leads", async (req, res) => {
   }
 });
 
+// 🔍 DIAGNOSTIC: Check all plans in database with exact names
+router.get("/api/debug/plans-diagnostic", async (req, res) => {
+  try {
+    console.log("[Plans Diagnostic] Fetching ALL plans from database...");
+    
+    const { data: allPlans, error } = await supabase
+      .from('plans')
+      .select('*')
+      .order('price', { ascending: true });
+    
+    if (error) {
+      console.error("[Plans Diagnostic] Error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+    
+    console.log("[Plans Diagnostic] Found", allPlans?.length || 0, "plans");
+    
+    const diagnostic = {
+      totalPlans: allPlans?.length || 0,
+      plans: (allPlans || []).map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        exactName: `'${plan.name}'`,
+        nameLength: plan.name.length,
+        price: plan.price,
+        isActive: plan.is_active,
+        matchesBase: plan.name === 'MyPremierPlan Base',
+        matchesPlus: plan.name === 'MyPremierPlan+',
+        matchesElite: plan.name === 'MyPremierPlan Elite',
+      })),
+      commissionCalculatorExpects: [
+        'MyPremierPlan Base',
+        'MyPremierPlan+',
+        'MyPremierPlan Elite'
+      ],
+      warnings: []
+    };
+    
+    // Check for mismatches
+    (allPlans || []).forEach(plan => {
+      if (!['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'].includes(plan.name)) {
+        diagnostic.warnings.push(`Plan "${plan.name}" (ID: ${plan.id}) does NOT match any expected name in commissionCalculator`);
+      }
+    });
+    
+    console.log("[Plans Diagnostic] Warnings:", diagnostic.warnings.length);
+    console.log("[Plans Diagnostic] Results:", JSON.stringify(diagnostic, null, 2));
+    
+    res.json(diagnostic);
+  } catch (error) {
+    console.error("[Plans Diagnostic] Exception:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔍 DIAGNOSTIC: Test commission calculation with various inputs
+router.get("/api/debug/commission-diagnostic", async (req, res) => {
+  try {
+    console.log("[Commission Diagnostic] Testing commission calculations...");
+    
+    const testCases = [
+      // Base plan tests
+      { plan: 'MyPremierPlan Base', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan Base', coverage: 'Member/Spouse', rxValet: false },
+      { plan: 'MyPremierPlan Base', coverage: 'Member/Child', rxValet: false },
+      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: false },
+      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: true },
+      
+      // Plus plan tests
+      { plan: 'MyPremierPlan+', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan+', coverage: 'Family', rxValet: false },
+      
+      // Elite plan tests
+      { plan: 'MyPremierPlan Elite', coverage: 'Member Only', rxValet: false },
+      { plan: 'MyPremierPlan Elite', coverage: 'Family', rxValet: true },
+      
+      // Test old incorrect names (should fail)
+      { plan: 'Base', coverage: 'Member Only', rxValet: false },
+      { plan: 'Plus', coverage: 'Family', rxValet: false },
+      { plan: 'Elite', coverage: 'Family', rxValet: false },
+    ];
+    
+    const results = testCases.map(test => {
+      const result = calculateCommission(test.plan, test.coverage, test.rxValet);
+      const planType = getPlanTypeFromMemberType(test.coverage);
+      
+      return {
+        input: test,
+        planType: planType,
+        success: result !== null,
+        commission: result?.commission || null,
+        totalCost: result?.totalCost || null,
+        calculatedCorrectly: result !== null,
+      };
+    });
+    
+    const diagnostic = {
+      timestamp: new Date().toISOString(),
+      testCases: results.length,
+      successful: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+      results: results,
+      summary: {
+        allCorrectNamesWork: results.slice(0, 9).every(r => r.success),
+        allIncorrectNamesFail: results.slice(9).every(r => !r.success),
+        readyForProduction: results.slice(0, 9).every(r => r.success) && results.slice(9).every(r => !r.success)
+      }
+    };
+    
+    console.log("[Commission Diagnostic] Summary:", diagnostic.summary);
+    res.json(diagnostic);
+  } catch (error) {
+    console.error("[Commission Diagnostic] Exception:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🔍 DIAGNOSTIC: Check recent commissions for labeling issues
+router.get("/api/debug/recent-commissions", async (req, res) => {
+  try {
+    console.log("[Recent Commissions] Fetching last 20 commissions...");
+    
+    const { data: commissions, error } = await supabase
+      .from('agent_commissions')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    
+    if (error) {
+      console.error("[Recent Commissions] Error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+    
+    const diagnostic = {
+      totalCommissions: commissions?.length || 0,
+      commissions: (commissions || []).map(comm => ({
+        id: comm.id,
+        createdAt: comm.created_at,
+        commissionAmount: comm.commission_amount,
+        basePremium: comm.base_premium,
+        coverageType: comm.coverage_type,
+        status: comm.status,
+        paymentStatus: comm.payment_status,
+        notes: comm.notes,
+        // Parse notes to extract plan info
+        notesIncludePlanTier: comm.notes?.includes('(Base)') || comm.notes?.includes('(Plus)') || comm.notes?.includes('(Elite)'),
+        notesIncludeCoverageType: comm.notes?.includes('(EE)') || comm.notes?.includes('(ESP)') || comm.notes?.includes('(ECH)') || comm.notes?.includes('(FAM)'),
+        hasNewFormat: comm.notes?.includes('Plan:') && comm.notes?.includes('Coverage:'),
+      })),
+      formatAnalysis: {
+        total: commissions?.length || 0,
+        withNewFormat: (commissions || []).filter(c => c.notes?.includes('Plan:') && c.notes?.includes('Coverage:')).length,
+        withOldFormat: (commissions || []).filter(c => c.notes && !c.notes.includes('Plan:') && !c.notes.includes('Coverage:')).length,
+      }
+    };
+    
+    console.log("[Recent Commissions] Format analysis:", diagnostic.formatAnalysis);
+    res.json(diagnostic);
+  } catch (error) {
+    console.error("[Recent Commissions] Exception:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/api/plans", async (req, res) => {
   try {
     console.log("[API /plans] Fetching plans...");
