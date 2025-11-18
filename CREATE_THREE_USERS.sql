@@ -72,6 +72,7 @@ BEGIN
       last_name,
       phone,
       role,
+      agent_number,
       email_verified,
       email_verified_at,
       is_active,
@@ -86,6 +87,7 @@ BEGIN
       'Vasquez',
       '956.221.2464',
       'agent',
+      'AGT' || LPAD(nextval('agent_number_seq')::text, 4, '0'),
       true,
       NOW(),
       true,
@@ -141,6 +143,7 @@ BEGIN
       last_name,
       phone,
       role,
+      agent_number,
       email_verified,
       email_verified_at,
       is_active,
@@ -155,6 +158,7 @@ BEGIN
       'Casados',
       '720.584.6097',
       'agent',
+      'AGT' || LPAD(nextval('agent_number_seq')::text, 4, '0'),
       true,
       NOW(),
       true,
@@ -200,8 +204,6 @@ BEGIN
       false,
       'authenticated',
       'authenticated'
-    );
-    
     -- Create in public.users
     INSERT INTO public.users (
       id,
@@ -210,6 +212,7 @@ BEGIN
       last_name,
       phone,
       role,
+      agent_number,
       email_verified,
       email_verified_at,
       is_active,
@@ -224,12 +227,15 @@ BEGIN
       'Pennington',
       '832.997.9323',
       'agent',
+      'AGT' || LPAD(nextval('agent_number_seq')::text, 4, '0'),
       true,
       NOW(),
       true,
       'approved',
       NOW(),
       NOW(),
+      NOW()
+    );NOW(),
       NOW()
     );
     
