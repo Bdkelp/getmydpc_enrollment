@@ -256,7 +256,6 @@ export async function createUser(userData: Partial<User>): Promise<User> {
     // Build insert object with only columns that exist in Supabase
     const insertData: any = {
       email: userData.email,
-      username: userData.email?.split('@')[0] || null, // Use email prefix as username
       first_name: userData.firstName || '',
       last_name: userData.lastName || '',
       phone: userData.phone || null,
