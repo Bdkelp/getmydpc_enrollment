@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import * as fs from 'fs';
 import { EPXHostedCheckoutService } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { certificationLogger } from '../services/certification-logger';
@@ -549,6 +550,40 @@ router.get('/api/admin/epx-certification-logs', authenticateToken, async (req: A
 });
 
 /**
+ * ADMIN: Check certification logs status
+ * Returns information about available log files
+ */
+router.get('/api/admin/epx-certification-status', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin access
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const logsSummary = certificationLogger.getLogsSummary();
+    const rawLogsDir = certificationLogger.getRawLogsDir();
+
+    res.json({
+      success: true,
+      logsDirectory: rawLogsDir,
+      totalLogs: logsSummary.totalLogs,
+      logFiles: logsSummary.logFiles,
+      certificationLoggingEnabled: process.env.ENABLE_CERTIFICATION_LOGGING === 'true',
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      note: 'Use /api/admin/epx-certification-logs to download all logs as a single .txt file'
+    });
+
+  } catch (error: any) {
+    console.error('[EPX Certification Status] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get certification status'
+    });
+  }
+});
+
+/**
  * ADMIN: Get EPX payment logs for support ticket
  * Retrieves all payment transactions with full details for EPX support
  */
@@ -635,6 +670,44 @@ router.get('/api/admin/epx-logs', authenticateToken, async (req: AuthRequest, re
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to export EPX logs'
+    });
+  }
+});
+
+/**
+ * ADMIN: Get EPX certification logs by date range
+ * Allows retrieving logs from earlier in the month or specific date ranges
+ */
+router.get('/api/admin/epx-certification-logs/by-date', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Check admin permissions
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const { startDate, endDate } = req.query;
+
+    console.log(`[EPX Certification] Exporting logs by date range: ${startDate || 'beginning'} to ${endDate || 'now'}`);
+    
+    const exportPath = certificationLogger.exportLogsByDateRange(
+      startDate as string | undefined,
+      endDate as string | undefined
+    );
+    
+    const fileContent = fs.readFileSync(exportPath, 'utf-8');
+    const filename = `epx-certification-logs-${startDate || 'all'}-to-${endDate || new Date().toISOString().split('T')[0]}.txt`;
+
+    // Set headers for file download
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(fileContent);
+
+  } catch (error: any) {
+    console.error('[EPX Certification] Date range export error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to export certification logs by date'
     });
   }
 });

@@ -359,6 +359,62 @@ export class CertificationLogger {
       rawLogsDir: this.rawLogsDir
     };
   }
+
+  /**
+   * Export logs filtered by date range
+   */
+  exportLogsByDateRange(startDate?: string, endDate?: string): string {
+    try {
+      const files = fs.readdirSync(this.rawLogsDir).filter(f => f.endsWith('.txt'));
+      
+      // Filter files by date if provided
+      const filteredFiles = files.filter(file => {
+        const filepath = path.join(this.rawLogsDir, file);
+        const stats = fs.statSync(filepath);
+        const fileDate = stats.mtime;
+
+        if (startDate && fileDate < new Date(startDate)) return false;
+        if (endDate && fileDate > new Date(endDate)) return false;
+        
+        return true;
+      });
+
+      if (filteredFiles.length === 0) {
+        throw new Error('No logs found for the specified date range');
+      }
+
+      const exportFilename = `certification_export_${startDate || 'all'}_to_${endDate || 'now'}.txt`;
+      const exportPath = path.join(this.summaryLogsDir, exportFilename);
+
+      const lines: string[] = [];
+      lines.push('='.repeat(80));
+      lines.push('CERTIFICATION LOG EXPORT - DATE FILTERED');
+      lines.push('='.repeat(80));
+      lines.push(`Generated: ${new Date().toISOString()}`);
+      lines.push(`Date Range: ${startDate || 'Beginning'} to ${endDate || 'Now'}`);
+      lines.push(`Total Transactions: ${filteredFiles.length}`);
+      lines.push('='.repeat(80));
+      lines.push('');
+
+      // Concatenate filtered logs
+      filteredFiles.sort().forEach((file, index) => {
+        const filepath = path.join(this.rawLogsDir, file);
+        const content = fs.readFileSync(filepath, 'utf-8');
+        lines.push(content);
+        if (index < filteredFiles.length - 1) {
+          lines.push('\n\n');
+        }
+      });
+
+      fs.writeFileSync(exportPath, lines.join('\n'), 'utf-8');
+
+      console.log(`[Certification Logger] ✅ Exported ${filteredFiles.length} transactions (date filtered) to ${exportFilename}`);
+      return exportPath;
+    } catch (error: any) {
+      console.error('[Certification Logger] Date range export error:', error);
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance

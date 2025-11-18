@@ -52,6 +52,14 @@ export default function AdminEPXLogs() {
   const [, setLocation] = useLocation();
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [loadingCertLogs, setLoadingCertLogs] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [certStatus, setCertStatus] = useState<{
+    enabled: boolean;
+    totalLogs: number;
+    environment: string;
+    logFiles: string[];
+  } | null>(null);
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
@@ -64,13 +72,36 @@ export default function AdminEPXLogs() {
     }
   }, [user, authLoading, setLocation]);
 
+  // Fetch certification status on mount
+  useEffect(() => {
+    if (isAuthenticated && (user?.role === 'admin' || user?.role === 'super_admin')) {
+      fetchCertificationStatus();
+    }
+  }, [isAuthenticated, user]);
+
+  const fetchCertificationStatus = async () => {
+    try {
+      const response = await apiClient.get('/api/admin/epx-certification-status');
+      if (response.success) {
+        setCertStatus({
+          enabled: response.certificationLoggingEnabled,
+          totalLogs: response.totalLogs,
+          environment: response.environment,
+          logFiles: response.logFiles || []
+        });
+      }
+    } catch (error) {
+      console.error('[EPX Logs] Failed to fetch certification status:', error);
+    }
+  };
+
   const { data, isLoading, error, refetch } = useQuery<EPXLogsResponse>({
     queryKey: ['/api/admin/epx-logs'],
     enabled: isAuthenticated && (user?.role === 'admin' || user?.role === 'super_admin'),
     refetchInterval: autoRefresh ? 30000 : false,
   });
 
-  const fetchCertificationLogs = async () => {
+  const fetchCertificationLogs = async (useDateRange = false) => {
     setLoadingCertLogs(true);
     try {
       // Get auth token
@@ -82,11 +113,20 @@ export default function AdminEPXLogs() {
         throw new Error('Not authenticated');
       }
 
-      // Fetch the file with auth header
+      // Build URL with optional date range
       const { API_BASE_URL } = await import('@/lib/apiClient');
-      console.log('[EPX Logs] Downloading from:', `${API_BASE_URL}/api/admin/epx-certification-logs`);
+      let url = `${API_BASE_URL}/api/admin/epx-certification-logs`;
       
-      const response = await fetch(`${API_BASE_URL}/api/admin/epx-certification-logs`, {
+      if (useDateRange && (startDate || endDate)) {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        url = `${API_BASE_URL}/api/admin/epx-certification-logs/by-date?${params.toString()}`;
+      }
+      
+      console.log('[EPX Logs] Downloading from:', url);
+      
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -105,14 +145,17 @@ export default function AdminEPXLogs() {
       const blob = await response.blob();
       console.log('[EPX Logs] Downloaded blob size:', blob.size, 'bytes');
       
-      const url = window.URL.createObjectURL(blob);
+      const url2 = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `epx-certification-logs-${new Date().toISOString().split('T')[0]}.txt`;
+      a.href = url2;
+      const filename = useDateRange 
+        ? `epx-certification-logs-${startDate || 'all'}-to-${endDate || new Date().toISOString().split('T')[0]}.txt`
+        : `epx-certification-logs-${new Date().toISOString().split('T')[0]}.txt`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(url2);
       
       alert('✅ Certification logs downloaded successfully!\n\nThis file contains raw HTTP request/response data for EPX certification.\nSensitive data has been masked.\n\nSubmit this .txt file to EPX for certification review.');
     } catch (err: any) {
@@ -239,13 +282,36 @@ export default function AdminEPXLogs() {
       {/* EPX Certification Section */}
       <Alert className="border-blue-200 bg-blue-50">
         <FileText className="h-5 w-5 text-blue-600" />
-        <AlertTitle className="text-blue-900 font-semibold">
-          EPX Certification Logs
+        <AlertTitle className="text-blue-900 font-semibold flex items-center justify-between">
+          <span>EPX Certification Logs</span>
+          {certStatus && (
+            <Badge variant={certStatus.enabled ? "success" : "destructive"} className="ml-2">
+              {certStatus.enabled ? (
+                <>
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Logging Active
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-3 w-3 mr-1" />
+                  Logging Disabled
+                </>
+              )}
+            </Badge>
+          )}
         </AlertTitle>
         <AlertDescription>
-          <p className="text-blue-800 mb-3">
-            For EPX certification, you need raw request/response logs. Click below to export the certification logs in the format EPX requires.
-          </p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-blue-800">
+              For EPX certification, you need raw request/response logs. Click below to export the certification logs in the format EPX requires.
+            </p>
+            {certStatus && (
+              <div className="text-sm text-blue-700 ml-4 text-right">
+                <p><strong>{certStatus.totalLogs}</strong> certification log{certStatus.totalLogs !== 1 ? 's' : ''}</p>
+                <p className="text-xs text-blue-600">{certStatus.environment} environment</p>
+              </div>
+            )}
+          </div>
           <div className="space-y-2 text-sm text-blue-700">
             <p><strong>What you'll get:</strong></p>
             <ul className="list-disc list-inside space-y-1 ml-2">
@@ -255,23 +321,89 @@ export default function AdminEPXLogs() {
               <li>.txt format files ready to submit to EPX</li>
             </ul>
           </div>
-          <Button
-            onClick={fetchCertificationLogs}
-            disabled={loadingCertLogs}
-            className="mt-4 bg-blue-600 hover:bg-blue-700"
-          >
-            {loadingCertLogs ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Export Certification Logs
-              </>
-            )}
-          </Button>
+          <div className="flex gap-2 mt-4">
+            <Button
+              onClick={fetchCertificationLogs}
+              disabled={loadingCertLogs || (certStatus && certStatus.totalLogs === 0)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {loadingCertLogs ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Certification Logs
+                  {certStatus && certStatus.totalLogs > 0 && ` (${certStatus.totalLogs})`}
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={fetchCertificationStatus}
+              className="gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Check Status
+            </Button>
+          </div>
+          {certStatus && !certStatus.enabled && (
+            <p className="mt-3 text-sm text-orange-700 bg-orange-50 p-2 rounded border border-orange-200">
+              ⚠️ Certification logging is currently disabled. Enable it in Railway environment variables: <code className="bg-orange-100 px-1 rounded">ENABLE_CERTIFICATION_LOGGING=true</code>
+            </p>
+          )}
+          {certStatus && certStatus.logFiles && certStatus.logFiles.length > 0 && (
+            <div className="mt-4 p-3 bg-white rounded border border-blue-200">
+              <p className="text-sm font-semibold text-blue-900 mb-2">Available Log Files ({certStatus.logFiles.length}):</p>
+              <div className="max-h-32 overflow-y-auto">
+                <ul className="text-xs text-blue-700 space-y-1">
+                  {certStatus.logFiles.map((file, idx) => (
+                    <li key={idx} className="font-mono">{file}</li>
+                  ))}
+                </ul>
+              </div>
+              
+              {/* Date Range Filter */}
+              <div className="mt-3 pt-3 border-t border-blue-200">
+                <p className="text-sm font-semibold text-blue-900 mb-2">Filter by Date Range:</p>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1">
+                    <label className="text-xs text-blue-700 block mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-blue-300 rounded"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-blue-700 block mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-blue-300 rounded"
+                    />
+                  </div>
+                  <Button
+                    onClick={() => fetchCertificationLogs(true)}
+                    disabled={loadingCertLogs || (!startDate && !endDate)}
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                  >
+                    <Download className="h-3 w-3" />
+                    Export Range
+                  </Button>
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  Leave dates empty to export all logs. Dates filter by file modification time.
+                </p>
+              </div>
+            </div>
+          )}
         </AlertDescription>
       </Alert>
 
