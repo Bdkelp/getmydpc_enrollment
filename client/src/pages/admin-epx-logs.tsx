@@ -479,22 +479,56 @@ export default function AdminEPXLogs() {
         <AlertDescription>
           <div className="flex items-center justify-between mb-3">
             <p className="text-blue-800">
-              For EPX certification, you need raw request/response logs. Click below to export the certification logs in the format EPX requires.
+              EPX requires specific raw request/response data for certification. Follow the instructions below to capture the exact data they need.
             </p>
             {certStatus && (
               <div className="text-sm text-blue-700 ml-4 text-right">
-                <p><strong>{certStatus.totalLogs}</strong> certification log{certStatus.totalLogs !== 1 ? 's' : ''}</p>
+                <p><strong>{certStatus.totalLogs}</strong> server-side log{certStatus.totalLogs !== 1 ? 's' : ''}</p>
                 <p className="text-xs text-blue-600">{certStatus.environment} environment</p>
               </div>
             )}
           </div>
-          <div className="space-y-2 text-sm text-blue-700">
-            <p><strong>What you'll get:</strong></p>
+          
+          {/* Hosted Checkout Browser Capture Instructions */}
+          <div className="mt-4 p-4 bg-green-50 border-2 border-green-300 rounded-lg">
+            <p className="text-sm font-bold text-green-900 mb-2 flex items-center">
+              🌐 HOSTED CHECKOUT: Capture from Browser (REQUIRED)
+            </p>
+            <div className="text-xs text-green-800 space-y-2">
+              <p className="font-semibold">EPX needs to see the raw browser request/response to validate:</p>
+              <ul className="list-disc list-inside ml-2 space-y-1">
+                <li><strong>reCaptcha token</strong> in the request (Google reCaptcha v3 required in production)</li>
+                <li>Requests are sent <strong>from the browser</strong> (not server-side)</li>
+                <li>Hosted Checkout payload structure and response format</li>
+              </ul>
+              
+              <div className="mt-3 p-2 bg-white rounded border border-green-200">
+                <p className="font-bold text-green-900 mb-1">How to Capture (F12 Method):</p>
+                <ol className="list-decimal list-inside space-y-1 ml-2">
+                  <li>Go to enrollment page and open browser DevTools (press <kbd className="bg-gray-200 px-1 rounded">F12</kbd>)</li>
+                  <li>Click <strong>"Network"</strong> tab in DevTools</li>
+                  <li>Complete a test enrollment/payment</li>
+                  <li>In Network tab, find the EPX Hosted Checkout request (look for <code className="bg-gray-100 px-1">hosted.epx</code>)</li>
+                  <li>Right-click the request → <strong>"Copy"</strong> → <strong>"Copy as cURL"</strong> or <strong>"Copy all as HAR"</strong></li>
+                  <li>Paste into a .txt file and send to EPX</li>
+                </ol>
+              </div>
+              
+              <p className="mt-2 text-green-700 italic">
+                ⚠️ Make sure to capture a request that shows the <strong>reCaptcha token</strong> in the payload!
+              </p>
+            </div>
+          </div>
+
+          {/* Server-Side Logs */}
+          <div className="mt-4 space-y-2 text-sm text-blue-700">
+            <p className="font-bold">📋 Server-Side Logs (Backend API):</p>
             <ul className="list-disc list-inside space-y-1 ml-2">
+              <li>EPX Environment Variables (EPX_CUST_NBR, EPX_MERCH_NBR, EPX_DBA_NBR, EPX_TERMINAL_NBR)</li>
               <li>Raw HTTP request headers and body for each transaction</li>
               <li>Raw HTTP response headers and body for each transaction</li>
+              <li>ACI_EXT field for Merchant Initiated Transactions (recurring billing)</li>
               <li>Sensitive data automatically masked (card numbers, auth tokens)</li>
-              <li>.txt format files ready to submit to EPX</li>
             </ul>
           </div>
 

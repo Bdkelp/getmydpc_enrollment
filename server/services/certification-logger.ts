@@ -101,6 +101,16 @@ export class CertificationLogger {
     lines.push('='.repeat(80));
     lines.push('');
 
+    // EPX Environment Variables (as requested by EPX)
+    lines.push('EPX ENVIRONMENT VARIABLES:');
+    lines.push(`  EPX_CUST_NBR: '${process.env.EPX_CUST_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_MERCH_NBR: '${process.env.EPX_MERCH_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_DBA_NBR: '${process.env.EPX_DBA_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_TERMINAL_NBR: '${process.env.EPX_TERMINAL_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_TERMINAL_PROFILE_ID: '${process.env.EPX_TERMINAL_PROFILE_ID || 'NOT_SET'}',`);
+    lines.push(`  EPX_ENVIRONMENT: '${process.env.EPX_ENVIRONMENT || 'sandbox'}',`);
+    lines.push('');
+
     // Transaction Details
     lines.push('TRANSACTION DETAILS:');
     lines.push(`  Transaction ID: ${entry.transactionId}`);
@@ -143,6 +153,20 @@ export class CertificationLogger {
       const maskedBody = this.maskSensitiveData(entry.request.body);
       const bodyJson = JSON.stringify(maskedBody, null, 2);
       bodyJson.split('\n').forEach(line => lines.push(`  ${line}`));
+      
+      // Highlight reCaptcha token if present (EPX certification requirement)
+      if (entry.request.body.captcha || entry.request.body.recaptchaToken) {
+        lines.push('');
+        lines.push('  ⚠️ reCaptcha Token Present: YES');
+        lines.push(`  reCaptcha Value: ${entry.request.body.captcha || entry.request.body.recaptchaToken}`);
+      }
+      
+      // Highlight ACI_EXT for MIT transactions (EPX requirement)
+      if (entry.request.body.ACI_EXT || entry.request.body.aci_ext) {
+        lines.push('');
+        lines.push('  ⚠️ ACI_EXT (Merchant Initiated Transaction): YES');
+        lines.push(`  ACI_EXT Value: ${entry.request.body.ACI_EXT || entry.request.body.aci_ext}`);
+      }
     } else {
       lines.push('  (empty)');
     }
@@ -447,6 +471,16 @@ export class CertificationLogger {
     lines.push('='.repeat(80));
     lines.push(`RETROACTIVE CERTIFICATION LOG - Transaction ${index} of ${total}`);
     lines.push('='.repeat(80));
+    lines.push('');
+    
+    // EPX Environment Variables
+    lines.push('EPX ENVIRONMENT VARIABLES:');
+    lines.push(`  EPX_CUST_NBR: '${process.env.EPX_CUST_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_MERCH_NBR: '${process.env.EPX_MERCH_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_DBA_NBR: '${process.env.EPX_DBA_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_TERMINAL_NBR: '${process.env.EPX_TERMINAL_NBR || 'NOT_SET'}',`);
+    lines.push(`  EPX_TERMINAL_PROFILE_ID: '${process.env.EPX_TERMINAL_PROFILE_ID || 'NOT_SET'}',`);
+    lines.push(`  EPX_ENVIRONMENT: '${process.env.EPX_ENVIRONMENT || 'sandbox'}',`);
     lines.push('');
     
     lines.push(`Transaction ID: ${txn.transactionId || 'N/A'}`);
