@@ -1015,7 +1015,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
-      WHERE m.enrolled_by_agent_id::uuid = $1::uuid AND m.is_active = true
+      WHERE m.enrolled_by_agent_id::uuid = $1::uuid
     `;
     const params: any[] = [agentId];
     let paramCount = 2;
