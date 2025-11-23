@@ -134,8 +134,6 @@ SELECT 'leads', COUNT(*) FROM leads
 UNION ALL
 SELECT 'lead_activities', COUNT(*) FROM lead_activities
 UNION ALL
-SELECT 'login_sessions', (SELECT COUNT(*) FROM login_sessions WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions'))
-UNION ALL
 SELECT 'users', COUNT(*) FROM users
 UNION ALL
 SELECT 'plans', COUNT(*) FROM plans
@@ -237,9 +235,6 @@ SELECT
   (SELECT COUNT(*) FROM payments) AS payments,
   (SELECT COUNT(*) FROM subscriptions) AS subscriptions,
   (SELECT COUNT(*) FROM leads) AS leads,
-  (SELECT CASE WHEN EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions') 
-           THEN (SELECT COUNT(*) FROM login_sessions) 
-           ELSE 0 END) AS login_sessions,
   (SELECT COUNT(*) FROM users) AS users_kept,
   (SELECT COUNT(*) FROM plans) AS plans_kept;
 
