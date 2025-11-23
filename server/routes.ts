@@ -10,7 +10,7 @@ import {
   getPlanTypeFromMemberType,
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { sendLeadNotification } from "./email";
+import { sendLeadNotification, sendEmailVerification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
@@ -818,22 +818,8 @@ router.post("/api/auth/register", async (req, res) => {
 
     console.log("[Register] Supabase user created:", data.user.id);
 
-    // Auto-confirm the user's email using admin API (bypass email verification)
-    try {
-      const { data: adminData, error: adminError } = await supabase.auth.admin.updateUserById(
-        data.user.id,
-        { email_confirm: true }
-      );
-      
-      if (adminError) {
-        console.warn("[Register] Failed to auto-confirm email:", adminError);
-      } else {
-        console.log("[Register] User email auto-confirmed");
-      }
-    } catch (confirmError) {
-      console.warn("[Register] Error auto-confirming user:", confirmError);
-      // Continue anyway - user can still be approved manually
-    }
+    // Email verification will be required before login
+    console.log("[Register] User created - email verification required");
 
     // Create user in our database with pending approval
     const user = await storage.createUser({
@@ -841,7 +827,7 @@ router.post("/api/auth/register", async (req, res) => {
       email: data.user.email!,
       firstName: firstName || "User",
       lastName: lastName || "",
-      emailVerified: true, // Auto-verify since we're not using email confirmation
+      emailVerified: false, // Require email verification for security
       role: "agent", // Users who register are agents, not members
       isActive: false, // Not active until admin approves
       approvalStatus: "pending",
@@ -850,6 +836,23 @@ router.post("/api/auth/register", async (req, res) => {
     });
 
     console.log("[Registration] User created, pending admin approval:", user.id);
+
+    // ============================================
+    // SEND EMAIL VERIFICATION
+    // ============================================
+    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${data.user.id}&email=${encodeURIComponent(data.user.email!)}`;
+    
+    try {
+      await sendEmailVerification({
+        email: data.user.email!,
+        firstName: firstName || 'User',
+        verificationUrl
+      });
+      console.log(`[Registration] Verification email sent to ${data.user.email}`);
+    } catch (emailError) {
+      console.error(`[Registration] Failed to send verification email:`, emailError);
+      // Continue anyway - user can request resend
+    }
 
     res.json({
       success: true,
@@ -934,6 +937,134 @@ router.post("/api/auth/password-change-completed", authenticateToken, async (req
     console.error("[Password Change] Error:", error);
     res.status(500).json({ 
       message: "Failed to complete password change",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
+// Email verification endpoint - verify user's email via token
+router.get("/api/auth/verify-email", async (req, res) => {
+  try {
+    const { token, email } = req.query;
+
+    if (!token || !email) {
+      return res.status(400).json({ 
+        message: "Missing verification token or email" 
+      });
+    }
+
+    console.log(`[Email Verification] Verifying email for: ${email}`);
+
+    // Get user from database
+    const user = await storage.getUserByEmail(email as string);
+
+    if (!user) {
+      return res.status(404).json({ 
+        message: "User not found" 
+      });
+    }
+
+    // Verify token matches user ID
+    if (user.id !== token) {
+      return res.status(400).json({ 
+        message: "Invalid verification token" 
+      });
+    }
+
+    // Check if already verified
+    if (user.emailVerified) {
+      return res.redirect(`${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login?verified=already`);
+    }
+
+    // Update user to mark email as verified
+    const { error } = await supabase
+      .from("users")
+      .update({
+        emailVerified: true,
+        emailVerifiedAt: new Date().toISOString()
+      })
+      .eq("id", user.id);
+
+    if (error) {
+      console.error("[Email Verification] Failed to update user:", error);
+      return res.status(500).json({ 
+        message: "Failed to verify email",
+        error: error.message 
+      });
+    }
+
+    // Also confirm email in Supabase Auth
+    try {
+      await supabase.auth.admin.updateUserById(user.id, {
+        email_confirm: true
+      });
+    } catch (authError) {
+      console.warn("[Email Verification] Failed to confirm in Supabase Auth:", authError);
+      // Continue anyway - database is source of truth
+    }
+
+    console.log(`[Email Verification] Email verified successfully for: ${email}`);
+    
+    // Redirect to login page with success message
+    res.redirect(`${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login?verified=success`);
+  } catch (error) {
+    console.error("[Email Verification] Error:", error);
+    res.status(500).json({ 
+      message: "Email verification failed",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
+// Resend email verification
+router.post("/api/auth/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ 
+        message: "Email is required" 
+      });
+    }
+
+    console.log(`[Resend Verification] Resending verification email to: ${email}`);
+
+    // Get user from database
+    const user = await storage.getUserByEmail(email);
+
+    if (!user) {
+      // Don't reveal whether user exists or not for security
+      return res.json({ 
+        message: "If an account exists with this email, a verification link has been sent." 
+      });
+    }
+
+    // Check if already verified
+    if (user.emailVerified) {
+      return res.json({ 
+        message: "Email is already verified. You can log in now." 
+      });
+    }
+
+    // Generate verification URL
+    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${user.id}&email=${encodeURIComponent(email)}`;
+    
+    // Send verification email
+    await sendEmailVerification({
+      email,
+      firstName: user.firstName,
+      verificationUrl
+    });
+
+    console.log(`[Resend Verification] Verification email resent to: ${email}`);
+    
+    res.json({ 
+      message: "Verification email sent. Please check your inbox." 
+    });
+  } catch (error) {
+    console.error("[Resend Verification] Error:", error);
+    res.status(500).json({ 
+      message: "Failed to send verification email",
       error: error instanceof Error ? error.message : "Unknown error"
     });
   }

@@ -66,6 +66,20 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       });
     }
 
+    // Check if email is verified
+    if (!dbUser.emailVerified) {
+      return res.status(403).json({ 
+        message: 'Email verification required. Please check your email for a verification link.',
+        requiresEmailVerification: true,
+        user: {
+          id: dbUser.id,
+          email: dbUser.email,
+          firstName: dbUser.firstName,
+          lastName: dbUser.lastName
+        }
+      });
+    }
+
     // Check if user needs to change password
     if (dbUser.passwordChangeRequired) {
       return res.status(403).json({ 

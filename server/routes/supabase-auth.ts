@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
 import { storage } from '../storage';
+import { sendEmailVerification } from '../email';
 import axios from 'axios';
 
 const router = Router();
@@ -478,7 +479,7 @@ router.post('/api/admin/create-user', async (req, res) => {
     const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
       email,
       password: finalPassword,
-      email_confirm: true, // Auto-confirm email for admin-created users
+      email_confirm: false, // Require email verification for security
       user_metadata: {
         firstName,
         lastName,
@@ -509,13 +510,30 @@ router.post('/api/admin/create-user', async (req, res) => {
       role,
       isActive: true,
       approvalStatus: 'approved', // Admin-created users are auto-approved
-      emailVerified: true, // Already verified by admin creation
+      emailVerified: false, // Require email verification for security
       createdBy: adminUser.id, // AUDIT TRAIL: Track which admin created this user
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
+
+    // ============================================
+    // SEND EMAIL VERIFICATION
+    // ============================================
+    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${signUpData.user.id}&email=${encodeURIComponent(email)}`;
+    
+    try {
+      await sendEmailVerification({
+        email,
+        firstName,
+        verificationUrl
+      });
+      console.log(`[Admin Create User] Verification email sent to ${email}`);
+    } catch (emailError) {
+      console.error(`[Admin Create User] Failed to send verification email:`, emailError);
+      // Continue anyway - admin can resend later
+    }
 
     // ============================================
     // RETURN SUCCESS RESPONSE
