@@ -4383,20 +4383,37 @@ export async function registerRoutes(app: any) {
   // Admin: Get all commissions
   app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Admin access required' });
+      console.log('[Admin Commissions] User role:', req.user?.role, 'Email:', req.user?.email);
+      console.log('[Admin Commissions] Full user object:', JSON.stringify(req.user, null, 2));
+      
+      // Allow admin, super_admin, and also super admin (with underscore variations)
+      const isAdmin = req.user?.role === 'admin' || 
+                     req.user?.role === 'super_admin' || 
+                     req.user?.role === 'super admin' ||
+                     req.user?.role === 'superadmin';
+      
+      if (!isAdmin) {
+        console.error('[Admin Commissions] Access denied - role:', req.user?.role);
+        return res.status(403).json({ 
+          error: 'Admin access required',
+          userRole: req.user?.role,
+          message: 'This endpoint requires admin or super_admin role'
+        });
       }
 
       const { startDate, endDate } = req.query;
+      console.log('[Admin Commissions] Fetching commissions with date filter:', { startDate, endDate });
+      
       const commissions = await storage.getAllCommissionsNew(
         startDate as string,
         endDate as string
       );
       
+      console.log('[Admin Commissions] Found', commissions?.length || 0, 'commissions');
       res.json(commissions);
     } catch (error: any) {
-      console.error('Error fetching all commissions:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions' });
+      console.error('[Admin Commissions] Error fetching commissions:', error);
+      res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
     }
   });
 
