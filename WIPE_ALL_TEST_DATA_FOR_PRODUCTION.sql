@@ -87,13 +87,26 @@ END $$;
 -- =====================================================
 
 -- Clear banking info from all users (will re-enter for real agents)
-UPDATE users SET
-  bank_name = NULL,
-  routing_number = NULL,
-  account_number = NULL,
-  account_type = NULL,
-  account_holder_name = NULL
-WHERE TRUE;
+-- Check if columns exist before updating (they may be camelCase or snake_case)
+DO $$
+BEGIN
+  -- Try to clear banking info if columns exist
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'bank_name') THEN
+    UPDATE users SET bank_name = NULL WHERE TRUE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'routing_number') THEN
+    UPDATE users SET routing_number = NULL WHERE TRUE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'account_number') THEN
+    UPDATE users SET account_number = NULL WHERE TRUE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'account_type') THEN
+    UPDATE users SET account_type = NULL WHERE TRUE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'account_holder_name') THEN
+    UPDATE users SET account_holder_name = NULL WHERE TRUE;
+  END IF;
+END $$;
 
 -- Keep users table intact but delete any test users
 DELETE FROM users 
