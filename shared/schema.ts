@@ -56,6 +56,9 @@ export const users = pgTable("users", {
   // Email Verification
   emailVerified: boolean("email_verified").default(false),
   emailVerifiedAt: timestamp("email_verified_at"),
+  // Password Management
+  passwordChangeRequired: boolean("password_change_required").default(false), // Force password change on next login
+  lastPasswordChangeAt: timestamp("last_password_change_at"),
   // Security & Bot Detection
   registrationIp: varchar("registration_ip"), // Track IP for bot detection
   registrationUserAgent: text("registration_user_agent"), // Track user agent

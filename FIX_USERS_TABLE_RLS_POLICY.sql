@@ -32,8 +32,8 @@ ON public.users
 FOR INSERT
 TO authenticated
 WITH CHECK (
-  auth.uid()::text = id OR
-  (SELECT role FROM public.users WHERE id = auth.uid()::text) IN ('admin', 'super_admin')
+  id::uuid = auth.uid() OR
+  EXISTS (SELECT 1 FROM public.users WHERE id::uuid = auth.uid() AND role IN ('admin', 'super_admin'))
 );
 
 -- Allow service role and authenticated users to update users table
@@ -52,12 +52,12 @@ ON public.users
 FOR UPDATE
 TO authenticated
 USING (
-  auth.uid()::text = id OR
-  (SELECT role FROM public.users WHERE id = auth.uid()::text) IN ('admin', 'super_admin')
+  id::uuid = auth.uid() OR
+  EXISTS (SELECT 1 FROM public.users WHERE id::uuid = auth.uid() AND role IN ('admin', 'super_admin'))
 )
 WITH CHECK (
-  auth.uid()::text = id OR
-  (SELECT role FROM public.users WHERE id = auth.uid()::text) IN ('admin', 'super_admin')
+  id::uuid = auth.uid() OR
+  EXISTS (SELECT 1 FROM public.users WHERE id::uuid = auth.uid() AND role IN ('admin', 'super_admin'))
 );
 
 -- Allow everyone to SELECT users (controlled by application logic)

@@ -66,6 +66,20 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       });
     }
 
+    // Check if user needs to change password
+    if (dbUser.passwordChangeRequired) {
+      return res.status(403).json({ 
+        message: 'Password change required',
+        requiresPasswordChange: true,
+        user: {
+          id: dbUser.id,
+          email: dbUser.email,
+          firstName: dbUser.firstName,
+          lastName: dbUser.lastName
+        }
+      });
+    }
+
     req.user = dbUser;
     req.token = token;
     next();
