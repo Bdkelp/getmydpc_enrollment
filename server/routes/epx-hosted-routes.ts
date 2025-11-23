@@ -360,8 +360,6 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
 });
 
 export default router;
-  try {
-    const summary = certificationLogger.getLogsSummary();
     
     res.json({
       success: true,
