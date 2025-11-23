@@ -68,6 +68,8 @@ export default function Admin() {
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
   const [agentNumberInput, setAgentNumberInput] = useState('');
   const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
+  const [editUserDialog, setEditUserDialog] = useState<{ open: boolean; user: any | null }>({ open: false, user: null });
+  const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
 
   // Test authentication
   useEffect(() => {
@@ -817,7 +819,20 @@ export default function Admin() {
                           </div>
                         </TableCell>
                         <TableCell className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <Button variant="ghost" size="sm" className="text-medical-blue-600 hover:text-medical-blue-900 mr-3">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-medical-blue-600 hover:text-medical-blue-900 mr-3"
+                            onClick={() => {
+                              setEditFormData({
+                                firstName: user.firstName || '',
+                                lastName: user.lastName || '',
+                                email: user.email || '',
+                                phone: user.phone || ''
+                              });
+                              setEditUserDialog({ open: true, user });
+                            }}
+                          >
                             Edit
                           </Button>
                           {user.isActive ? (
@@ -1067,6 +1082,139 @@ export default function Admin() {
                 }}
               >
                 {assignAgentNumberDialog.currentNumber ? 'Update' : 'Assign'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit User Dialog */}
+        <Dialog open={editUserDialog.open} onOpenChange={(open) => setEditUserDialog({ open, user: null })}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit User Information</DialogTitle>
+              <DialogDescription>
+                Update user profile information for {editUserDialog.user?.email}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-firstName" className="text-right">
+                  First Name
+                </Label>
+                <Input
+                  id="edit-firstName"
+                  name="firstName"
+                  value={editFormData.firstName}
+                  onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
+                  className="col-span-3"
+                  autoComplete="given-name"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-lastName" className="text-right">
+                  Last Name
+                </Label>
+                <Input
+                  id="edit-lastName"
+                  name="lastName"
+                  value={editFormData.lastName}
+                  onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
+                  className="col-span-3"
+                  autoComplete="family-name"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-email" className="text-right">
+                  Email
+                </Label>
+                <Input
+                  id="edit-email"
+                  name="email"
+                  type="email"
+                  value={editFormData.email}
+                  onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                  className="col-span-3"
+                  autoComplete="email"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="edit-phone" className="text-right">
+                  Phone
+                </Label>
+                <Input
+                  id="edit-phone"
+                  name="phone"
+                  type="tel"
+                  value={editFormData.phone}
+                  onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                  className="col-span-3"
+                  autoComplete="tel"
+                  placeholder="(555) 555-5555"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setEditUserDialog({ open: false, user: null })}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!editFormData.firstName || !editFormData.lastName || !editFormData.email) {
+                    toast({
+                      title: "Error",
+                      description: "First name, last name, and email are required",
+                      variant: "destructive"
+                    });
+                    return;
+                  }
+
+                  try {
+                    const { supabase } = await import('@/lib/supabase');
+                    const { data: { session } } = await supabase.auth.getSession();
+                    
+                    if (!session?.access_token) {
+                      throw new Error('Authentication required');
+                    }
+                    
+                    const response = await fetch(`/api/admin/users/${editUserDialog.user.id}`, {
+                      method: 'PUT',
+                      headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify({
+                        firstName: editFormData.firstName,
+                        lastName: editFormData.lastName,
+                        email: editFormData.email,
+                        phone: editFormData.phone
+                      })
+                    });
+
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      throw new Error(errorData.message || 'Failed to update user');
+                    }
+
+                    toast({
+                      title: "Success",
+                      description: "User information updated successfully",
+                    });
+
+                    setEditUserDialog({ open: false, user: null });
+                    refetch();
+                  } catch (error: any) {
+                    toast({
+                      title: "Error",
+                      description: error.message || "Failed to update user",
+                      variant: "destructive"
+                    });
+                  }
+                }}
+              >
+                Save Changes
               </Button>
             </DialogFooter>
           </DialogContent>

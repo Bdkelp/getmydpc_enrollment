@@ -4506,6 +4506,70 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  app.put('/api/admin/users/:userId', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { userId } = req.params;
+      const { firstName, lastName, email, phone } = req.body;
+
+      // Validate required fields
+      if (!firstName || !lastName || !email) {
+        return res.status(400).json({ 
+          error: 'First name, last name, and email are required' 
+        });
+      }
+
+      // Check if user exists
+      const existingUser = await storage.getUser(userId);
+      if (!existingUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // If email is changing, check for duplicates
+      if (email !== existingUser.email) {
+        const duplicateUser = await storage.getUserByEmail(email);
+        if (duplicateUser && duplicateUser.id !== userId) {
+          return res.status(400).json({ error: 'Email already in use' });
+        }
+      }
+
+      // Update user in database
+      const updatedUser = await storage.updateUser(userId, {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone?.trim() || null,
+        updatedAt: new Date(),
+      });
+
+      // If email changed, update Supabase Auth email
+      if (email !== existingUser.email) {
+        try {
+          const { data, error } = await supabase.auth.admin.updateUserById(
+            userId,
+            { email: email.trim().toLowerCase() }
+          );
+          
+          if (error) {
+            console.error('[Admin Update User] Failed to update Supabase Auth email:', error);
+            // Continue anyway - database is updated
+          }
+        } catch (authError: any) {
+          console.error('[Admin Update User] Error updating Supabase Auth:', authError);
+          // Continue anyway - database is updated
+        }
+      }
+
+      res.json(updatedUser);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
   app.put('/api/admin/users/:userId/suspend', authMiddleware, async (req: any, res: any) => {
     try {
       if (req.user?.role !== 'admin') {
