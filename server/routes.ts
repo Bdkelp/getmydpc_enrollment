@@ -3327,6 +3327,18 @@ export async function registerRoutes(app: any) {
         return res.status(404).json({ error: "User not found in database" });
       }
 
+      // DEBUG: Log user role for troubleshooting
+      console.log('[Auth] User authenticated:', {
+        id: userData.id,
+        email: userData.email,
+        role: userData.role,
+        roleType: typeof userData.role,
+        roleLength: userData.role?.length,
+        roleBytes: userData.role ? Buffer.from(userData.role).toString('hex') : 'null',
+        agentNumber: userData.agentNumber,
+        path: req.path
+      });
+
       // Check approval status
       if (userData.approvalStatus === "pending") {
         return res.status(403).json({
