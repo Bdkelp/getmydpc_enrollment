@@ -264,7 +264,7 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       is_active: userData.isActive !== undefined ? userData.isActive : true,
       approval_status: userData.approvalStatus || 'approved',
       email_verified: userData.emailVerified !== undefined ? userData.emailVerified : false,
-      created_by: userData.createdBy || null,
+      // Note: created_by column does not exist in Supabase users table schema
       created_at: userData.createdAt || new Date(),
       updated_at: userData.updatedAt || new Date()
     };
@@ -279,8 +279,7 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       email: insertData.email,
       role: insertData.role,
       agent_number: insertData.agent_number,
-      approval_status: insertData.approval_status,
-      created_by: insertData.created_by
+      approval_status: insertData.approval_status
     });
     
     const { data, error } = await supabase
