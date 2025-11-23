@@ -217,30 +217,8 @@ export const enrollmentModifications = pgTable("enrollment_modifications", {
 });
 
 // Commission tracking table
-export const commissions = pgTable("commissions", {
-  id: serial("id").primaryKey(),
-  agentId: varchar("agent_id").references(() => users.id).notNull(), // Agent earning commission
-  agentNumber: varchar("agent_number").notNull(), // Agent number at time of enrollment (MPP0001)
-  subscriptionId: integer("subscription_id").references(() => subscriptions.id).notNull(),
-  userId: varchar("user_id").references(() => users.id), // Legacy - for staff subscriptions (nullable)
-  memberId: integer("member_id").references(() => members.id), // The enrolled member (nullable)
-  // Note: Either userId OR memberId must be set, enforced by CHECK constraint in migration
-  planName: varchar("plan_name").notNull(),
-  planType: varchar("plan_type").notNull(), // IE, C, CH, AM
-  planTier: varchar("plan_tier").notNull(), // MyPremierPlan, MyPremierPlan Plus, MyPremierElite Plan
-  commissionAmount: decimal("commission_amount", { precision: 10, scale: 2 }).notNull(),
-  totalPlanCost: decimal("total_plan_cost", { precision: 10, scale: 2 }).notNull(),
-  status: varchar("status").notNull().default("pending"), // pending, active, cancelled, paid
-  paymentStatus: varchar("payment_status").default("unpaid"), // unpaid, paid, cancelled
-  paidDate: timestamp("paid_date"),
-  cancellationDate: timestamp("cancellation_date"),
-  cancellationReason: text("cancellation_reason"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table: any) => [
-  index("idx_commissions_member_id").on(table.memberId),
-  index("idx_commissions_agent_number").on(table.agentNumber),
-]);
+// REMOVED: Old commissions table - now using agent_commissions instead
+// See clean-commission-schema.ts for the new structure
 
 // Leads table
 export const leads = pgTable("leads", {
@@ -443,14 +421,14 @@ export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
   payments: many(payments),
   familyMembers: many(familyMembers),
-  commissions: many(commissions),
+  // commissions removed - use agent_commissions table
 }));
 
 export const membersRelations = relations(members, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
   payments: many(payments),
   familyMembers: many(familyMembers),
-  commissions: many(commissions),
+  // commissions removed - use agent_commissions table
   enrolledByAgent: one(users, { fields: [members.enrolledByAgentId], references: [users.id] }),
 }));
 
@@ -463,7 +441,7 @@ export const subscriptionsRelations = relations(subscriptions, ({ one, many }: a
   member: one(members, { fields: [subscriptions.memberId], references: [members.id] }),
   plan: one(plans, { fields: [subscriptions.planId], references: [plans.id] }),
   payments: many(payments),
-  commissions: many(commissions),
+  // commissions removed - use agent_commissions table
 }));
 
 export const paymentsRelations = relations(payments, ({ one }: any) => ({
@@ -496,12 +474,8 @@ export const leadActivitiesRelations = relations(leadActivities, ({ one }: any) 
   }),
 }));
 
-export const commissionsRelations = relations(commissions, ({ one }: any) => ({
-  agent: one(users, { fields: [commissions.agentId], references: [users.id] }),
-  user: one(users, { fields: [commissions.userId], references: [users.id] }),
-  member: one(members, { fields: [commissions.memberId], references: [members.id] }),
-  subscription: one(subscriptions, { fields: [commissions.subscriptionId], references: [subscriptions.id] }),
-}));
+// REMOVED: commissionsRelations - old commissions table deprecated
+// Use agent_commissions table instead (see clean-commission-schema.ts)
 
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
@@ -549,11 +523,8 @@ export const insertLeadActivitySchema = createInsertSchema(leadActivities).omit(
   createdAt: true,
 });
 
-export const insertCommissionSchema = createInsertSchema(commissions).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+// REMOVED: insertCommissionSchema - old commissions table deprecated
+// Use agent_commissions table insert schema from clean-commission-schema.ts
 
 // EPX Server Post insert schemas
 export const insertPaymentTokenSchema = createInsertSchema(paymentTokens).omit({
@@ -652,8 +623,8 @@ export type FamilyMember = typeof familyMembers.$inferSelect;
 export type InsertFamilyMember = z.infer<typeof insertFamilyMemberSchema>;
 export type RegistrationData = z.infer<typeof registrationSchema>;
 export type Lead = typeof leads.$inferSelect;
-export type Commission = typeof commissions.$inferSelect;
-export type InsertCommission = z.infer<typeof insertCommissionSchema>;
+// Commission types now come from clean-commission-schema.ts (agent_commissions table)
+export type { AgentCommission as Commission, InsertAgentCommission as InsertCommission } from './clean-commission-schema';
 export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;

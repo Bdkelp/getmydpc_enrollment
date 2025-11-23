@@ -98,23 +98,12 @@ export async function createCommissionDualWrite(commission: AgentCommission): Pr
       paidAt: commission.paid_at || undefined
     };
 
-    const { data: legacyCommission, error: legacyError } = await supabase
-      .from('commissions')
-      .insert([legacyCommissionData])
-      .select()
-      .single();
-
-    if (legacyError) {
-      console.warn('Legacy commission creation failed (non-critical):', legacyError);
-      // Don't throw error for legacy table - new system is primary
-    } else {
-      console.log('Legacy commission created successfully:', legacyCommission);
-    }
+    // Legacy commissions table has been removed - using agent_commissions only
+    console.log('Agent commission created successfully:', agentCommission.id);
 
     return {
       success: true,
-      agentCommissionId: agentCommission.id,
-      legacyCommissionId: legacyCommission?.id
+      agentCommissionId: agentCommission.id
     };
 
   } catch (error) {
@@ -175,20 +164,8 @@ export async function updateCommissionStatus(
       throw new Error(`Agent commission update failed: ${agentError.message}`);
     }
 
-    // Update legacy table (best effort)
-    const legacyUpdateData: any = { status };
-    if (paymentStatus) legacyUpdateData.paymentStatus = paymentStatus;
-    if (epxTransactionId) legacyUpdateData.epxTransactionId = epxTransactionId;
-    if (paidAt) legacyUpdateData.paidAt = paidAt;
-
-    const { error: legacyError } = await supabase
-      .from('commissions')
-      .update(legacyUpdateData)
-      .eq('id', commissionId); // Assume same ID for now
-
-    if (legacyError) {
-      console.warn('Legacy commission update failed (non-critical):', legacyError);
-    }
+    // Legacy commissions table has been removed - using agent_commissions only
+    console.log('Agent commission updated successfully:', commissionId);
 
     return { success: true };
   } catch (error) {

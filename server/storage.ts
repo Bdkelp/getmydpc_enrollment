@@ -2191,27 +2191,29 @@ export async function getCommissionBySubscriptionId(subscriptionId: number): Pro
   }
 }
 
+// DEPRECATED: Old commissions table removed - use agent_commissions instead
 export async function getCommissionByUserId(userId: string, agentId: string): Promise<Commission | undefined> {
+  // Check agent_commissions table instead
   const { data, error } = await supabase
-    .from('commissions')
+    .from('agent_commissions')
     .select('*')
-    .eq('userId', userId)
-    .eq('agentId', agentId)
-    .single();
+    .eq('member_id', userId)
+    .eq('agent_id', agentId)
+    .maybeSingle();
 
-  if (error && error.code !== 'PGRST116') {
-    console.error('Error fetching commission by user and agent ID:', error);
+  if (error) {
+    console.error('Error fetching commission by member and agent ID:', error);
     return undefined;
   }
-  return data;
+  return data as any;
 }
 
 export async function getCommissionByMemberId(memberId: number): Promise<Commission | null> {
   try {
     console.log('[Storage] Looking up commission for member ID:', memberId);
     const result = await query(
-      `SELECT * FROM commissions 
-       WHERE member_id = $1 
+      `SELECT * FROM agent_commissions 
+       WHERE member_id = $1::text 
        AND payment_status IN ('unpaid', 'pending')
        ORDER BY created_at DESC 
        LIMIT 1`,
@@ -2249,7 +2251,7 @@ export async function getCommissionByMemberId(memberId: number): Promise<Commiss
 
 export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
   const { data: updatedCommission, error } = await supabase
-    .from('commissions')
+    .from('agent_commissions')
     .update({ ...data, updated_at: new Date() })
     .eq('id', id)
     .select()
@@ -2264,7 +2266,7 @@ export async function updateCommission(id: number, data: Partial<Commission>): P
 
 export async function getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
   try {
-    let sql = 'SELECT commission_amount, payment_status FROM commissions';
+    let sql = 'SELECT commission_amount, payment_status FROM agent_commissions';
     const params: any[] = [];
 
     if (agentId) {
@@ -3230,7 +3232,7 @@ export async function clearTestData(): Promise<void> {
     await supabase.from('family_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     console.log('Deleting commissions...');
-    await supabase.from('commissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('agent_commissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     console.log('Deleting payments...');
     await supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
