@@ -850,6 +850,8 @@ export async function getSubscriptionStats(): Promise<{ active: number; pending:
 
 export async function getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
   try {
+    console.log('[Storage] getAgentEnrollments called with:', { agentId, startDate, endDate });
+    
     // Query members table from Neon database (not users table)
     let sql = `
       SELECT 
@@ -861,18 +863,29 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
-      WHERE m.enrolled_by_agent_id::uuid = $1::uuid AND m.is_active = true
+      WHERE m.enrolled_by_agent_id::uuid = $1::uuid
     `;
     const params: any[] = [agentId];
+    let paramCount = 2;
 
     if (startDate && endDate) {
-      sql += ' AND m.created_at >= $2 AND m.created_at <= $3';
+      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
       params.push(startDate, endDate);
     }
 
     sql += ' ORDER BY m.created_at DESC';
 
     const result = await query(sql, params);
+    
+    console.log('[Storage] getAgentEnrollments - SQL:', sql);
+    console.log('[Storage] getAgentEnrollments - Found', result.rows.length, 'enrollments');
+    
+    // DEBUG: Show ALL members to compare
+    const allMembers = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, is_active, created_at FROM members ORDER BY created_at DESC LIMIT 10');
+    console.log('[Storage] DEBUG - ALL MEMBERS (last 10):');
+    allMembers.rows.forEach((m: any) => {
+      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, IsActive: ${m.is_active}, Created: ${m.created_at}`);
+    });
     
     // Map member data to User format for compatibility, including plan and commission info
     return result.rows.map((row: any) => ({
@@ -4277,6 +4290,13 @@ export const storage = {
 
       const dbMember = result.rows[0];
       console.log('[Storage] Created member:', dbMember.customer_number);
+      console.log('[Storage] Member details:', {
+        id: dbMember.id,
+        email: dbMember.email,
+        enrolledByAgentId: dbMember.enrolled_by_agent_id,
+        agentNumber: dbMember.agent_number,
+        isActive: dbMember.is_active
+      });
       console.log('[Storage] Database returned columns:', Object.keys(dbMember));
       
       // Map snake_case database columns to camelCase JavaScript properties

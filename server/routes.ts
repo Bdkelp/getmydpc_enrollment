@@ -3936,6 +3936,12 @@ export async function registerRoutes(app: any) {
       }
 
       console.log("[Agent Enrollment] Creating member for agent:", req.user.agentNumber);
+      console.log("[Agent Enrollment] Agent user details:", {
+        id: req.user.id,
+        email: req.user.email,
+        agentNumber: req.user.agentNumber,
+        role: req.user.role
+      });
 
       // Create member with agent tracking
       // enrolledByAgentId and agentNumber capture who enrolled them
