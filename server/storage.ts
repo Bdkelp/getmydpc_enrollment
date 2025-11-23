@@ -3462,6 +3462,7 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   getEnrollmentsByAgent,
+  getMembersOnly,
   recordEnrollmentModification,
   recordBankingInfoChange,
   getBankingChangeHistory,
@@ -3702,6 +3703,7 @@ export const storage = {
   getAllCommissions,
   getCommissionBySubscriptionId,
   getCommissionByMemberId,
+  getCommissionByUserId,
   updateCommissionStatus: async (id: number, status: string) => {
     return updateCommission(id, { status: status as any });
   },
