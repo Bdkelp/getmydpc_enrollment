@@ -313,25 +313,74 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
           <CardContent className="space-y-2">
             {userRole === 'admin' ? (
               <>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => window.location.href = '/admin/analytics'}
+                >
                   Export Revenue Report
                 </Button>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => window.location.href = '/admin/commissions'}
+                >
                   Commission Payouts
                 </Button>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => window.location.href = '/admin/analytics'}
+                >
                   Member Analytics
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => window.location.href = '/agent/commissions'}
+                >
                   My Commission History
                 </Button>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => {
+                    // Export agent data as CSV
+                    const csvData = [
+                      ['Metric', 'Value'],
+                      ['Total Commissions (MTD)', stats?.monthlyCommissions || 0],
+                      ['Total Commissions (YTD)', stats?.yearlyCommissions || 0],
+                      ['Total Commissions (Lifetime)', stats?.totalCommissions || 0],
+                      ['New Members (MTD)', stats?.monthlyEnrollments || 0],
+                      ['New Members (YTD)', stats?.yearlyEnrollments || 0],
+                      ['Total Members', stats?.totalEnrollments || 0]
+                    ];
+                    const csv = csvData.map(row => row.join(',')).join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `agent-data-${new Date().toISOString().split('T')[0]}.csv`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                  }}
+                >
                   Export My Data
                 </Button>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => window.location.href = '/agent'}
+                >
                   Performance Goals
                 </Button>
               </>
