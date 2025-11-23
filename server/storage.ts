@@ -1030,7 +1030,17 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
     const result = await query(sql, params);
     
     console.log('[Storage] getEnrollmentsByAgent - Query params:', { agentId, startDate, endDate });
+    console.log('[Storage] getEnrollmentsByAgent - SQL:', sql);
     console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
+    
+    // DEBUG: Check ALL members to see what's in the database
+    const allMembersDebug = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, agent_number, created_at FROM members ORDER BY created_at DESC LIMIT 10');
+    console.log('[Storage] DEBUG - ALL MEMBERS (last 10):');
+    allMembersDebug.rows.forEach((m: any) => {
+      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Created: ${m.created_at}`);
+    });
+    console.log('[Storage] DEBUG - Searching for agentId:', agentId);
+    console.log('[Storage] DEBUG - agentId type:', typeof agentId);
     if (result.rows.length > 0) {
       console.log('[Storage] getEnrollmentsByAgent - Sample raw data:', {
         id: result.rows[0].id,
