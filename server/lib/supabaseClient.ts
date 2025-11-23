@@ -13,9 +13,16 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  },
   realtime: {
     params: {
       eventsPerSecond: 10
     }
+  },
+  db: {
+    schema: 'public'
   }
 });
