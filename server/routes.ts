@@ -4209,7 +4209,7 @@ export async function registerRoutes(app: any) {
   // Admin: Get all commissions
   app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4229,7 +4229,7 @@ export async function registerRoutes(app: any) {
   // Admin: Mark commissions as paid
   app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         return res.status(403).json({ error: 'Admin access required' });
       }
 

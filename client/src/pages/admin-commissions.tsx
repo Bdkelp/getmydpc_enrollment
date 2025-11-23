@@ -68,7 +68,7 @@ export default function AdminCommissions() {
       });
       return await apiRequest(`/api/admin/commissions?${params}`, { method: "GET" });
     },
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
   });
 
   // Mark commissions as paid mutation
