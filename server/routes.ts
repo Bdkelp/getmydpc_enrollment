@@ -4105,8 +4105,8 @@ export async function registerRoutes(app: any) {
   // Fix: /api/agent/stats (403) - permission issue
   app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
-        return res.status(403).json({ error: 'Agent access required' });
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+        return res.status(403).json({ message: 'Agent or admin access required' });
       }
 
       const agentId = req.user.id;
@@ -4184,7 +4184,7 @@ export async function registerRoutes(app: any) {
     try {
       console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         console.log("❌ Access denied - not agent or admin");
         return res.status(403).json({ error: 'Agent or admin access required' });
       }
@@ -4208,7 +4208,7 @@ export async function registerRoutes(app: any) {
     try {
       console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         console.log("❌ Access denied - not agent or admin");
         return res.status(403).json({ error: 'Agent or admin access required' });
       }
@@ -4234,8 +4234,7 @@ export async function registerRoutes(app: any) {
 
   // Agent: Get commission totals (MTD, YTD, Lifetime)
   app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+    try {\n      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         return res.status(403).json({ error: 'Agent or admin access required' });
       }
 
