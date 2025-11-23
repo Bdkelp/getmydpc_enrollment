@@ -33,11 +33,16 @@ WHERE email LIKE '%test%'
    OR email LIKE '%example%'
    OR first_name LIKE '%Test%';
 
--- Delete test login sessions
-DELETE FROM login_sessions 
-WHERE user_id IN (
-  SELECT id FROM users WHERE email LIKE '%test%'
-);
+-- Delete test login sessions (skip if table doesn't exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions') THEN
+    DELETE FROM login_sessions 
+    WHERE user_id IN (
+      SELECT id FROM users WHERE email LIKE '%test%'
+    );
+  END IF;
+END $$;
 
 -- Delete test subscriptions
 DELETE FROM subscriptions 
