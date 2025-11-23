@@ -37,7 +37,7 @@ router.get("/api/check-ip", async (req, res) => {
       timestamp: new Date().toISOString(),
       message: "This is the IP address that Railway uses for outbound requests (needed for EPX ACL)"
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[IP Check] Failed to fetch IP:', error);
     res.status(500).json({ 
       error: "Failed to check IP",
@@ -96,7 +96,7 @@ router.get("/api/debug/users-count", async (req, res) => {
       allEmails: users.map((u: any) => ({ email: u.email, role: u.role, isActive: u.isActive })),
       rawCount: result.totalCount
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[DEBUG] Error:", error);
     res.status(500).json({ error: error.message });
   }
@@ -112,7 +112,7 @@ router.get("/api/debug/supabase-config", async (req, res) => {
       hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       hasAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -128,7 +128,7 @@ router.get("/api/public/test-leads-noauth", async (req, res) => {
       totalLeads: leads.length,
       leads: leads,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("[Public Test] Error:", error);
     res
       .status(500)
@@ -270,7 +270,7 @@ router.get("/api/test-leads", async (req, res) => {
     res.json({
       success: true,
       totalLeads: allLeads.length,
-      recentLeads: allLeads.slice(0, 5).map((lead) => ({
+      recentLeads: allLeads.slice(0, 5).map((lead: any) => ({
         id: lead.id,
         name: `${lead.firstName} ${lead.lastName}`,
         email: lead.email,
@@ -318,7 +318,7 @@ router.get("/api/debug/plans-diagnostic", async (req, res) => {
     
     const diagnostic = {
       totalPlans: allPlans?.length || 0,
-      plans: (allPlans || []).map(plan => ({
+      plans: (allPlans || []).map((plan: any) => ({
         id: plan.id,
         name: plan.name,
         exactName: `'${plan.name}'`,
@@ -338,7 +338,7 @@ router.get("/api/debug/plans-diagnostic", async (req, res) => {
     };
     
     // Check for mismatches
-    (allPlans || []).forEach(plan => {
+    (allPlans || []).forEach((plan: any) => {
       if (!['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'].includes(plan.name)) {
         diagnostic.warnings.push(`Plan "${plan.name}" (ID: ${plan.id}) does NOT match any expected name in commissionCalculator`);
       }
@@ -739,8 +739,8 @@ router.post("/api/auth/login", async (req, res) => {
       });
 
       console.log("[Login] Session tracked for user:", user.email);
-    } catch (error) {
-      console.error("[Login] Error tracking session:", error);
+    } catch (subError: any) {
+      console.error("[Login] Error tracking session:", subError);
       // Don't fail login if session tracking fails
     }
 
@@ -1135,7 +1135,7 @@ router.get(
       console.log("✅ Got", loginSessions?.length || 0, "login sessions for user");
       
       res.json(loginSessions);
-    } catch (error) {
+    } catch (error: any) {
       console.error("❌ Error fetching user login sessions:", error);
       res.status(500).json({ message: "Failed to fetch login sessions" });
     }
@@ -1554,7 +1554,7 @@ router.get(
       const stats = await storage.getAdminDashboardStats();
       console.log("[Admin Stats API] Retrieved stats:", stats);
       res.json(stats);
-    } catch (error) {
+    } catch (error: any) {
       console.error("[Admin Stats API] Error fetching admin stats:", error);
       res.status(500).json({ message: "Failed to fetch admin stats" });
     }
@@ -1675,11 +1675,11 @@ router.get(
 
       // Filter users who have banking information and format the data
       const usersWithBanking = usersResult.users
-        .filter(user => 
+        .filter((user: any) => 
           user.bankName || user.routingNumber || user.accountNumber || 
           user.accountType || user.accountHolderName
         )
-        .map(user => ({
+        .map((user: any) => ({
           id: user.id,
           email: user.email,
           firstName: user.firstName,
