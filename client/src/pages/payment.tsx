@@ -571,16 +571,16 @@ export default function Payment() {
               return (
                 <EPXHostedPayment
                   amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
-                  customerId={user.id}
+                  customerId={memberData?.id || user.id}
                   customerEmail={finalCustomerEmail}
                   customerName={finalCustomerName}
                   planId={selectedPlanId?.toString()}
                   description={`${selectedPlan.name} - DPC Subscription`}
                   billingAddress={{
-                    streetAddress: user.address || '',
-                    city: user.city || '',
-                    state: user.state || '',
-                    postalCode: user.zipCode || ''
+                    streetAddress: memberData?.address || user.address || '',
+                    city: memberData?.city || user.city || '',
+                    state: memberData?.state || user.state || '',
+                    postalCode: memberData?.zipCode || user.zipCode || ''
                   }}
                   onSuccess={handleEPXPaymentSuccess}
                   onError={handleEPXPaymentError}

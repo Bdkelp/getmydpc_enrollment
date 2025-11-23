@@ -3273,7 +3273,8 @@ export async function clearTestData(): Promise<void> {
 
 // Payment operations implementation
 export async function createPayment(paymentData: {
-  userId: string;
+  userId?: string | null; // Agent/admin user ID (for commission tracking)
+  memberId?: number | string | null; // Member ID (for billing/plan management)
   subscriptionId?: string | null;
   amount: string;
   currency?: string;
@@ -3285,6 +3286,7 @@ export async function createPayment(paymentData: {
 }): Promise<any> {
   console.log('[Storage] Creating payment record at', new Date().toISOString(), ':', {
     userId: paymentData.userId,
+    memberId: paymentData.memberId,
     amount: paymentData.amount,
     status: paymentData.status,
     paymentMethod: paymentData.paymentMethod,
@@ -3297,6 +3299,7 @@ export async function createPayment(paymentData: {
     const insertQuery = `
       INSERT INTO payments (
         user_id,
+        member_id,
         amount,
         status,
         currency,
@@ -3307,13 +3310,14 @@ export async function createPayment(paymentData: {
         created_at,
         updated_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()
       )
       RETURNING *;
     `;
 
     const values = [
-      paymentData.userId,
+      paymentData.userId || null,
+      paymentData.memberId || null,
       paymentData.amount,
       paymentData.status,
       paymentData.currency || 'USD',

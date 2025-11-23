@@ -148,7 +148,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     // Store payment record in pending state
     try {
       const paymentData = {
-        userId: customerId,
+        memberId: customerId, // Member ID for billing/plan management
         subscriptionId: subscriptionId || null,
         amount: amount.toString(),
         currency: 'USD',
