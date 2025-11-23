@@ -326,7 +326,16 @@ export async function getUser(id: string): Promise<User | null> {
     }
     
     console.log('[Storage] getUser: Found user:', data.email);
-    return mapUserFromDB(data);
+    console.log('[Storage] getUser: Raw role from DB:', {
+      role: data.role,
+      roleType: typeof data.role,
+      roleLength: data.role?.length,
+      roleBytes: data.role ? Buffer.from(data.role).toString('hex') : 'null'
+    });
+    
+    const mappedUser = mapUserFromDB(data);
+    console.log('[Storage] getUser: Mapped user role:', mappedUser?.role);
+    return mappedUser;
   } catch (error: any) {
     console.error('[Storage] Error in getUser:', error);
     return null;
