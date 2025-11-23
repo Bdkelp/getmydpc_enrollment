@@ -13,6 +13,7 @@ export interface AuthUser {
   profileImageUrl?: string;
   isActive: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';
+  lastLoginAt?: string;
 }
 
 export function useAuth() {

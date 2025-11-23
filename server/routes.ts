@@ -1134,6 +1134,7 @@ router.get(
         role: req.user.role,
         agentNumber: req.user.agentNumber, // Include agent number for agents and admins
         profileImageUrl: req.user.profileImageUrl, // Include profile image for dashboard display
+        lastLoginAt: req.user.lastLoginAt, // Include last login timestamp
         subscription: activeSubscription,
         plan: planInfo,
         isActive: req.user.isActive,
