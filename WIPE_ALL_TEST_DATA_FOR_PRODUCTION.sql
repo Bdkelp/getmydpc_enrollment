@@ -180,6 +180,9 @@ ORDER BY price;
 DROP SEQUENCE IF EXISTS customer_number_seq CASCADE;
 CREATE SEQUENCE customer_number_seq START WITH 1;
 
+-- Drop existing function first to avoid return type conflict
+DROP FUNCTION IF EXISTS generate_customer_number();
+
 -- Recreate the customer number generation function
 CREATE OR REPLACE FUNCTION generate_customer_number()
 RETURNS TEXT AS $$
