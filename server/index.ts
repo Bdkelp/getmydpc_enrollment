@@ -4,6 +4,7 @@ import path from "path";
 
 // Load environment variables from .env file FIRST
 // Deployment: Fixed phone field lengths to handle formatted input
+// Force rebuild: Fix agent endpoint role checks
 dotenv.config();
 
 // Fix SSL certificate validation issues in production (Railway/Vercel)
