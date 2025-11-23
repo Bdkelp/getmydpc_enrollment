@@ -4234,7 +4234,8 @@ export async function registerRoutes(app: any) {
 
   // Agent: Get commission totals (MTD, YTD, Lifetime)
   app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
-    try {\n      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+    try {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         return res.status(403).json({ error: 'Agent or admin access required' });
       }
 
