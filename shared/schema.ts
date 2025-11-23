@@ -9,6 +9,7 @@ import {
   decimal,
   boolean,
   serial,
+  uuid,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -27,7 +28,7 @@ export const sessions = pgTable(
 
 // User storage table - ONLY for agents/admins with login access (NOT members)
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().notNull(),
+  id: uuid("id").primaryKey().notNull(),
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
@@ -50,7 +51,7 @@ export const users = pgTable("users", {
   // Approval Workflow
   approvalStatus: varchar("approval_status").default("pending"), // pending, approved, rejected, suspended
   approvedAt: timestamp("approved_at"),
-  approvedBy: varchar("approved_by"), // Admin who approved the user
+  approvedBy: uuid("approved_by"), // Admin who approved the user
   rejectionReason: text("rejection_reason"), // If rejected, the reason
   // Email Verification
   emailVerified: boolean("email_verified").default(false),
@@ -59,13 +60,11 @@ export const users = pgTable("users", {
   registrationIp: varchar("registration_ip"), // Track IP for bot detection
   registrationUserAgent: text("registration_user_agent"), // Track user agent
   suspiciousFlags: jsonb("suspicious_flags"), // Bot detection flags
-  // Audit Trail
-  createdBy: varchar("created_by"), // UUID of admin who created this user (audit trail)
   // Session Tracking
   lastLoginAt: timestamp("last_login_at"),
   lastActivityAt: timestamp("last_activity_at"),
   // Agent Hierarchy (for downline/upline structure)
-  uplineAgentId: varchar("upline_agent_id"),
+  uplineAgentId: uuid("upline_agent_id"),
   hierarchyLevel: integer("hierarchy_level").default(0),
   canReceiveOverrides: boolean("can_receive_overrides").default(false),
   overrideCommissionRate: decimal("override_commission_rate", { precision: 5, scale: 2 }).default("0"),
