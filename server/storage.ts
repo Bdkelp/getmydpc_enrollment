@@ -242,6 +242,8 @@ export async function createUser(userData: Partial<User>): Promise<User> {
     // Users table should ONLY have 'admin' or 'agent' roles - default to 'agent'
     // Never set 'member' here - members are in separate members table
     const role = userData.role || 'agent';
+    
+    // Generate agent number if SSN is available
     if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
       const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
       const ssnLast4 = userData.ssn.slice(-4);
@@ -253,6 +255,15 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       }
     }
     
+    // If no agent number yet, generate a temporary one based on email/timestamp
+    // This happens during auto-creation from login before user profile is complete
+    if (!agentNumber) {
+      const timestamp = Date.now().toString().slice(-6);
+      const emailHash = userData.email?.slice(0, 2).toUpperCase() || 'XX';
+      agentNumber = `MPP${emailHash}${timestamp}`;
+      console.log(`[Agent Number] Generated temporary: ${agentNumber} for ${userData.email}`);
+    }
+    
     // Build insert object with only columns that exist in Supabase
     const insertData: any = {
       email: userData.email,
@@ -260,7 +271,7 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       last_name: userData.lastName || '',
       phone: userData.phone || null,
       role,
-      agent_number: agentNumber || null,
+      agent_number: agentNumber,
       is_active: userData.isActive !== undefined ? userData.isActive : true,
       approval_status: userData.approvalStatus || 'approved',
       email_verified: userData.emailVerified !== undefined ? userData.emailVerified : false,
