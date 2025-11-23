@@ -582,7 +582,10 @@ function determineUserRole(email: string): string {
     'mdkeener@gmail.com',
     'tmatheny77@gmail.com',
     'svillarreal@cyariskmanagement.com',
-    'sarah.johnson@mypremierplans.com'
+    'sarah.johnson@mypremierplans.com',
+    'addsumbalance@gmail.com',
+    'sean@sciahealthins.com',
+    'penningtonfinancialservices@gmail.com'
   ];
   
   const lowerEmail = email.toLowerCase();
