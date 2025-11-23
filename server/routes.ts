@@ -898,6 +898,47 @@ router.post("/api/auth/logout", async (req, res) => {
   }
 });
 
+// Mark password change as completed (remove requirement flag)
+router.post("/api/auth/password-change-completed", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const user = req.user;
+    if (!user?.id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Update the user record to remove password change requirement
+    const { data, error } = await supabase
+      .from("users")
+      .update({
+        passwordChangeRequired: false,
+        lastPasswordChangeAt: new Date().toISOString()
+      })
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[Password Change] Failed to update user:", error);
+      return res.status(500).json({ 
+        message: "Failed to update password change status",
+        error: error.message 
+      });
+    }
+
+    console.log(`[Password Change] User ${user.email} completed password change`);
+    res.json({ 
+      message: "Password change completed successfully",
+      user: data
+    });
+  } catch (error) {
+    console.error("[Password Change] Error:", error);
+    res.status(500).json({ 
+      message: "Failed to complete password change",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
+
 // Helper function to determine user role
 function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "member" {
   // Super Admin - full platform access

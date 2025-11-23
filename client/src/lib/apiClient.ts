@@ -97,6 +97,22 @@ const apiClient = {
       console.log(`[API] POST Response: ${res.status} ${res.statusText}`);
 
       if (!res.ok) {
+        // Special handling for 403 with password change requirement
+        if (res.status === 403) {
+          try {
+            const responseData = await res.json();
+            // If it's a password change requirement, return it (don't throw)
+            if (responseData.requiresPasswordChange) {
+              return responseData;
+            }
+            // Otherwise, throw the error
+            throw new Error(responseData.message || `${res.status}: ${res.statusText}`);
+          } catch (jsonError) {
+            // If can't parse JSON, fall through to regular error handling
+            console.error(`[API] Could not parse 403 response:`, jsonError);
+          }
+        }
+
         // Retry on CORS or server errors (but NOT on auth failures 401)
         if (retryCount === 0 && (res.status === 0 || res.status >= 500)) {
           console.log(`[API] Retrying POST ${endpoint} after ${res.status} error...`);

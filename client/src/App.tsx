@@ -38,6 +38,7 @@ import Register from "@/pages/register";
 import AuthCallback from "@/pages/auth-callback";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
+import ChangePassword from "@/pages/change-password";
 import PendingApproval from "@/pages/pending-approval";
 import TestAuth from "@/pages/test-auth";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
@@ -79,6 +80,7 @@ function Router() {
       <Route path="/register" component={isAuthenticated ? () => <Redirect to={(user?.role === "admin" || user?.role === "super_admin") ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/change-password" component={ChangePassword} />
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/test-auth" component={TestAuth} />

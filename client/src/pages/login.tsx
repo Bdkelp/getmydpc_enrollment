@@ -70,6 +70,21 @@ export default function Login() {
       
       console.log(`[Login] Response received`);
 
+      // Check if password change is required (403 status with requiresPasswordChange flag)
+      if (response?.requiresPasswordChange) {
+        console.log("[Login] Password change required, redirecting...");
+        
+        // Store email for password change page
+        localStorage.setItem('password_change_email', data.email);
+        
+        toast({
+          title: "Password Change Required",
+          description: "You must change your password before continuing.",
+        });
+        
+        setLocation("/change-password");
+        return;
+      }
 
       // Detailed response logging for debugging
       console.log('=== LOGIN RESPONSE DEBUG ===');
