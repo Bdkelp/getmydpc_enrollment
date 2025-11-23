@@ -207,10 +207,10 @@ export default function AgentDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {user?.role === 'admin' && (
+              {(user?.role === 'admin' || user?.role === 'super_admin') && (
                 <Button variant="outline" onClick={() => setLocation('/admin')}>
                   <Shield className="h-4 w-4 mr-2" />
-                  Back to Admin Dashboard
+                  Back to Admin View
                 </Button>
               )}
               <Button

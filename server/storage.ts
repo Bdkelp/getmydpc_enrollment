@@ -853,12 +853,12 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
         m.*,
         p.name as plan_name,
         p.price as plan_price,
-        c.commission_amount,
-        c.payment_status as commission_status
+        ac.commission_amount,
+        ac.payment_status as commission_status
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
-      LEFT JOIN commissions c ON c.member_id = m.id
-      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
+      WHERE m.enrolled_by_agent_id::uuid = $1::uuid AND m.is_active = true
     `;
     const params: any[] = [agentId];
 
@@ -923,11 +923,16 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
         m.*,
         p.name as plan_name,
         p.price as plan_price,
-        c.commission_amount,
-        c.payment_status as commission_status
+        ac.commission_amount,
+        ac.payment_status as commission_status,
+        u.email as agent_email,
+        u.first_name as agent_first_name,
+        u.last_name as agent_last_name,
+        u.agent_number as agent_number
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
-      LEFT JOIN commissions c ON c.member_id = m.id
+      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
+      LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
       WHERE m.is_active = true
     `;
     const params: any[] = [];
@@ -939,13 +944,16 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
     }
 
     if (agentId) {
-      sql += ` AND m.enrolled_by_agent_id = $${paramCount++}`;
+      sql += ` AND m.enrolled_by_agent_id::uuid = $${paramCount++}::uuid`;
       params.push(agentId);
     }
 
     sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
+    
+    console.log('[Storage] getAllEnrollments - Query params:', { startDate, endDate, agentId });
+    console.log('[Storage] getAllEnrollments - Row count:', result.rows.length);
     
     // Map member data to User format for compatibility, including plan and commission data
     return result.rows.map((row: any) => ({
@@ -1004,7 +1012,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
-      WHERE m.enrolled_by_agent_id = $1 AND m.is_active = true
+      WHERE m.enrolled_by_agent_id::uuid = $1::uuid AND m.is_active = true
     `;
     const params: any[] = [agentId];
     let paramCount = 2;
@@ -1357,7 +1365,7 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
 
 export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
   try {
-    let sql = 'SELECT * FROM leads WHERE assigned_agent_id = $1';
+    let sql = 'SELECT * FROM leads WHERE assigned_agent_id::uuid = $1::uuid';
     const params: any[] = [agentId];
 
     if (status) {
@@ -1667,7 +1675,7 @@ export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: s
       if (assignedAgentFilter === 'unassigned') {
         conditions.push('assigned_agent_id IS NULL');
       } else if (assignedAgentFilter !== 'all') {
-        conditions.push(`assigned_agent_id = $${params.length + 1}`);
+        conditions.push(`assigned_agent_id::uuid = $${params.length + 1}::uuid`);
         params.push(assignedAgentFilter);
       }
     }
@@ -4055,7 +4063,7 @@ export const storage = {
       // Agent performance
       const agentPerformance = allAgents.map(agent => {
         const agentCommissions = allCommissions.filter(comm => comm.agent_id === agent.id);
-        const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id);
+        const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id || m.enrolled_by_agent_id === agent.id.toString());
 
         const monthlyEnrollments = agentMembers.filter(m =>
           m.created_at && new Date(m.created_at) >= cutoffDate
@@ -4394,7 +4402,7 @@ export const storage = {
   getMembersByAgent: async (agentId: string): Promise<Member[]> => {
     try {
       const result = await query(
-        'SELECT * FROM members WHERE enrolled_by_agent_id = $1 ORDER BY created_at DESC',
+        'SELECT * FROM members WHERE enrolled_by_agent_id::uuid = $1::uuid ORDER BY created_at DESC',
         [agentId]
       );
       return result.rows;

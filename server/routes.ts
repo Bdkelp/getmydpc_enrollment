@@ -4056,18 +4056,39 @@ export async function registerRoutes(app: any) {
   // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
   app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin') {
+      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
         return res.status(403).json({ error: 'Agent access required' });
       }
 
       const agentId = req.user.id;
       const { startDate, endDate } = req.query;
+      
+      console.log('[Agent Enrollments] Fetching enrollments for:', {
+        agentId,
+        agentEmail: req.user?.email,
+        agentNumber: req.user?.agentNumber,
+        role: req.user?.role,
+        startDate,
+        endDate
+      });
 
       const enrollments = await storage.getEnrollmentsByAgent(
         agentId,
         startDate as string,
         endDate as string
       );
+      
+      console.log('[Agent Enrollments] Found', enrollments?.length || 0, 'enrollments');
+      if (enrollments && enrollments.length > 0) {
+        console.log('[Agent Enrollments] Sample enrollment:', {
+          id: enrollments[0].id,
+          email: enrollments[0].email,
+          name: `${enrollments[0].firstName} ${enrollments[0].lastName}`,
+          planName: enrollments[0].planName,
+          commissionAmount: enrollments[0].commissionAmount,
+          enrolledByAgentId: enrollments[0].enrolledByAgentId
+        });
+      }
 
       res.json({
         success: true,
@@ -4381,38 +4402,35 @@ export async function registerRoutes(app: any) {
   });
 
   // Admin: Get all commissions
+  // Admin: Get all commissions (admin/super_admin can see ALL, agents see only their own via /api/agent/commissions)
   app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      console.log('[Admin Commissions] User role:', req.user?.role, 'Email:', req.user?.email);
-      console.log('[Admin Commissions] Full user object:', JSON.stringify(req.user, null, 2));
+      console.log('[Admin Commissions] Request from user:', req.user?.email, 'Role:', req.user?.role);
       
-      // Allow admin, super_admin, and also super admin (with underscore variations)
-      const isAdmin = req.user?.role === 'admin' || 
-                     req.user?.role === 'super_admin' || 
-                     req.user?.role === 'super admin' ||
-                     req.user?.role === 'superadmin';
+      // Only admins and super_admins can access this endpoint to see ALL commissions
+      const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
       
       if (!isAdmin) {
-        console.error('[Admin Commissions] Access denied - role:', req.user?.role);
+        console.error('[Admin Commissions] Access denied - user role:', req.user?.role);
         return res.status(403).json({ 
           error: 'Admin access required',
           userRole: req.user?.role,
-          message: 'This endpoint requires admin or super_admin role'
+          message: 'Only admin or super_admin can view all commissions. Agents should use /api/agent/commissions'
         });
       }
 
       const { startDate, endDate } = req.query;
-      console.log('[Admin Commissions] Fetching commissions with date filter:', { startDate, endDate });
+      console.log('[Admin Commissions] Fetching ALL commissions with date filter:', { startDate, endDate });
       
       const commissions = await storage.getAllCommissionsNew(
         startDate as string,
         endDate as string
       );
       
-      console.log('[Admin Commissions] Found', commissions?.length || 0, 'commissions');
+      console.log('[Admin Commissions] Successfully fetched', commissions?.length || 0, 'total commissions');
       res.json(commissions);
     } catch (error: any) {
-      console.error('[Admin Commissions] Error fetching commissions:', error);
+      console.error('[Admin Commissions] Error:', error);
       res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
     }
   });

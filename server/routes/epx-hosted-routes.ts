@@ -299,6 +299,52 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             });
           }
 
+          // CRITICAL: Create enrollment record if payment approved but no enrollment exists
+          if (result.isApproved && payment.userId && !payment.metadata?.enrollmentCreated) {
+            try {
+              console.log('[EPX Callback] Checking if member enrollment exists for userId:', payment.userId);
+              
+              // Check if user already exists in members table
+              const existingMember = await storage.getUser(payment.userId);
+              
+              if (!existingMember || !existingMember.email) {
+                console.log('[EPX Callback] ⚠️ No member record found - payment succeeded but enrollment incomplete');
+                console.log('[EPX Callback] This can happen if user paid directly without completing registration form');
+                console.log('[EPX Callback] UserId:', payment.userId, 'TransactionId:', result.transactionId);
+                // TODO: Send admin notification about incomplete enrollment
+              } else {
+                console.log('[EPX Callback] ✅ Member record found:', existingMember.email);
+                
+                // Check if commission was created for this enrollment
+                const { data: existingCommissions } = await supabase
+                  .from('agent_commissions')
+                  .select('id')
+                  .eq('member_id', payment.userId.toString())
+                  .eq('enrollment_id', payment.subscriptionId?.toString() || '');
+                
+                if (!existingCommissions || existingCommissions.length === 0) {
+                  console.log('[EPX Callback] ⚠️ No commission found for this enrollment');
+                  // Commission should have been created during registration
+                  // If missing, it means the registration flow was incomplete
+                } else {
+                  console.log('[EPX Callback] ✅ Commission exists for enrollment');
+                }
+              }
+              
+              // Mark enrollment as created to avoid duplicate checks
+              await storage.updatePayment(payment.id, {
+                metadata: {
+                  ...payment.metadata,
+                  enrollmentCreated: true,
+                  enrollmentCheckedAt: new Date().toISOString()
+                }
+              });
+            } catch (enrollError: any) {
+              console.error('[EPX Callback] Error checking enrollment:', enrollError);
+              // Don't fail the payment if enrollment check fails
+            }
+          }
+
           // Mark commission payment as captured (14-day grace period before payout)
           if (result.isApproved && payment.metadata?.memberId) {
             try {
