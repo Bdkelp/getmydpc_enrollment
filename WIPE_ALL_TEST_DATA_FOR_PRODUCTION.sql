@@ -70,12 +70,17 @@ DELETE FROM leads;
 TRUNCATE leads RESTART IDENTITY CASCADE;
 
 -- =====================================================
--- Step 6: DELETE LOGIN SESSIONS
+-- Step 6: DELETE LOGIN SESSIONS (IF EXISTS)
 -- =====================================================
 
--- Delete all login session history
-DELETE FROM login_sessions;
-TRUNCATE login_sessions RESTART IDENTITY CASCADE;
+-- Delete all login session history (skip if table doesn't exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions') THEN
+    DELETE FROM login_sessions;
+    TRUNCATE login_sessions RESTART IDENTITY CASCADE;
+  END IF;
+END $$;
 
 -- =====================================================
 -- Step 7: KEEP USERS (AGENTS/ADMINS) BUT CLEAN THEIR DATA
@@ -116,7 +121,7 @@ SELECT 'leads', COUNT(*) FROM leads
 UNION ALL
 SELECT 'lead_activities', COUNT(*) FROM lead_activities
 UNION ALL
-SELECT 'login_sessions', COUNT(*) FROM login_sessions
+SELECT 'login_sessions', (SELECT COUNT(*) FROM login_sessions WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions'))
 UNION ALL
 SELECT 'users', COUNT(*) FROM users
 UNION ALL
@@ -188,8 +193,15 @@ ALTER SEQUENCE payments_id_seq RESTART WITH 1;
 ALTER SEQUENCE subscriptions_id_seq RESTART WITH 1;
 ALTER SEQUENCE leads_id_seq RESTART WITH 1;
 ALTER SEQUENCE lead_activities_id_seq RESTART WITH 1;
-ALTER SEQUENCE login_sessions_id_seq RESTART WITH 1;
 ALTER SEQUENCE plans_id_seq RESTART WITH 1;
+
+-- Only reset login_sessions if it exists
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'login_sessions_id_seq') THEN
+    ALTER SEQUENCE login_sessions_id_seq RESTART WITH 1;
+  END IF;
+END $$;
 
 -- Only reset agent_commissions if it exists
 DO $$
@@ -212,7 +224,9 @@ SELECT
   (SELECT COUNT(*) FROM payments) AS payments,
   (SELECT COUNT(*) FROM subscriptions) AS subscriptions,
   (SELECT COUNT(*) FROM leads) AS leads,
-  (SELECT COUNT(*) FROM login_sessions) AS login_sessions,
+  (SELECT CASE WHEN EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'login_sessions') 
+           THEN (SELECT COUNT(*) FROM login_sessions) 
+           ELSE 0 END) AS login_sessions,
   (SELECT COUNT(*) FROM users) AS users_kept,
   (SELECT COUNT(*) FROM plans) AS plans_kept;
 
