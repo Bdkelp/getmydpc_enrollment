@@ -704,12 +704,15 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
 
 export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching all users via Supabase...');
+    console.log('[Storage] Fetching all active users via Supabase...');
 
     // Use Supabase instead of Neon to avoid connection issues
+    // FILTER: Only return active users with approved status (exclude suspended/removed users)
     const { data: users, error: usersError } = await supabase
       .from('users')
       .select('*')
+      .eq('is_active', true)
+      .eq('approval_status', 'approved')
       .order('created_at', { ascending: false });
 
     if (usersError) {
@@ -741,9 +744,9 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
       };
     }).filter(u => u !== null);
 
-    console.log('[Storage] Successfully fetched users:', {
+    console.log('[Storage] Successfully fetched active users:', {
       totalUsers: usersWithSubscriptions.length,
-      roles: usersWithSubscriptions.slice(0, 5).map(u => ({ email: u.email, role: u.role }))
+      roles: usersWithSubscriptions.slice(0, 5).map(u => ({ email: u.email, role: u.role, isActive: u.isActive }))
     });
 
     return {
