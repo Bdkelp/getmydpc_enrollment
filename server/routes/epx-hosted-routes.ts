@@ -173,56 +173,6 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     // Get checkout configuration
     const config = hostedCheckoutService.getCheckoutConfig();
 
-    // Redirect user to EPX hosted checkout
-    res.json({
-          transactionId: orderNumber,
-          customerId,
-          request: {
-            timestamp: new Date().toISOString(),
-            method: 'POST',
-            endpoint: '/api/epx/hosted/create-payment',
-            url: `${req.protocol}://${req.get('host')}/api/epx/hosted/create-payment`,
-            headers: {
-              'content-type': req.get('content-type') || 'application/json',
-              'user-agent': req.get('user-agent') || 'unknown'
-            },
-            body: {
-              amount,
-              customerId: '***CUSTOMER_ID***',
-              customerEmail: customerEmail?.substring(0, 2) + '***@***' || '***EMAIL***',
-              customerName: customerName || 'Customer',
-              planId,
-              description
-            },
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent')
-          },
-          response: {
-            statusCode: 200,
-            headers: {
-              'content-type': 'application/json'
-            },
-            body: {
-              success: true,
-              transactionId: orderNumber,
-              amount,
-              environment: config.environment,
-              paymentMethod: 'hosted-checkout'
-            },
-            processingTimeMs: processingTime
-          },
-          amount,
-          environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
-          purpose: 'payment-creation',
-          sensitiveFieldsMasked: ['customerId', 'customerEmail', 'billingAddress'],
-          timestamp: new Date().toISOString()
-        });
-      } catch (certError: any) {
-        console.warn('[EPX Hosted] Certification logging failed:', certError.message);
-        // Don't fail the payment request if cert logging fails
-      }
-    }
-
     // Return data needed for frontend
     res.json({
       success: true,
