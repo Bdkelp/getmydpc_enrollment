@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import DashboardStats from "@/components/DashboardStats";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +55,11 @@ export default function AgentDashboard() {
   const { toast } = useToast();
   const { user } = useAuth();
   
+  // For admin/super_admin: allow viewing other agents' dashboards
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const viewingAgentId = selectedAgentId || user?.id;
+  const isAdminViewing = (user?.role === 'admin' || user?.role === 'super_admin') && selectedAgentId;
+  
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
     const hour = new Date().getHours();
@@ -79,14 +85,27 @@ export default function AgentDashboard() {
   const [consentType, setConsentType] = useState<string>("");
   const [consentNotes, setConsentNotes] = useState<string>("");
 
-  // Get agent stats
-  const { data: stats, isLoading: statsLoading } = useQuery<AgentStats>({
-    queryKey: ["/api/agent/stats"],
+  // For admin/super_admin: fetch all agents for selector
+  const { data: allAgents } = useQuery({
+    queryKey: ["/api/users"],
+    enabled: user?.role === 'admin' || user?.role === 'super_admin',
   });
 
-  // Get recent enrollments
+  // Get agent stats (for selected agent if admin, or current user)
+  const { data: stats, isLoading: statsLoading } = useQuery<AgentStats>({
+    queryKey: ["/api/agent/stats", viewingAgentId],
+    queryFn: () => apiRequest("GET", `/api/agent/stats${viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}` : ''}`),
+    enabled: !!viewingAgentId,
+  });
+
+  // Get recent enrollments (for selected agent if admin, or current user)
   const { data: enrollments, isLoading: enrollmentsLoading } = useQuery<Enrollment[]>({
-    queryKey: ["/api/agent/enrollments", dateFilter],
+    queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter],
+    queryFn: () => apiRequest("GET", `/api/agent/enrollments?${new URLSearchParams({
+      ...(viewingAgentId && viewingAgentId !== user?.id ? { agentId: viewingAgentId } : {}),
+      ...dateFilter
+    }).toString()}`),
+    enabled: !!viewingAgentId,
   });
 
   // Download enrollments spreadsheet
@@ -237,6 +256,51 @@ export default function AgentDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Agent Selector for Admin/Super_Admin */}
+        {(user?.role === 'admin' || user?.role === 'super_admin') && (
+          <Card className="mb-6 bg-blue-50 border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-4">
+                <Shield className="h-5 w-5 text-blue-600" />
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-blue-900 mb-2 block">
+                    {user?.role === 'super_admin' ? '🎸 Backstage Pass:' : '👔 Admin View:'} View Any Agent's Dashboard
+                  </label>
+                  <Select
+                    value={selectedAgentId || user?.id || ''}
+                    onValueChange={(value) => setSelectedAgentId(value === user?.id ? null : value)}
+                  >
+                    <SelectTrigger className="w-full md:w-96 bg-white">
+                      <SelectValue placeholder="Select an agent to view" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={user?.id || ''}>
+                        {user?.firstName} {user?.lastName} (Your Dashboard)
+                      </SelectItem>
+                      {allAgents?.filter((agent: any) => 
+                        agent.role === 'agent' && agent.id !== user?.id
+                      ).map((agent: any) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.agentNumber} - {agent.firstName} {user?.lastName} ({agent.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {isAdminViewing && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedAgentId(null)}
+                  >
+                    View My Dashboard
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Personalized Welcome Message */}
         <Card className="mb-8 bg-gradient-to-r from-green-500 to-green-600 text-white">
           <CardContent className="p-6">
@@ -278,7 +342,7 @@ export default function AgentDashboard() {
         </Card>
         
         {/* Enhanced Dashboard Stats */}
-        <DashboardStats userRole="agent" agentId={user?.id} />
+        <DashboardStats userRole="agent" agentId={viewingAgentId} />
 
         {/* Recent Enrollments */}
         <Card>

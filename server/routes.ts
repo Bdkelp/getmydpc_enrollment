@@ -4110,7 +4110,10 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      const agentId = req.user.id;
+      // Allow admin/super_admin to view any agent's enrollments via query param
+      const requestedAgentId = req.query.agentId;
+      const isAdminViewingOther = (userRole === 'admin' || userRole === 'super_admin') && requestedAgentId;
+      const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
       const { startDate, endDate } = req.query;
       
       console.log('[Agent Enrollments] Fetching enrollments for:', {
@@ -4118,6 +4121,7 @@ export async function registerRoutes(app: any) {
         agentEmail: req.user?.email,
         agentNumber: req.user?.agentNumber,
         role: req.user?.role,
+        isAdminViewingOther,
         startDate,
         endDate
       });
@@ -4173,8 +4177,12 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      const agentId = req.user.id;
-      console.log('[Agent Stats] Fetching stats for agent:', agentId);
+      // Allow admin/super_admin to view any agent's stats via query param
+      const requestedAgentId = req.query.agentId;
+      const isAdminViewingOther = (userRole === 'admin' || userRole === 'super_admin') && requestedAgentId;
+      const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
+      
+      console.log('[Agent Stats] Fetching stats for agent:', agentId, isAdminViewingOther ? '(Admin viewing)' : '(Own stats)');
 
       // Get enrollment counts
       const enrollments = await storage.getAgentEnrollments(agentId);
