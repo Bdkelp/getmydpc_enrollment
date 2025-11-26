@@ -2189,7 +2189,7 @@ export async function getAgentCommissions(agentId: string, startDate?: string, e
         m.first_name,
         m.last_name,
         m.email as member_email
-      FROM commissions c
+      FROM agent_commissions c
       LEFT JOIN members m ON c.member_id = m.id
       WHERE c.agent_id = $1
     `;
@@ -2228,7 +2228,7 @@ export async function getAgentCommissions(agentId: string, startDate?: string, e
 
 export async function getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
   try {
-    let sql = 'SELECT * FROM commissions';
+    let sql = 'SELECT * FROM agent_commissions';
     const params: any[] = [];
 
     if (startDate && endDate) {
@@ -2249,7 +2249,7 @@ export async function getAllCommissions(startDate?: string, endDate?: string): P
 export async function getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
   try {
     const result = await query(
-      'SELECT * FROM commissions WHERE subscription_id = $1 LIMIT 1',
+      'SELECT * FROM agent_commissions WHERE subscription_id = $1 LIMIT 1',
       [subscriptionId]
     );
     
@@ -4012,7 +4012,7 @@ export const storage = {
       // Include ALL members regardless of status (active, pending_activation, etc.)
       const membersResult = await query('SELECT * FROM members');
       const subscriptionsResult = await query('SELECT * FROM subscriptions');
-      const commissionsResult = await query('SELECT * FROM commissions');
+      const commissionsResult = await query('SELECT * FROM agent_commissions');
 
       const allMembers = membersResult.rows || [];
       const allSubscriptions = subscriptionsResult.rows || [];
@@ -4119,7 +4119,7 @@ export const storage = {
       // Include all members regardless of is_active flag
       const membersResult = await query('SELECT * FROM members ORDER BY created_at DESC');
       const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
-      const commissionsResult = await query('SELECT * FROM commissions ORDER BY created_at DESC');
+      const commissionsResult = await query('SELECT * FROM agent_commissions ORDER BY created_at DESC');
       const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
 
       const allMembers = membersResult.rows || [];
