@@ -3233,6 +3233,7 @@ async function createCommissionWithCheck(
     // Prepare commission data for dual-write
     const commissionData: AgentCommission = {
       agent_id: agentId || "HOUSE",
+      agent_number: agentNumber, // Include agent number for tracking
       member_id: memberId.toString(), // Convert to string for new schema
       enrollment_id: subscriptionId.toString(), // Link to enrollment
       commission_amount: commissionResult.commission,

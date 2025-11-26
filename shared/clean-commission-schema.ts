@@ -16,6 +16,7 @@ export const agentCommissions = pgTable("agent_commissions", {
   
   // Core References (simple and clear)
   agentId: text("agent_id").references(() => users.id).notNull(),
+  agentNumber: text("agent_number"), // Track by agent number (MPP00001, etc.)
   memberId: integer("member_id").references(() => members.id).notNull(),
   subscriptionId: integer("subscription_id").references(() => subscriptions.id),
   
@@ -35,6 +36,7 @@ export const agentCommissions = pgTable("agent_commissions", {
 }, (table) => [
   // Performance indexes
   index("idx_agent_commissions_agent_id").on(table.agentId),
+  index("idx_agent_commissions_agent_number").on(table.agentNumber),
   index("idx_agent_commissions_member_id").on(table.memberId),
   index("idx_agent_commissions_payment_status").on(table.paymentStatus),
   index("idx_agent_commissions_enrollment_date").on(table.enrollmentDate),

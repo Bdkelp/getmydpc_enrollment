@@ -2,6 +2,7 @@ import { supabase } from './lib/supabaseClient';
 
 export interface AgentCommission {
   agent_id: string;
+  agent_number?: string; // Track by agent number (MPP00001, etc.)
   member_id: string;
   lead_id?: string;
   enrollment_id?: string;
@@ -52,6 +53,7 @@ export async function createCommissionDualWrite(commission: AgentCommission): Pr
       .from('agent_commissions')
       .insert([{
         agent_id: commission.agent_id,
+        agent_number: commission.agent_number || null,
         member_id: commission.member_id,
         lead_id: commission.lead_id || null,
         enrollment_id: commission.enrollment_id || null,

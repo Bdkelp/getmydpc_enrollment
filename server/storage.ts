@@ -2392,7 +2392,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     // Batch fetch users data (both agents and members are in users table)
     const { data: users, error: usersError } = await supabase
       .from('users')
-      .select('id, email, first_name, last_name, role')
+      .select('id, email, first_name, last_name, role, agent_number')
       .in('id', [...memberIds, ...agentIds]);
 
     if (usersError) {
@@ -2417,6 +2417,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       return {
         id: commission.id,
         agentId: commission.agent_id,
+        agentNumber: commission.agent_number || agent?.agent_number || 'N/A', // Use stored or lookup agent number
         memberId: commission.member_id,
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
@@ -2513,6 +2514,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       return {
         id: commission.id,
         agentId: commission.agent_id,
+        agentNumber: commission.agent_number || agent?.agent_number || 'N/A', // Prefer stored, fallback to lookup
         memberId: commission.member_id,
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
@@ -2536,7 +2538,6 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         agentName: agent?.first_name && agent?.last_name 
           ? `${agent.first_name} ${agent.last_name}` 
           : agent?.email || 'Unknown Agent',
-        agentNumber: agent?.agent_number || '',
         agentFirstName: agent?.first_name || '',
         agentLastName: agent?.last_name || '',
         // Additional display fields
