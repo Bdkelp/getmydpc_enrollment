@@ -398,4 +398,81 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
   res.json({ success: true, logs });
 });
 
+/**
+ * EPX CERTIFICATION TEST ENDPOINT - Server Post API
+ * Creates a test subscription using EPX Recurring Billing API
+ * Use this to generate certification samples for EPX
+ */
+router.post('/api/epx/test-recurring', async (req: Request, res: Response) => {
+  try {
+    logEPX({ level: 'info', phase: 'certification', message: 'Starting Server Post API certification test' });
+
+    // Check if EPX Recurring service is available
+    const recurringService = await import('../services/epx-recurring-billing');
+    if (!recurringService) {
+      throw new Error('EPX Recurring Billing service not available');
+    }
+
+    // Use test data for certification
+    const testData = {
+      customerId: `CERT-TEST-${Date.now()}`,
+      planCode: 'MPP-BASE',
+      planName: 'MyPremierPlan Base',
+      amount: 59.00,
+      firstName: 'Test',
+      lastName: 'Certification',
+      email: 'cert@test.com',
+      phone: '1234567890',
+      // EPX Test Card for sandbox
+      cardNumber: '4111111111111111',
+      expiryDate: '1225', // MMYY format
+      cvv: '999'
+    };
+
+    logEPX({
+      level: 'info',
+      phase: 'certification',
+      message: 'EPX Server Post - CreateSubscription Request',
+      data: {
+        customerId: testData.customerId,
+        planCode: testData.planCode,
+        amount: testData.amount,
+        cardLast4: testData.cardNumber.slice(-4)
+      }
+    });
+
+    // Note: This will fail if EPX_MAC or other credentials aren't set
+    // That's okay - we just need the request/response samples logged
+    const result = await recurringService.createTestSubscription(testData);
+
+    logEPX({
+      level: 'info',
+      phase: 'certification',
+      message: 'EPX Server Post - CreateSubscription Response',
+      data: result
+    });
+
+    res.json({
+      success: true,
+      message: 'Certification test completed - check logs for request/response samples',
+      result
+    });
+
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'certification',
+      message: 'Certification test failed',
+      data: { error: error.message, stack: error.stack }
+    });
+
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Certification test failed',
+      message: 'Check server logs for details'
+    });
+  }
+});
+
 export default router;
+
