@@ -2381,22 +2381,51 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       return [];
     }
 
-    // Get unique member IDs and agent IDs for batch lookup
+    // Get unique member IDs, agent IDs, and enrollment IDs for batch lookup
     const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
     const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+    const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
 
-    // Batch fetch users data (both agents and members are in users table)
-    const { data: users, error: usersError } = await supabase
+    // Batch fetch members data from members table (primary source for enrollees)
+    const { data: members, error: membersError } = await supabase
+      .from('members')
+      .select('id, first_name, last_name, email, customer_number, coverage_type')
+      .in('id', memberIds.map(id => parseInt(id)));
+
+    if (membersError) {
+      console.warn('[Storage] Could not fetch member details:', membersError);
+    }
+
+    // Batch fetch agents data from users table (agents/admins/super_admins)
+    const { data: agents, error: agentsError } = await supabase
       .from('users')
       .select('id, email, first_name, last_name, role, agent_number')
-      .in('id', [...memberIds, ...agentIds]);
+      .in('id', agentIds);
 
-    if (usersError) {
-      console.warn('[Storage] Could not fetch user details:', usersError);
+    if (agentsError) {
+      console.warn('[Storage] Could not fetch agent details:', agentsError);
+    }
+
+    // Batch fetch subscription/enrollment data for plan info  
+    const { data: enrollments, error: enrollmentsError } = await supabase
+      .from('subscriptions')
+      .select(`
+        id,
+        plan_id,
+        member_id,
+        user_id,
+        plans:plans(name, tier)
+      `)
+      .in('id', enrollmentIds.map(id => parseInt(id)));
+
+    if (enrollmentsError) {
+      console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
     }
 
     // Create lookup maps
-    const usersMap = new Map((users || []).map(u => [u.id, u]));
+    const membersMap = new Map((members || []).map(m => [m.id.toString(), m]));
+    const agentsMap = new Map((agents || []).map(a => [a.id, a]));
+    const enrollmentsMap = new Map((enrollments || []).map(e => [e.id.toString(), e]));
 
     console.log('[Storage] Sample raw commission:', {
       id: commissions[0].id,
@@ -2407,14 +2436,23 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     
     // Format for frontend - transform to match expected structure
     const formatted = commissions.map((commission: any) => {
-      const member = usersMap.get(commission.member_id);
-      const agent = usersMap.get(commission.agent_id);
+      const member = membersMap.get(commission.member_id);
+      const agent = agentsMap.get(commission.agent_id);
+      const enrollment = enrollmentsMap.get(commission.enrollment_id);
+      const plan = enrollment?.plans;
+
+      // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
+      const planTier = plan?.tier || 'Base';
+      const planName = plan?.name || 'MyPremierPlan';
+      const coverageType = member?.coverage_type || 'Member Only';
+      const planDisplay = `${planTier} - ${coverageType}`;
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
-        agentNumber: commission.agent_number || agent?.agent_number || 'N/A', // Use stored or lookup agent number
+        agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
         memberId: commission.member_id,
+        membershipId: member?.customer_number || commission.member_id, // Use customer_number as membership ID
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
         coverageType: commission.coverage_type || 'other',
@@ -2423,10 +2461,11 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         // Map member data from lookup
         totalPlanCost: parseFloat(commission.base_premium || 0),
         userName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name}` 
+          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
           : member?.email || `Member ${commission.member_id}`,
-        planTier: commission.coverage_type || 'N/A',
-        planType: commission.coverage_type || 'other',
+        planTier: planTier,
+        planType: coverageType,
+        planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         notes: commission.notes || '',
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
@@ -2435,7 +2474,6 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         memberEmail: member?.email || '',
         firstName: member?.first_name || '',
         lastName: member?.last_name || '',
-        planName: commission.coverage_type || 'Unknown',
         planPrice: parseFloat(commission.base_premium || 0),
         // Agent info
         agentEmail: agent?.email || '',
@@ -2485,33 +2523,71 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       return [];
     }
 
-    // Get unique member IDs and agent IDs for batch lookup
+    // Get unique member IDs, agent IDs, and enrollment IDs for batch lookup
     const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
     const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
+    const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
 
-    // Batch fetch users data (both agents and members are in users table)
-    const { data: users, error: usersError } = await supabase
+    // Batch fetch members data from members table (primary source for enrollees)
+    const { data: members, error: membersError } = await supabase
+      .from('members')
+      .select('id, first_name, last_name, email, customer_number, coverage_type')
+      .in('id', memberIds.map(id => parseInt(id)));
+
+    if (membersError) {
+      console.warn('[Storage] Could not fetch member details:', membersError);
+    }
+
+    // Batch fetch agents data from users table (agents/admins/super_admins)
+    const { data: agents, error: agentsError } = await supabase
       .from('users')
       .select('id, email, first_name, last_name, role, agent_number')
-      .in('id', [...memberIds, ...agentIds]);
+      .in('id', agentIds);
 
-    if (usersError) {
-      console.warn('[Storage] Could not fetch user details:', usersError);
+    if (agentsError) {
+      console.warn('[Storage] Could not fetch agent details:', agentsError);
+    }
+
+    // Batch fetch subscription/enrollment data for plan info
+    const { data: enrollments, error: enrollmentsError } = await supabase
+      .from('subscriptions')
+      .select(`
+        id,
+        plan_id,
+        member_id,
+        user_id,
+        plans:plans(name, tier)
+      `)
+      .in('id', enrollmentIds.map(id => parseInt(id)));
+
+    if (enrollmentsError) {
+      console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
     }
 
     // Create lookup maps
-    const usersMap = new Map((users || []).map(u => [u.id, u]));
+    const membersMap = new Map((members || []).map(m => [m.id.toString(), m]));
+    const agentsMap = new Map((agents || []).map(a => [a.id, a]));
+    const enrollmentsMap = new Map((enrollments || []).map(e => [e.id.toString(), e]));
     
     // Format for frontend - enhanced for admin view
     const formatted = commissions.map(commission => {
-      const member = usersMap.get(commission.member_id);
-      const agent = usersMap.get(commission.agent_id);
+      const member = membersMap.get(commission.member_id);
+      const agent = agentsMap.get(commission.agent_id);
+      const enrollment = enrollmentsMap.get(commission.enrollment_id);
+      const plan = enrollment?.plans;
+
+      // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
+      const planTier = plan?.tier || 'Base';
+      const planName = plan?.name || 'MyPremierPlan';
+      const coverageType = member?.coverage_type || 'Member Only';
+      const planDisplay = `${planTier} - ${coverageType}`;
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
-        agentNumber: commission.agent_number || agent?.agent_number || 'N/A', // Prefer stored, fallback to lookup
+        agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
         memberId: commission.member_id,
+        membershipId: member?.customer_number || commission.member_id,
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
         coverageType: commission.coverage_type || 'other',
@@ -2525,7 +2601,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         // Member information
         memberEmail: member?.email || '',
         memberName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name}` 
+          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
           : member?.email || `Member ${commission.member_id}`,
         memberFirstName: member?.first_name || '',
         memberLastName: member?.last_name || '',
@@ -2536,14 +2612,14 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
           : agent?.email || 'Unknown Agent',
         agentFirstName: agent?.first_name || '',
         agentLastName: agent?.last_name || '',
-        // Additional display fields
-        planTier: commission.coverage_type || 'N/A',
-        planType: commission.coverage_type || 'other',
-        planName: commission.coverage_type || 'Unknown',
+        // Plan information
+        planTier: planTier,
+        planType: coverageType,
+        planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         planPrice: parseFloat(commission.base_premium || 0),
         totalPlanCost: parseFloat(commission.base_premium || 0),
         userName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name}` 
+          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
           : member?.email || `Member ${commission.member_id}`
       };
     });
