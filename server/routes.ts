@@ -3069,6 +3069,13 @@ router.get(
 
     try {
       const agentId = req.user!.id;
+      
+      console.log('[Agent Stats] Fetching stats for user:', {
+        userId: agentId,
+        email: req.user!.email,
+        role: req.user!.role,
+        agentNumber: req.user!.agentNumber
+      });
 
       // Get commission stats
       const commissionStats = await storage.getCommissionStats(agentId);
@@ -3080,6 +3087,21 @@ router.get(
         .select('*')
         .eq('enrolled_by_agent_id', agentId);
 
+      console.log(`[Agent Stats] Found ${enrollments?.length || 0} enrollments for agent ${agentId}`);
+      console.log('[Agent Stats] Sample enrollment:', enrollments?.[0]);
+      
+      // DEBUG: Check ALL members to see distribution of enrolled_by_agent_id
+      const { data: allMembers } = await supabase
+        .from('members')
+        .select('id, email, enrolled_by_agent_id, agent_number, status')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      console.log('[Agent Stats] DEBUG - Last 10 members:');
+      allMembers?.forEach((m: any) => {
+        console.log(`  ID: ${m.id}, Email: ${m.email}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Status: ${m.status}`);
+      });
+
       const thisMonth = new Date();
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
@@ -3088,7 +3110,10 @@ router.get(
         (e: any) => new Date(e.created_at) >= thisMonth,
       ).length || 0;
 
-      const activeMembers = enrollments?.filter((e: any) => e.is_active).length || 0;
+      // Count all enrolled members (not just is_active=true) - include pending_activation
+      const activeMembers = enrollments?.filter((e: any) => 
+        e.status === 'active' || e.status === 'pending_activation'
+      ).length || 0;
 
       // Get commission stats from Supabase
       const { data: commissions } = await supabase
