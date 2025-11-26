@@ -2661,14 +2661,16 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
 
 export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
   try {
+    // Convert string IDs to integers for database query
+    const intIds = commissionIds.map(id => parseInt(id, 10));
+    
     const { error } = await supabase
       .from('agent_commissions')
       .update({
         payment_status: 'paid',
-        payment_date: paymentDate || new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        paid_date: paymentDate || new Date().toISOString()
       })
-      .in('id', commissionIds);
+      .in('id', intIds);
 
     if (error) {
       throw new Error(`Failed to mark commissions as paid: ${error.message}`);
@@ -4035,10 +4037,10 @@ export const storage = {
       const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
       const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
 
-      // Calculate revenue from active members (not subscriptions - legacy table)
+      // Calculate revenue from ALL members (active + pending_activation)
       // Members table has total_monthly_price which is the actual enrolled plan price
       const monthlyRevenue = allMembers
-        .filter(member => member.status === 'active')
+        .filter(member => member.status === 'active' || member.status === 'pending_activation')
         .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
 
       // Calculate commissions

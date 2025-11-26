@@ -3082,24 +3082,26 @@ router.get(
 
       // Get enrollment counts from members table (NOT users table)
       // Users table should ONLY contain agents/admins, members are in the members table
+      // Query by agent_number instead of enrolled_by_agent_id
+      const agentNumber = req.user!.agentNumber;
       const { data: enrollments } = await supabase
         .from('members')
         .select('*')
-        .eq('enrolled_by_agent_id', agentId);
+        .eq('agent_number', agentNumber);
 
-      console.log(`[Agent Stats] Found ${enrollments?.length || 0} enrollments for agent ${agentId}`);
+      console.log(`[Agent Stats] Found ${enrollments?.length || 0} enrollments for agent ${agentNumber} (ID: ${agentId})`);
       console.log('[Agent Stats] Sample enrollment:', enrollments?.[0]);
       
-      // DEBUG: Check ALL members to see distribution of enrolled_by_agent_id
+      // DEBUG: Check ALL members to see distribution of agent_number
       const { data: allMembers } = await supabase
         .from('members')
-        .select('id, email, enrolled_by_agent_id, agent_number, status')
+        .select('id, email, agent_number, status, total_monthly_price')
         .order('created_at', { ascending: false })
         .limit(10);
       
       console.log('[Agent Stats] DEBUG - Last 10 members:');
       allMembers?.forEach((m: any) => {
-        console.log(`  ID: ${m.id}, Email: ${m.email}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Status: ${m.status}`);
+        console.log(`  ID: ${m.id}, Email: ${m.email}, AgentNum: ${m.agent_number}, Status: ${m.status}, Price: ${m.total_monthly_price}`);
       });
 
       const thisMonth = new Date();
