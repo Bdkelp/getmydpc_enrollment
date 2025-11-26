@@ -1,6 +1,10 @@
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables from .env file FIRST
 // Deployment: Fixed phone field lengths to handle formatted input
@@ -136,18 +140,33 @@ app.use((req, res, next) => {
     res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  // Serve frontend - different behavior for production vs development
   const isProduction = process.env.NODE_ENV === "production";
-  const hasDistFolder = fs.existsSync(path.resolve(process.cwd(), "dist", "public"));
   
-  if (!isProduction || !hasDistFolder) {
-    // Development or Vercel (which needs Vite for serving frontend)
-    await setupVite(app, server);
+  if (isProduction) {
+    // Production: serve the built client from client/dist
+    const clientDistPath = path.resolve(__dirname, '../client/dist');
+    
+    console.log(`[Production] Serving static files from: ${clientDistPath}`);
+    console.log(`[Production] Directory exists: ${fs.existsSync(clientDistPath)}`);
+    
+    if (fs.existsSync(clientDistPath)) {
+      // Serve static assets (JS, CSS, images, etc.)
+      app.use(express.static(clientDistPath));
+      
+      // For any non-API route, serve the index.html (SPA fallback)
+      app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) {
+          return next();
+        }
+        res.sendFile(path.join(clientDistPath, 'index.html'));
+      });
+    } else {
+      console.warn(`[Production] Client dist folder not found at ${clientDistPath}`);
+    }
   } else {
-    // Production with built static files
-    serveStatic(app);
+    // Development: use Vite dev server
+    await setupVite(app, server);
   }
 
   // Use Railway's PORT environment variable in production, fallback to 5000 for local dev
