@@ -195,6 +195,20 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         ...billingAddress
       }
     };
+    
+    // Log the payload we send to frontend (which frontend will use to call EPX)
+    console.log(
+      '[EPX Hosted Checkout - REQUEST TO FRONTEND]',
+      JSON.stringify({
+        transactionId: orderNumber,
+        amount: amount.toFixed(2),
+        email: customerEmail,
+        billingName: customerName || 'Customer',
+        publicKey: sessionResponse.publicKey,
+        environment: config.environment
+      }, null, 2)
+    );
+    
     logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber } });
     res.json(responsePayload);
   } catch (error: any) {
@@ -219,6 +233,12 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         error: 'Service not initialized'
       });
     }
+
+    // Log the full callback payload from EPX
+    console.log(
+      '[EPX Hosted Checkout - CALLBACK FROM EPX]',
+      JSON.stringify(req.body, null, 2)
+    );
 
     logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: req.body } });
 
@@ -313,13 +333,21 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
     }
 
-    res.json({
+    const callbackResponse = {
       success: result.isApproved,
       transactionId: result.transactionId,
       authCode: result.authCode,
       amount: result.amount,
       error: result.error
-    });
+    };
+    
+    // Log our response back to EPX
+    console.log(
+      '[EPX Hosted Checkout - RESPONSE TO EPX]',
+      JSON.stringify(callbackResponse, null, 2)
+    );
+    
+    res.json(callbackResponse);
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
     res.status(500).json({
