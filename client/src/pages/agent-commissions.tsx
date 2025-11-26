@@ -325,7 +325,7 @@ export default function AgentCommissions() {
                           {commission.createdAt ? format(new Date(commission.createdAt), "MM/dd/yyyy") : 'N/A'}
                         </TableCell>
                         <TableCell>{commission.userName || 'N/A'}</TableCell>
-                        <TableCell>{commission.planTier || 'N/A'}</TableCell>
+                        <TableCell>{commission.planName || commission.planTier || 'N/A'}</TableCell>
                         <TableCell>{commission.planType || 'N/A'}</TableCell>
                         <TableCell>
                           ${(commission.totalPlanCost && typeof commission.totalPlanCost === 'number') ? commission.totalPlanCost.toFixed(2) : '0.00'}

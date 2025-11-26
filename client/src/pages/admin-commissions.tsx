@@ -314,10 +314,10 @@ export default function AdminCommissions() {
                       <TableCell>
                         {format(new Date(commission.createdAt), "MM/dd/yyyy")}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{commission.agentId.slice(0, 8)}...</TableCell>
+                      <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                       <TableCell>{commission.userName}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{commission.coverageType}</Badge>
+                        <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
                       </TableCell>
                       <TableCell className="font-semibold">
                         ${commission.commissionAmount.toFixed(2)}

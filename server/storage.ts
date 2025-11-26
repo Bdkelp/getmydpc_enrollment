@@ -943,6 +943,7 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
 export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
   try {
     // Query members table from Neon database with plan and commission data
+    // Admin view: Show ALL members regardless of is_active status
     let sql = `
       SELECT 
         m.*,
@@ -958,7 +959,7 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
       LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
-      WHERE m.is_active = true
+      WHERE 1=1
     `;
     const params: any[] = [];
     let paramCount = 1;
@@ -1056,11 +1057,20 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
     console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
     
     // DEBUG: Check ALL members to see what's in the database
-    const allMembersDebug = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, agent_number, created_at FROM members ORDER BY created_at DESC LIMIT 10');
-    console.log('[Storage] DEBUG - ALL MEMBERS (last 10):');
+    const allMembersDebug = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, agent_number, is_active, status, created_at FROM members ORDER BY created_at DESC LIMIT 15');
+    console.log('[Storage] DEBUG - ALL MEMBERS (last 15):');
     allMembersDebug.rows.forEach((m: any) => {
-      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Created: ${m.created_at}`);
+      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Active: ${m.is_active}, Status: ${m.status}, Created: ${m.created_at}`);
     });
+    
+    // DEBUG: Check how many members have NULL enrolled_by_agent_id
+    const nullAgentCount = await query('SELECT COUNT(*) as count FROM members WHERE enrolled_by_agent_id IS NULL');
+    console.log('[Storage] DEBUG - Members with NULL enrolled_by_agent_id:', nullAgentCount.rows[0].count);
+    
+    // DEBUG: Check how many members match this agent
+    const agentMatchCount = await query('SELECT COUNT(*) as count FROM members WHERE enrolled_by_agent_id::uuid = $1::uuid', [agentId]);
+    console.log('[Storage] DEBUG - Members enrolled by agent', agentId, ':', agentMatchCount.rows[0].count);
+    
     console.log('[Storage] DEBUG - Searching for agentId:', agentId);
     console.log('[Storage] DEBUG - agentId type:', typeof agentId);
     if (result.rows.length > 0) {
@@ -3988,7 +3998,8 @@ export const storage = {
       const allUsers = allUsersData || [];
 
       // Get members, subscriptions, and commissions from Supabase (same database as users)
-      const membersResult = await query('SELECT * FROM members WHERE status = $1', ['active']);
+      // Include ALL members regardless of status (active, pending_activation, etc.)
+      const membersResult = await query('SELECT * FROM members');
       const subscriptionsResult = await query('SELECT * FROM subscriptions');
       const commissionsResult = await query('SELECT * FROM commissions');
 
@@ -4005,7 +4016,8 @@ export const storage = {
 
       const totalAgents = allUsers.filter(user => user.role === 'agent').length;
       const totalAdmins = allUsers.filter(user => user.role === 'admin' || user.role === 'super_admin').length;
-      const totalMembers = allMembers.length;
+      const totalMembers = allMembers.length; // Total enrolled (all statuses)
+      const activeMembers = allMembers.filter(m => m.status === 'active').length;
       const totalUsers = totalAgents + totalAdmins + totalMembers;
 
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
@@ -4093,7 +4105,8 @@ export const storage = {
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
       // Query from Supabase database - where all data lives
-      const membersResult = await query('SELECT * FROM members WHERE is_active = true ORDER BY created_at DESC');
+      // Include all members regardless of is_active flag
+      const membersResult = await query('SELECT * FROM members ORDER BY created_at DESC');
       const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
       const commissionsResult = await query('SELECT * FROM commissions ORDER BY created_at DESC');
       const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
