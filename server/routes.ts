@@ -3197,17 +3197,11 @@ async function createCommissionWithCheck(
   addRxValet: boolean = false,
 ) {
   try {
-    // Get agent profile to check role
+    // Get agent profile to check role and agent number
     const agent = agentId ? await storage.getUser(agentId) : null;
 
-    // Check if agent is admin or super_admin (they don't earn commissions)
-    if (agent?.role === "admin" || agent?.role === "super_admin") {
-      console.log("Commission creation skipped - admin/super_admin agent:", {
-        agentRole: agent?.role,
-        agentId,
-      });
-      return { skipped: true, reason: "admin_no_commission" };
-    }
+    // NOTE: Removed admin/super_admin skip - they can also enroll members and earn commissions
+    // All roles (agent, admin, super_admin) with agent numbers can earn commissions
 
     // Calculate commission using existing logic
     const commissionResult = calculateCommission(planName, memberType, addRxValet);

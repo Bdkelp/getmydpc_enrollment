@@ -2101,12 +2101,8 @@ export async function rejectUser(userId: string, reason: string): Promise<User> 
 
 // Commission operations
 export async function createCommission(commission: InsertCommission): Promise<Commission> {
-  // Check if the agent is an admin. If so, skip commission creation.
-  const agent = await getUser(commission.agentId);
-  if (agent && agent.role === 'admin') {
-    console.log(`Skipping commission for admin agent: ${commission.agentId}`);
-    return { skipped: true, reason: 'admin_no_commission' } as any; // Return a specific object indicating skip
-  }
+  // NOTE: Removed admin skip - admins and super_admins can also enroll members and earn commissions
+  // All roles with agent numbers can earn commissions
 
   // Insert commission into database (Supabase PostgreSQL)
   try {
