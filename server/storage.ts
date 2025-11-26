@@ -932,7 +932,10 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
       planPrice: row.plan_price,
       totalMonthlyPrice: row.total_monthly_price,
       commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status
+      commissionStatus: row.commission_status,
+      status: row.status,
+      enrolledBy: 'Agent',
+      subscriptionId: row.subscription_id
     } as any));
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
@@ -1017,7 +1020,12 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
       planPrice: row.plan_price,
       totalMonthlyPrice: row.total_monthly_price,
       commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status
+      commissionStatus: row.commission_status,
+      status: row.status,
+      enrolledBy: row.agent_first_name && row.agent_last_name 
+        ? `${row.agent_first_name} ${row.agent_last_name}` 
+        : 'Unknown',
+      subscriptionId: row.subscription_id
     } as any));
   } catch (error: any) {
     console.error('Error fetching all enrollments:', error);
@@ -1134,7 +1142,10 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       planPrice: row.plan_price,
       totalMonthlyPrice: row.total_monthly_price,
       commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status
+      commissionStatus: row.commission_status,
+      status: row.status,
+      enrolledBy: 'Agent (Self)',
+      subscriptionId: row.subscription_id
     } as any));
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
