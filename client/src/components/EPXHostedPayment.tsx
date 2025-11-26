@@ -137,6 +137,14 @@ export default function EPXHostedPayment({
       try {
         console.log('[EPX Hosted] Initializing payment session');
         
+        // Wait for captcha token before creating payment session
+        if (!captchaToken) {
+          console.log('[EPX Hosted] Waiting for reCAPTCHA token...');
+          return;
+        }
+        
+        console.log('[EPX Hosted] Sending reCAPTCHA token to backend');
+        
         // Get session data from backend
         const response = await apiClient.post('/api/epx/hosted/create-payment', {
           amount,
@@ -146,7 +154,8 @@ export default function EPXHostedPayment({
           planId,
           subscriptionId,
           description: description || 'DPC Subscription Payment',
-          billingAddress: populatedBillingAddress
+          billingAddress: populatedBillingAddress,
+          captchaToken: captchaToken
         });
 
         if (!response.success) {
@@ -183,7 +192,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {

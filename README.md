@@ -5,7 +5,7 @@
 ## 🔗 Quick Links
 
 - **Live Site:** https://enrollment.getmydpc.com
-- **Backend API:** https://getmydpcenrollment-production.up.railway.app
+- **Backend API:** DigitalOcean App Platform
 - **Database:** Supabase PostgreSQL
 - **Repository:** https://github.com/Bdkelp/getmydpc_enrollment
 
@@ -20,7 +20,7 @@
 - **UI Components**: Shadcn/ui + Tailwind CSS
 - **Authentication**: Supabase Auth (client)
 
-### Backend (Railway)
+### Backend (DigitalOcean)
 - **Runtime**: Node.js + TypeScript
 - **Framework**: Express.js
 - **Build**: esbuild (fast TypeScript compilation)
@@ -43,13 +43,13 @@
 │  Frontend (Vercel)                                          │
 │  ├─ React App (enrollment.getmydpc.com)                     │
 │  ├─ Static Assets                                           │
-│  └─ API Proxy (/api/* → Railway)                            │
+│  └─ API Proxy (/api/* → DigitalOcean)                       │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│  Backend (Railway)                                          │
-│  ├─ Express API (*.up.railway.app)                          │
-│  ├─ EPX Payment Integration                                 │
+│  Backend (DigitalOcean App Platform)                        │
+│  ├─ Express API                                             │
+│  ├─ EPX Payment Integration + reCAPTCHA v3                  │
 │  ├─ Commission Calculator                                   │
 │  └─ Structured Logging                                      │
 └─────────────────────────────────────────────────────────────┘
@@ -76,7 +76,7 @@
 - Node.js 18+ and npm
 - Git
 - Code editor (VS Code recommended)
-- Railway CLI (optional, for backend debugging)
+- DigitalOcean CLI (optional, for backend debugging)
 - Vercel CLI (optional, for frontend testing)
 
 ### Initial Setup
@@ -97,7 +97,7 @@ cd ..
 
 ### Environment Configuration
 
-#### Backend (Railway)
+#### Backend (DigitalOcean)
 
 Create `.env` in project root:
 
@@ -113,9 +113,10 @@ EPX_PUBLIC_KEY=eyAidGVybWluYWxQcm9maWxlSWQiOiAiYjE1NjFjODAtZTgxZC00NTNmLTlkMDUtY
 EPX_MAC_KEY=[from EPX]
 EPX_ENVIRONMENT=sandbox
 
-# Google reCAPTCHA v3
+# Google reCAPTCHA v3 (Required by EPX)
 RECAPTCHA_SECRET_KEY=[from Google Console]
 RECAPTCHA_SCORE_THRESHOLD=0.5
+EPX_LOG_DIR=./logs/epx
 
 # Email (SendGrid)
 SENDGRID_API_KEY=[from SendGrid]
@@ -546,7 +547,7 @@ leads
 - [x] Google reCAPTCHA v3 implementation (client + server)
 - [x] Structured JSONL logging system for EPX payments
 - [x] Server-side reCAPTCHA token verification
-- [x] Split-deployment architecture (Vercel + Railway)
+- [x] Split-deployment architecture (Vercel + DigitalOcean)
 - [x] Commission calculation system
 - [x] Agent hierarchy support
 - [x] Role-based access control (RBAC)
@@ -585,7 +586,7 @@ const response = await apiClient.post('/api/epx/hosted/create-payment', {
 
 **What's Needed**:
 
-- [ ] Obtain DigitalOcean static IP address (or confirm current Railway IP)
+- [ ] Obtain DigitalOcean static IP address for EPX whitelisting
 - [ ] Provide domain to EPX: `enrollment.getmydpc.com`
 - [ ] Confirm EPX adds domain to reCAPTCHA whitelist
 - [ ] Test in production environment
@@ -731,7 +732,7 @@ curl https://getmydpcenrollment-production.up.railway.app/api/check-ip
 #### Phase 1: Complete reCAPTCHA Integration
 
 - [ ] Add `captchaToken` to frontend create-payment request
-- [ ] Obtain DigitalOcean static IP or confirm Railway IP
+- [ ] Obtain DigitalOcean static IP for EPX domain whitelisting
 - [ ] Submit domain to EPX for whitelisting
 - [ ] Test production payments with real reCAPTCHA
 - [ ] Produce sample request/response for EPX certification
@@ -931,14 +932,14 @@ Both frontend and backend auto-deploy on push to `main` branch.
 
 **Build Command**: `npm run build` (esbuild)  
 **Start Command**: `npm start` or `node dist/index.js`  
-**Port**: Automatically assigned by Railway (`PORT` env variable)
+**Port**: Automatically assigned by DigitalOcean (`PORT` env variable, typically 8080)
 
 #### Vercel (Frontend)
 
 1. Push to `main` branch
 2. Vercel detects changes and rebuilds (~1-2 minutes)
 3. Site live at `https://enrollment.getmydpc.com`
-4. API proxy: `/api/*` → Railway backend (configured in `vercel.json`)
+4. API proxy: `/api/*` → DigitalOcean backend (configured in `vercel.json`)
 
 **Build Command**: `npm run build` (Vite)  
 **Output Directory**: `dist`  
@@ -947,21 +948,21 @@ Both frontend and backend auto-deploy on push to `main` branch.
 ### Manual Deployment
 
 ```bash
-# Railway CLI (backend)
-railway up
+# DigitalOcean CLI (backend)
+doctl apps create-deployment <app-id>
 
 # Vercel CLI (frontend)
 cd client
 vercel --prod
 
 # Check deployments
-railway status
+doctl apps list
 vercel ls
 ```
 
 ### Pre-Deployment Checklist
 
-- [ ] All environment variables set in Railway and Vercel
+- [ ] All environment variables set in DigitalOcean and Vercel
 - [ ] Database migrations applied (`npm run db:push`)
 - [ ] EPX credentials configured and tested
 - [ ] reCAPTCHA secret key and site key configured
@@ -976,7 +977,7 @@ vercel ls
 **Backend Health Check**:
 
 ```bash
-curl https://getmydpcenrollment-production.up.railway.app/api/health
+curl https://your-digitalocean-app.ondigitalocean.app/api/health
 ```
 
 Expected response:
@@ -1011,7 +1012,7 @@ getmydpc_enrollment/
 │   │   │   ├── login.tsx          # 🔐 Authentication page
 │   │   │   └── register.tsx       # 📝 New agent registration
 │   │   ├── lib/                   # Utilities and API client
-│   │   │   ├── apiClient.ts       # 🔌 Axios wrapper for Railway backend
+│   │   │   ├── apiClient.ts       # 🔌 Axios wrapper for DigitalOcean backend
 │   │   │   ├── utils.ts           # Helper functions (formatting, validation)
 │   │   │   └── queryClient.ts     # TanStack Query configuration
 │   │   ├── hooks/                 # Custom React hooks
@@ -1024,13 +1025,13 @@ getmydpc_enrollment/
 │   │   └── index.css              # Global Tailwind styles
 │   ├── public/                    # Static assets served by Vite
 │   │   └── avatars/              # User profile images
-│   ├── vercel.json               # ⚙️ Vercel config + API proxy to Railway
+│   ├── vercel.json               # ⚙️ Vercel config + API proxy to DigitalOcean
 │   ├── vite.config.ts            # Vite build config (path aliases, plugins)
 │   ├── tailwind.config.cjs       # Tailwind CSS theme customization
 │   ├── tsconfig.json             # TypeScript config (strict mode)
 │   └── package.json              # Frontend dependencies
 │
-├── server/                         # Backend (Express + TypeScript) - Deployed to Railway
+├── server/                         # Backend (Express + TypeScript) - Deployed to DigitalOcean
 │   ├── routes/                    # API endpoints (all prefixed with /api)
 │   │   ├── epx-hosted-routes.ts  # 💳 EPX Hosted Checkout + reCAPTCHA
 │   │   │                         # POST /api/epx/hosted/create-payment
@@ -1090,7 +1091,7 @@ getmydpc_enrollment/
 ├── client.tsconfig.json            # Client-specific TS config
 ├── .env                            # Environment variables (gitignored)
 ├── .gitignore                      # Git ignore rules
-├── railway.json                    # Railway deployment config
+├── railway.json                    # Legacy deployment config (not used)
 ├── nixpacks.toml                   # Railway build configuration
 └── README.md                       # 📖 This file
 ```
