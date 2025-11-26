@@ -4074,8 +4074,19 @@ export async function registerRoutes(app: any) {
   // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
   app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Agent access required' });
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      if (!allowedRoles.includes(userRole)) {
+        console.log('[Agent Enrollments] Permission denied:', {
+          userRole,
+          rawRole: req.user?.role,
+          userId: req.user?.id
+        });
+        return res.status(403).json({ 
+          error: 'Agent or admin access required',
+          currentRole: userRole
+        });
       }
 
       const agentId = req.user.id;
@@ -4123,8 +4134,22 @@ export async function registerRoutes(app: any) {
   // Fix: /api/agent/stats (403) - permission issue
   app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        return res.status(403).json({ message: 'Agent or admin access required' });
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      console.log('[Agent Stats] Permission check:', {
+        userRole,
+        rawRole: req.user?.role,
+        isAllowed: allowedRoles.includes(userRole),
+        userId: req.user?.id
+      });
+      
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({ 
+          message: 'Agent or admin access required',
+          currentRole: userRole,
+          allowedRoles
+        });
       }
 
       const agentId = req.user.id;
@@ -4200,11 +4225,14 @@ export async function registerRoutes(app: any) {
   // Fix: /api/agent/commission-stats (404)
   app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
     try {
-      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", userRole);
 
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        console.log("❌ Access denied - not agent or admin");
-        return res.status(403).json({ error: 'Agent or admin access required' });
+      if (!allowedRoles.includes(userRole)) {
+        console.log("❌ Access denied - not agent or admin", { userRole, rawRole: req.user?.role });
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
       // Get actual commission stats for the agent
@@ -4224,11 +4252,14 @@ export async function registerRoutes(app: any) {
   // Fix: /api/agent/commissions (403) - permission issue  
   app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", userRole);
 
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        console.log("❌ Access denied - not agent or admin");
-        return res.status(403).json({ error: 'Agent or admin access required' });
+      if (!allowedRoles.includes(userRole)) {
+        console.log("❌ Access denied - not agent or admin", { userRole, rawRole: req.user?.role });
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
       const { startDate, endDate } = req.query;
@@ -4253,8 +4284,11 @@ export async function registerRoutes(app: any) {
   // Agent: Get commission totals (MTD, YTD, Lifetime)
   app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent' && req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
-        return res.status(403).json({ error: 'Agent or admin access required' });
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
       const agentId = req.user.id;
@@ -4286,8 +4320,11 @@ export async function registerRoutes(app: any) {
   // Agent: Export commissions as CSV
   app.get('/api/agent/export-commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'agent') {
-        return res.status(403).json({ error: 'Agent access required' });
+      const userRole = req.user?.role?.trim();
+      const allowedRoles = ['agent', 'admin', 'super_admin'];
+      
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
       const { startDate, endDate } = req.query;
