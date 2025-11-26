@@ -123,7 +123,9 @@ export const members = pgTable("members", {
   // Enrollment tracking
   enrolledByAgentId: varchar("enrolled_by_agent_id", { length: 255 }).references(() => users.id),
   agentNumber: varchar("agent_number", { length: 20 }), // MPP0001, MPP0002, etc.
-  enrollmentDate: timestamp("enrollment_date").defaultNow(),
+  enrollmentDate: timestamp("enrollment_date").defaultNow(), // When they enrolled/paid (variable date)
+  firstPaymentDate: timestamp("first_payment_date"), // First payment date (same as enrollmentDate, used for recurring billing)
+  membershipStartDate: timestamp("membership_start_date"), // When membership actually begins (1st or 15th only)
   // Plan and pricing information
   planId: integer("plan_id").references(() => plans.id), // Selected plan
   coverageType: varchar("coverage_type", { length: 50 }), // Member Only, Member/Spouse, Member/Child, Family
@@ -131,7 +133,7 @@ export const members = pgTable("members", {
   addRxValet: boolean("add_rx_valet").default(false), // ProChoice Rx add-on ($21/month)
   // Status
   isActive: boolean("is_active").default(true),
-  status: varchar("status", { length: 20 }).default("active"), // active, cancelled, suspended, pending
+  status: varchar("status", { length: 20 }).default("pending_activation"), // pending_activation, active, cancelled, suspended, pending
   cancellationDate: timestamp("cancellation_date"),
   cancellationReason: text("cancellation_reason"),
   // Timestamps

@@ -22,12 +22,14 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
+import { scheduleMembershipActivation } from "./services/membership-activation-service";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import adminDatabaseRoutes from "./routes/admin-database";
 import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
+import epxRecurringRoutes from "./routes/epx-recurring-routes";
 
 const app = express();
 
@@ -122,6 +124,9 @@ app.use((req, res, next) => {
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use('/', epxHostedRoutes);
   
+  // Register EPX Recurring Billing routes (new API)
+  app.use('/', epxRecurringRoutes);
+  
   // Register all API routes
   const server = await registerRoutes(app);
 
@@ -180,6 +185,9 @@ app.use((req, res, next) => {
       // Initialize weekly recap service
       WeeklyRecapService.scheduleWeeklyRecap();
 
+      // Initialize membership activation scheduler
+      scheduleMembershipActivation();
+
       // Validate EPX configuration
       try {
         console.log('[Server] Validating EPX configuration...');
@@ -192,7 +200,7 @@ app.use((req, res, next) => {
             EPX_MAC_KEY: process.env.EPX_MAC_KEY ? 'SET' : 'NOT SET',
             MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET'
           });
-      } catch (error) {
+      } catch (error: any) {
         console.warn('[Server] EPX configuration check failed:', error.message);
       }
 

@@ -13,6 +13,11 @@ import {
 import { sendLeadNotification, sendEmailVerification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
+import { 
+  calculateMembershipStartDate, 
+  isMembershipActive, 
+  daysUntilMembershipStarts 
+} from "./utils/membership-dates";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
@@ -3494,6 +3499,24 @@ export async function registerRoutes(app: any) {
         console.log("[Registration] Agent enrollment by:", agentNumber);
       }
 
+      // Calculate membership dates
+      const enrollmentDate = new Date();
+      const firstPaymentDate = enrollmentDate; // Same as enrollment date
+      const membershipStartDate = calculateMembershipStartDate(enrollmentDate);
+      
+      console.log("[Registration] Date calculations:", {
+        enrollmentDate: enrollmentDate.toISOString(),
+        firstPaymentDate: firstPaymentDate.toISOString(),
+        membershipStartDate: membershipStartDate.toISOString(),
+        enrollDay: enrollmentDate.getDate(),
+        membershipDay: membershipStartDate.getDate(),
+        daysUntilActive: daysUntilMembershipStarts(enrollmentDate, membershipStartDate)
+      });
+
+      // Determine initial status: pending_activation if membership starts in future, active if today
+      const initialStatus = isMembershipActive(membershipStartDate) ? 'active' : 'pending_activation';
+      console.log("[Registration] Initial member status:", initialStatus);
+
       // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
       // Users table is for Supabase Auth (agents/admins)
       // Members table is for DPC enrollees (no login access)
@@ -3519,8 +3542,11 @@ export async function registerRoutes(app: any) {
         planStartDate: planStartDate || null,
         agentNumber: agentNumber || null,
         enrolledByAgentId: enrolledByAgentId || null,
-        isActive: true,
-        status: 'active',
+        enrollmentDate: enrollmentDate,
+        firstPaymentDate: firstPaymentDate,
+        membershipStartDate: membershipStartDate,
+        isActive: initialStatus === 'active', // Only active if membership has started
+        status: initialStatus, // pending_activation or active
         planId: planId ? parseInt(planId) : null,
         coverageType: coverageType || memberType || "member-only",
         totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
