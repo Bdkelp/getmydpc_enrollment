@@ -9,6 +9,8 @@ import { EPXHostedCheckoutService } from '../services/epx-hosted-checkout-servic
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { supabase } from '../lib/supabaseClient';
+import { verifyRecaptcha, isRecaptchaEnabled } from '../utils/recaptcha';
+import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
 
 const router = Router();
 
@@ -33,12 +35,10 @@ const initializeService = () => {
     hostedCheckoutService = new EPXHostedCheckoutService(config);
     serviceInitialized = true;
     
-    console.log('[EPX Hosted Routes] ✅ Service initialized successfully');
-    console.log('[EPX Hosted Routes] Environment:', config.environment);
-    console.log('[EPX Hosted Routes] Has PublicKey:', !!config.publicKey);
+    logEPX({ level: 'info', phase: 'general', message: 'Hosted service initialized', data: { env: config.environment, hasPublicKey: !!config.publicKey } });
   } catch (error: any) {
     initError = error.message || 'Unknown initialization error';
-    console.error('[EPX Hosted Routes] ❌ Failed to initialize:', error);
+    logEPX({ level: 'error', phase: 'general', message: 'Initialization failed', data: { error: error?.message } });
   }
 };
 
@@ -81,12 +81,9 @@ router.get('/api/epx/hosted/config', (req: Request, res: Response) => {
     }
 
     const config = hostedCheckoutService.getCheckoutConfig();
-    res.json({
-      success: true,
-      config
-    });
+    res.json({ success: true, config });
   } catch (error: any) {
-    console.error('[EPX Hosted] Config error:', error);
+    logEPX({ level: 'error', phase: 'general', message: 'Config error', data: { error: error?.message } });
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to get configuration'
@@ -118,15 +115,20 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       planId,
       subscriptionId,
       description,
-      billingAddress
+      billingAddress,
+      captchaToken
     } = req.body;
 
-    console.log('[EPX Hosted] Creating payment session:', {
-      amount,
-      customerId,
-      customerEmail,
-      planId
-    });
+    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment request received', data: { amount, customerId, customerEmail, planId } });
+
+    // Server-side reCAPTCHA verification (production only or when enabled)
+    if (isRecaptchaEnabled()) {
+      const verifyResult = await verifyRecaptcha(captchaToken || '', 'hosted_checkout');
+      logEPX({ level: verifyResult.success ? 'info' : 'warn', phase: 'recaptcha', message: 'Token verification', data: verifyResult });
+      if (!verifyResult.success) {
+        return res.status(400).json({ success: false, error: 'Captcha verification failed', code: 'RECAPTCHA_FAILED' });
+      }
+    }
 
     // Generate order number (transaction ID)
     const orderNumber = Date.now().toString().slice(-10);
@@ -141,6 +143,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     );
 
     if (!sessionResponse.success) {
+      logEPX({ level: 'error', phase: 'create-payment', message: 'Session creation failed', data: { error: sessionResponse.error } });
       return res.status(400).json(sessionResponse);
     }
 
@@ -164,9 +167,9 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       };
 
       await storage.createPayment(paymentData);
-      console.log('[EPX Hosted] Payment record created:', orderNumber);
+      logEPX({ level: 'info', phase: 'create-payment', message: 'Payment record created', data: { transactionId: orderNumber } });
     } catch (storageError: any) {
-      console.error('[EPX Hosted] Storage error (non-fatal):', storageError.message);
+      logEPX({ level: 'warn', phase: 'create-payment', message: 'Storage createPayment failed (non-fatal)', data: { error: storageError?.message } });
       // Continue even if storage fails - payment can still process
     }
 
@@ -174,7 +177,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     const config = hostedCheckoutService.getCheckoutConfig();
 
     // Return data needed for frontend
-    res.json({
+    const responsePayload = {
       success: true,
       transactionId: orderNumber,
       sessionId: sessionResponse.sessionId,
@@ -183,7 +186,6 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       environment: config.environment,
       captcha: config.captcha,
       paymentMethod: 'hosted-checkout',
-      // Form data for frontend
       formData: {
         amount: amount.toFixed(2),
         orderNumber,
@@ -192,9 +194,11 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         billingName: customerName || 'Customer',
         ...billingAddress
       }
-    });
+    };
+    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber } });
+    res.json(responsePayload);
   } catch (error: any) {
-    console.error('[EPX Hosted] Create payment error:', error);
+    logEPX({ level: 'error', phase: 'create-payment', message: 'Unhandled exception during create-payment', data: { error: error?.message } });
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to create payment session'
@@ -216,7 +220,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       });
     }
 
-    console.log('[EPX Hosted] Callback received:', req.body);
+    logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: req.body } });
 
     // Process the callback
     const result = hostedCheckoutService.processCallback(req.body);
@@ -247,18 +251,16 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           // CRITICAL: Create enrollment record if payment approved but no enrollment exists
           if (result.isApproved && payment.userId && !payment.metadata?.enrollmentCreated) {
             try {
-              console.log('[EPX Callback] Checking if member enrollment exists for userId:', payment.userId);
+              logEPX({ level: 'info', phase: 'callback', message: 'Checking enrollment existence', data: { userId: payment.userId } });
               
               // Check if user already exists in members table
               const existingMember = await storage.getUser(payment.userId);
               
               if (!existingMember || !existingMember.email) {
-                console.log('[EPX Callback] ⚠️ No member record found - payment succeeded but enrollment incomplete');
-                console.log('[EPX Callback] This can happen if user paid directly without completing registration form');
-                console.log('[EPX Callback] UserId:', payment.userId, 'TransactionId:', result.transactionId);
+                logEPX({ level: 'warn', phase: 'callback', message: 'Member record missing post-payment', data: { userId: payment.userId, transactionId: result.transactionId } });
                 // TODO: Send admin notification about incomplete enrollment
               } else {
-                console.log('[EPX Callback] ✅ Member record found:', existingMember.email);
+                logEPX({ level: 'info', phase: 'callback', message: 'Member record found', data: { email: existingMember.email } });
                 
                 // Check if commission was created for this enrollment
                 const { data: existingCommissions } = await supabase
@@ -268,11 +270,11 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                   .eq('enrollment_id', payment.subscriptionId?.toString() || '');
                 
                 if (!existingCommissions || existingCommissions.length === 0) {
-                  console.log('[EPX Callback] ⚠️ No commission found for this enrollment');
+                  logEPX({ level: 'warn', phase: 'callback', message: 'Commission missing for enrollment', data: { memberId: payment.userId } });
                   // Commission should have been created during registration
                   // If missing, it means the registration flow was incomplete
                 } else {
-                  console.log('[EPX Callback] ✅ Commission exists for enrollment');
+                    logEPX({ level: 'info', phase: 'callback', message: 'Commission exists for enrollment', data: { memberId: payment.userId } });
                 }
               }
               
@@ -285,7 +287,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 }
               });
             } catch (enrollError: any) {
-              console.error('[EPX Callback] Error checking enrollment:', enrollError);
+              logEPX({ level: 'error', phase: 'callback', message: 'Error checking enrollment', data: { error: enrollError?.message } });
               // Don't fail the payment if enrollment check fails
             }
           }
@@ -293,21 +295,21 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           // Mark commission payment as captured (14-day grace period before payout)
           if (result.isApproved && payment.metadata?.memberId) {
             try {
-              console.log('[EPX Callback] Marking commission payment captured for member:', payment.metadata.memberId);
+              logEPX({ level: 'info', phase: 'callback', message: 'Mark commission captured', data: { memberId: payment.metadata.memberId } });
               await storage.markCommissionPaymentCaptured(
                 payment.metadata.memberId.toString(),
                 result.transactionId,
                 result.transactionId
               );
-              console.log('[EPX Callback] ✅ Commission payment captured - eligible for payout in 14 days');
+              logEPX({ level: 'info', phase: 'callback', message: 'Commission captured - 14d grace', data: { transactionId: result.transactionId } });
             } catch (commError: any) {
-              console.error('[EPX Callback] Error marking commission payment captured:', commError);
+              logEPX({ level: 'error', phase: 'callback', message: 'Commission capture failed', data: { error: commError?.message } });
               // Don't fail the payment if commission update fails
             }
           }
         }
       } catch (storageError: any) {
-        console.error('[EPX Hosted] Storage update error:', storageError);
+        logEPX({ level: 'error', phase: 'callback', message: 'Storage update error', data: { error: storageError?.message } });
       }
     }
 
@@ -319,7 +321,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       error: result.error
     });
   } catch (error: any) {
-    console.error('[EPX Hosted] Callback error:', error);
+    logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to process callback'
@@ -337,6 +339,7 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
     const payment = await storage.getPaymentByTransactionId(transactionId);
     
     if (!payment) {
+      logEPX({ level: 'warn', phase: 'status', message: 'Status check - payment not found', data: { transactionId } });
       return res.status(404).json({
         success: false,
         error: 'Payment not found'
@@ -351,12 +354,19 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
       authorizationCode: payment.authorizationCode
     });
   } catch (error: any) {
-    console.error('[EPX Hosted] Status check error:', error);
+    logEPX({ level: 'error', phase: 'status', message: 'Status check error', data: { error: error?.message } });
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to get payment status'
     });
   }
+});
+
+// Recent logs endpoint for certification samples
+router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
+  const limit = parseInt((req.query.limit as string) || '50', 10);
+  const logs = getRecentEPXLogs(isNaN(limit) ? 50 : limit);
+  res.json({ success: true, logs });
 });
 
 export default router;

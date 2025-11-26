@@ -38,6 +38,7 @@ declare global {
     Epx: any;
     epxSuccessCallback: (msg: string) => void;
     epxFailureCallback: (msg: string) => void;
+    grecaptcha: any;
   }
 }
 
@@ -65,6 +66,7 @@ export default function EPXHostedPayment({
     state: '',
     postalCode: ''
   });
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { toast } = useToast();
   
   // Determine which address to use based on checkbox
@@ -182,6 +184,50 @@ export default function EPXHostedPayment({
 
     initSession();
   }, [amount, customerId, customerEmail, populatedBillingAddress]);
+
+  // Load and execute Google reCAPTCHA v3 to get token
+  useEffect(() => {
+    const siteKey = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY || '6LflwiQgAAAAAC8yO38mzv-g9a9QiR91Bw4y62ww';
+    if (!siteKey) {
+      console.warn('[reCAPTCHA] Site key not configured');
+      return;
+    }
+
+    // Load the reCAPTCHA script if not already loaded
+    const existing = document.querySelector('script[src*="recaptcha/api.js"]');
+    if (!existing) {
+      const recaptchaScript = document.createElement('script');
+      recaptchaScript.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+      recaptchaScript.async = true;
+      recaptchaScript.onload = () => {
+        if (window.grecaptcha && window.grecaptcha.ready) {
+          window.grecaptcha.ready(() => {
+            window.grecaptcha.execute(siteKey, { action: 'hosted_checkout' }).then((token: string) => {
+              console.log('[reCAPTCHA] Token acquired');
+              setCaptchaToken(token);
+            }).catch((e: any) => {
+              console.error('[reCAPTCHA] Token acquisition failed:', e);
+            });
+          });
+        } else {
+          console.warn('[reCAPTCHA] grecaptcha not ready');
+        }
+      };
+      recaptchaScript.onerror = () => {
+        console.error('[reCAPTCHA] Failed to load script');
+      };
+      document.head.appendChild(recaptchaScript);
+    } else if (window.grecaptcha && window.grecaptcha.ready) {
+      window.grecaptcha.ready(() => {
+        window.grecaptcha.execute(siteKey, { action: 'hosted_checkout' }).then((token: string) => {
+          console.log('[reCAPTCHA] Token acquired');
+          setCaptchaToken(token);
+        }).catch((e: any) => {
+          console.error('[reCAPTCHA] Token acquisition failed:', e);
+        });
+      });
+    }
+  }, []);
 
   // Setup callback functions
   useEffect(() => {
@@ -438,7 +484,7 @@ export default function EPXHostedPayment({
           <input type="hidden" name="OrderNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
-          <input type="hidden" name="Captcha" value={sessionData?.captcha || 'bypass'} />
+          <input type="hidden" name="Captcha" value={captchaToken || sessionData?.captcha || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
         </form>
