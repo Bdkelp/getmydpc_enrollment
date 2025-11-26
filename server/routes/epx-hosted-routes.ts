@@ -234,10 +234,17 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       });
     }
 
-    // Log the full callback payload from EPX
+    // Log the full callback request from EPX (headers + body)
     console.log(
-      '[EPX Hosted Checkout - CALLBACK FROM EPX]',
-      JSON.stringify(req.body, null, 2)
+      '[EPX Server Post - REQUEST]',
+      JSON.stringify(
+        {
+          headers: req.headers,
+          body: req.body,
+        },
+        null,
+        2
+      )
     );
 
     logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: req.body } });
@@ -343,17 +350,26 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     
     // Log our response back to EPX
     console.log(
-      '[EPX Hosted Checkout - RESPONSE TO EPX]',
+      '[EPX Server Post - RESPONSE]',
       JSON.stringify(callbackResponse, null, 2)
     );
     
     res.json(callbackResponse);
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
-    res.status(500).json({
+    
+    const errorResponse = {
       success: false,
       error: error.message || 'Failed to process callback'
-    });
+    };
+    
+    // Log error response
+    console.log(
+      '[EPX Server Post - RESPONSE (ERROR)]',
+      JSON.stringify(errorResponse, null, 2)
+    );
+    
+    res.status(500).json(errorResponse);
   }
 });
 
