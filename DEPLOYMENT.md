@@ -1,12 +1,13 @@
 # Deployment Guide
 
-## Railway (Backend)
+## DigitalOcean App Platform (Backend)
 
 ### Initial Setup
-1. Connect GitHub repository to Railway
+1. Connect GitHub repository to DigitalOcean App Platform
 2. Set root directory to project root
 3. Configure build command: `npm run build`
 4. Configure start command: `node dist/index.js`
+5. Configure HTTP port: 8080 (or use PORT environment variable)
 
 ### Environment Variables
 ```env
@@ -17,12 +18,14 @@ EPX_TERMINAL_PROFILE_ID=...
 EPX_MAC_KEY=...
 EPX_ENVIRONMENT=sandbox
 ENABLE_CERTIFICATION_LOGGING=true  # Optional
+PORT=8080  # Auto-set by DigitalOcean
 ```
 
 ### Deployment
 - **Auto-deploy**: Push to `main` branch
-- **Deploy time**: ~2 minutes
+- **Deploy time**: ~3-5 minutes
 - **Health check**: `GET /api/health`
+- **Static IP**: Reserved IP for EPX whitelisting
 
 ## Vercel (Frontend)
 
@@ -61,37 +64,38 @@ Update `server/index.ts` with production origins:
 ```typescript
 const allowedOrigins = [
   'https://enrollment.getmydpc.com',
-  'https://getmydpcenrollment-production.up.railway.app'
+  'https://getmydpc-enrollment-gjk6m.ondigitalocean.app'
 ];
 ```
 
 ## EPX Configuration
 
-1. **Whitelist Railway IP**: Contact EPX support with Railway outbound IP
+1. **Whitelist DigitalOcean Static IP**: Contact EPX support with DigitalOcean reserved IP address
 2. **Get credentials**: Terminal Profile ID and MAC Key
 3. **Test in sandbox** before switching to production
+4. **Verify IP**: Use `curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip`
 
 ## Post-Deployment Verification
 
 ### Backend Health
 ```bash
-curl https://getmydpcenrollment-production.up.railway.app/api/health
+curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/health
 ```
 
 ### Frontend
 Visit https://enrollment.getmydpc.com
 
 ### Database Connection
-Check Railway logs for: `✅ Supabase connection successful`
+Check DigitalOcean logs for: `✅ Supabase connection successful`
 
 ### EPX Integration
 Test enrollment with EPX sandbox test card: 4111 1111 1111 1111
 
 ## Rollback Procedure
 
-### Railway
-1. Go to Deployments tab
-2. Click "..." on previous deployment
+### DigitalOcean
+1. Go to App Platform → Deployments
+2. Click on previous successful deployment
 3. Select "Redeploy"
 
 ### Vercel
@@ -101,12 +105,12 @@ Test enrollment with EPX sandbox test card: 4111 1111 1111 1111
 
 ## Monitoring
 
-- **Railway Logs**: Real-time backend logs
+- **DigitalOcean Logs**: Real-time backend logs and metrics
 - **Vercel Analytics**: Frontend performance
 - **Supabase Dashboard**: Database queries and auth
 
 ## Emergency Contacts
 
-- **Railway Support**: https://railway.app/help
+- **DigitalOcean Support**: https://www.digitalocean.com/support
 - **Vercel Support**: https://vercel.com/support
 - **EPX Support**: Contact your EPX account manager

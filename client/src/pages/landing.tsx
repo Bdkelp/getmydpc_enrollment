@@ -145,7 +145,7 @@ export default function Landing() {
                       Admin Dashboard
                     </Button>
                   )}
-                  {user?.role === 'agent' && (
+                  {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
                     <Button 
                       variant="default"
                       onClick={() => setLocation("/agent")}
@@ -200,21 +200,21 @@ export default function Landing() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
-                  user?.role === "agent" || user?.role === "admin" ? (
+                  user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin" ? (
                     <div className="flex flex-col sm:flex-row gap-4">
                       <Link href="/registration">
                         <Button size="lg" className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4">
                           Enroll New Member
                         </Button>
                       </Link>
-                      {user?.role === "admin" && (
+                      {(user?.role === "admin" || user?.role === "super_admin") && (
                         <Link href="/admin">
                           <Button size="lg" variant="outline" className="px-8 py-4">
                             Admin Dashboard
                           </Button>
                         </Link>
                       )}
-                      {user?.role === "agent" && (
+                      {(user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") && (
                         <Link href="/agent">
                           <Button size="lg" variant="outline" className="px-8 py-4">
                             Agent Dashboard
@@ -354,7 +354,7 @@ export default function Landing() {
                       ))}
                     </ul>
                     {isAuthenticated ? (
-                      user?.role === "agent" || user?.role === "admin" ? (
+                      user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin" ? (
                         <Link href="/registration">
                           <Button 
                             className={`w-full ${

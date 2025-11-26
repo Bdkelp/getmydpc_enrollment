@@ -290,15 +290,15 @@ export default function Profile() {
                   </Button>
                 </div>
 
-                {(user?.role === 'agent' || user?.role === 'admin') && (
+                {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
                   <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                     <h4 className="font-semibold text-blue-900 mb-2">
-                      {user?.role === 'admin' ? 'Administrative Information' : 'Agency Information'}
+                      {(user?.role === 'admin' || user?.role === 'super_admin') ? 'Administrative Information' : 'Agency Information'}
                     </h4>
                     <div className="space-y-2 text-sm text-blue-800">
                       <p><strong>Role:</strong> {
                         user.role === 'agent' ? 'Insurance Agent' : 
-                        user.role === 'admin' ? 'System Administrator' : 
+                        (user.role === 'admin' || user.role === 'super_admin') ? 'System Administrator' : 
                         user.role
                       }</p>
                       {profile?.agentNumber && (
@@ -423,7 +423,7 @@ export default function Profile() {
                           </div>
 
                           {/* Professional Information */}
-                          {(user?.role === 'agent' || user?.role === 'admin') && (
+                          {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
                             <div className="space-y-4 border-t pt-6">
                               <h4 className="text-md font-semibold flex items-center gap-2">
                                 <Building className="h-4 w-4" />
@@ -436,7 +436,7 @@ export default function Profile() {
                                   render={({ field }) => (
                                     <FormItem>
                                       <FormLabel>
-                                        {user?.role === 'admin' ? 'Admin ID' : 'Agent Number'}
+                                        {(user?.role === 'admin' || user?.role === 'super_admin') ? 'Admin ID' : 'Agent Number'}
                                       </FormLabel>
                                       <FormControl>
                                         <Input 
@@ -669,7 +669,7 @@ export default function Profile() {
                     </div>
 
                     {/* Professional Information */}
-                    {(user?.role === 'agent' || user?.role === 'admin') && (
+                    {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                           <Building className="h-5 w-5" />
@@ -681,7 +681,7 @@ export default function Profile() {
                             name="agentNumber"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>{user?.role === 'admin' ? 'Admin ID' : 'Agent Number'}</FormLabel>
+                                <FormLabel>{(user?.role === 'admin' || user?.role === 'super_admin') ? 'Admin ID' : 'Agent Number'}</FormLabel>
                                 <FormControl>
                                   <Input 
                                     {...field} 
@@ -731,7 +731,7 @@ export default function Profile() {
                 {/* Banking Information Tab */}
                 <TabsContent value="banking" className="space-y-4">
                   {/* Banking Information for Commission Payouts */}
-                  {(user?.role === 'agent' || user?.role === 'admin') && (
+                  {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                           <CreditCard className="h-5 w-5" />

@@ -607,7 +607,7 @@ const response = await apiClient.post('/api/epx/hosted/create-payment', {
 
 ```bash
 # Get Railway outbound IP
-curl https://getmydpcenrollment-production.up.railway.app/api/check-ip
+curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip
 # Send this IP to EPX if not using separate DigitalOcean server
 ```
 
@@ -927,7 +927,7 @@ Both frontend and backend auto-deploy on push to `main` branch.
 
 1. Push to `main` branch
 2. Railway detects changes and rebuilds (~2 minutes)
-3. Health check: `GET https://getmydpcenrollment-production.up.railway.app/api/health`
+3. Health check: `GET https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/health`
 4. Logs available in Railway dashboard
 
 **Build Command**: `npm run build` (esbuild)  

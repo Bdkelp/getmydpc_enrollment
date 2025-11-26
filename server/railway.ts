@@ -19,8 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
   origin: [
     'https://enrollment.getmydpc.com',
-    'https://getmydpc-enrollment.vercel.app',
-    'https://getmydpc.vercel.app',
+    'https://enrollment.getmydpc.com',
     'http://localhost:3000',
     'http://localhost:5173',
     /\.vercel\.app$/,

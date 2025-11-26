@@ -58,7 +58,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
       params.append('endDate', customEndDate);
     }
     
-    if (agentId && userRole === 'agent') {
+    if (agentId && (userRole === 'agent' || userRole === 'admin' || userRole === 'super_admin')) {
       params.append('agentId', agentId);
     }
     

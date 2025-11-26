@@ -406,14 +406,14 @@ export default function Registration() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation Header for Admin and Agent */}
-      {(currentUser?.role === 'admin' || currentUser?.role === 'agent') && (
+      {(currentUser?.role === 'admin' || currentUser?.role === 'agent' || currentUser?.role === 'super_admin') && (
         <div className="bg-white shadow-sm border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center">
-              <Link href={currentUser?.role === 'admin' ? '/admin' : '/agent'}>
+              <Link href={(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? '/admin' : '/agent'}>
                 <Button variant="ghost" className="mr-4">
                   <ChevronLeft className="h-4 w-4 mr-1" />
-                  Back to {currentUser?.role === 'admin' ? 'Admin' : 'Agent'} Dashboard
+                  Back to {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? 'Admin' : 'Agent'} Dashboard
                 </Button>
               </Link>
               <div>

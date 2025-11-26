@@ -9,7 +9,7 @@ This is a **split-deployment DPC (Direct Primary Care) enrollment platform** wit
 - **Payments**: EPX Hosted Checkout integration
 
 ### Critical Split-Deployment Pattern
-All API calls use `client/src/lib/apiClient.ts` with `API_BASE_URL` pointing to Railway backend. Never assume same-origin deployment. The `vercel.json` proxies `/api/*` requests to Railway.
+All API calls use `client/src/lib/apiClient.ts` with `API_BASE_URL` pointing to DigitalOcean backend. Never assume same-origin deployment. The `vercel.json` proxies `/api/*` requests to DigitalOcean.
 
 ## Data Architecture - Dual Database Pattern
 
@@ -107,9 +107,9 @@ npm run db:push
 - Full build: `npm run build:all`
 
 ### Deployment
-- **Backend**: Railway auto-deploys from `main` branch
+- **Backend**: DigitalOcean App Platform auto-deploys from `main` branch
 - **Frontend**: Vercel auto-deploys `client/` directory
-- **Health Check**: `/api/health` endpoint for Railway
+- **Health Check**: `/api/health` endpoint for DigitalOcean
 
 ## Critical File Patterns
 
@@ -148,8 +148,8 @@ const commission = calculateCommission(planName, memberType, isFamily);
 ### CORS Configuration
 Production origins in `server/index.ts`:
 - `enrollment.getmydpc.com`
-- `getmydpcenrollment-production.up.railway.app`
-- Railway/Vercel patterns
+- `getmydpc-enrollment-gjk6m.ondigitalocean.app`
+- DigitalOcean/Vercel patterns
 
 ## Key Debugging Commands
 
@@ -157,11 +157,11 @@ Production origins in `server/index.ts`:
 # Check Supabase database connection
 npm run check:supabase
 
-# View Railway outbound IP (for EPX ACL)
-curl https://your-railway-app.up.railway.app/api/check-ip
+# View DigitalOcean outbound IP (for EPX ACL)
+curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip
 
 # Test CORS configuration
-curl https://your-railway-app.up.railway.app/api/test-cors
+curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/test-cors
 ```
 
 ## Common Gotchas

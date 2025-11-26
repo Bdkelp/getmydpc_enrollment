@@ -1,22 +1,4 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/epx/redirect",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/redirect"
-    },
-    {
-      "source": "/api/epx/:path*",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/epx/:path*"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://getmydpcenrollment-production.up.railway.app/api/:path*"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -52,7 +52,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
       }
     ];
 
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'super_admin') {
       return [
         ...commonSteps,
         {
@@ -128,7 +128,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
       ];
     }
 
-    if (role === 'agent') {
+    if (role === 'agent' || role === 'admin' || role === 'super_admin') {
       return [
         ...commonSteps,
         {

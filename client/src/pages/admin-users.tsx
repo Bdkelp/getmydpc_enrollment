@@ -595,7 +595,7 @@ export default function AdminUsers() {
                   </TableCell>
                 )}
                 <TableCell>
-                  {user.role === 'agent' || user.role === 'admin' ? (
+                  {user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin' ? (
                     <Input
                       id={`agent-number-${user.id}`}
                       name="agentNumber"

@@ -112,8 +112,8 @@ function Router() {
             </>
           )}
 
-          {/* Agent routes */}
-          {user?.role === "agent" && (
+          {/* Agent routes - accessible to agents, admins, and super_admins */}
+          {(user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") && (
             <>
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />

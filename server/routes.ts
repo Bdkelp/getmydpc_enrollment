@@ -59,9 +59,8 @@ router.get("/api/test-cors", (req, res) => {
 
   // Set CORS headers
   const allowedOrigins = [
-    'https://getmydpcenrollment-production.up.railway.app',
+    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
     'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:5000'
@@ -1264,9 +1263,8 @@ router.post("/api/user/activity-ping", async (req: any, res: any) => {
   // Add CORS headers
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://getmydpcenrollment-production.up.railway.app',
+    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
     'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:5000'
@@ -1363,7 +1361,7 @@ router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     let leads;
 
-    if (req.user!.role === "admin") {
+    if (req.user!.role === "admin" || req.user!.role === "super_admin") {
       leads = await storage.getAllLeads();
     } else if (req.user!.role === "agent") {
       leads = await storage.getAgentLeads(req.user!.id);
@@ -1390,7 +1388,7 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
       message: message || "",
       source: source || "contact_form",
       status: "new",
-      assignedAgentId: req.user!.role === "agent" ? req.user!.id : null,
+      assignedAgentId: (req.user!.role === "agent") ? req.user!.id : null,
     });
 
     res.status(201).json(lead);
@@ -1507,16 +1505,14 @@ router.post("/api/public/leads", async (req: any, res) => {
   // Set CORS headers FIRST before any other processing
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://getmydpcenrollment-production.up.railway.app',
+    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
     'https://enrollment.getmydpc.com',
-    'https://shimmering-nourishment.up.railway.app',
     'http://localhost:3000',
     'http://localhost:5173',
-    'http://localhost:5000',
-    'https://ffd2557a-af4c-48a9-9a30-85d2ce375e45-00-pjr5zjuzb5vw.worf.replit.dev'
+    'http://localhost:5000'
   ];
 
-  const regexPatterns = [/\.vercel\.app$/, /\.railway\.app$/];
+  const regexPatterns = [/\.vercel\.app$/, /\.ondigitalocean\.app$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
 
   // Always set CORS headers for this public endpoint
@@ -2734,8 +2730,8 @@ router.get(
       const { startDate, endDate } = req.query;
       let enrollments;
 
-      if (req.user!.role === "admin") {
-        // Admin sees all enrollments
+      if (req.user!.role === "admin" || req.user!.role === "super_admin") {
+        // Admin and super_admin see all enrollments
         enrollments = await storage.getAllEnrollments(
           startDate as string, 
           endDate as string
@@ -3204,9 +3200,9 @@ async function createCommissionWithCheck(
     // Get agent profile to check role
     const agent = agentId ? await storage.getUser(agentId) : null;
 
-    // Check if agent is admin (admins don't earn commissions)
-    if (agent?.role === "admin") {
-      console.log("Commission creation skipped - admin agent:", {
+    // Check if agent is admin or super_admin (they don't earn commissions)
+    if (agent?.role === "admin" || agent?.role === "super_admin") {
+      console.log("Commission creation skipped - admin/super_admin agent:", {
         agentRole: agent?.role,
         agentId,
       });
@@ -3399,9 +3395,8 @@ export async function registerRoutes(app: any) {
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
     const allowedOrigins = [
-      'https://getmydpcenrollment-production.up.railway.app',
+      'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
       'https://enrollment.getmydpc.com',
-      'https://shimmering-nourishment.up.railway.app',
       'http://localhost:3000',
       'http://localhost:5173',
       'http://localhost:5000'

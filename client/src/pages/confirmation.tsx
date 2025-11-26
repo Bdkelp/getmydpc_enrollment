@@ -460,7 +460,7 @@ export default function Confirmation() {
             <div className="text-center pt-6 border-t">
               <Button 
                 onClick={() => {
-                  const defaultRoute = user?.role === "admin" ? "/admin" : user?.role === "agent" ? "/agent" : "/";
+                  const defaultRoute = (user?.role === "admin" || user?.role === "super_admin") ? "/admin" : user?.role === "agent" ? "/agent" : "/";
                   setLocation(defaultRoute);
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"

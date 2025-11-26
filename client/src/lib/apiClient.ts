@@ -1,41 +1,10 @@
-// API Client for split deployment (Frontend: Vercel, Backend: Railway)
+// API Client - Uses env var or same-origin for flexibility
 
-const buildBaseUrl = () => {
-  // Prefer explicit env var in production
-  let raw = import.meta.env.VITE_API_URL as string | undefined;
+const API_BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
-  // ---- sanitize common copy/paste mistakes ----
-  if (raw) {
-    raw = String(raw)
-      .trim()
-      // remove "VITE_API_URL =" if someone pasted the whole line
-      .replace(/^VITE_API_URL\s*=\s*/i, "")
-      // drop trailing slashes
-      .replace(/\/+$/, "");
-    // add https if missing
-    if (raw && !/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
-  }
-  // ---------------------------------------------
+console.log('[API Client] Using API URL:', API_BASE_URL);
 
-  if (import.meta.env.PROD && raw) {
-    console.log('[API Client] Using production API URL:', raw);
-    return raw;
-  }
-
-  // ALWAYS use Railway backend in production or when VITE_API_URL is not set
-  if (import.meta.env.PROD || !raw) {
-    const railwayUrl = 'https://getmydpcenrollment-production.up.railway.app';
-    console.log('[API Client] Using Railway production API URL:', railwayUrl);
-    return railwayUrl;
-  }
-
-  // Dev fallback: same-origin (Replit/local)
-  const origin = window.location.origin;
-  console.log('[API Client] Using development API URL:', origin);
-  return origin;
-};
-
-export const API_BASE_URL = buildBaseUrl();
+export { API_BASE_URL };
 
 const join = (base: string, path: string) =>
   `${base}${path.startsWith("/") ? path : `/${path}`}`;

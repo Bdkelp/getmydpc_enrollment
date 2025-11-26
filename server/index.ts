@@ -54,10 +54,10 @@ app.use(
   cors({
     origin: [
       /^https:\/\/.*\.vercel\.app$/,
-      /^https:\/\/.*\.railway\.app$/,
+      /^https:\/\/.*\.ondigitalocean\.app$/,
       /^http:\/\/localhost:\d+$/,
       /^http:\/\/127\.0\.0\.1:\d+$/,
-      "https://getmydpcenrollment-production.up.railway.app",
+      "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
       "https://enrollment.getmydpc.com",
       "http://localhost:5173",
       "http://localhost:5000"
