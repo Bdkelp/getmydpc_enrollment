@@ -4275,7 +4275,9 @@ export const storage = {
           emergency_contact_name, emergency_contact_phone,
           employer_name, division_name, member_type,
           date_of_hire, plan_start_date,
-          enrolled_by_agent_id, agent_number, is_active, status,
+          enrolled_by_agent_id, agent_number, enrollment_date, first_payment_date, membership_start_date,
+          payment_token, payment_method_type,
+          is_active, status,
           plan_id, coverage_type, total_monthly_price, add_rx_valet
         ) VALUES (
           generate_customer_number(), $1, $2, $3, $4,
@@ -4283,8 +4285,10 @@ export const storage = {
           $14, $15,
           $16, $17, $18,
           $19, $20,
-          $21, $22, $23, $24,
-          $25, $26, $27, $28
+          $21, $22, $23, $24, $25,
+          $26, $27,
+          $28, $29,
+          $30, $31, $32, $33
         ) RETURNING *
       `, [
         formattedData.firstName, formattedData.lastName, formattedData.middleName, formattedData.email,
@@ -4293,7 +4297,9 @@ export const storage = {
         formattedData.emergencyContactName, formattedData.emergencyContactPhone,
         formattedData.employerName, formattedData.divisionName, formattedData.memberType,
         formattedData.dateOfHire, formattedData.planStartDate,
-        formattedData.enrolledByAgentId, formattedData.agentNumber, formattedData.isActive ?? true, formattedData.status ?? 'active',
+        formattedData.enrolledByAgentId, formattedData.agentNumber, formattedData.enrollmentDate, formattedData.firstPaymentDate, formattedData.membershipStartDate,
+        formattedData.paymentToken, formattedData.paymentMethodType,
+        formattedData.isActive ?? true, formattedData.status ?? 'active',
         formattedData.planId, formattedData.coverageType, formattedData.totalMonthlyPrice, formattedData.addRxValet ?? false
       ]);
 
@@ -4326,8 +4332,12 @@ export const storage = {
         planStartDate: dbMember.plan_start_date,
         enrolledByAgentId: dbMember.enrolled_by_agent_id,
         agentNumber: dbMember.agent_number,
-        isActive: dbMember.is_active,
         enrollmentDate: dbMember.enrollment_date,
+        firstPaymentDate: dbMember.first_payment_date,
+        membershipStartDate: dbMember.membership_start_date,
+        paymentToken: dbMember.payment_token,
+        paymentMethodType: dbMember.payment_method_type,
+        isActive: dbMember.is_active,
         cancellationDate: dbMember.cancellation_date,
         cancellationReason: dbMember.cancellation_reason,
         createdAt: dbMember.created_at,

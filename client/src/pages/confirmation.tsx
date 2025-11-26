@@ -127,6 +127,10 @@ export default function Confirmation() {
       sessionStorage.removeItem("primaryAddress");
       sessionStorage.removeItem("processingFee");
       sessionStorage.removeItem("basePlanPrice");
+      sessionStorage.removeItem("registrationData"); // Clear payment-first flow data
+      sessionStorage.removeItem("paymentAttempts"); // Clear attempt counter
+      sessionStorage.removeItem("memberData");
+      sessionStorage.removeItem("familyMembers");
     }, 5000); // Increased to 5 seconds
   }, [user, setLocation, toast, retryCount]);
 

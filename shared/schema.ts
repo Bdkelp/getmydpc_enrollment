@@ -126,6 +126,9 @@ export const members = pgTable("members", {
   enrollmentDate: timestamp("enrollment_date").defaultNow(), // When they enrolled/paid (variable date)
   firstPaymentDate: timestamp("first_payment_date"), // First payment date (same as enrollmentDate, used for recurring billing)
   membershipStartDate: timestamp("membership_start_date"), // When membership actually begins (1st or 15th only)
+  // Payment token storage (for recurring billing)
+  paymentToken: varchar("payment_token", { length: 255 }), // BRIC token from EPX Hosted Checkout
+  paymentMethodType: varchar("payment_method_type", { length: 20 }), // CreditCard, BankAccount
   // Plan and pricing information
   planId: integer("plan_id").references(() => plans.id), // Selected plan
   coverageType: varchar("coverage_type", { length: 50 }), // Member Only, Member/Spouse, Member/Child, Family
@@ -178,6 +181,7 @@ export const subscriptions = pgTable("subscriptions", {
   nextBillingDate: timestamp("next_billing_date"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
+  epxSubscriptionId: varchar("epx_subscription_id", { length: 100 }).unique(), // EPX recurring billing subscription ID
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -248,6 +252,38 @@ export const leadActivities = pgTable("lead_activities", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Temporary registration storage for payment-first flow
+export const tempRegistrations = pgTable("temp_registrations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  registrationData: jsonb("registration_data").notNull(), // Complete registration form data
+  paymentAttempts: integer("payment_attempts").default(0), // Track failed payment attempts (max 3)
+  lastPaymentError: text("last_payment_error"), // Store last payment error message
+  agentId: varchar("agent_id", { length: 255 }), // Agent who initiated registration
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(), // Auto-expire after 1 hour
+}, (table) => [
+  index("idx_temp_registrations_expires_at").on(table.expiresAt), // For cleanup job
+  index("idx_temp_registrations_created_at").on(table.createdAt),
+]);
+
+// Admin notifications for system alerts
+export const adminNotifications = pgTable("admin_notifications", {
+  id: serial("id").primaryKey(),
+  type: varchar("type", { length: 50 }).notNull(), // epx_subscription_failed, payment_failed, etc
+  memberId: integer("member_id").references(() => members.id),
+  subscriptionId: integer("subscription_id").references(() => subscriptions.id),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata"), // Additional context
+  resolved: boolean("resolved").default(false),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_admin_notifications_resolved").on(table.resolved),
+  index("idx_admin_notifications_type").on(table.type),
+  index("idx_admin_notifications_created_at").on(table.createdAt),
+]);
 
 export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),

@@ -67,10 +67,29 @@ export default function EPXHostedPayment({
     postalCode: ''
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [registrationData, setRegistrationData] = useState<any>(null);
+  const [paymentAttempts, setPaymentAttempts] = useState(0);
   const { toast } = useToast();
   
   // Determine which address to use based on checkbox
   const [populatedBillingAddress, setPopulatedBillingAddress] = useState(billingAddress);
+
+  // Load registration data and payment attempts from sessionStorage
+  useEffect(() => {
+    try {
+      const storedRegData = sessionStorage.getItem('registrationData');
+      if (storedRegData) {
+        setRegistrationData(JSON.parse(storedRegData));
+      }
+      
+      const attempts = sessionStorage.getItem('paymentAttempts');
+      if (attempts) {
+        setPaymentAttempts(parseInt(attempts));
+      }
+    } catch (err) {
+      console.error('[EPX] Error loading registration data:', err);
+    }
+  }, []);
 
   // Load home address from sessionStorage
   useEffect(() => {
@@ -496,6 +515,15 @@ export default function EPXHostedPayment({
           <input type="hidden" name="Captcha" value={captchaToken || sessionData?.captcha || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
+          
+          {/* Payment-First Flow: Include registration data */}
+          {registrationData && (
+            <>
+              <input type="hidden" name="registrationData" value={JSON.stringify(registrationData)} />
+              <input type="hidden" name="paymentMethodType" value="CreditCard" />
+              <input type="hidden" name="paymentAttempts" value={paymentAttempts.toString()} />
+            </>
+          )}
         </form>
 
         {/* Submit Button */}

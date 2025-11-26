@@ -7,8 +7,12 @@ import { XCircle, RefreshCw, Home, HelpCircle } from 'lucide-react';
 
 export default function PaymentFailed() {
   const [location] = useLocation();
+  const [, setLocation] = useLocation();
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [reason, setReason] = useState<string | null>(null);
+  const [paymentAttempts, setPaymentAttempts] = useState(0);
+  const [hasRegistrationData, setHasRegistrationData] = useState(false);
+  const MAX_ATTEMPTS = 3;
 
   useEffect(() => {
     // Parse URL parameters
@@ -18,7 +22,45 @@ export default function PaymentFailed() {
     
     if (txn) setTransactionId(txn);
     if (rsn) setReason(rsn);
+
+    // Check payment attempts
+    const attempts = parseInt(sessionStorage.getItem('paymentAttempts') || '0');
+    setPaymentAttempts(attempts);
+
+    // Increment attempt counter
+    const newAttempts = attempts + 1;
+    sessionStorage.setItem('paymentAttempts', newAttempts.toString());
+    setPaymentAttempts(newAttempts);
+
+    // Check if we have registration data
+    const regData = sessionStorage.getItem('registrationData');
+    setHasRegistrationData(!!regData);
   }, [location]);
+
+  const handleTryAgain = () => {
+    if (paymentAttempts >= MAX_ATTEMPTS) {
+      // Clear sessionStorage and start over
+      sessionStorage.removeItem('registrationData');
+      sessionStorage.removeItem('paymentAttempts');
+      sessionStorage.removeItem('selectedPlanId');
+      sessionStorage.removeItem('memberData');
+      setLocation('/enroll');
+    } else {
+      // Retry payment with existing registration data
+      setLocation('/payment');
+    }
+  };
+
+  const handleStartOver = () => {
+    // Clear all session data
+    sessionStorage.removeItem('registrationData');
+    sessionStorage.removeItem('paymentAttempts');
+    sessionStorage.removeItem('selectedPlanId');
+    sessionStorage.removeItem('memberData');
+    sessionStorage.removeItem('coverageType');
+    sessionStorage.removeItem('familyMembers');
+    setLocation('/enroll');
+  };
 
   const getErrorMessage = (reason: string | null) => {
     if (!reason) return 'Your payment could not be processed.';
@@ -61,6 +103,20 @@ export default function PaymentFailed() {
             </p>
           )}
 
+          {/* Payment attempt counter */}
+          {hasRegistrationData && (
+            <Alert>
+              <AlertDescription className="text-center">
+                Payment attempt {paymentAttempts} of {MAX_ATTEMPTS}
+                {paymentAttempts >= MAX_ATTEMPTS && (
+                  <span className="block mt-2 font-semibold text-orange-700">
+                    Maximum attempts reached. Please start over with a new enrollment.
+                  </span>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div className="bg-orange-50 rounded-lg p-4">
             <h3 className="font-semibold text-orange-900 mb-2">What can you do?</h3>
             <ul className="space-y-2 text-sm text-orange-800">
@@ -84,12 +140,29 @@ export default function PaymentFailed() {
           </div>
 
           <div className="space-y-3">
-            <Link href="/enroll">
-              <Button className="w-full" size="lg">
+            {hasRegistrationData && paymentAttempts < MAX_ATTEMPTS && (
+              <Button onClick={handleTryAgain} className="w-full" size="lg">
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Try Again
+                Try Again ({MAX_ATTEMPTS - paymentAttempts} {MAX_ATTEMPTS - paymentAttempts === 1 ? 'attempt' : 'attempts'} remaining)
               </Button>
-            </Link>
+            )}
+
+            {hasRegistrationData && paymentAttempts >= MAX_ATTEMPTS && (
+              <Button onClick={handleStartOver} variant="destructive" className="w-full" size="lg">
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Start Over (New Enrollment)
+              </Button>
+            )}
+
+            {!hasRegistrationData && (
+              <Link href="/enroll">
+                <Button className="w-full" size="lg">
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Try Again
+                </Button>
+              </Link>
+            )}
+
             <Link href="/">
               <Button variant="outline" className="w-full">
                 <Home className="mr-2 h-4 w-4" />

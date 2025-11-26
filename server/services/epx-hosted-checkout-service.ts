@@ -120,12 +120,12 @@ export class EPXHostedCheckoutService {
     transactionId?: string;
     authCode?: string;
     amount?: number;
+    bricToken?: string; // GUID payment token for recurring billing
     error?: string;
   } {
     console.log("[EPX Hosted Checkout] Processing callback:", payload);
 
-    // The exact response format will depend on EPX's callback structure
-    // This is a placeholder implementation
+    // EPX callback structure includes result.GUID for BRIC token
     const isApproved = payload.status === "approved" || payload.success === true;
 
     if (isApproved) {
@@ -133,7 +133,8 @@ export class EPXHostedCheckoutService {
         isApproved: true,
         transactionId: payload.transactionId || payload.orderNumber,
         authCode: payload.authCode,
-        amount: payload.amount ? parseFloat(payload.amount) : undefined
+        amount: payload.amount ? parseFloat(payload.amount) : undefined,
+        bricToken: payload.result?.GUID || payload.GUID // BRIC token for recurring billing
       };
     } else {
       return {

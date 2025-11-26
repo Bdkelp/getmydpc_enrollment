@@ -23,6 +23,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
+import { scheduleCleanup as scheduleTempRegistrationCleanup } from "./services/temp-registration-service";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import adminDatabaseRoutes from "./routes/admin-database";
@@ -30,6 +31,8 @@ import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
 import epxRecurringRoutes from "./routes/epx-recurring-routes";
+import finalizeRegistrationRoutes from "./routes/finalize-registration";
+import adminNotificationsRoutes from "./routes/admin-notifications";
 
 const app = express();
 
@@ -127,12 +130,16 @@ app.use((req, res, next) => {
   // Register EPX Recurring Billing routes (new API)
   app.use('/', epxRecurringRoutes);
   
+  // Register finalize registration route (payment-first flow)
+  app.use('/', finalizeRegistrationRoutes);
+  
   // Register all API routes
   const server = await registerRoutes(app);
 
   // Register additional admin/debug routes
   app.use('/', adminLogsRoutes);
   app.use('/', adminDatabaseRoutes);
+  app.use('/', adminNotificationsRoutes);
   app.use('/', debugPaymentsRoutes);
   app.use('/', debugRecentPaymentsRoutes);
   app.use('/', devUtilitiesRoutes);
@@ -187,6 +194,9 @@ app.use((req, res, next) => {
 
       // Initialize membership activation scheduler
       scheduleMembershipActivation();
+
+      // Initialize temp registration cleanup scheduler
+      scheduleTempRegistrationCleanup();
 
       // Validate EPX configuration
       try {

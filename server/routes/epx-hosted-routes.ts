@@ -252,7 +252,116 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     // Process the callback
     const result = hostedCheckoutService.processCallback(req.body);
 
-    // Update payment record
+    // === PAYMENT-FIRST FLOW ===
+    // Payment approved - create member record now
+    if (result.isApproved && req.body.registrationData && result.bricToken) {
+      try {
+        logEPX({ level: 'info', phase: 'callback', message: 'Payment approved - creating member', data: { hasBRIC: !!result.bricToken } });
+        
+        // Parse registration data from EPX callback
+        const registrationData = typeof req.body.registrationData === 'string' 
+          ? JSON.parse(req.body.registrationData) 
+          : req.body.registrationData;
+        
+        // Call finalize-registration endpoint
+        const finalizeResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:5000'}/api/finalize-registration`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            registrationData,
+            paymentToken: result.bricToken,
+            paymentMethodType: req.body.paymentMethodType || 'CreditCard',
+            transactionId: result.transactionId,
+            tempRegistrationId: req.body.tempRegistrationId
+          })
+        });
+
+        if (!finalizeResponse.ok) {
+          const errorData = await finalizeResponse.json();
+          logEPX({ level: 'error', phase: 'callback', message: 'Finalize registration failed', data: errorData });
+          
+          // Return error to EPX
+          return res.status(500).json({
+            success: false,
+            error: errorData.message || 'Failed to create member record'
+          });
+        }
+
+        const finalizeData = await finalizeResponse.json();
+        logEPX({ level: 'info', phase: 'callback', message: 'Member created successfully', data: { memberId: finalizeData.member?.id } });
+
+        // Return success to EPX
+        return res.json({
+          success: true,
+          transactionId: result.transactionId,
+          authCode: result.authCode,
+          amount: result.amount,
+          memberId: finalizeData.member?.id,
+          customerNumber: finalizeData.member?.customerNumber
+        });
+        
+      } catch (finalizeError: any) {
+        logEPX({ level: 'error', phase: 'callback', message: 'Member creation failed', data: { error: finalizeError.message } });
+        
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to complete registration after payment'
+        });
+      }
+    }
+
+    // === PAYMENT DECLINED ===
+    if (!result.isApproved) {
+      logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error } });
+      
+      // Track payment attempt if we have temp registration ID
+      if (req.body.tempRegistrationId) {
+        try {
+          const { incrementPaymentAttempt } = await import('../services/temp-registration-service');
+          const attempts = await incrementPaymentAttempt(req.body.tempRegistrationId, result.error);
+          logEPX({ level: 'info', phase: 'callback', message: 'Payment attempt tracked', data: { attempts } });
+        } catch (attemptError: any) {
+          logEPX({ level: 'error', phase: 'callback', message: 'Failed to track attempt', data: { error: attemptError.message } });
+        }
+      }
+      
+      return res.json({
+        success: false,
+        error: result.error,
+        transactionId: result.transactionId
+      });
+    }
+
+    // Missing registration data - cannot process
+    logEPX({ level: 'error', phase: 'callback', message: 'Missing registration data or BRIC token' });
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid callback - missing registration data'
+    });
+  } catch (error: any) {
+    logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
+    
+    const errorResponse = {
+      success: false,
+      error: error.message || 'Failed to process callback'
+    };
+    
+    // Log error response
+    console.log(
+      '[EPX Server Post - RESPONSE (ERROR)]',
+      JSON.stringify(errorResponse, null, 2)
+    );
+    
+    res.status(500).json(errorResponse);
+  }
+});
+
+/**
+ * Get payment status
+ */
+router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Response) => {
     if (result.transactionId) {
       try {
         const payment = await storage.getPaymentByTransactionId(result.transactionId);

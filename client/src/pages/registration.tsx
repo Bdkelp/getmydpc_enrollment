@@ -152,20 +152,37 @@ export default function Registration() {
         parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
       const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% administration fee
       
-      // Ensure all required fields are present
-      const submissionData = {
-        // Required backend fields
+      // PAYMENT-FIRST FLOW: Store registration data in sessionStorage ONLY
+      // Member record will be created AFTER payment succeeds
+      const registrationData = {
+        // Required fields
         email: data.email,
-        password: "TempPassword123!", // Temporary password for DPC enrollment
         firstName: data.firstName,
         lastName: data.lastName,
         phone: data.phone,
         
         // Additional enrollment data
-        ...data,
+        middleName: data.middleName,
+        dateOfBirth: data.dateOfBirth,
+        gender: data.gender,
+        ssn: data.ssn,
+        address: data.address,
+        address2: data.address2,
+        city: data.city,
+        state: data.state,
+        zipCode: data.zipCode,
+        emergencyContactName: data.emergencyContactName,
+        emergencyContactPhone: data.emergencyContactPhone,
+        employerName: data.employerName,
+        dateOfHire: data.dateOfHire,
+        
+        // Plan and pricing
+        planId: selectedPlanId,
         coverageType,
-        addRxValet,
         totalMonthlyPrice: parseFloat(totalWithFees),
+        addRxValet,
+        
+        // Family members (if any)
         familyMembers: familyMembers,
         
         // Consent flags
@@ -179,53 +196,29 @@ export default function Registration() {
         enrolledByAgentId: currentUser?.id || null
       };
       
-      console.log('Submitting registration data:', {
-        email: submissionData.email,
-        firstName: submissionData.firstName,
-        lastName: submissionData.lastName,
-        phone: submissionData.phone,
-        hasPassword: !!submissionData.password
+      console.log('[Registration] Storing data in sessionStorage (payment-first flow)');
+      console.log('[Registration] Data:', {
+        email: registrationData.email,
+        firstName: registrationData.firstName,
+        lastName: registrationData.lastName,
+        planId: registrationData.planId,
+        totalMonthlyPrice: registrationData.totalMonthlyPrice
       });
       
-      // CRITICAL: Must RETURN the API response so onSuccess receives the data
-      return await apiRequest("/api/registration", {
-        method: "POST",
-        body: JSON.stringify(submissionData)
-      });
+      // Store in sessionStorage - no API call yet
+      sessionStorage.setItem("registrationData", JSON.stringify(registrationData));
+      sessionStorage.setItem("paymentAttempts", "0");
+      
+      // Return mock success for UI flow
+      return { 
+        success: true, 
+        message: "Registration data stored, proceed to payment" 
+      };
     },
     onSuccess: (data) => {
-      console.log("[Registration] API response received:", data);
-      console.log("[Registration] Member object:", data.member);
-      console.log("[Registration] Member has firstName?", !!data.member?.firstName, "lastName?", !!data.member?.lastName);
+      console.log("[Registration] Data stored in sessionStorage, redirecting to payment");
       
-      // Store member data for confirmation page
-      if (data.member) {
-        sessionStorage.setItem("memberData", JSON.stringify(data.member));
-        console.log("[Registration] Stored to sessionStorage:", data.member);
-        console.log("[Registration] Verify stored data:", JSON.parse(sessionStorage.getItem("memberData") || "{}"));
-      } else {
-        console.error("[Registration] ⚠️ No member object in response!");
-      }
-      
-      // Invalidate cache to show new enrollment immediately
-      queryClient.invalidateQueries({ queryKey: ['/api/agent/stats'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/enrollments'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/agent/enrollments'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
-      
-      // Store primary address for family member enrollment
-      const addressData = {
-        address: form.getValues("address"),
-        address2: form.getValues("address2"),
-        city: form.getValues("city"),
-        state: form.getValues("state"),
-        zipCode: form.getValues("zipCode"),
-      };
-      sessionStorage.setItem("primaryAddress", JSON.stringify(addressData));
-      sessionStorage.setItem("coverageType", coverageType);
-      sessionStorage.setItem("familyMembers", JSON.stringify(familyMembers));
-      
-      // Always store registration info for payment
+      // Store additional session data for payment page
       const isFamily = coverageType === "Family";
       const rxValetPrice = isFamily ? 21 : 19;
       const subtotal = selectedPlan ? 
@@ -240,8 +233,10 @@ export default function Registration() {
       sessionStorage.setItem("subtotal", subtotal.toFixed(2));
       sessionStorage.setItem("processingFee", processingFee);
       sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
+      sessionStorage.setItem("coverageType", coverageType);
+      sessionStorage.setItem("familyMembers", JSON.stringify(familyMembers));
       
-      console.log("Storing plan info:", {
+      console.log("Stored plan info:", {
         selectedPlanId,
         selectedPlanName: selectedPlan?.name,
         coverageType,
