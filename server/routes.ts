@@ -3062,8 +3062,8 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
-      console.log("❌ Access denied - not agent or admin");
+    if (req.user!.role !== "agent" && req.user!.role !== "admin" && req.user!.role !== "super_admin") {
+      console.log("❌ Access denied - not agent/admin/super_admin");
       return res.status(403).json({ message: "Agent or admin access required" });
     }
 
