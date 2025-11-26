@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS admin_notifications (
     metadata JSONB,
     resolved BOOLEAN DEFAULT FALSE,
     resolved_at TIMESTAMP,
-    resolved_by VARCHAR(255) REFERENCES users(id),
+    resolved_by UUID REFERENCES users(id),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -63,32 +63,6 @@ COMMENT ON COLUMN members.payment_method_type IS 'Payment method type: CreditCar
 COMMENT ON COLUMN subscriptions.epx_subscription_id IS 'EPX recurring billing subscription ID';
 COMMENT ON TABLE temp_registrations IS 'Temporary storage for registration data during payment processing (expires after 1 hour)';
 COMMENT ON COLUMN temp_registrations.payment_attempts IS 'Number of failed payment attempts (max 3 before purging)';
-
--- Create admin notifications table
-CREATE TABLE IF NOT EXISTS admin_notifications (
-    id SERIAL PRIMARY KEY,
-    type VARCHAR(50) NOT NULL,
-    member_id INTEGER REFERENCES members(id),
-    subscription_id INTEGER REFERENCES subscriptions(id),
-    error_message TEXT,
-    metadata JSONB,
-    resolved BOOLEAN DEFAULT FALSE,
-    resolved_at TIMESTAMP,
-    resolved_by VARCHAR(255) REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Create indexes for admin_notifications
-CREATE INDEX IF NOT EXISTS idx_admin_notifications_resolved 
-ON admin_notifications(resolved);
-
-CREATE INDEX IF NOT EXISTS idx_admin_notifications_type 
-ON admin_notifications(type);
-
-CREATE INDEX IF NOT EXISTS idx_admin_notifications_created_at 
-ON admin_notifications(created_at);
-
--- Add comments for documentation
 COMMENT ON TABLE admin_notifications IS 'System alerts for admin review (e.g., failed EPX subscription creation)';
 COMMENT ON COLUMN admin_notifications.type IS 'Notification type: epx_subscription_failed, payment_failed, etc';
 
