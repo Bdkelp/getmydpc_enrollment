@@ -92,14 +92,19 @@ export default function AgentDashboard() {
   });
 
   // Get agent stats (for selected agent if admin, or current user)
-  const { data: stats, isLoading: statsLoading } = useQuery<AgentStats>({
+  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<AgentStats>({
     queryKey: ["/api/agent/stats", viewingAgentId],
     queryFn: () => apiRequest("GET", `/api/agent/stats${viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}` : ''}`),
     enabled: !!viewingAgentId,
   });
 
+  // Log errors for debugging
+  if (statsError) {
+    console.error('[Agent Dashboard] Stats error:', statsError);
+  }
+
   // Get recent enrollments (for selected agent if admin, or current user)
-  const { data: enrollments, isLoading: enrollmentsLoading } = useQuery<Enrollment[]>({
+  const { data: enrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useQuery<Enrollment[]>({
     queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter],
     queryFn: () => apiRequest("GET", `/api/agent/enrollments?${new URLSearchParams({
       ...(viewingAgentId && viewingAgentId !== user?.id ? { agentId: viewingAgentId } : {}),
@@ -107,6 +112,11 @@ export default function AgentDashboard() {
     }).toString()}`),
     enabled: !!viewingAgentId,
   });
+
+  // Log errors for debugging
+  if (enrollmentsError) {
+    console.error('[Agent Dashboard] Enrollments error:', enrollmentsError);
+  }
 
   // Download enrollments spreadsheet
   const downloadMutation = useMutation({
@@ -198,6 +208,40 @@ export default function AgentDashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Show error state if data failed to load
+  if (statsError || enrollmentsError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Card className="max-w-md">
+          <CardHeader>
+            <CardTitle className="text-red-600 flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              Error Loading Dashboard
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-700 mb-4">
+              We couldn't load your agent dashboard. Please try refreshing the page.
+            </p>
+            {statsError && (
+              <div className="text-sm text-gray-600 mb-2">
+                <strong>Stats Error:</strong> {String(statsError)}
+              </div>
+            )}
+            {enrollmentsError && (
+              <div className="text-sm text-gray-600 mb-4">
+                <strong>Enrollments Error:</strong> {String(enrollmentsError)}
+              </div>
+            )}
+            <Button onClick={() => window.location.reload()} className="w-full">
+              Reload Page
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
