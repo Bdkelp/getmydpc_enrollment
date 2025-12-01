@@ -1,4 +1,9 @@
 {
+  "buildCommand": "npm --prefix client install && npm --prefix client run build",
+  "outputDirectory": "client/dist",
+  "installCommand": "npm --prefix client install",
+  "devCommand": "npm --prefix client run dev",
+  "cleanUrls": true,
   "headers": [
     {
       "source": "/(.*)",
