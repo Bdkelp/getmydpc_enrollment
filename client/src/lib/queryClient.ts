@@ -52,7 +52,8 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
       headers['Authorization'] = `Bearer ${session.access_token}`;
       console.log(`[apiRequest:${requestId}] Auth token added, user:`, session.user?.email);
     } else {
-      console.warn(`[apiRequest:${requestId}] No auth token available for request to:`, fullUrl);
+      // Public endpoints don't need auth
+      console.log(`[apiRequest:${requestId}] No auth token (public endpoint):`, fullUrl);
     }
 
     const response = await fetch(fullUrl, {
@@ -153,7 +154,8 @@ export const getQueryFn: <T>(options: {
       headers["Authorization"] = `Bearer ${session.access_token}`;
       console.log("[getQueryFn] Auth token added for:", fullUrl);
     } else {
-      console.warn("[getQueryFn] No auth token available for:", fullUrl);
+      // Public endpoints don't need auth - only log for debugging
+      console.log("[getQueryFn] No auth token (public endpoint):", fullUrl);
     }
 
     const res = await fetch(fullUrl, {
