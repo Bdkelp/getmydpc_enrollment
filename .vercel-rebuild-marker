@@ -1,0 +1,7 @@
+# Vercel Rebuild Marker
+Build timestamp: 2024-12-01T${new Date().getHours()}:${new Date().getMinutes()}
+
+This file forces Vercel to do a clean rebuild by changing the project hash.
+The previous build had a cached compilation error with duplicated field assignment.
+
+Build trigger: Fix syntax error in compiled output
