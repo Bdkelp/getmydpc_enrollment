@@ -87,7 +87,7 @@ export default function AgentDashboard() {
 
   // For admin/super_admin: fetch all agents for selector
   const { data: allAgents } = useQuery({
-    queryKey: ["/api/users"],
+    queryKey: ["/api/agents"],
     enabled: user?.role === 'admin' || user?.role === 'super_admin',
   });
 

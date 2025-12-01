@@ -22,7 +22,8 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
   const { API_URL } = await import("@/lib/apiClient");
   
   // Construct full URL if it's a relative path
-  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+  // Ensure proper slash between base and path
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url.startsWith('/') ? url : `/${url}`}`;
 
   console.log(`[apiRequest:${requestId}] Starting request`, {
     url: fullUrl,
@@ -134,7 +135,7 @@ export const getQueryFn: <T>(options: {
     
     // Build the full URL using API_URL for relative paths
     const url = queryKey[0] as string;
-    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`;
+    const fullUrl = url.startsWith('http') ? url : `${API_URL}${url.startsWith('/') ? url : `/${url}`}`;
     
     // Get the Supabase session to include auth token
     const { supabase } = await import("@/lib/supabase");
