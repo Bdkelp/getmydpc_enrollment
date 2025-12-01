@@ -33,7 +33,7 @@ interface Commission {
   totalPlanCost?: number;
   status?: string;
   paymentStatus?: string;
-  paidDate?: string;
+  paymentDate?: string;
   createdAt?: string;
 }
 
@@ -336,9 +336,9 @@ export default function AgentCommissions() {
                         <TableCell>{getStatusBadge(commission.status || 'unknown')}</TableCell>
                         <TableCell>
                           {getPaymentBadge(commission.paymentStatus || 'unknown')}
-                          {commission.paidDate && (
+                          {commission.paymentDate && (
                             <div className="text-xs text-gray-500 mt-1">
-                              {format(new Date(commission.paidDate), "MM/dd/yyyy")}
+                              {format(new Date(commission.paymentDate), "MM/dd/yyyy")}
                             </div>
                           )}
                         </TableCell>

@@ -7,8 +7,8 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { DollarSign, Calendar, CheckCircle, ChevronLeft } from "lucide-react";
-import { format, startOfWeek, endOfWeek } from "date-fns";
+import { DollarSign, Calendar, CheckCircle, ChevronLeft, Clock } from "lucide-react";
+import { format, startOfWeek, endOfWeek, isFuture, isPast, isToday } from "date-fns";
 import {
   Table,
   TableBody,
@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Commission {
   id: string;
@@ -114,9 +115,29 @@ export default function AdminCommissions() {
     });
   }, [safeCommissions]);
 
+  const paidCommissions = useMemo(() => {
+    return safeCommissions.filter(c => c.paymentStatus === 'paid');
+  }, [safeCommissions]);
+
+  const scheduledCommissions = useMemo(() => {
+    return safeCommissions.filter(c => {
+      if (c.paymentStatus !== 'paid' || !c.paymentDate) return false;
+      const paymentDate = new Date(c.paymentDate);
+      return isFuture(paymentDate) || isToday(paymentDate);
+    });
+  }, [safeCommissions]);
+
   const totalUnpaid = useMemo(() => {
     return unpaidCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0);
   }, [unpaidCommissions]);
+
+  const totalPaid = useMemo(() => {
+    return paidCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0);
+  }, [paidCommissions]);
+
+  const totalScheduled = useMemo(() => {
+    return scheduledCommissions.reduce((sum, c) => sum + (c.commissionAmount || 0), 0);
+  }, [scheduledCommissions]);
 
   const selectedTotal = useMemo(() => {
     return safeCommissions
@@ -198,7 +219,7 @@ export default function AdminCommissions() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Unpaid</CardTitle>
@@ -212,37 +233,64 @@ export default function AdminCommissions() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">${totalPaid.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{paidCommissions.length} commissions</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Scheduled Payments</CardTitle>
+              <Clock className="h-4 w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">${totalScheduled.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{scheduledCommissions.length} upcoming</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Selected for Payment</CardTitle>
-              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+              <Calendar className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">${selectedTotal.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">{selectedCommissions.size} selected</p>
             </CardContent>
           </Card>
+        </div>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Payment Date</CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <Input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="mb-2"
-              />
+        {/* Payment Action Card */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Process Payment</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4 items-end">
+              <div className="flex-1">
+                <Label htmlFor="paymentDate">Payment Date</Label>
+                <Input
+                  id="paymentDate"
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                />
+              </div>
               <Button
                 onClick={handleMarkAsPaid}
                 disabled={selectedCommissions.size === 0 || markAsPaidMutation.isPending}
-                className="w-full"
+                className="mb-0"
               >
-                {markAsPaidMutation.isPending ? "Processing..." : "Mark Selected as Paid"}
+                {markAsPaidMutation.isPending ? "Processing..." : `Mark ${selectedCommissions.size} as Paid`}
               </Button>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Date Filters */}
         <Card className="mb-8">
@@ -276,73 +324,221 @@ export default function AdminCommissions() {
           </CardContent>
         </Card>
 
-        {/* Commission Table */}
+        {/* Commission Table with Tabs */}
         <Card>
           <CardHeader>
-            <CardTitle>Commissions</CardTitle>
+            <CardTitle>Commission Details</CardTitle>
           </CardHeader>
           <CardContent>
-            {safeCommissions.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-12">
-                      <Checkbox
-                        checked={unpaidCommissions.length > 0 && selectedCommissions.size === unpaidCommissions.length}
-                        onCheckedChange={handleSelectAll}
-                      />
-                    </TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Agent ID</TableHead>
-                    <TableHead>Member</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Payment Status</TableHead>
-                    <TableHead>Payment Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {safeCommissions.map((commission) => (
-                    <TableRow key={commission.id}>
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedCommissions.has(commission.id)}
-                          onCheckedChange={(checked) => handleSelectCommission(commission.id, checked as boolean)}
-                          disabled={commission.paymentStatus === 'paid'}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {format(new Date(commission.createdAt), "MM/dd/yyyy")}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
-                      <TableCell>{commission.userName}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
-                      </TableCell>
-                      <TableCell className="font-semibold">
-                        ${commission.commissionAmount.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        {commission.paymentStatus === 'paid' ? (
-                          <Badge className="bg-green-100 text-green-800">Paid</Badge>
-                        ) : (
-                          <Badge className="bg-yellow-100 text-yellow-800">Unpaid</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {commission.paymentDate
-                          ? format(new Date(commission.paymentDate), "MM/dd/yyyy")
-                          : '-'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-gray-500">No commissions found for the selected date range.</p>
-              </div>
-            )}
+            <Tabs defaultValue="all" className="w-full">
+              <TabsList className="mb-4">
+                <TabsTrigger value="all">All ({safeCommissions.length})</TabsTrigger>
+                <TabsTrigger value="unpaid">Unpaid ({unpaidCommissions.length})</TabsTrigger>
+                <TabsTrigger value="scheduled">Scheduled ({scheduledCommissions.length})</TabsTrigger>
+                <TabsTrigger value="paid">Paid ({paidCommissions.length})</TabsTrigger>
+              </TabsList>
+
+              {/* All Commissions Tab */}
+              <TabsContent value="all">
+                {safeCommissions.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">
+                          <Checkbox
+                            checked={unpaidCommissions.length > 0 && selectedCommissions.size === unpaidCommissions.length}
+                            onCheckedChange={handleSelectAll}
+                          />
+                        </TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Agent</TableHead>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Payment Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {safeCommissions.map((commission) => (
+                        <TableRow key={commission.id}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedCommissions.has(commission.id)}
+                              onCheckedChange={(checked) => handleSelectCommission(commission.id, checked as boolean)}
+                              disabled={commission.paymentStatus === 'paid'}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {format(new Date(commission.createdAt), "MM/dd/yyyy")}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
+                          <TableCell>{commission.userName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${commission.commissionAmount.toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            {commission.paymentStatus === 'paid' ? (
+                              <Badge className="bg-green-100 text-green-800">Paid</Badge>
+                            ) : (
+                              <Badge className="bg-yellow-100 text-yellow-800">Unpaid</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {commission.paymentDate
+                              ? format(new Date(commission.paymentDate), "MM/dd/yyyy")
+                              : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">No commissions found for the selected date range.</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Unpaid Commissions Tab */}
+              <TabsContent value="unpaid">
+                {unpaidCommissions.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">
+                          <Checkbox
+                            checked={unpaidCommissions.length > 0 && selectedCommissions.size === unpaidCommissions.length}
+                            onCheckedChange={handleSelectAll}
+                          />
+                        </TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Agent</TableHead>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {unpaidCommissions.map((commission) => (
+                        <TableRow key={commission.id}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedCommissions.has(commission.id)}
+                              onCheckedChange={(checked) => handleSelectCommission(commission.id, checked as boolean)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {format(new Date(commission.createdAt), "MM/dd/yyyy")}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
+                          <TableCell>{commission.userName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${commission.commissionAmount.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">No unpaid commissions found.</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Scheduled Payments Tab */}
+              <TabsContent value="scheduled">
+                {scheduledCommissions.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Scheduled Date</TableHead>
+                        <TableHead>Agent</TableHead>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {scheduledCommissions.map((commission) => (
+                        <TableRow key={commission.id}>
+                          <TableCell>
+                            {commission.paymentDate && (
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-blue-600" />
+                                {format(new Date(commission.paymentDate), "MM/dd/yyyy")}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
+                          <TableCell>{commission.userName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${commission.commissionAmount.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">No scheduled payments found.</p>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Paid Commissions Tab */}
+              <TabsContent value="paid">
+                {paidCommissions.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Payment Date</TableHead>
+                        <TableHead>Agent</TableHead>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paidCommissions.map((commission) => (
+                        <TableRow key={commission.id}>
+                          <TableCell>
+                            {commission.paymentDate ? (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                {format(new Date(commission.paymentDate), "MM/dd/yyyy")}
+                              </div>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
+                          <TableCell>{commission.userName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold text-green-600">
+                            ${commission.commissionAmount.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500">No paid commissions found.</p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </main>

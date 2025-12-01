@@ -100,7 +100,7 @@ interface AnalyticsData {
     status: string;
     paymentStatus: string;
     createdDate: string;
-    paidDate: string | null;
+    paymentDate: string | null;
   }>;
   revenueBreakdown: {
     totalRevenue: number;

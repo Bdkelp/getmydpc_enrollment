@@ -2490,7 +2490,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         notes: commission.notes || '',
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
-        paidDate: commission.paid_at,
+        paymentDate: commission.paid_date,
         // Additional fields for display
         memberEmail: member?.email || '',
         firstName: member?.first_name || '',
@@ -2618,7 +2618,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         notes: commission.notes || '',
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
-        paidDate: commission.paid_at,
+        paymentDate: commission.paid_date,
         // Member information
         memberEmail: member?.email || '',
         memberName: member?.first_name && member?.last_name 
@@ -2701,7 +2701,7 @@ export async function updateCommissionPayoutStatus(
 
     // If marking as paid, set the payment date
     if (payoutData.paymentStatus === 'paid') {
-      updatePayload.paid_at = payoutData.paymentDate || new Date().toISOString();
+      updatePayload.paid_date = payoutData.paymentDate || new Date().toISOString();
     }
 
     // Add notes if provided
@@ -2751,7 +2751,7 @@ export async function updateMultipleCommissionPayouts(
           };
 
           if (update.paymentStatus === 'paid') {
-            updatePayload.paid_at = update.paymentDate || new Date().toISOString();
+            updatePayload.paid_date = update.paymentDate || new Date().toISOString();
           }
 
           return supabase
@@ -2788,7 +2788,7 @@ export async function getCommissionsForPayout(
         coverage_type,
         status,
         payment_status,
-        paid_at,
+        paid_date,
         created_at,
         updated_at,
         base_premium,
@@ -4268,7 +4268,7 @@ export const storage = {
           status: commission.status || 'pending',
           paymentStatus: commission.payment_status || 'pending',
           createdDate: commission.created_at || '',
-          paidDate: commission.paid_at || null
+          paymentDate: commission.paid_date || null
         };
       });
 
