@@ -443,7 +443,7 @@ export default function AgentDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {enrollments?.map((enrollment: any) => (
+                  {Array.isArray(enrollments) && enrollments.map((enrollment: any) => (
                     <tr 
                       key={enrollment.id} 
                       className={`border-b hover:bg-gray-50 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
@@ -492,7 +492,7 @@ export default function AgentDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {stats?.leads?.map((lead: any) => (
+              {Array.isArray(stats?.leads) && stats.leads.map((lead: any) => (
                 <div 
                   key={lead.id} 
                   className="flex justify-between items-center p-3 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer transition-colors"
