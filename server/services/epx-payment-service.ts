@@ -206,13 +206,19 @@ export class EPXServerPostService {
       const signature = generateEPXSignature(endpoint, payload, this.config.apiKey);
       const url = `${this.config.apiUrl}${endpoint}`;
 
-      // Log request (with masked card data)
-      console.log('[EPX Server Post - REQUEST]', JSON.stringify({
-        timestamp: new Date().toISOString(),
-        endpoint,
-        epiId: this.getEPIId(),
-        payload: maskCardFields(payload)
-      }));
+      // Log request (with masked card data) - EPX CERTIFICATION FORMAT
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('[EPX ServerPost Request]', JSON.stringify({
+        url,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'EPI-Id': this.getEPIId(),
+          'EPI-Signature': signature
+        },
+        body: maskCardFields(payload)
+      }, null, 2));
+      console.log('═══════════════════════════════════════════════════════════');
 
       const response = await fetch(url, {
         method: 'POST',
@@ -226,23 +232,23 @@ export class EPXServerPostService {
 
       const responseData = await response.json();
 
-      // Log response
+      // Log response - EPX CERTIFICATION FORMAT
       if (response.ok) {
-        console.log('[EPX Server Post - RESPONSE]', JSON.stringify({
-          timestamp: new Date().toISOString(),
-          endpoint,
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('[EPX ServerPost Response]', JSON.stringify({
           status: response.status,
           data: maskCardFields(responseData)
-        }));
+        }, null, 2));
+        console.log('═══════════════════════════════════════════════════════════');
 
         return { success: true, data: responseData };
       } else {
-        console.log('[EPX Server Post - RESPONSE (ERROR)]', JSON.stringify({
-          timestamp: new Date().toISOString(),
-          endpoint,
+        console.log('═══════════════════════════════════════════════════════════');
+        console.log('[EPX ServerPost Response (ERROR)]', JSON.stringify({
           status: response.status,
           error: responseData
-        }));
+        }, null, 2));
+        console.log('═══════════════════════════════════════════════════════════');
 
         return {
           success: false,
