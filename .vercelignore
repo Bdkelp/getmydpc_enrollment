@@ -1,0 +1,17 @@
+# Ignore backend code completely
+server/
+dist/
+node_modules/
+*.log
+
+# Ignore config files
+tsconfig.json
+nixpacks.toml
+railway.json
+
+# Ignore SQL files
+*.sql
+
+# Ignore documentation
+*.md
+!client/README.md

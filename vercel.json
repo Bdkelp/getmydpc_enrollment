@@ -1,8 +1,9 @@
 {
-  "buildCommand": "npm --prefix client install && npm --prefix client run build",
+  "buildCommand": "cd client && npm install && npm run build",
   "outputDirectory": "client/dist",
-  "installCommand": "npm --prefix client install",
-  "devCommand": "npm --prefix client run dev",
+  "installCommand": "cd client && npm install",
+  "devCommand": "cd client && npm run dev",
+  "framework": "vite",
   "cleanUrls": true,
   "headers": [
     {
