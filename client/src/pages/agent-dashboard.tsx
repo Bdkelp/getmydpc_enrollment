@@ -23,7 +23,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -277,11 +277,11 @@ export default function AgentDashboard() {
                       <SelectItem value={user?.id || ''}>
                         {user?.firstName} {user?.lastName} (Your Dashboard)
                       </SelectItem>
-                      {allAgents?.filter((agent: any) => 
+                      {Array.isArray(allAgents) && allAgents.filter((agent: any) => 
                         agent.role === 'agent' && agent.id !== user?.id
                       ).map((agent: any) => (
                         <SelectItem key={agent.id} value={agent.id}>
-                          {agent.agentNumber} - {agent.firstName} {user?.lastName} ({agent.email})
+                          {agent.agentNumber} - {agent.firstName} {agent.lastName} ({agent.email})
                         </SelectItem>
                       ))}
                     </SelectContent>
