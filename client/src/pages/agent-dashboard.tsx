@@ -439,6 +439,7 @@ export default function AgentDashboard() {
                     <th className="text-left py-2">Type</th>
                     <th className="text-left py-2">Monthly</th>
                     <th className="text-left py-2">Commission</th>
+                    <th className="text-left py-2">Enrolled By</th>
                     <th className="text-left py-2">Status</th>
                   </tr>
                 </thead>
@@ -455,6 +456,15 @@ export default function AgentDashboard() {
                       <td className="py-2">{enrollment.memberType}</td>
                       <td className="py-2">${enrollment.totalMonthlyPrice}</td>
                       <td className="py-2 text-green-600">${enrollment.commissionAmount ? Number(enrollment.commissionAmount).toFixed(2) : '0.00'}</td>
+                      <td className="py-2">
+                        {enrollment.enrolledBy && enrollment.enrolledBy.includes('Downline') ? (
+                          <span className="text-xs text-blue-600" title={enrollment.enrolledByAgentName || ''}>
+                            {enrollment.enrollingAgentNumber || 'Downline'}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-600">Self</span>
+                        )}
+                      </td>
                       <td className="py-2">
                         <span className={`px-2 py-1 rounded-full text-xs ${
                           enrollment.status === 'active' 

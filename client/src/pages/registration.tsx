@@ -52,6 +52,8 @@ const registrationSchema = z.object({
   // Privacy notice acknowledgment
   privacyNoticeAcknowledged: z.boolean().refine(val => val === true, "You must acknowledge the privacy notice"),
   faqDownloaded: z.boolean().refine(val => val === true, "You must download and review the FAQ document"),
+  // Discount code (optional)
+  discountCode: z.string().optional(),
 }).superRefine((data, ctx) => {
   // Make employer fields required only for group/employer plans (not individual)
   // For now, all employer fields are optional since we don't have a clear indicator for group plans
@@ -70,6 +72,12 @@ export default function Registration() {
   const [currentFamilyMemberIndex, setCurrentFamilyMemberIndex] = useState(0);
   const [recommendedTier, setRecommendedTier] = useState<string | null>(null);
   const [showPolicyModal, setShowPolicyModal] = useState(false);
+  const [discountValidation, setDiscountValidation] = useState<{
+    isValid: boolean;
+    discountAmount: number;
+    message: string;
+  } | null>(null);
+  const [isValidatingDiscount, setIsValidatingDiscount] = useState(false);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -136,6 +144,7 @@ export default function Registration() {
       dateOfHire: "",
       memberType: "",
       planStartDate: "",
+      discountCode: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
       planId: 0,
@@ -223,13 +232,20 @@ export default function Registration() {
       const rxValetPrice = isFamily ? 21 : 19;
       const subtotal = selectedPlan ? 
         parseFloat(selectedPlan.price) + (addRxValet ? rxValetPrice : 0) : 0;
-      const processingFee = (subtotal * 0.04).toFixed(2);
-      const totalWithFees = (subtotal * 1.04).toFixed(2);
+      
+      // Apply discount if valid
+      const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
+      const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
+      
+      const processingFee = (subtotalAfterDiscount * 0.04).toFixed(2);
+      const totalWithFees = (subtotalAfterDiscount * 1.04).toFixed(2);
       
       sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
       sessionStorage.setItem("addRxValet", addRxValet.toString());
       sessionStorage.setItem("rxValet", addRxValet ? "yes" : "no");
       sessionStorage.setItem("basePlanPrice", selectedPlan?.price || "0");
+      sessionStorage.setItem("discountCode", data.discountCode || "");
+      sessionStorage.setItem("discountAmount", discountAmount.toFixed(2));
       sessionStorage.setItem("subtotal", subtotal.toFixed(2));
       sessionStorage.setItem("processingFee", processingFee);
       sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
@@ -269,6 +285,45 @@ export default function Registration() {
       });
     },
   });
+
+  // Validate discount code
+  const validateDiscountCode = async (code: string) => {
+    if (!code || code.trim() === "") {
+      setDiscountValidation(null);
+      return;
+    }
+
+    setIsValidatingDiscount(true);
+    try {
+      const response = await apiRequest(`/api/discount-codes/validate?code=${encodeURIComponent(code.trim())}`);
+      
+      if (response.isValid) {
+        setDiscountValidation({
+          isValid: true,
+          discountAmount: response.discountAmount,
+          message: `✓ Discount applied: $${response.discountAmount} off`,
+        });
+        toast({
+          title: "Discount Code Valid",
+          description: `$${response.discountAmount} discount will be applied to your plan.`,
+        });
+      } else {
+        setDiscountValidation({
+          isValid: false,
+          discountAmount: 0,
+          message: response.message || "Invalid discount code",
+        });
+      }
+    } catch (error: any) {
+      setDiscountValidation({
+        isValid: false,
+        discountAmount: 0,
+        message: error.message || "Unable to validate discount code",
+      });
+    } finally {
+      setIsValidatingDiscount(false);
+    }
+  };
 
   const handleNextStep = () => {
     if (currentStep === 1) {
@@ -713,6 +768,52 @@ export default function Registration() {
                                 max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Max 30 days
                               />
                             </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    {/* Discount Code Section */}
+                    <div className="border-t pt-6 mt-6">
+                      <FormField
+                        control={form.control}
+                        name="discountCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Discount Code (Optional)</FormLabel>
+                            <div className="flex gap-2">
+                              <FormControl>
+                                <Input 
+                                  placeholder="Enter discount code" 
+                                  {...field}
+                                  onChange={(e) => {
+                                    field.onChange(e);
+                                    // Clear validation when user types
+                                    setDiscountValidation(null);
+                                  }}
+                                  className={
+                                    discountValidation?.isValid 
+                                      ? "border-green-500 bg-green-50" 
+                                      : discountValidation?.isValid === false 
+                                      ? "border-red-500 bg-red-50" 
+                                      : ""
+                                  }
+                                />
+                              </FormControl>
+                              <Button
+                                type="button"
+                                onClick={() => validateDiscountCode(field.value || "")}
+                                disabled={!field.value || isValidatingDiscount}
+                              >
+                                {isValidatingDiscount ? "Checking..." : "Apply"}
+                              </Button>
+                            </div>
+                            {discountValidation && (
+                              <p className={`text-sm mt-1 ${discountValidation.isValid ? 'text-green-600 font-medium' : 'text-red-600'}`}>
+                                {discountValidation.message}
+                              </p>
+                            )}
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1427,12 +1528,27 @@ export default function Registration() {
                             <div className="text-sm">
                               Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)).toFixed(2)}
                             </div>
+                            {discountValidation?.isValid && (
+                              <div className="text-sm text-green-600 font-medium">
+                                Discount ({form.watch("discountCode")}): -${discountValidation.discountAmount.toFixed(2)}
+                              </div>
+                            )}
                             <div className="text-sm">
-                              Administration Fee (4%): ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 0.04).toFixed(2)}
+                              Administration Fee (4%): ${(() => {
+                                const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0);
+                                const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
+                                const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
+                                return (subtotalAfterDiscount * 0.04).toFixed(2);
+                              })()}
                             </div>
                             <div className="text-lg font-semibold border-t pt-1">
                               Total Monthly: <span className="text-green-600">
-                                ${((parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)) * 1.04).toFixed(2)}/month
+                                ${(() => {
+                                  const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0);
+                                  const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
+                                  const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
+                                  return (subtotalAfterDiscount * 1.04).toFixed(2);
+                                })()}/month
                               </span>
                             </div>
                           </div>

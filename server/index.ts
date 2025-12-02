@@ -33,6 +33,7 @@ import devUtilitiesRoutes from "./routes/dev-utilities";
 import epxRecurringRoutes from "./routes/epx-recurring-routes";
 import finalizeRegistrationRoutes from "./routes/finalize-registration";
 import adminNotificationsRoutes from "./routes/admin-notifications";
+import discountCodesRoutes from "./routes/discount-codes";
 
 const app = express();
 
@@ -140,6 +141,7 @@ app.use((req, res, next) => {
   app.use('/', adminLogsRoutes);
   app.use('/', adminDatabaseRoutes);
   app.use('/', adminNotificationsRoutes);
+  app.use('/', discountCodesRoutes);
   app.use('/', debugPaymentsRoutes);
   app.use('/', debugRecentPaymentsRoutes);
   app.use('/', devUtilitiesRoutes);
