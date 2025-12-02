@@ -108,7 +108,7 @@ router.get("/api/discount-codes/validate", async (req: Request, res) => {
 // ADMIN ENDPOINTS (Authentication required)
 // ============================================================
 
-// Get all discount codes (admin only)
+// Get all discount codes (admin and super_admin)
 router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
@@ -116,6 +116,8 @@ router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthReque
     if (userRole !== 'super_admin' && userRole !== 'admin') {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
+
+    console.log('[Get Discount Codes] Request from:', req.user?.email, 'Role:', userRole);
 
     const result = await db.query(
       `SELECT 
@@ -148,13 +150,13 @@ router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthReque
   }
 });
 
-// Create discount code (super_admin only)
+// Create discount code (admin or super_admin)
 router.post("/api/admin/discount-codes", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
-    if (userRole !== 'super_admin') {
-      return res.status(403).json({ message: "Unauthorized: Super Admin access required" });
+    if (userRole !== 'super_admin' && userRole !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
     const {
@@ -240,13 +242,13 @@ router.post("/api/admin/discount-codes", authenticateToken, async (req: AuthRequ
   }
 });
 
-// Update discount code (super_admin only)
+// Update discount code (admin or super_admin)
 router.put("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
-    if (userRole !== 'super_admin') {
-      return res.status(403).json({ message: "Unauthorized: Super Admin access required" });
+    if (userRole !== 'super_admin' && userRole !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
     const { id } = req.params;
@@ -331,13 +333,13 @@ router.put("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthR
   }
 });
 
-// Toggle discount code active status (super_admin only)
+// Toggle discount code active status (admin or super_admin)
 router.patch("/api/admin/discount-codes/:id/toggle", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
-    if (userRole !== 'super_admin') {
-      return res.status(403).json({ message: "Unauthorized: Super Admin access required" });
+    if (userRole !== 'super_admin' && userRole !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
     const { id } = req.params;
@@ -378,13 +380,13 @@ router.patch("/api/admin/discount-codes/:id/toggle", authenticateToken, async (r
   }
 });
 
-// Delete discount code (super_admin only)
+// Delete discount code (admin or super_admin)
 router.delete("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
-    if (userRole !== 'super_admin') {
-      return res.status(403).json({ message: "Unauthorized: Super Admin access required" });
+    if (userRole !== 'super_admin' && userRole !== 'admin') {
+      return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
     const { id } = req.params;

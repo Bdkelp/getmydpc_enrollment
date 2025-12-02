@@ -75,7 +75,7 @@ export default function AdminDiscountCodes() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdminOrAbove = user?.role === 'super_admin' || user?.role === 'admin';
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingCode, setEditingCode] = useState<DiscountCode | null>(null);
@@ -283,7 +283,7 @@ export default function AdminDiscountCodes() {
               <p className="text-gray-600 mt-1">Manage enrollment discount codes</p>
             </div>
           </div>
-          {isSuperAdmin && (
+          {isAdminOrAbove && (
             <Button onClick={() => setShowCreateDialog(true)} className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
               Create Discount Code
@@ -411,7 +411,7 @@ export default function AdminDiscountCodes() {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {isSuperAdmin ? (
+                        {isAdminOrAbove ? (
                           <div className="flex items-center justify-end gap-2">
                             <Button
                               variant="ghost"
