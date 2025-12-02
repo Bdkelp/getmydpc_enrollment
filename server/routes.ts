@@ -4550,6 +4550,13 @@ export async function registerRoutes(app: any) {
 
       const { commissionIds, paymentDate } = req.body;
 
+      console.log('[Route] mark-commissions-paid request:', {
+        commissionIds,
+        paymentDate,
+        idsCount: commissionIds?.length,
+        userRole: req.user?.role
+      });
+
       if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
         return res.status(400).json({ error: 'Commission IDs are required' });
       }
@@ -4558,8 +4565,12 @@ export async function registerRoutes(app: any) {
       
       res.json({ success: true, message: `${commissionIds.length} commission(s) marked as paid` });
     } catch (error: any) {
-      console.error('Error marking commissions as paid:', error);
-      res.status(500).json({ error: 'Failed to mark commissions as paid' });
+      console.error('[Route] Error marking commissions as paid:', error);
+      res.status(500).json({ 
+        error: 'Failed to mark commissions as paid',
+        message: error.message,
+        details: error.toString()
+      });
     }
   });
 

@@ -1033,22 +1033,72 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
   }
 }
 
+// Helper function to get all downline agents recursively (for agent tree view)
+async function getDownlineAgentIds(agentId: string): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .eq('upline_agent_id', agentId)
+      .eq('role', 'agent');
+
+    if (error) {
+      console.error('[Storage] Error fetching downline agents:', error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    // Get direct downline IDs
+    const directDownline = data.map(agent => agent.id);
+    
+    // Recursively get downline of downline
+    const nestedDownline = await Promise.all(
+      directDownline.map(id => getDownlineAgentIds(id))
+    );
+
+    // Flatten and combine all levels
+    return [...directDownline, ...nestedDownline.flat()];
+  } catch (error: any) {
+    console.error('[Storage] Error in getDownlineAgentIds:', error);
+    return [];
+  }
+}
+
 export async function getEnrollmentsByAgent(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
   try {
+    // Get all downline agents for this agent
+    const downlineAgentIds = await getDownlineAgentIds(agentId);
+    const allAgentIds = [agentId, ...downlineAgentIds];
+
+    console.log('[Storage] getEnrollmentsByAgent - Agent hierarchy:', {
+      agentId,
+      downlineCount: downlineAgentIds.length,
+      allAgentIds: allAgentIds.slice(0, 5) // Show first 5 for debugging
+    });
+
     // Query members table from Neon database with plan and commission data
+    // Include enrollments by this agent AND all downline agents
     let sql = `
       SELECT 
         m.*,
         p.name as plan_name,
         p.price as plan_price,
         ac.commission_amount,
-        ac.payment_status as commission_status
+        ac.payment_status as commission_status,
+        u.email as agent_email,
+        u.first_name as agent_first_name,
+        u.last_name as agent_last_name,
+        u.agent_number as enrolling_agent_number
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
-      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
-      WHERE m.enrolled_by_agent_id::uuid = $1::uuid
+      LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
+      LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id::uuid
+      WHERE m.enrolled_by_agent_id::uuid = ANY($1::uuid[])
     `;
-    const params: any[] = [agentId];
+    const params: any[] = [allAgentIds];
     let paramCount = 2;
 
     if (startDate && endDate) {
@@ -1060,93 +1110,77 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
 
     const result = await query(sql, params);
     
-    console.log('[Storage] getEnrollmentsByAgent - Query params:', { agentId, startDate, endDate });
-    console.log('[Storage] getEnrollmentsByAgent - SQL:', sql);
+    console.log('[Storage] getEnrollmentsByAgent - Query params:', { 
+      agentCount: allAgentIds.length,
+      startDate, 
+      endDate 
+    });
     console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
     
-    // DEBUG: Check ALL members to see what's in the database
-    const allMembersDebug = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, agent_number, is_active, status, created_at FROM members ORDER BY created_at DESC LIMIT 15');
-    console.log('[Storage] DEBUG - ALL MEMBERS (last 15):');
-    allMembersDebug.rows.forEach((m: any) => {
-      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, AgentNum: ${m.agent_number}, Active: ${m.is_active}, Status: ${m.status}, Created: ${m.created_at}`);
-    });
-    
-    // DEBUG: Check how many members have NULL enrolled_by_agent_id
-    const nullAgentCount = await query('SELECT COUNT(*) as count FROM members WHERE enrolled_by_agent_id IS NULL');
-    console.log('[Storage] DEBUG - Members with NULL enrolled_by_agent_id:', nullAgentCount.rows[0].count);
-    
-    // DEBUG: Check how many members match this agent
-    const agentMatchCount = await query('SELECT COUNT(*) as count FROM members WHERE enrolled_by_agent_id::uuid = $1::uuid', [agentId]);
-    console.log('[Storage] DEBUG - Members enrolled by agent', agentId, ':', agentMatchCount.rows[0].count);
-    
-    console.log('[Storage] DEBUG - Searching for agentId:', agentId);
-    console.log('[Storage] DEBUG - agentId type:', typeof agentId);
     if (result.rows.length > 0) {
-      console.log('[Storage] getEnrollmentsByAgent - Sample raw data:', {
+      console.log('[Storage] getEnrollmentsByAgent - Sample enrollment:', {
         id: result.rows[0].id,
         email: result.rows[0].email,
-        first_name: result.rows[0].first_name,
-        plan_name: result.rows[0].plan_name,
-        plan_price: result.rows[0].plan_price,
-        commission_amount: result.rows[0].commission_amount,
-        commission_status: result.rows[0].commission_status,
-        enrolled_by_agent_id: result.rows[0].enrolled_by_agent_id
+        name: `${result.rows[0].first_name} ${result.rows[0].last_name}`,
+        enrolledBy: result.rows[0].enrolling_agent_number,
+        plan: result.rows[0].plan_name
       });
-      
-      // 🔍 DEBUG: Check commission JOIN separately
-      console.log('[DEBUG] Checking commission data separately...');
-      const commissionQuery = await query(`
-        SELECT ac.*, m.id as member_id, m.first_name, m.last_name 
-        FROM agent_commissions ac
-        INNER JOIN members m ON ac.member_id = m.id::text
-        WHERE ac.agent_id = $1
-        LIMIT 5
-      `, [agentId]);
-      console.log('[DEBUG] Commission records for agent:', commissionQuery.rows);
-      console.log('[DEBUG] Commission count for agent:', commissionQuery.rows.length);
     }
     
     // Map member data to User format for compatibility, including plan and commission data
-    return result.rows.map((row: any) => ({
-      id: row.id.toString(),
-      email: row.email,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      middleName: row.middle_name,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      gender: row.gender,
-      address: row.address,
-      address2: row.address2,
-      city: row.city,
-      state: row.state,
-      zipCode: row.zip_code,
-      emergencyContactName: row.emergency_contact_name,
-      emergencyContactPhone: row.emergency_contact_phone,
-      role: 'member',
-      agentNumber: row.agent_number,
-      isActive: row.is_active,
-      emailVerified: row.email_verified || false,
-      enrolledByAgentId: row.enrolled_by_agent_id,
-      employerName: row.employer_name,
-      memberType: row.coverage_type,
-      ssn: row.ssn,
-      dateOfHire: row.date_of_hire,
-      planStartDate: row.plan_start_date,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      customerNumber: row.customer_number,
-      // Include plan and commission info
-      planId: row.plan_id,
-      planName: row.plan_name,
-      planPrice: row.plan_price,
-      totalMonthlyPrice: row.total_monthly_price,
-      commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status,
-      status: row.status,
-      enrolledBy: 'Agent (Self)',
-      subscriptionId: row.subscription_id
-    } as any));
+    return result.rows.map((row: any) => {
+      // Determine if this enrollment is from a downline agent or self
+      const isSelfEnrollment = row.enrolled_by_agent_id === agentId;
+      const enrolledByLabel = isSelfEnrollment 
+        ? 'Agent (Self)' 
+        : `Downline (${row.enrolling_agent_number || 'Agent'})`;
+
+      return {
+        id: row.id.toString(),
+        email: row.email,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        middleName: row.middle_name,
+        phone: row.phone,
+        dateOfBirth: row.date_of_birth,
+        gender: row.gender,
+        address: row.address,
+        address2: row.address2,
+        city: row.city,
+        state: row.state,
+        zipCode: row.zip_code,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactPhone: row.emergency_contact_phone,
+        role: 'member',
+        agentNumber: row.agent_number,
+        isActive: row.is_active,
+        emailVerified: row.email_verified || false,
+        enrolledByAgentId: row.enrolled_by_agent_id,
+        employerName: row.employer_name,
+        memberType: row.coverage_type,
+        ssn: row.ssn,
+        dateOfHire: row.date_of_hire,
+        planStartDate: row.plan_start_date,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        customerNumber: row.customer_number,
+        // Include plan and commission info
+        planId: row.plan_id,
+        planName: row.plan_name,
+        planPrice: row.plan_price,
+        totalMonthlyPrice: row.total_monthly_price,
+        commissionAmount: row.commission_amount,
+        commissionStatus: row.commission_status,
+        status: row.status,
+        enrolledBy: enrolledByLabel,
+        enrolledByAgentEmail: row.agent_email,
+        enrolledByAgentName: row.agent_first_name && row.agent_last_name 
+          ? `${row.agent_first_name} ${row.agent_last_name}` 
+          : row.agent_email,
+        enrollingAgentNumber: row.enrolling_agent_number,
+        subscriptionId: row.subscription_id
+      } as any;
+    });
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
@@ -2661,22 +2695,43 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
 
 export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
   try {
+    console.log('[Storage] markCommissionsAsPaid - Input:', { 
+      commissionIds, 
+      paymentDate,
+      idsType: typeof commissionIds,
+      firstIdType: typeof commissionIds[0]
+    });
+
     // Convert string IDs to integers for database query
-    const intIds = commissionIds.map(id => parseInt(id, 10));
+    const intIds = commissionIds.map(id => {
+      const parsed = parseInt(id, 10);
+      if (isNaN(parsed)) {
+        throw new Error(`Invalid commission ID: ${id}`);
+      }
+      return parsed;
+    });
     
-    const { error } = await supabase
+    console.log('[Storage] Converted IDs:', intIds);
+
+    const updateData = {
+      payment_status: 'paid',
+      paid_date: paymentDate || new Date().toISOString()
+    };
+
+    console.log('[Storage] Update payload:', updateData);
+    
+    const { data, error } = await supabase
       .from('agent_commissions')
-      .update({
-        payment_status: 'paid',
-        paid_date: paymentDate || new Date().toISOString()
-      })
-      .in('id', intIds);
+      .update(updateData)
+      .in('id', intIds)
+      .select();
 
     if (error) {
+      console.error('[Storage] Supabase error:', error);
       throw new Error(`Failed to mark commissions as paid: ${error.message}`);
     }
 
-    console.log(`[Storage] Marked ${commissionIds.length} commission(s) as paid`);
+    console.log(`[Storage] Marked ${commissionIds.length} commission(s) as paid, updated ${data?.length || 0} rows`);
   } catch (error: any) {
     console.error('[Storage] Error in markCommissionsAsPaid:', error);
     throw new Error(`Failed to mark commissions as paid: ${error.message}`);
