@@ -3927,6 +3927,10 @@ export const storage = {
   getAllCommissionsNew,
   getCommissionTotals,
   getCommissionStatsNew,
+  markCommissionsAsPaid,
+  updateCommissionPayoutStatus,
+  updateMultipleCommissionPayouts,
+  getCommissionsForPayout,
 
   // Login session methods
   createLoginSession: async (sessionData: {
