@@ -2,11 +2,16 @@ import { Router } from "express";
 import { db } from "../db";
 import type { AuthRequest } from "../auth/supabaseAuth";
 import { authenticateToken } from "../auth/supabaseAuth";
+import type { Request } from "express";
 
 const router = Router();
 
+// ============================================================
+// PUBLIC ENDPOINTS (No authentication required)
+// ============================================================
+
 // Validate discount code (public endpoint for registration)
-router.get("/api/discount-codes/validate", async (req, res) => {
+router.get("/api/discount-codes/validate", async (req: Request, res) => {
   try {
     const { code } = req.query;
 
@@ -99,11 +104,12 @@ router.get("/api/discount-codes/validate", async (req, res) => {
   }
 });
 
-// Admin endpoints - require authentication
-router.use(authenticateToken);
+// ============================================================
+// ADMIN ENDPOINTS (Authentication required)
+// ============================================================
 
 // Get all discount codes (admin only)
-router.get("/api/admin/discount-codes", async (req: AuthRequest, res) => {
+router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
@@ -143,7 +149,7 @@ router.get("/api/admin/discount-codes", async (req: AuthRequest, res) => {
 });
 
 // Create discount code (super_admin only)
-router.post("/api/admin/discount-codes", async (req: AuthRequest, res) => {
+router.post("/api/admin/discount-codes", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
@@ -235,7 +241,7 @@ router.post("/api/admin/discount-codes", async (req: AuthRequest, res) => {
 });
 
 // Update discount code (super_admin only)
-router.put("/api/admin/discount-codes/:id", async (req: AuthRequest, res) => {
+router.put("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
@@ -326,7 +332,7 @@ router.put("/api/admin/discount-codes/:id", async (req: AuthRequest, res) => {
 });
 
 // Toggle discount code active status (super_admin only)
-router.patch("/api/admin/discount-codes/:id/toggle", async (req: AuthRequest, res) => {
+router.patch("/api/admin/discount-codes/:id/toggle", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
@@ -373,7 +379,7 @@ router.patch("/api/admin/discount-codes/:id/toggle", async (req: AuthRequest, re
 });
 
 // Delete discount code (super_admin only)
-router.delete("/api/admin/discount-codes/:id", async (req: AuthRequest, res) => {
+router.delete("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthRequest, res) => {
   try {
     const userRole = req.user?.role;
     
