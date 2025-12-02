@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db";
-import type { AuthRequest } from "../middleware/permissions";
-import { authenticateToken } from "../middleware/permissions";
+import type { AuthRequest } from "../auth/supabaseAuth";
+import { authenticateToken } from "../auth/supabaseAuth";
 
 const router = Router();
 
