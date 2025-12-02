@@ -16,9 +16,9 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { supabase } from "../lib/supabaseClient";
-import { calculateMembershipStartDate, isMembershipActive, daysUntilMembershipStarts } from "../utils/membership-dates";
+import { calculateMembershipStartDate, isMembershipActive, daysUntilMembershipStarts, calculateNextBillingDate } from "../utils/membership-dates";
 import { calculateCommission } from "../commissionCalculator";
-import { EPXServerPostService } from "../services/epx-payment-service";
+import { createRecurringSubscription, recordEpxSubscriptionFailure } from "../services/epx-recurring-billing";
 
 const router = Router();
 
@@ -119,13 +119,15 @@ router.post("/api/finalize-registration", async (req, res) => {
 
     // Calculate membership dates
     const enrollmentDate = new Date();
-    const firstPaymentDate = enrollmentDate; // Same as enrollment date
+    const firstPaymentDate = enrollmentDate; // Same as enrollment date (billing day)
+    const nextBillingDate = calculateNextBillingDate(firstPaymentDate);
     const membershipStartDate = calculateMembershipStartDate(enrollmentDate);
 
     console.log("[Finalize Registration] Date calculations:", {
       enrollmentDate: enrollmentDate.toISOString(),
       firstPaymentDate: firstPaymentDate.toISOString(),
       membershipStartDate: membershipStartDate.toISOString(),
+      nextBillingDate: nextBillingDate.toISOString(),
       enrollDay: enrollmentDate.getDate(),
       membershipDay: membershipStartDate.getDate(),
       daysUntilActive: daysUntilMembershipStarts(enrollmentDate, membershipStartDate)
@@ -187,13 +189,14 @@ router.post("/api/finalize-registration", async (req, res) => {
       try {
         console.log("[Finalize Registration] Creating subscription...");
 
+        const subscriptionAmount = parseFloat(String(totalMonthlyPrice));
         const subscriptionData = {
           member_id: member.id,
           plan_id: parseInt(String(planId)),
           status: "active", // Payment already succeeded
-          amount: totalMonthlyPrice,
-          start_date: new Date().toISOString(),
-          next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+          amount: subscriptionAmount,
+          start_date: enrollmentDate.toISOString(),
+          next_billing_date: nextBillingDate.toISOString()
         };
 
         const { data: subscription, error: subscriptionError } = await supabase
@@ -211,75 +214,33 @@ router.post("/api/finalize-registration", async (req, res) => {
         console.log("[Finalize Registration] ✅ Subscription created:", subscriptionId);
 
         // === CREATE EPX RECURRING SUBSCRIPTION ===
-        try {
-          console.log("[Finalize Registration] Creating EPX recurring subscription...");
-          
-          const epxService = new EPXServerPostService();
-          const epxResult = await epxService.createSubscription({
-            MerchantAccountCode: "DPCPRIMARY", // TODO: Get from env or config
-            Payment: {
-              PaymentMethodType: paymentMethodType as "CreditCard" | "BankAccount" | "PreviousPayment",
-              PreviousPayment: {
-                GUID: paymentToken, // Use BRIC token from Hosted Checkout
-                Amount: totalMonthlyPrice,
-              }
-            },
-            BillingSchedule: {
-              Frequency: "Monthly",
-              StartDate: firstPaymentDate.toISOString().split('T')[0], // YYYY-MM-DD
-              FailureOption: "Skip", // Skip failed payments, don't cancel
-              RetryAttempts: 3, // Retry failed payments 3 times
-            },
-            SubscriptionName: `DPC - ${member.customerNumber}`,
-            CustomerEmail: normalizedEmail,
-            CustomerName: `${firstName} ${lastName}`,
-            CustomerAccountCode: member.customerNumber,
+        console.log("[Finalize Registration] Creating EPX recurring subscription...");
+        const epxResult = await createRecurringSubscription({
+          member,
+          subscriptionId,
+          amount: subscriptionAmount,
+          billingDate: firstPaymentDate,
+          paymentToken,
+          paymentMethodType,
+          source: 'finalize-registration'
+        });
+
+        if (epxResult.success && epxResult.epxSubscriptionId) {
+          epxSubscriptionId = epxResult.epxSubscriptionId;
+          console.log("[Finalize Registration] ✅ EPX subscription created:", epxSubscriptionId);
+        } else {
+          console.error("[Finalize Registration] ⚠️  EPX subscription creation failed:", epxResult.error);
+          await recordEpxSubscriptionFailure({
+            subscriptionId,
+            memberId: member.id,
+            error: epxResult.error || "Unknown error creating EPX subscription",
+            source: 'finalize-registration',
+            metadata: {
+              transactionId,
+              planId,
+            }
           });
-
-          if (epxResult.success && epxResult.data?.SubscriptionID) {
-            epxSubscriptionId = epxResult.data.SubscriptionID;
-            console.log("[Finalize Registration] ✅ EPX subscription created:", epxSubscriptionId);
-
-            // Update subscription with EPX ID
-            await supabase
-              .from('subscriptions')
-              .update({ epx_subscription_id: epxSubscriptionId })
-              .eq('id', subscriptionId);
-
-            console.log("[Finalize Registration] ✅ Subscription updated with EPX ID");
-          } else {
-            console.error("[Finalize Registration] ⚠️  EPX subscription creation failed:", epxResult.error);
-            
-            // FLAG FOR ADMIN REVIEW
-            await supabase
-              .from('admin_notifications')
-              .insert({
-                type: 'epx_subscription_failed',
-                member_id: member.id,
-                subscription_id: subscriptionId,
-                error_message: epxResult.error || "Unknown error creating EPX subscription",
-                created_at: new Date().toISOString(),
-                resolved: false
-              });
-
-            console.log("[Finalize Registration] ⚠️  Admin notification created for failed EPX subscription");
-          }
-        } catch (epxError: any) {
-          console.error("[Finalize Registration] ⚠️  EPX subscription creation error:", epxError);
-          
-          // FLAG FOR ADMIN REVIEW
-          await supabase
-            .from('admin_notifications')
-            .insert({
-              type: 'epx_subscription_failed',
-              member_id: member.id,
-              subscription_id: subscriptionId,
-              error_message: epxError.message || "Unknown error creating EPX subscription",
-              created_at: new Date().toISOString(),
-              resolved: false
-            });
-
-          console.log("[Finalize Registration] ⚠️  Admin notification created for EPX error");
+          console.log("[Finalize Registration] ⚠️  Admin notification recorded for EPX failure");
         }
       } catch (subError: any) {
         console.error("[Finalize Registration] Error creating subscription:", subError);

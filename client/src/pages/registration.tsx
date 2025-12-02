@@ -217,6 +217,31 @@ export default function Registration() {
       // Store in sessionStorage - no API call yet
       sessionStorage.setItem("registrationData", JSON.stringify(registrationData));
       sessionStorage.setItem("paymentAttempts", "0");
+      sessionStorage.setItem(
+        "primaryAddress",
+        JSON.stringify({
+          address: data.address || "",
+          address2: data.address2 || "",
+          city: data.city || "",
+          state: data.state || "",
+          zipCode: data.zipCode || "",
+          phone: data.phone || ""
+        })
+      );
+      sessionStorage.setItem(
+        "memberData",
+        JSON.stringify({
+          firstName: data.firstName,
+          lastName: data.lastName,
+          email: data.email,
+          phone: data.phone,
+          address: data.address,
+          address2: data.address2,
+          city: data.city,
+          state: data.state,
+          zipCode: data.zipCode
+        })
+      );
       
       // Return mock success for UI flow
       return { 

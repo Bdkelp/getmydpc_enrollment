@@ -24,6 +24,7 @@ import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
 import { scheduleCleanup as scheduleTempRegistrationCleanup } from "./services/temp-registration-service";
+import { scheduleRecurringBillingSync } from "./services/epx-recurring-billing";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import adminDatabaseRoutes from "./routes/admin-database";
@@ -199,6 +200,9 @@ app.use((req, res, next) => {
 
       // Initialize temp registration cleanup scheduler
       scheduleTempRegistrationCleanup();
+
+      // Initialize EPX recurring billing scheduler (controlled via env)
+      scheduleRecurringBillingSync();
 
       // Validate EPX configuration
       try {

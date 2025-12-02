@@ -117,21 +117,48 @@ export interface EPXSubscriptionData {
   Description?: string;
 }
 
-export interface EPXCreateSubscriptionRequest {
-  CustomerData: EPXCustomerData;
-  PaymentMethod: {
+export interface EPXLegacyBillingSchedule {
+  Frequency: 'Weekly' | 'BiWeekly' | 'Monthly';
+  StartDate: string;
+  FailureOption?: 'Forward' | 'Skip' | 'Pause';
+  RetryAttempts?: number;
+  NumberOfPayments?: number;
+}
+
+export interface EPXLegacyCreateSubscriptionRequest {
+  MerchantAccountCode?: string;
+  Payment?: {
+    PaymentMethodType?: 'CreditCard' | 'BankAccount' | 'PreviousPayment';
+    PreviousPayment?: {
+      GUID?: string;
+      Amount?: number;
+      PaymentType?: 'CreditCard' | 'BankAccount';
+    };
+  };
+  BillingSchedule?: EPXLegacyBillingSchedule;
+  SubscriptionName?: string;
+  CustomerEmail?: string;
+  CustomerName?: string;
+  CustomerAccountCode?: string;
+  CustomerPhone?: string;
+}
+
+export interface EPXCreateSubscriptionRequest extends EPXLegacyCreateSubscriptionRequest {
+  CustomerData?: EPXCustomerData;
+  PaymentMethod?: {
     CreditCardData?: EPXCreditCardData;
     BankAccountData?: EPXBankAccountData;
     PreviousPayment?: {
-      BRIC: string;
-      PaymentType: 'CreditCard' | 'BankAccount';
+      BRIC?: string;
+      PaymentType?: 'CreditCard' | 'BankAccount';
     };
   };
-  SubscriptionData: EPXSubscriptionData;
+  SubscriptionData?: EPXSubscriptionData;
 }
 
 export interface EPXSubscriptionResponse {
   id: number;
+  SubscriptionID?: string;
   Amount: number;
   Frequency: string;
   BillingDate: string;

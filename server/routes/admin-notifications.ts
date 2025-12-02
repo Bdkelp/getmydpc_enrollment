@@ -7,7 +7,7 @@
 import { Router, Request, Response } from "express";
 import { authenticateToken, AuthRequest } from "../auth/supabaseAuth";
 import { supabase } from "../lib/supabaseClient";
-import { EPXServerPostService } from "../services/epx-payment-service";
+import { createRecurringSubscription, recordEpxSubscriptionFailure, resolveEpxSubscriptionFailure } from "../services/epx-recurring-billing";
 
 const router = Router();
 
@@ -89,11 +89,17 @@ router.post("/api/admin/notifications/:id/retry-epx", authenticateToken, async (
       return res.status(400).json({ error: 'Subscription ID required' });
     }
 
+    const subscriptionIdNumber = typeof subscriptionId === 'number' ? subscriptionId : parseInt(String(subscriptionId), 10);
+
+    if (Number.isNaN(subscriptionIdNumber)) {
+      return res.status(400).json({ error: 'Invalid subscription ID' });
+    }
+
     // Get subscription details
     const { data: subscription, error: subError } = await supabase
       .from('subscriptions')
       .select('*, members!inner(*)')
-      .eq('id', subscriptionId)
+      .eq('id', subscriptionIdNumber)
       .single();
 
     if (subError || !subscription) {
@@ -107,37 +113,24 @@ router.post("/api/admin/notifications/:id/retry-epx", authenticateToken, async (
       return res.status(400).json({ error: 'Member or payment token not found' });
     }
 
-    // Attempt to create EPX recurring subscription
-    const epxService = new EPXServerPostService();
-    const epxResult = await epxService.createSubscription({
-      MerchantAccountCode: "DPCPRIMARY",
-      Payment: {
-        PaymentMethodType: member.payment_method_type || "CreditCard",
-        PreviousPayment: {
-          GUID: member.payment_token,
-          Amount: subscription.amount,
-        }
-      },
-      BillingSchedule: {
-        Frequency: "Monthly",
-        StartDate: member.first_payment_date || new Date().toISOString().split('T')[0],
-        FailureOption: "Skip",
-        RetryAttempts: 3,
-      },
-      SubscriptionName: `DPC - ${member.customer_number}`,
-      CustomerEmail: member.email,
-      CustomerName: `${member.first_name} ${member.last_name}`,
-      CustomerAccountCode: member.customer_number,
+    // Attempt to create EPX recurring subscription via helper
+    const retryResult = await createRecurringSubscription({
+      member,
+      subscriptionId: subscriptionIdNumber,
+      amount: subscription.amount,
+      billingDate: member.first_payment_date || new Date().toISOString(),
+      paymentToken: member.payment_token,
+      paymentMethodType: member.payment_method_type,
+      source: 'admin-retry'
     });
 
-    if (epxResult.success && epxResult.data?.SubscriptionID) {
-      // Update subscription with EPX ID
-      await supabase
-        .from('subscriptions')
-        .update({ epx_subscription_id: epxResult.data.SubscriptionID })
-        .eq('id', subscriptionId);
+    if (retryResult.success && retryResult.epxSubscriptionId) {
+      await resolveEpxSubscriptionFailure({
+        subscriptionId: subscriptionIdNumber,
+        resolvedBy: req.user?.id,
+        epxSubscriptionId: retryResult.epxSubscriptionId,
+      });
 
-      // Mark notification as resolved
       await supabase
         .from('admin_notifications')
         .update({
@@ -145,25 +138,32 @@ router.post("/api/admin/notifications/:id/retry-epx", authenticateToken, async (
           resolved_at: new Date().toISOString(),
           resolved_by: req.user?.id,
           metadata: {
-            ...(typeof subscription.metadata === 'object' ? subscription.metadata : {}),
-            epxSubscriptionId: epxResult.data.SubscriptionID,
+            epxSubscriptionId: retryResult.epxSubscriptionId,
             retrySuccess: true,
-            retryDate: new Date().toISOString()
+            retryDate: new Date().toISOString(),
+            source: 'admin-retry'
           }
         })
         .eq('id', id);
 
-      res.json({
+      return res.json({
         success: true,
-        epxSubscriptionId: epxResult.data.SubscriptionID,
+        epxSubscriptionId: retryResult.epxSubscriptionId,
         message: 'EPX subscription created successfully'
       });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: epxResult.error || 'Failed to create EPX subscription'
-      });
     }
+
+    await recordEpxSubscriptionFailure({
+      subscriptionId: subscriptionIdNumber,
+      memberId: member.id,
+      error: retryResult.error || 'Failed to create EPX subscription',
+      source: 'admin-retry'
+    });
+
+    res.status(500).json({
+      success: false,
+      error: retryResult.error || 'Failed to create EPX subscription'
+    });
   } catch (error: any) {
     console.error('[Admin Notifications] Retry EPX error:', error);
     res.status(500).json({ error: error.message || 'Failed to retry EPX subscription' });

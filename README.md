@@ -613,21 +613,19 @@ curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip
 
 ##### 3. **EPX Server Post API Integration**
 
-**Status**: Code exists but currently disabled (`BILLING_SCHEDULER_ENABLED=false`)
+**Status**: Automated creation enabled via new recurring billing service (still off in production until `BILLING_SCHEDULER_ENABLED=true`).
 
 **Files**:
 
-- `server/routes/epx-routes.ts` (Server Post endpoints)
-- `server/services/epx-server-post-service.ts` (implementation)
+- `server/services/epx-recurring-billing.ts` – shared helper + scheduler
+- `server/routes/finalize-registration.ts` – automatically provisions EPX subscription immediately after payment
+- `server/routes/admin-notifications.ts` – admin retry uses same helper
 
-**Why Disabled**: TypeScript warnings; Hosted Checkout is primary method
+**Controls & Tips**:
 
-**Future Work**:
-
-- Resolve TypeScript issues in Server Post service
-- Add Server Post logging to new EPX logger
-- Test Server Post flow in sandbox
-- Decide if needed alongside Hosted Checkout
+- Set `BILLING_SCHEDULER_ENABLED=true` to allow the background job to backfill any rows missing `epx_subscription_id`.
+- `BILLING_SCHEDULER_INTERVAL_MINUTES` and `BILLING_SCHEDULER_MIN_AGE_MINUTES` tune how frequently/soon retries run.
+- Hosted Checkout still drives the first payment; EPX Server Post now owns all future billing using the original enrollment day as the billing date.
 
 ##### 4. **Commission Payout Automation**
 

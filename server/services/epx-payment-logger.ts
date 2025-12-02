@@ -4,7 +4,16 @@ import * as path from 'path';
 export interface EPXLogEvent {
   timestamp: string;
   level: 'info' | 'warn' | 'error';
-  phase: 'create-payment' | 'callback' | 'recaptcha' | 'status' | 'server-post' | 'general';
+  phase:
+    | 'create-payment'
+    | 'callback'
+    | 'recaptcha'
+    | 'status'
+    | 'server-post'
+    | 'general'
+    | 'certification'
+    | 'recurring'
+    | 'scheduler';
   message: string;
   data?: any;
 }
