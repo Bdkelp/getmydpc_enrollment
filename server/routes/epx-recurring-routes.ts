@@ -78,6 +78,7 @@ router.post("/api/epx/test-recurring", authenticateToken, async (req: AuthReques
 
     if (result.success) {
       console.log('[EPX Test Recurring] Test subscription created successfully');
+      console.log(result.data);
       res.json({
         success: true,
         message: "Test subscription created successfully",
