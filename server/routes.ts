@@ -2531,6 +2531,50 @@ router.get(
   },
 );
 
+router.patch(
+  "/api/admin/members/:memberId/status",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { memberId } = req.params;
+    const { status, reason } = req.body || {};
+    const allowedStatuses = [
+      "pending_activation",
+      "active",
+      "inactive",
+      "cancelled",
+      "suspended",
+    ];
+
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        message: "Invalid status value",
+        allowedStatuses,
+      });
+    }
+
+    try {
+      const updatedMember = await storage.updateMemberStatus(memberId, status, {
+        reason,
+      });
+
+      res.json({
+        message: `Member status updated to ${status}`,
+        member: updatedMember,
+      });
+    } catch (error: any) {
+      console.error("Error updating member status:", error);
+      res.status(500).json({
+        message: "Failed to update member status",
+        error: error.message,
+      });
+    }
+  },
+);
+
 router.get(
   "/api/admin/analytics",
   authenticateToken,

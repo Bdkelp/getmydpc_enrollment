@@ -83,6 +83,20 @@ export function formatZipCode(zip: string): string {
   // Return exactly 5 digits
   return zip.replace(/\D/g, '').slice(0, 5);
 }
+
+function normalizeStartDate(startDate?: string): string | undefined {
+  if (!startDate) return undefined;
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+  return start.toISOString();
+}
+
+function normalizeEndDate(endDate?: string): string | undefined {
+  if (!endDate) return undefined;
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+  return end.toISOString();
+}
 import type {
   User,
   Member,
@@ -1184,6 +1198,72 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
+  }
+}
+
+export async function updateMemberStatus(
+  memberId: string | number,
+  status: string,
+  options?: { reason?: string }
+): Promise<any> {
+  const allowedStatuses = [
+    'pending_activation',
+    'active',
+    'inactive',
+    'cancelled',
+    'suspended'
+  ];
+
+  if (!status || !allowedStatuses.includes(status)) {
+    throw new Error(`Invalid status value: ${status}`);
+  }
+
+  const numericId = typeof memberId === 'string' ? parseInt(memberId, 10) : memberId;
+  if (!numericId || Number.isNaN(numericId)) {
+    throw new Error(`Invalid member ID: ${memberId}`);
+  }
+
+  const timestamp = new Date().toISOString();
+  const updates: Record<string, any> = {
+    status,
+    updated_at: timestamp
+  };
+
+  if (status === 'active') {
+    updates.is_active = true;
+    updates.cancellation_date = null;
+    updates.cancellation_reason = null;
+  } else if (status === 'pending_activation') {
+    updates.is_active = false;
+    updates.cancellation_date = null;
+    updates.cancellation_reason = null;
+  } else {
+    updates.is_active = false;
+    updates.cancellation_date = timestamp;
+    if (options?.reason) {
+      updates.cancellation_reason = options.reason;
+    }
+  }
+
+  try {
+    console.log('[Storage] Updating member status', { memberId: numericId, status });
+
+    const { data, error } = await supabase
+      .from('members')
+      .update(updates)
+      .eq('id', numericId)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[Storage] Error updating member status:', error);
+      throw new Error(`Failed to update member status: ${error.message}`);
+    }
+
+    return data;
+  } catch (error: any) {
+    console.error('[Storage] Unhandled error in updateMemberStatus:', error);
+    throw error;
   }
 }
 
@@ -2478,9 +2558,21 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     }
 
     // Create lookup maps
-    const membersMap = new Map((members || []).map(m => [m.id.toString(), m]));
-    const agentsMap = new Map((agents || []).map(a => [a.id, a]));
-    const enrollmentsMap = new Map((enrollments || []).map(e => [e.id.toString(), e]));
+    const membersMap = new Map(
+      (members || [])
+        .filter(m => m?.id !== undefined && m?.id !== null)
+        .map(m => [m.id.toString(), m])
+    );
+    const agentsMap = new Map(
+      (agents || [])
+        .filter(a => a?.id !== undefined && a?.id !== null)
+        .map(a => [a.id.toString(), a])
+    );
+    const enrollmentsMap = new Map(
+      (enrollments || [])
+        .filter(e => e?.id !== undefined && e?.id !== null)
+        .map(e => [e.id.toString(), e])
+    );
 
     console.log('[Storage] Sample raw commission:', {
       id: commissions[0].id,
@@ -2491,9 +2583,19 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     
     // Format for frontend - transform to match expected structure
     const formatted = commissions.map((commission: any) => {
-      const member = membersMap.get(commission.member_id);
-      const agent = agentsMap.get(commission.agent_id);
-      const enrollment = enrollmentsMap.get(commission.enrollment_id);
+      const memberKey = commission?.member_id !== undefined && commission?.member_id !== null
+        ? commission.member_id.toString()
+        : undefined;
+      const enrollmentKey = commission?.enrollment_id !== undefined && commission?.enrollment_id !== null
+        ? commission.enrollment_id.toString()
+        : undefined;
+      const agentKey = commission?.agent_id !== undefined && commission?.agent_id !== null
+        ? commission.agent_id.toString()
+        : undefined;
+
+      const member = memberKey ? membersMap.get(memberKey) : undefined;
+      const agent = agentKey ? agentsMap.get(agentKey) : undefined;
+      const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
       const plan = enrollment?.plans;
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
@@ -3672,6 +3774,7 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   getEnrollmentsByAgent,
+  updateMemberStatus,
   getMembersOnly,
   recordEnrollmentModification,
   recordBankingInfoChange,

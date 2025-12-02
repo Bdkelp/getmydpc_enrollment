@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react"; // Added React import
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useDebugLog } from "@/hooks/useDebugLog";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -67,6 +67,7 @@ export default function AdminEnrollments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const queryClient = useQueryClient();
 
   log("Component mounted", { user: user?.email, authLoading });
 
@@ -95,6 +96,15 @@ export default function AdminEnrollments() {
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  const statusOptions = [
+    { value: "pending_activation", label: "Pending Activation" },
+    { value: "pending", label: "Pending" },
+    { value: "active", label: "Active" },
+    { value: "inactive", label: "Inactive" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "suspended", label: "Suspended" },
+  ];
 
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
@@ -214,6 +224,42 @@ export default function AdminEnrollments() {
     },
   });
 
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({
+      memberId,
+      status,
+    }: {
+      memberId: string;
+      status: string;
+    }) => {
+      return apiRequest(`/api/admin/members/${memberId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Status updated",
+        description: `Member marked as ${formatStatusLabel(variables.status)}.`,
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === "/api/admin/enrollments",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Status update failed",
+        description:
+          error?.message || "Unable to update membership status. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleNewEnrollment = () => {
     setLocation("/registration");
   };
@@ -222,16 +268,45 @@ export default function AdminEnrollments() {
     generateAgentNumberMutation.mutate(agentId);
   };
 
+  const handleStatusChange = (memberId: string, newStatus: string) => {
+    if (!newStatus) return;
+    updateStatusMutation.mutate({ memberId, status: newStatus });
+  };
+
+  const formatStatusLabel = (status: string) => {
+    switch (status) {
+      case "pending_activation":
+        return "Pending Activation";
+      case "pending":
+        return "Pending";
+      case "active":
+        return "Active";
+      case "cancelled":
+        return "Cancelled";
+      case "inactive":
+        return "Inactive";
+      case "suspended":
+        return "Suspended";
+      default:
+        return status || "Unknown";
+    }
+  };
+
   const getStatusBadge = (status: string) => {
+    const label = formatStatusLabel(status);
     switch (status) {
       case "active":
-        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
+        return <Badge className="bg-green-100 text-green-800">{label}</Badge>;
       case "pending":
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case "pending_activation":
+        return <Badge className="bg-yellow-100 text-yellow-800">{label}</Badge>;
       case "cancelled":
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+      case "inactive":
+        return <Badge className="bg-red-100 text-red-800">{label}</Badge>;
+      case "suspended":
+        return <Badge className="bg-orange-100 text-orange-800">{label}</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge>{label}</Badge>;
     }
   };
 
@@ -495,9 +570,11 @@ export default function AdminEnrollments() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    {statusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -587,7 +664,30 @@ export default function AdminEnrollments() {
                         {enrollment.memberType}
                       </TableCell>
                       <TableCell>${enrollment.totalMonthlyPrice}</TableCell>
-                      <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-2">
+                          {getStatusBadge(enrollment.status)}
+                          <Select
+                            value={enrollment.status}
+                            onValueChange={(value) =>
+                              handleStatusChange(enrollment.id, value)
+                            }
+                            disabled={updateStatusMutation.isPending}
+                            name={`enrollmentStatus-${enrollment.id}`}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue placeholder="Set status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {statusOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
                       <TableCell>
                         <Button
