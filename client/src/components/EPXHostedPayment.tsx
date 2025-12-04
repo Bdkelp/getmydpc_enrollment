@@ -4,7 +4,7 @@
  * Form is handled by EPX's post.js library
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -14,6 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
+
+const DEFAULT_RECAPTCHA_SITE_KEY = '6LflwiQgAAAAAC8yO38mzv-g9a9QiR91Bw4y62ww';
+const RECAPTCHA_SITE_KEY = ((import.meta as any)?.env?.VITE_RECAPTCHA_SITE_KEY || DEFAULT_RECAPTCHA_SITE_KEY) as string;
 
 interface EPXHostedPaymentProps {
   amount: number;
@@ -70,6 +73,32 @@ export default function EPXHostedPayment({
   const [registrationData, setRegistrationData] = useState<any>(null);
   const [paymentAttempts, setPaymentAttempts] = useState(0);
   const { toast } = useToast();
+  
+  const refreshCaptchaToken = useCallback(async (): Promise<string | null> => {
+    if (!RECAPTCHA_SITE_KEY) {
+      console.warn('[reCAPTCHA] Site key not configured');
+      return null;
+    }
+
+    if (!window.grecaptcha || typeof window.grecaptcha.ready !== 'function') {
+      throw new Error('reCAPTCHA not ready');
+    }
+
+    return new Promise((resolve, reject) => {
+      window.grecaptcha.ready(() => {
+        window.grecaptcha.execute(RECAPTCHA_SITE_KEY, { action: 'hosted_checkout' })
+          .then((token: string) => {
+            console.log('[reCAPTCHA] Token acquired');
+            setCaptchaToken((prev) => prev || token);
+            resolve(token);
+          })
+          .catch((error: any) => {
+            console.error('[reCAPTCHA] Token acquisition failed:', error);
+            reject(error);
+          });
+      });
+    });
+  }, []);
   
   // Determine which address to use based on checkbox
   const [populatedBillingAddress, setPopulatedBillingAddress] = useState(billingAddress);
@@ -151,6 +180,10 @@ export default function EPXHostedPayment({
 
   // Initialize payment session
   useEffect(() => {
+    if (sessionData) {
+      return;
+    }
+    
     
     const initSession = async () => {
       try {
@@ -211,51 +244,50 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {
-    const siteKey = (import.meta as any).env?.VITE_RECAPTCHA_SITE_KEY || '6LflwiQgAAAAAC8yO38mzv-g9a9QiR91Bw4y62ww';
-    if (!siteKey) {
+    if (!RECAPTCHA_SITE_KEY) {
       console.warn('[reCAPTCHA] Site key not configured');
       return;
     }
 
-    // Load the reCAPTCHA script if not already loaded
-    const existing = document.querySelector('script[src*="recaptcha/api.js"]');
-    if (!existing) {
+    const handleReady = () => {
+      refreshCaptchaToken().catch((error) => {
+        console.error('[reCAPTCHA] Token acquisition failed after load:', error);
+      });
+    };
+
+    const existingScript = document.querySelector('script[src*="recaptcha/api.js"]') as HTMLScriptElement | null;
+
+    if (!existingScript) {
       const recaptchaScript = document.createElement('script');
-      recaptchaScript.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+      recaptchaScript.src = `https://www.google.com/recaptcha/api.js?render=${RECAPTCHA_SITE_KEY}`;
       recaptchaScript.async = true;
-      recaptchaScript.onload = () => {
-        if (window.grecaptcha && window.grecaptcha.ready) {
-          window.grecaptcha.ready(() => {
-            window.grecaptcha.execute(siteKey, { action: 'hosted_checkout' }).then((token: string) => {
-              console.log('[reCAPTCHA] Token acquired');
-              setCaptchaToken(token);
-            }).catch((e: any) => {
-              console.error('[reCAPTCHA] Token acquisition failed:', e);
-            });
-          });
-        } else {
-          console.warn('[reCAPTCHA] grecaptcha not ready');
-        }
-      };
+      recaptchaScript.onload = handleReady;
       recaptchaScript.onerror = () => {
         console.error('[reCAPTCHA] Failed to load script');
+        setError('Unable to load captcha protection. Please refresh and try again.');
       };
       document.head.appendChild(recaptchaScript);
-    } else if (window.grecaptcha && window.grecaptcha.ready) {
-      window.grecaptcha.ready(() => {
-        window.grecaptcha.execute(siteKey, { action: 'hosted_checkout' }).then((token: string) => {
-          console.log('[reCAPTCHA] Token acquired');
-          setCaptchaToken(token);
-        }).catch((e: any) => {
-          console.error('[reCAPTCHA] Token acquisition failed:', e);
-        });
-      });
+
+      return () => {
+        recaptchaScript.onload = null;
+        recaptchaScript.onerror = null;
+      };
     }
-  }, []);
+
+    if (window.grecaptcha && typeof window.grecaptcha.ready === 'function') {
+      handleReady();
+      return;
+    }
+
+    existingScript.addEventListener('load', handleReady);
+    return () => {
+      existingScript.removeEventListener('load', handleReady);
+    };
+  }, [refreshCaptchaToken, setError]);
 
   // Setup callback functions
   useEffect(() => {
@@ -315,15 +347,33 @@ export default function EPXHostedPayment({
     };
   }, [sessionData, onSuccess, onError]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!scriptLoaded || !window.Epx) {
       setError('Payment processor not ready. Please refresh the page.');
       return;
     }
 
+    let latestToken: string | null = null;
+    try {
+      latestToken = await refreshCaptchaToken();
+    } catch (captchaError) {
+      console.error('[EPX Hosted] Unable to refresh reCAPTCHA token:', captchaError);
+      setError('Unable to verify reCAPTCHA. Please refresh the page and try again.');
+      return;
+    }
+
+    if (!latestToken) {
+      setError('Missing reCAPTCHA token. Please refresh and try again.');
+      return;
+    }
+
+    const captchaInput = document.querySelector<HTMLInputElement>('#EpxCheckoutForm input[name="Captcha"]');
+    if (captchaInput) {
+      captchaInput.value = latestToken;
+    }
+
     try {
       console.log('[EPX Hosted] Submitting payment form');
-      // Call EPX's sendPost method
       window.Epx.sendPost();
     } catch (err: any) {
       console.error('[EPX Hosted] Submit error:', err);
@@ -512,7 +562,7 @@ export default function EPXHostedPayment({
           <input type="hidden" name="OrderNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
-          <input type="hidden" name="Captcha" value={captchaToken || sessionData?.captcha || ''} />
+          <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
           

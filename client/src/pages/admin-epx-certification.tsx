@@ -51,6 +51,7 @@ const AdminEPXCertification = () => {
   const [formState, setFormState] = useState({
     memberId: "",
     transactionId: "",
+    authGuid: "",
     amount: "10.00",
     description: "Certification Server Post test via admin panel",
   });
@@ -153,6 +154,9 @@ const AdminEPXCertification = () => {
     }
     if (formState.transactionId.trim()) {
       payload.transactionId = formState.transactionId.trim();
+    }
+    if (formState.authGuid.trim()) {
+      payload.authGuid = formState.authGuid.trim();
     }
 
     runTestMutation.mutate(payload);
@@ -257,8 +261,17 @@ const AdminEPXCertification = () => {
                     />
                   </div>
                 </div>
+                <div>
+                  <Label htmlFor="authGuid">EPX AUTH GUID (optional)</Label>
+                  <Input
+                    id="authGuid"
+                    placeholder="Paste AUTH_GUID if lookup fails"
+                    value={formState.authGuid}
+                    onChange={handleInputChange("authGuid")}
+                  />
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  Provide at least a member ID or a transaction ID. The backend will reuse the stored AUTH_GUID to submit an MIT request via `/api/epx/test-recurring`.
+                  Provide at least a member ID or a transaction ID. If the system cannot locate the stored AUTH_GUID automatically, paste it in the field above so the Server Post MIT sample can still run.
                 </p>
                 <Button
                   type="submit"

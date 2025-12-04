@@ -234,7 +234,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       publicKey: sessionResponse.publicKey,
       scriptUrl: config.scriptUrl,
       environment: config.environment,
-      captcha: config.captcha,
+      captchaMode: config.captchaMode,
       paymentMethod: 'hosted-checkout',
       formData: {
         amount: numericAmount.toFixed(2),
@@ -287,7 +287,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
               planId,
               subscriptionId,
               description,
-              billingAddress: normalizedBillingAddress
+              billingAddress: normalizedBillingAddress,
+              captchaToken: captchaToken || null
             },
             ipAddress: req.ip,
             userAgent: req.get('user-agent') || undefined
@@ -570,7 +571,8 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
       aciExt,
       cardEntryMethod,
       industryType,
-      tranType
+      tranType,
+      authGuid
     } = req.body || {};
 
     logEPX({
@@ -596,21 +598,27 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
       ? await storage.getPaymentByTransactionId(transactionId)
       : undefined;
 
+    const providedAuthGuid = typeof authGuid === 'string' && authGuid.trim().length > 0
+      ? authGuid.trim()
+      : undefined;
+
     const resolvedMemberId = memberId || paymentRecord?.member_id;
 
     if (!paymentRecord && resolvedMemberId) {
       paymentRecord = await storage.getLatestPaymentWithAuthGuid(Number(resolvedMemberId));
     }
 
-    if (!paymentRecord) {
-      return res.status(404).json({ success: false, error: 'Unable to find payment with stored EPX auth GUID' });
+    if (!paymentRecord && !providedAuthGuid) {
+      return res.status(404).json({ success: false, error: 'Unable to find payment with stored EPX auth GUID. Provide a transaction/member linked to a completed payment or paste the AUTH_GUID manually.' });
     }
 
-    if (!paymentRecord.epx_auth_guid) {
-      return res.status(400).json({ success: false, error: 'Payment is missing EPX auth GUID data' });
+    const resolvedAuthGuid = providedAuthGuid || paymentRecord?.epx_auth_guid;
+
+    if (!resolvedAuthGuid) {
+      return res.status(400).json({ success: false, error: 'No EPX AUTH GUID available. Paste it manually or select a payment that captured it.' });
     }
 
-    const memberRecord = paymentRecord.member_id
+    const memberRecord = paymentRecord?.member_id
       ? await storage.getMember(Number(paymentRecord.member_id))
       : resolvedMemberId
         ? await storage.getMember(Number(resolvedMemberId))
@@ -618,16 +626,22 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
 
     const parsedAmount = typeof amount === 'number'
       ? amount
-      : parseFloat(String(paymentRecord.amount));
+      : amount
+        ? parseFloat(String(amount))
+        : paymentRecord?.amount
+          ? parseFloat(String(paymentRecord.amount))
+          : NaN;
 
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ success: false, error: 'Invalid amount supplied for Server Post test' });
     }
 
+    const transactionReference = paymentRecord?.transaction_id || transactionId || null;
+
     const mitResult = await submitServerPostRecurringPayment({
       amount: parsedAmount,
-      authGuid: paymentRecord.epx_auth_guid,
-      transactionId: paymentRecord.transaction_id || transactionId || null,
+      authGuid: resolvedAuthGuid,
+      transactionId: transactionReference,
       member: memberRecord ? (memberRecord as unknown as Record<string, any>) : undefined,
       description: description || `Admin test by ${req.user.email}`,
       aciExt,
@@ -636,13 +650,13 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
       tranType,
       metadata: {
         initiatedBy: req.user.email,
-        paymentId: paymentRecord.id,
+        paymentId: paymentRecord?.id,
         source: 'admin-test-route'
       }
     });
 
-    const maskedGuid = paymentRecord.epx_auth_guid.length > 8
-      ? `${paymentRecord.epx_auth_guid.slice(0, 4)}****${paymentRecord.epx_auth_guid.slice(-4)}`
+    const maskedGuid = resolvedAuthGuid.length > 8
+      ? `${resolvedAuthGuid.slice(0, 4)}****${resolvedAuthGuid.slice(-4)}`
       : '********';
 
     res.status(mitResult.success ? 200 : 502).json({
@@ -650,13 +664,15 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
       message: mitResult.success
         ? 'Server Post MIT transaction submitted. Check logs for certification samples.'
         : mitResult.error || 'Server Post MIT transaction failed.',
-      payment: {
+      payment: paymentRecord ? {
         id: paymentRecord.id,
         transactionId: paymentRecord.transaction_id,
         authGuid: maskedGuid,
         memberId: paymentRecord.member_id,
         amount: paymentRecord.amount
-      },
+      } : undefined,
+      transactionReference,
+      authGuidSource: providedAuthGuid ? 'manual' : 'payment-record',
       request: {
         fields: mitResult.requestFields,
         payload: mitResult.requestPayload

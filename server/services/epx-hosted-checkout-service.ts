@@ -106,8 +106,7 @@ export class EPXHostedCheckoutService {
       environment: this.config.environment,
       successCallback: this.config.successCallback || "epxSuccessCallback",
       failureCallback: this.config.failureCallback || "epxFailureCallback",
-      // For sandbox testing, use 'bypass' for captcha
-      captcha: this.config.environment === "sandbox" ? "bypass" : null
+      captchaMode: 'recaptcha-v3'
     };
   }
 
