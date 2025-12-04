@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import apiClient from "@/lib/apiClient";
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { ArrowLeft } from "lucide-react";
 
 interface CertificationLogEntry {
   transactionId?: string;
@@ -40,6 +42,7 @@ interface CertificationExportResponse {
 }
 
 const AdminEPXCertification = () => {
+  const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -190,11 +193,21 @@ const AdminEPXCertification = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-10">
       <div className="max-w-6xl mx-auto px-4 space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold">EPX Certification Toolkit</h1>
-          <p className="text-muted-foreground mt-2">
-            Generate Server Post samples, download certification logs, and keep EPX auditors happy.
-          </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">EPX Certification Toolkit</h1>
+            <p className="text-muted-foreground mt-2">
+              Generate Server Post samples, download certification logs, and keep EPX auditors happy.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="w-full md:w-auto"
+            onClick={() => setLocation("/admin")}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Admin View
+          </Button>
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
