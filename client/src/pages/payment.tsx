@@ -124,6 +124,29 @@ export default function Payment() {
   }
 
   const selectedPlan = plans?.find((plan: any) => plan.id === selectedPlanId);
+
+  const parseAmount = (value: unknown): number | undefined => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = parseFloat(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return undefined;
+  };
+
+  const storedAmountValue = sessionStorage.getItem('totalMonthlyPrice');
+  const storedAmount = storedAmountValue ? parseFloat(storedAmountValue) : NaN;
+  const fallbackAmount =
+    parseAmount(memberData?.totalMonthlyPrice) ??
+    parseAmount(memberData?.totalPrice) ??
+    parseAmount(selectedPlan?.totalMonthlyPrice) ??
+    parseAmount(selectedPlan?.price) ??
+    0;
+  const epxPaymentAmount = Number.isFinite(storedAmount) && storedAmount > 0 ? storedAmount : fallbackAmount;
   
   // Debug session storage
   console.log("Payment page debug:", {
@@ -570,7 +593,7 @@ export default function Payment() {
               });
               return (
                 <EPXHostedPayment
-                  amount={parseFloat(sessionStorage.getItem("totalMonthlyPrice") || "0")}
+                  amount={epxPaymentAmount}
                   customerId={memberData?.id || user.id}
                   customerEmail={finalCustomerEmail}
                   customerName={finalCustomerName}
