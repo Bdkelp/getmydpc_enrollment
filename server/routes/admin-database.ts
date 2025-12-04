@@ -8,8 +8,8 @@ const router = Router();
  * Get statistics for all database tables
  */
 router.get('/api/admin/database/stats', authenticateToken, async (req: AuthRequest, res: Response) => {
-  // Check admin access
-  if (req.user!.role !== 'admin') {
+  const isAdminUser = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  if (!isAdminUser) {
     return res.status(403).json({ message: 'Admin access required' });
   }
 
@@ -60,8 +60,8 @@ router.get('/api/admin/database/stats', authenticateToken, async (req: AuthReque
  * Get data from a specific table
  */
 router.get('/api/admin/database/:table', authenticateToken, async (req: AuthRequest, res: Response) => {
-  // Check admin access
-  if (req.user!.role !== 'admin') {
+  const isAdminUser = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  if (!isAdminUser) {
     return res.status(403).json({ message: 'Admin access required' });
   }
 
