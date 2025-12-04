@@ -5,7 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
-import { EPXHostedCheckoutService } from '../services/epx-hosted-checkout-service';
+import path from 'path';
+import { EPXHostedCheckoutService, type EPXHostedCheckoutConfig } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { supabase } from '../lib/supabaseClient';
@@ -22,6 +23,94 @@ let serviceInitialized = false;
 let initError: string | null = null;
 
 // Lazy initialization function
+const hostedConfigPaths = [
+  process.env.EPX_HOSTED_CONFIG_FILE,
+  path.join(process.cwd(), 'server', 'config', 'epx-hosted-config.json'),
+  path.join(process.cwd(), 'config', 'epx-hosted-config.json'),
+  path.join(process.cwd(), 'epx-hosted-config.json')
+].filter((entry): entry is string => Boolean(entry));
+
+type BillingAddress = {
+  streetAddress?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+};
+
+function loadHostedConfig(): EPXHostedCheckoutConfig {
+  const envConfig: Partial<EPXHostedCheckoutConfig> = {
+    publicKey: process.env.EPX_PUBLIC_KEY || undefined,
+    terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || undefined,
+    environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox')
+  };
+
+  if (envConfig.publicKey && envConfig.terminalProfileId) {
+    return {
+      publicKey: envConfig.publicKey,
+      terminalProfileId: envConfig.terminalProfileId,
+      environment: envConfig.environment || 'sandbox',
+      successCallback: process.env.EPX_HOSTED_SUCCESS_CALLBACK || 'epxSuccessCallback',
+      failureCallback: process.env.EPX_HOSTED_FAILURE_CALLBACK || 'epxFailureCallback'
+    };
+  }
+
+  for (const filePath of hostedConfigPaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<EPXHostedCheckoutConfig>;
+      if (parsed.publicKey && parsed.terminalProfileId) {
+        return {
+          publicKey: parsed.publicKey,
+          terminalProfileId: parsed.terminalProfileId,
+          environment: (parsed.environment === 'production' ? 'production' : 'sandbox'),
+          successCallback: parsed.successCallback || 'epxSuccessCallback',
+          failureCallback: parsed.failureCallback || 'epxFailureCallback'
+        };
+      }
+    } catch (error) {
+      console.warn('[EPX Hosted Checkout] Failed to read config file', filePath, error);
+    }
+  }
+
+  throw new Error('EPX Hosted Checkout configuration missing. Set EPX_PUBLIC_KEY and EPX_TERMINAL_PROFILE_ID.');
+}
+
+function initializeService(force = false) {
+  if (!force && serviceInitialized && hostedCheckoutService) {
+    return;
+  }
+
+  try {
+    const config = loadHostedConfig();
+    hostedCheckoutService = new EPXHostedCheckoutService(config);
+    serviceInitialized = true;
+    initError = null;
+    console.log('[EPX Hosted Checkout] Service ready in', config.environment, 'mode');
+  } catch (error: any) {
+    serviceInitialized = false;
+    hostedCheckoutService = null;
+    initError = error?.message || 'Unknown initialization error';
+    console.error('[EPX Hosted Checkout] Initialization failed:', initError);
+  }
+}
+
+function normalizeBillingAddress(address: any): BillingAddress | undefined {
+  if (!address || typeof address !== 'object') {
+    return undefined;
+  }
+
+  const normalized: BillingAddress = {
+    streetAddress: (address.streetAddress || address.address || address.line1 || '').toString().trim() || undefined,
+    city: (address.city || '').toString().trim() || undefined,
+    state: (address.state || address.region || '').toString().trim() || undefined,
+    postalCode: (address.postalCode || address.zip || address.zipCode || '').toString().trim() || undefined,
+    country: (address.country || address.countryCode || '').toString().trim() || undefined
+  };
+
+  const hasValue = Object.values(normalized).some(Boolean);
+  return hasValue ? normalized : undefined;
+}
 
 /**
  * Create payment session for Hosted Checkout
