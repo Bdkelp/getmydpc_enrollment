@@ -479,6 +479,12 @@ export default function Admin() {
                   <span className="text-sm font-medium">Discount Codes</span>
                 </Button>
               </Link>
+              <Link href="/admin/data">
+                <Button variant="outline" className="w-full border-slate-500 text-slate-600 hover:bg-slate-50 h-20 flex flex-col items-center justify-center">
+                  <Database className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Data Viewer</span>
+                </Button>
+              </Link>
               <Link href="/admin/agent-hierarchy">
                 <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
                   <Users className="h-5 w-5 mb-1" />
