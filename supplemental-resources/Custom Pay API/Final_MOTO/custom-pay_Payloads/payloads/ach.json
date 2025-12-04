@@ -1,0 +1,12 @@
+{
+  "account": "4111111111111111",
+  "routingNumber": 1234567890,
+  "amount": 127.99,
+  "transaction": 123,
+  "batchId": "123",
+  "mac": "MAC123456789",
+  "address": {
+    "firstName": "Galileo",
+    "lastName": "Galilei"
+  }
+}

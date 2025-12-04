@@ -1,0 +1,18 @@
+{
+  "account": "4111111111111111",
+  "expirationDate": 2512,
+  "amount": 127.99,
+  "address": {
+    "address": "123 Any Street",
+    "zipCode": "12345",
+	"firstName": "Teddy",
+	"lastName": "Tester"
+  },
+  "cvv2": "123",
+  "batchID": 201203,
+  "transaction": 182,
+  "taxAmount": 7.99,
+  "taxExempt": false,
+  "cardEntryMethod": "E",
+  "industryType": "E"
+}

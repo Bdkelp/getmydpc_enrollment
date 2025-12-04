@@ -1,0 +1,12 @@
+{
+  "trackData": "004FFFF9876543210E0005D645EF08D0296E9CD18E1897082D24BB16F3CF610C6329DEAB0B79ED9407B865934F9548CAD36523C",
+  "pinBlock": "7EC93FF167C3D90EFFFF9876543210E00011",
+  "amount": 10.00,
+  "transaction": 123,
+  "batchID": 2100408,
+  "industryType": "P",  
+  "invoiceNumber": "ABC-123",
+  "cardEntryMethod": "D",
+  "cardID": "P",
+  "e2ee": "2"
+}

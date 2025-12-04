@@ -299,7 +299,7 @@ router.post("/api/finalize-registration", async (req, res) => {
             commissionAmount
           });
 
-          // Create commission record
+          // Create commission record (payment already confirmed, so mark as earned/unpaid)
           const { data: commission, error: commissionError } = await supabase
             .from('agent_commissions')
             .insert({
@@ -312,8 +312,8 @@ router.post("/api/finalize-registration", async (req, res) => {
               coverage_type: finalCoverageType,
               monthly_premium: totalMonthlyPrice || 0,
               commission_amount: commissionAmount,
-              status: 'pending',
-              payment_status: 'pending',
+              status: 'active',
+              payment_status: 'unpaid',
               subscription_id: subscriptionId,
               transaction_id: transactionId,
               enrollment_date: enrollmentDate.toISOString(),

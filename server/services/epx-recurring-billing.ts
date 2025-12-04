@@ -41,6 +41,7 @@ export interface CreateRecurringSubscriptionResult {
 }
 
 const DEFAULT_RETRIES = 3;
+const RECURRING_ENABLED = (process.env.EPX_RECURRING_ENABLED || 'false').toLowerCase() === 'true';
 
 function getMemberValue(member: MemberRecord, primary: keyof MemberRecord, secondary: keyof MemberRecord, fallback?: any) {
   if (member[primary] !== undefined && member[primary] !== null) return member[primary];
@@ -51,6 +52,18 @@ function getMemberValue(member: MemberRecord, primary: keyof MemberRecord, secon
 export async function createRecurringSubscription(
   options: CreateRecurringSubscriptionOptions
 ): Promise<CreateRecurringSubscriptionResult> {
+  if (!RECURRING_ENABLED) {
+    logEPX({
+      level: "info",
+      phase: "recurring",
+      message: "Recurring billing disabled via EPX_RECURRING_ENABLED; skipping subscription creation",
+      data: { subscriptionId: options.subscriptionId },
+    });
+    return {
+      success: false,
+      error: "Recurring billing disabled",
+    };
+  }
   const member = options.member;
   const firstName = getMemberValue(member, "firstName", "first_name", "Member");
   const lastName = getMemberValue(member, "lastName", "last_name", "");
@@ -323,6 +336,10 @@ interface PendingSubscriptionRecord {
 }
 
 export async function processPendingRecurringSubscriptions(limit: number = 10) {
+  if (!RECURRING_ENABLED) {
+    logEPX({ level: "info", phase: "scheduler", message: "Recurring billing disabled; skipping scheduler tick" });
+    return { attempted: 0, linked: 0, failures: 0 };
+  }
   const minAgeMinutes = parseInt(process.env.BILLING_SCHEDULER_MIN_AGE_MINUTES || "10", 10);
   const minAgeDate = new Date(Date.now() - minAgeMinutes * 60 * 1000).toISOString();
 
@@ -397,7 +414,7 @@ export async function processPendingRecurringSubscriptions(limit: number = 10) {
 let schedulerHandle: NodeJS.Timeout | null = null;
 
 export function scheduleRecurringBillingSync() {
-  const enabled = (process.env.BILLING_SCHEDULER_ENABLED || "false").toLowerCase() === "true";
+  const enabled = RECURRING_ENABLED && (process.env.BILLING_SCHEDULER_ENABLED || "false").toLowerCase() === "true";
 
   if (!enabled) {
     logEPX({
@@ -461,6 +478,12 @@ interface TestSubscriptionInput {
 }
 
 export async function createTestSubscription(input: TestSubscriptionInput) {
+  if (!RECURRING_ENABLED) {
+    return {
+      success: false,
+      error: "Recurring billing disabled",
+    };
+  }
   const payload: EPXCreateSubscriptionRequest = {
     CustomerData: {
       FirstName: input.firstName,

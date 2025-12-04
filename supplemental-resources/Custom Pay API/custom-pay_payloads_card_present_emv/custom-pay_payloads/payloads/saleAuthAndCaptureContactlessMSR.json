@@ -1,0 +1,10 @@
+{
+  "trackData": "4111111111111111=49121010000000000000?",
+  "amount": 10.00,
+  "transaction": 123,
+  "invoiceNumber": "ABC-123",
+  "industryType": "P",
+  "batchID": 210408,
+  "mac": "MAC123456789",
+  "cardEntryMethod": "Q"
+}

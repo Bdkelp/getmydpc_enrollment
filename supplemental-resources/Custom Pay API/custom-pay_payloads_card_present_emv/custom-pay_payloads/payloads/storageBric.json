@@ -1,0 +1,14 @@
+{
+  "account": "4111111111111111",
+  "expirationDate: "2512",
+  "batchID": 210408,
+  "transaction": 178,
+  "cardEntryMethod": "Z",
+  "address": {
+    "firstName": "BRIC",
+    "lastName": "Storage",
+	"address": "123 Any Street",
+	"zipCode": "12345"
+  },
+  "responseLevel": 1
+}

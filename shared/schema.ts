@@ -202,6 +202,7 @@ export const payments = pgTable("payments", {
   stripePaymentIntentId: varchar("stripe_payment_intent_id").unique(),
   stripeChargeId: varchar("stripe_charge_id"),
   paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
+  epxAuthGuid: varchar("epx_auth_guid", { length: 255 }),
   metadata: jsonb("metadata"), // Additional payment metadata
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

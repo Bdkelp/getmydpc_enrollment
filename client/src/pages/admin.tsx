@@ -372,6 +372,11 @@ export default function Admin() {
                   Admin
                 </Button>
               </Link>
+              <Link href="/admin/epx-certification">
+                <Button variant="ghost">
+                  EPX Tools
+                </Button>
+              </Link>
               <Link href="/agent">
                 <Button variant="ghost">
                   Agent View

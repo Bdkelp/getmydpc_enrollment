@@ -22,6 +22,7 @@ import AdminAnalytics from "@/pages/admin-analytics";
 import AdminCommissions from "@/pages/admin-commissions";
 import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
 import AdminDiscountCodes from "@/pages/admin-discount-codes";
+import AdminEPXCertification from "@/pages/admin-epx-certification";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
@@ -47,6 +48,7 @@ import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundar
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const isAdminUser = user?.role === "admin" || user?.role === "super_admin";
 
   console.log('Router state:', { isAuthenticated, isLoading, user });
 
@@ -89,7 +91,7 @@ function Router() {
       {isAuthenticated && (
         <>
           {/* Admin routes */}
-          {(user?.role === "admin" || user?.role === "super_admin") && (
+          {isAdminUser && (
             <>
               <Route path="/admin" component={Admin} />
               <Route path="/admin/leads" component={AdminLeads} />
@@ -115,7 +117,7 @@ function Router() {
           )}
 
           {/* Agent routes - accessible to agents, admins, and super_admins */}
-          {(user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") && (
+          {(user?.role === "agent" || isAdminUser) && (
             <>
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
@@ -134,6 +136,33 @@ function Router() {
           <Route path="/no-access" component={NoAccess} />
         </>
       )}
+
+      {/* Admin EPX certification route available regardless of auth state for deep links */}
+      <Route
+        path="/admin/epx-certification"
+        component={() => {
+          if (isLoading) {
+            return (
+              <div className="min-h-screen flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading...</p>
+                </div>
+              </div>
+            );
+          }
+
+          if (!isAuthenticated) {
+            return <Redirect to="/login" />;
+          }
+
+          if (!isAdminUser) {
+            return <Redirect to="/no-access" />;
+          }
+
+          return <AdminEPXCertification />;
+        }}
+      />
 
       {/* Registration requires authentication for agents/admins */}
       <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") ? Registration : () => <Redirect to="/login" />} />

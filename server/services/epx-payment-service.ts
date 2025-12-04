@@ -5,6 +5,8 @@
  */
 
 import crypto from 'crypto';
+import { certificationLogger } from './certification-logger';
+import { logEPX } from './epx-payment-logger';
 
 // ============================================================
 // CARD DATA MASKING UTILITY
@@ -451,3 +453,305 @@ export function getEPXService() {
 }
 
 export type EPXService = EPXServerPostService;
+
+// ============================================================
+// SERVER POST MIT HELPERS
+// ============================================================
+
+const SERVER_POST_ENDPOINTS = {
+  sandbox: 'https://services.epxuap.com/serverpost/',
+  production: 'https://services.epx.com/serverpost/'
+} as const;
+
+interface ServerPostRecurringOptions {
+  amount: number;
+  authGuid: string;
+  transactionId?: string | null;
+  member?: Record<string, any> | null;
+  description?: string;
+  aciExt?: string;
+  cardEntryMethod?: string;
+  industryType?: string;
+  tranType?: 'CCE1' | 'CCE2';
+  tranNbr?: string;
+  batchId?: string;
+  metadata?: Record<string, any>;
+}
+
+interface ServerPostRecurringResult {
+  success: boolean;
+  requestFields: Record<string, string>;
+  requestPayload: string;
+  responseFields: Record<string, string>;
+  rawResponse: string;
+  error?: string;
+}
+
+function ensureServerPostCredentials() {
+  const environment = (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production';
+  const custNbr = process.env.EPX_CUST_NBR || '';
+  const merchNbr = process.env.EPX_MERCH_NBR || '';
+  const dbaNbr = process.env.EPX_DBA_NBR || '';
+  const terminalNbr = process.env.EPX_TERMINAL_NBR || '';
+  const serverPostUrl = process.env.EPX_SERVER_POST_URL
+    || (environment === 'production' ? SERVER_POST_ENDPOINTS.production : SERVER_POST_ENDPOINTS.sandbox);
+
+  if (!custNbr || !merchNbr || !dbaNbr || !terminalNbr) {
+    throw new Error('Missing EPX merchant credentials (CUST_NBR, MERCH_NBR, DBA_NBR, TERMINAL_NBR).');
+  }
+
+  return {
+    environment,
+    custNbr,
+    merchNbr,
+    dbaNbr,
+    terminalNbr,
+    serverPostUrl
+  };
+}
+
+function formatAmount(amount: number): string {
+  return amount.toFixed(2);
+}
+
+function buildServerPostPayload(fields: Record<string, string>): string {
+  const params = new URLSearchParams();
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      params.append(key, value);
+    }
+  });
+  return params.toString();
+}
+
+function maskServerPostFields(fields: Record<string, string>): Record<string, string> {
+  const masked: Record<string, string> = {};
+  Object.entries(fields).forEach(([key, value]) => {
+    if (key === 'ORIG_AUTH_GUID' && value) {
+      masked[key] = value.length > 8 ? `${value.slice(0, 4)}****${value.slice(-4)}` : '********';
+    } else {
+      masked[key] = value;
+    }
+  });
+  return masked;
+}
+
+function parseServerPostResponse(xml: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const fieldRegex = /<FIELD\s+KEY="([^"]+)">([^<]*)<\/FIELD>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = fieldRegex.exec(xml)) !== null) {
+    fields[match[1]] = match[2];
+  }
+  return fields;
+}
+
+function getMemberField(member: Record<string, any> | undefined | null, keys: string[]): string | undefined {
+  if (!member) return undefined;
+  for (const key of keys) {
+    const value = member[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function generateBatchId(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function generateTranNbr(transactionId?: string | null): string {
+  if (transactionId) return transactionId;
+  return `MIT${Date.now()}`;
+}
+
+function isApprovedResponse(code?: string): boolean {
+  return code === '00' || code === '000';
+}
+
+export async function submitServerPostRecurringPayment(
+  options: ServerPostRecurringOptions
+): Promise<ServerPostRecurringResult> {
+  const startTime = Date.now();
+  let requestFields: Record<string, string> = {};
+  let requestPayload = '';
+  let responseFields: Record<string, string> = {};
+  let rawResponse = '';
+
+  try {
+    const credentials = ensureServerPostCredentials();
+
+    const amount = Number(options.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Invalid amount for Server Post transaction.');
+    }
+
+    const member = options.member || undefined;
+    const firstName = getMemberField(member, ['firstName', 'first_name']);
+    const lastName = getMemberField(member, ['lastName', 'last_name']);
+    const email = getMemberField(member, ['email']);
+    const address = getMemberField(member, ['address', 'address1']);
+    const city = getMemberField(member, ['city']);
+    const stateRaw = getMemberField(member, ['state']);
+    const zipCode = getMemberField(member, ['zipCode', 'zip_code']);
+    const phone = getMemberField(member, ['phone']);
+    const customerIdField = getMemberField(member, ['customerNumber', 'customer_number']);
+    const resolvedCustomerId = customerIdField
+      || (typeof (member as any)?.customerNumber === 'string' ? (member as any).customerNumber
+      : (member as any)?.customer_number)
+      || (typeof (member as any)?.id !== 'undefined' ? String((member as any).id)
+      : typeof (member as any)?.member_id !== 'undefined' ? String((member as any).member_id) : undefined);
+
+    requestFields = {
+      CUST_NBR: credentials.custNbr,
+      MERCH_NBR: credentials.merchNbr,
+      DBA_NBR: credentials.dbaNbr,
+      TERMINAL_NBR: credentials.terminalNbr,
+      TRAN_TYPE: options.tranType || 'CCE1',
+      AMOUNT: formatAmount(amount),
+      BATCH_ID: options.batchId || generateBatchId(),
+      TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
+      ORIG_AUTH_GUID: options.authGuid,
+      CARD_ENT_METH: options.cardEntryMethod || 'Z',
+      INDUSTRY_TYPE: options.industryType || 'E',
+      ACI_EXT: options.aciExt || 'RB'
+    };
+
+    if (firstName) requestFields.FIRST_NAME = firstName;
+    if (lastName) requestFields.LAST_NAME = lastName;
+    if (email) requestFields.EMAIL = email;
+    if (address) requestFields.ADDRESS = address;
+    if (city) requestFields.CITY = city;
+    if (stateRaw) requestFields.STATE = stateRaw.slice(0, 2).toUpperCase();
+    if (zipCode) requestFields.ZIP_CODE = zipCode;
+    if (phone) requestFields.PHONE = phone;
+    if (options.description) requestFields.USER_DATA_1 = options.description;
+
+    requestPayload = buildServerPostPayload(requestFields);
+    const maskedFields = maskServerPostFields(requestFields);
+
+    logEPX({
+      level: 'info',
+      phase: 'server-post',
+      message: 'Submitting Server Post MIT transaction',
+      data: {
+        transactionId: options.transactionId || requestFields.TRAN_NBR,
+        environment: credentials.environment,
+        request: maskedFields
+      }
+    });
+
+    const response = await fetch(credentials.serverPostUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: requestPayload
+    });
+
+    rawResponse = await response.text();
+    responseFields = parseServerPostResponse(rawResponse);
+    const approved = response.ok && isApprovedResponse(responseFields.AUTH_RESP);
+
+    logEPX({
+      level: approved ? 'info' : 'warn',
+      phase: 'server-post',
+      message: approved ? 'Server Post transaction approved' : 'Server Post transaction declined',
+      data: {
+        transactionId: requestFields.TRAN_NBR,
+        authResp: responseFields.AUTH_RESP,
+        authCode: responseFields.AUTH_CODE,
+        message: responseFields.AUTH_RESP_TEXT || responseFields.RESPONSE_TEXT
+      }
+    });
+
+    certificationLogger.logCertificationEntry({
+      transactionId: options.transactionId || requestFields.TRAN_NBR,
+      customerId: resolvedCustomerId,
+      amount,
+      environment: credentials.environment,
+      purpose: 'server-post-mit',
+      request: {
+        timestamp: new Date().toISOString(),
+        method: 'POST',
+        endpoint: '/serverpost',
+        url: credentials.serverPostUrl,
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded'
+        },
+        body: {
+          form: maskedFields,
+          raw: requestPayload
+        }
+      },
+      response: {
+        statusCode: response.status,
+        body: {
+          raw: rawResponse,
+          fields: responseFields
+        },
+        processingTimeMs: Date.now() - startTime
+      },
+      sensitiveFieldsMasked: ['ORIG_AUTH_GUID'],
+      metadata: {
+        tranNbr: requestFields.TRAN_NBR,
+        memberId: (member as any)?.id || (member as any)?.member_id || null,
+        additional: options.metadata || null
+      }
+    });
+
+    return {
+      success: approved,
+      requestFields,
+      requestPayload,
+      responseFields,
+      rawResponse,
+      error: approved ? undefined : (responseFields.AUTH_RESP_TEXT || 'Server Post transaction declined')
+    };
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'server-post',
+      message: 'Server Post transaction failed',
+      data: {
+        error: error.message,
+        transactionId: requestFields.TRAN_NBR
+      }
+    });
+
+    if (requestPayload) {
+      certificationLogger.logCertificationEntry({
+        transactionId: options.transactionId || requestFields.TRAN_NBR,
+        amount: options.amount,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        purpose: 'server-post-mit',
+        request: {
+          timestamp: new Date().toISOString(),
+          method: 'POST',
+          endpoint: '/serverpost',
+          body: {
+            raw: requestPayload
+          }
+        },
+        response: {
+          statusCode: 500,
+          body: {
+            error: error.message
+          },
+          processingTimeMs: Date.now() - startTime
+        },
+        sensitiveFieldsMasked: ['ORIG_AUTH_GUID']
+      });
+    }
+
+    return {
+      success: false,
+      requestFields,
+      requestPayload,
+      responseFields,
+      rawResponse,
+      error: error.message || 'Server Post request failed'
+    };
+  }
+}

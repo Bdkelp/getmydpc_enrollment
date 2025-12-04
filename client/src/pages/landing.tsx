@@ -192,7 +192,7 @@ export default function Landing() {
             <div className="animate-[fade-in-up_0.8s_ease-out]">
               <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
                 Membership Has Never Been
-                <span className="bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent"> So Easy</span>
+                <span className="bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent"> Easier.</span>
               </h1>
               <p className="text-xl text-gray-600 mb-8 leading-relaxed animate-[fade-in-up_0.9s_ease-out]">
                 Your health. Your membership. No insurance needed.

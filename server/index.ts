@@ -32,6 +32,7 @@ import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
 import epxRecurringRoutes from "./routes/epx-recurring-routes";
+import epxCertificationRoutes from "./routes/epx-certification";
 import finalizeRegistrationRoutes from "./routes/finalize-registration";
 import adminNotificationsRoutes from "./routes/admin-notifications";
 import discountCodesRoutes from "./routes/discount-codes";
@@ -131,6 +132,7 @@ app.use((req, res, next) => {
   
   // Register EPX Recurring Billing routes (new API)
   app.use('/', epxRecurringRoutes);
+  app.use('/', epxCertificationRoutes);
   
   // Register finalize registration route (payment-first flow)
   app.use('/', finalizeRegistrationRoutes);

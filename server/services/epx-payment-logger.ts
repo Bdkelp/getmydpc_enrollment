@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 export interface EPXLogEvent {
   timestamp: string;
@@ -21,12 +22,37 @@ export interface EPXLogEvent {
 const inMemoryBuffer: EPXLogEvent[] = [];
 const MAX_BUFFER = 200; // keep recent events
 
-function getLogDir(): string {
-  const base = process.env.EPX_LOG_DIR || path.join(process.cwd(), 'logs', 'epx');
-  if (!fs.existsSync(base)) {
-    fs.mkdirSync(base, { recursive: true });
+function ensureDir(dir: string): boolean {
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    return true;
+  } catch (error: any) {
+    console.warn(`[EPX Logger] Unable to use log directory ${dir}: ${error.message}`);
+    return false;
   }
-  return base;
+}
+
+function getLogDir(): string {
+  const configuredDir = process.env.EPX_LOG_DIR;
+  const fallbackDir = path.join(process.cwd(), 'logs', 'epx');
+  const tmpDir = path.join(os.tmpdir(), 'epx-logs');
+
+  const candidates = configuredDir ? [configuredDir, fallbackDir, tmpDir] : [fallbackDir, tmpDir];
+
+  for (const candidate of candidates) {
+    if (ensureDir(candidate)) {
+      if (candidate !== configuredDir && configuredDir) {
+        console.warn(`[EPX Logger] Falling back to ${candidate} because ${configuredDir} is not writable.`);
+      }
+      return candidate;
+    }
+  }
+
+  // Last resort: use current working directory without ensuring (should rarely happen)
+  console.error('[EPX Logger] All log directory candidates failed; using process.cwd().');
+  return process.cwd();
 }
 
 function currentLogFile(): string {

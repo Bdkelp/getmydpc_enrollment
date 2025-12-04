@@ -11,6 +11,8 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { supabase } from '../lib/supabaseClient';
 import { verifyRecaptcha, isRecaptchaEnabled } from '../utils/recaptcha';
 import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
+import { submitServerPostRecurringPayment } from '../services/epx-payment-service';
+import { certificationLogger } from '../services/certification-logger';
 
 const router = Router();
 
@@ -20,85 +22,15 @@ let serviceInitialized = false;
 let initError: string | null = null;
 
 // Lazy initialization function
-const initializeService = () => {
-  if (serviceInitialized || hostedCheckoutService) return;
-  
-  try {
-    const config = {
-      publicKey: process.env.EPX_PUBLIC_KEY || 'eyAidGVybWluYWxQcm9maWxlSWQiOiAiYjE1NjFjODAtZTgxZC00NTNmLTlkMDUtYTI2NGRjOTZiODhkIiB9',
-      terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || 'b1561c80-e81d-453f-9d05-a264dc96b88d',
-      environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
-      successCallback: 'epxSuccessCallback',
-      failureCallback: 'epxFailureCallback'
-    };
-
-    hostedCheckoutService = new EPXHostedCheckoutService(config);
-    serviceInitialized = true;
-    
-    logEPX({ level: 'info', phase: 'general', message: 'Hosted service initialized', data: { env: config.environment, hasPublicKey: !!config.publicKey } });
-  } catch (error: any) {
-    initError = error.message || 'Unknown initialization error';
-    logEPX({ level: 'error', phase: 'general', message: 'Initialization failed', data: { error: error?.message } });
-  }
-};
-
-/**
- * Health check for Hosted Checkout service
- */
-router.get('/api/epx/hosted/health', (req: Request, res: Response) => {
-  initializeService(); // Ensure service is initialized
-  
-  if (serviceInitialized) {
-    res.json({
-      status: 'healthy',
-      service: 'EPX Hosted Checkout',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-      paymentMethod: 'hosted-checkout',
-      initialized: true
-    });
-  } else {
-    res.status(503).json({
-      status: 'unhealthy',
-      service: 'EPX Hosted Checkout',
-      initialized: false,
-      error: initError
-    });
-  }
-});
-
-/**
- * Get configuration for frontend
- */
-router.get('/api/epx/hosted/config', (req: Request, res: Response) => {
-  initializeService(); // Ensure service is initialized
-  
-  try {
-    if (!serviceInitialized || !hostedCheckoutService) {
-      return res.status(503).json({
-        success: false,
-        error: 'Hosted Checkout service not initialized'
-      });
-    }
-
-    const config = hostedCheckoutService.getCheckoutConfig();
-    res.json({ success: true, config });
-  } catch (error: any) {
-    logEPX({ level: 'error', phase: 'general', message: 'Config error', data: { error: error?.message } });
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to get configuration'
-    });
-  }
-});
 
 /**
  * Create payment session for Hosted Checkout
  */
 router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response) => {
   initializeService(); // Ensure service is initialized
-  
+
   const requestStartTime = Date.now();
-  
+
   try {
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
@@ -119,7 +51,19 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       captchaToken
     } = req.body;
 
-    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment request received', data: { amount, customerId, customerEmail, planId } });
+    const numericAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ success: false, error: 'A valid amount is required' });
+    }
+
+    const normalizedBillingAddress = normalizeBillingAddress(billingAddress);
+
+    logEPX({
+      level: 'info',
+      phase: 'create-payment',
+      message: 'Create payment request received',
+      data: { amount: numericAmount, customerId, customerEmail, planId, hasBillingAddress: !!normalizedBillingAddress }
+    });
 
     // Server-side reCAPTCHA verification (production only or when enabled)
     if (isRecaptchaEnabled()) {
@@ -135,11 +79,11 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     // Create checkout session
     const sessionResponse = hostedCheckoutService.createCheckoutSession(
-      amount,
+      numericAmount,
       orderNumber,
       customerEmail,
       customerName || 'Customer',
-      billingAddress
+      normalizedBillingAddress
     );
 
     if (!sessionResponse.success) {
@@ -147,12 +91,27 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       return res.status(400).json(sessionResponse);
     }
 
+    // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
+    let memberId: number | null = null;
+    let userId: string | null = null;
+
+    if (typeof customerId === 'number') {
+      memberId = customerId;
+    } else if (typeof customerId === 'string') {
+      if (/^\d+$/.test(customerId)) {
+        memberId = parseInt(customerId, 10);
+      } else if (customerId.includes('-')) {
+        userId = customerId;
+      }
+    }
+
     // Store payment record in pending state
     try {
       const paymentData = {
-        memberId: customerId, // Member ID for billing/plan management
+        memberId,
+        userId,
         subscriptionId: subscriptionId || null,
-        amount: amount.toString(),
+        amount: numericAmount.toString(),
         currency: 'USD',
         status: 'pending' as const,
         paymentMethod: 'card' as const,
@@ -162,7 +121,9 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
           paymentType: 'hosted-checkout',
           environment: process.env.EPX_ENVIRONMENT || 'sandbox',
           customerEmail,
-          description
+          description,
+          originalCustomerId: customerId,
+          billingAddress: normalizedBillingAddress || null
         }
       };
 
@@ -187,29 +148,79 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       captcha: config.captcha,
       paymentMethod: 'hosted-checkout',
       formData: {
-        amount: amount.toFixed(2),
+        amount: numericAmount.toFixed(2),
         orderNumber,
         invoiceNumber: orderNumber,
         email: customerEmail,
         billingName: customerName || 'Customer',
-        ...billingAddress
+        ...(normalizedBillingAddress || {})
       }
     };
-    
+
     // Log the payload we send to frontend (which frontend will use to call EPX)
     console.log(
       '[EPX Hosted Checkout - REQUEST TO FRONTEND]',
       JSON.stringify({
         transactionId: orderNumber,
-        amount: amount.toFixed(2),
+        amount: numericAmount.toFixed(2),
         email: customerEmail,
         billingName: customerName || 'Customer',
         publicKey: sessionResponse.publicKey,
-        environment: config.environment
+        environment: config.environment,
+        billingAddress: normalizedBillingAddress
       }, null, 2)
     );
-    
-    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber } });
+
+    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber, hasBillingAddress: !!normalizedBillingAddress } });
+
+    if (process.env.ENABLE_CERTIFICATION_LOGGING === 'true') {
+      try {
+        certificationLogger.logCertificationEntry({
+          transactionId: orderNumber,
+          customerId: (memberId && String(memberId)) || userId || (customerId ? String(customerId) : undefined),
+          amount: numericAmount,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          purpose: 'hosted-checkout-create-payment',
+          request: {
+            timestamp: new Date(requestStartTime).toISOString(),
+            method: 'POST',
+            endpoint: '/api/epx/hosted/create-payment',
+            url: `${req.protocol}://${req.get('host')}/api/epx/hosted/create-payment`,
+            headers: {
+              'content-type': req.get('content-type') || 'application/json',
+              'user-agent': req.get('user-agent') || 'unknown'
+            },
+            body: {
+              amount: numericAmount,
+              customerId,
+              customerEmail,
+              customerName,
+              planId,
+              subscriptionId,
+              description,
+              billingAddress: normalizedBillingAddress
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') || undefined
+          },
+          response: {
+            statusCode: 200,
+            headers: {
+              'content-type': 'application/json'
+            },
+            body: responsePayload,
+            processingTimeMs: Date.now() - requestStartTime
+          },
+          metadata: {
+            billingAddressPresent: !!normalizedBillingAddress,
+            paymentMethod: 'hosted-checkout'
+          }
+        });
+      } catch (certError: any) {
+        logEPX({ level: 'warn', phase: 'create-payment', message: 'Certification logging failed', data: { error: certError.message } });
+      }
+    }
+
     res.json(responsePayload);
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'create-payment', message: 'Unhandled exception during create-payment', data: { error: error?.message } });
@@ -291,6 +302,59 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
         const finalizeData = await finalizeResponse.json();
         logEPX({ level: 'info', phase: 'callback', message: 'Member created successfully', data: { memberId: finalizeData.member?.id } });
+
+        // Persist EPX auth GUID + authorization details on payment record for future Server Post use
+        const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
+        const transactionId = result.transactionId || req.body?.transactionId || req.body?.orderNumber;
+
+        if (transactionId) {
+          try {
+            const paymentRecord = await storage.getPaymentByTransactionId(transactionId);
+            if (paymentRecord) {
+              const updatedMetadata = {
+                ...(typeof paymentRecord.metadata === 'object' && paymentRecord.metadata ? paymentRecord.metadata : {}),
+                hostedCallback: {
+                  status: req.body?.status,
+                  amount: req.body?.amount,
+                  message: req.body?.message,
+                  authGuidMasked: authGuid ? `${authGuid.slice(0, 4)}***${authGuid.slice(-4)}` : undefined,
+                }
+              };
+
+              await storage.updatePayment(paymentRecord.id, {
+                status: 'succeeded',
+                authorizationCode: result.authCode,
+                metadata: updatedMetadata,
+                epxAuthGuid: authGuid || paymentRecord.epxAuthGuid || null,
+              });
+
+              logEPX({
+                level: 'info',
+                phase: 'callback',
+                message: 'Payment record updated with EPX auth GUID',
+                data: {
+                  paymentId: paymentRecord.id,
+                  transactionId,
+                  hasAuthGuid: !!authGuid,
+                }
+              });
+            } else {
+              logEPX({
+                level: 'warn',
+                phase: 'callback',
+                message: 'Payment record not found for transaction ID',
+                data: { transactionId }
+              });
+            }
+          } catch (paymentUpdateError: any) {
+            logEPX({
+              level: 'error',
+              phase: 'callback',
+              message: 'Failed to update payment record with auth GUID',
+              data: { transactionId, error: paymentUpdateError.message }
+            });
+          }
+        }
 
         // Return success to EPX
         return res.json({
@@ -403,72 +467,128 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
  * Creates a test subscription using EPX Recurring Billing API
  * Use this to generate certification samples for EPX
  */
-router.post('/api/epx/test-recurring', async (req: Request, res: Response) => {
+router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    logEPX({ level: 'info', phase: 'certification', message: 'Starting Server Post API certification test' });
-
-    // Check if EPX Recurring service is available
-    const recurringService = await import('../services/epx-recurring-billing');
-    if (!recurringService) {
-      throw new Error('EPX Recurring Billing service not available');
+    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'super_admin')) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
     }
 
-    // Use test data for certification
-    const testData = {
-      customerId: `CERT-TEST-${Date.now()}`,
-      planCode: 'MPP-BASE',
-      planName: 'MyPremierPlan Base',
-      amount: 59.00,
-      firstName: 'Test',
-      lastName: 'Certification',
-      email: 'cert@test.com',
-      phone: '1234567890',
-      // EPX Test Card for sandbox
-      cardNumber: '4111111111111111',
-      expiryDate: '1225', // MMYY format
-      cvv: '999'
-    };
+    const {
+      memberId,
+      transactionId,
+      amount,
+      description,
+      aciExt,
+      cardEntryMethod,
+      industryType,
+      tranType
+    } = req.body || {};
 
     logEPX({
       level: 'info',
       phase: 'certification',
-      message: 'EPX Server Post - CreateSubscription Request',
+      message: 'Server Post admin test invoked',
       data: {
-        customerId: testData.customerId,
-        planCode: testData.planCode,
-        amount: testData.amount,
-        cardLast4: testData.cardNumber.slice(-4)
+        userId: req.user.id,
+        memberId,
+        transactionId,
+        aciExt: aciExt || 'RB'
       }
     });
 
-    // Note: This will fail if EPX_MAC or other credentials aren't set
-    // That's okay - we just need the request/response samples logged
-    const result = await recurringService.createTestSubscription(testData);
+    if (!memberId && !transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide either memberId or transactionId to locate an EPX auth GUID'
+      });
+    }
 
-    logEPX({
-      level: 'info',
-      phase: 'certification',
-      message: 'EPX Server Post - CreateSubscription Response',
-      data: result
+    let paymentRecord = transactionId
+      ? await storage.getPaymentByTransactionId(transactionId)
+      : undefined;
+
+    const resolvedMemberId = memberId || paymentRecord?.member_id;
+
+    if (!paymentRecord && resolvedMemberId) {
+      paymentRecord = await storage.getLatestPaymentWithAuthGuid(Number(resolvedMemberId));
+    }
+
+    if (!paymentRecord) {
+      return res.status(404).json({ success: false, error: 'Unable to find payment with stored EPX auth GUID' });
+    }
+
+    if (!paymentRecord.epx_auth_guid) {
+      return res.status(400).json({ success: false, error: 'Payment is missing EPX auth GUID data' });
+    }
+
+    const memberRecord = paymentRecord.member_id
+      ? await storage.getMember(Number(paymentRecord.member_id))
+      : resolvedMemberId
+        ? await storage.getMember(Number(resolvedMemberId))
+        : undefined;
+
+    const parsedAmount = typeof amount === 'number'
+      ? amount
+      : parseFloat(String(paymentRecord.amount));
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid amount supplied for Server Post test' });
+    }
+
+    const mitResult = await submitServerPostRecurringPayment({
+      amount: parsedAmount,
+      authGuid: paymentRecord.epx_auth_guid,
+      transactionId: paymentRecord.transaction_id || transactionId || null,
+      member: memberRecord ? (memberRecord as unknown as Record<string, any>) : undefined,
+      description: description || `Admin test by ${req.user.email}`,
+      aciExt,
+      cardEntryMethod,
+      industryType,
+      tranType,
+      metadata: {
+        initiatedBy: req.user.email,
+        paymentId: paymentRecord.id,
+        source: 'admin-test-route'
+      }
     });
 
-    res.json({
-      success: true,
-      message: 'Certification test completed - check logs for request/response samples',
-      result
-    });
+    const maskedGuid = paymentRecord.epx_auth_guid.length > 8
+      ? `${paymentRecord.epx_auth_guid.slice(0, 4)}****${paymentRecord.epx_auth_guid.slice(-4)}`
+      : '********';
 
+    res.status(mitResult.success ? 200 : 502).json({
+      success: mitResult.success,
+      message: mitResult.success
+        ? 'Server Post MIT transaction submitted. Check logs for certification samples.'
+        : mitResult.error || 'Server Post MIT transaction failed.',
+      payment: {
+        id: paymentRecord.id,
+        transactionId: paymentRecord.transaction_id,
+        authGuid: maskedGuid,
+        memberId: paymentRecord.member_id,
+        amount: paymentRecord.amount
+      },
+      request: {
+        fields: mitResult.requestFields,
+        payload: mitResult.requestPayload
+      },
+      response: {
+        fields: mitResult.responseFields,
+        raw: mitResult.rawResponse
+      },
+      error: mitResult.error
+    });
   } catch (error: any) {
     logEPX({
       level: 'error',
       phase: 'certification',
-      message: 'Certification test failed',
+      message: 'Server Post admin test failed',
       data: { error: error.message, stack: error.stack }
     });
 
     res.status(500).json({
       success: false,
-      error: error.message || 'Certification test failed',
+      error: error.message || 'Server Post test failed',
       message: 'Check server logs for details'
     });
   }

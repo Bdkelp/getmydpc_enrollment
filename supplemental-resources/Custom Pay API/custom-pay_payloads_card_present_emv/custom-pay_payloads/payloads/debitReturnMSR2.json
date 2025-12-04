@@ -1,0 +1,16 @@
+{
+  "amount": 111.00,
+  "trackData": "4000000000000002=25121010000000000000?",
+  "pinBlock": "2DD951BAD77CAD53FFFF9876543210E0001A",
+  "batchID": 210310,
+  "transaction": 178,
+  "cardID": "P",
+  "industryType": "P",
+  "cardEntryMethod": "D",
+  "e2ee": "0",
+  "address": {
+    "firstName": "PIN",
+    "lastName": "Debit Return"
+  },
+  "responseLevel": 1
+}

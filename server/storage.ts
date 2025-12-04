@@ -97,6 +97,29 @@ function normalizeEndDate(endDate?: string): string | undefined {
   end.setHours(23, 59, 59, 999);
   return end.toISOString();
 }
+
+const isLoginSessionTableMissing = (error: any) => {
+  if (!error) return false;
+  const message = [error.message, error.details, error.hint, error.code]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return message.includes('login_sessions') && message.includes('does not exist');
+};
+
+const warnMissingLoginSessionTable = (operation: string) => {
+  console.warn(
+    `[Storage] login_sessions table not found; skipping ${operation}. Add the table in Supabase to enable this tracking.`
+  );
+};
+
+const handleLoginSessionError = (error: any, operation: string) => {
+  if (isLoginSessionTableMissing(error)) {
+    warnMissingLoginSessionTable(operation);
+    return true;
+  }
+  return false;
+};
 import type {
   User,
   Member,
@@ -3567,6 +3590,7 @@ export async function createPayment(paymentData: {
   paymentMethod: string;
   transactionId?: string;
   authorizationCode?: string;
+  epxAuthGuid?: string | null;
   metadata?: Record<string, any>;
 }): Promise<any> {
   console.log('[Storage] Creating payment record at', new Date().toISOString(), ':', {
@@ -3589,13 +3613,14 @@ export async function createPayment(paymentData: {
         status,
         currency,
         payment_method,
+        epx_auth_guid,
         transaction_id,
         subscription_id,
         metadata,
         created_at,
         updated_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
       )
       RETURNING *;
     `;
@@ -3607,6 +3632,7 @@ export async function createPayment(paymentData: {
       paymentData.status,
       paymentData.currency || 'USD',
       paymentData.paymentMethod || 'card',
+      paymentData.epxAuthGuid || null,
       paymentData.transactionId || null,
       paymentData.subscriptionId || null,
       paymentData.metadata ? JSON.stringify(paymentData.metadata) : null
@@ -3662,6 +3688,19 @@ export async function getPaymentByTransactionId(transactionId: string): Promise<
   }
 }
 
+export async function getLatestPaymentWithAuthGuid(memberId: number): Promise<Payment | undefined> {
+  try {
+    const result = await query(
+      'SELECT * FROM payments WHERE member_id = $1 AND epx_auth_guid IS NOT NULL ORDER BY created_at DESC LIMIT 1',
+      [memberId]
+    );
+    return result.rows[0] || undefined;
+  } catch (error: any) {
+    console.error('Error fetching latest payment with auth GUID:', error);
+    return undefined;
+  }
+}
+
 export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
   try {
     // Map camelCase to snake_case for database columns
@@ -3671,6 +3710,7 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       paymentMethod: 'payment_method',
       transactionId: 'transaction_id',
       authorizationCode: 'authorization_code',
+      epxAuthGuid: 'epx_auth_guid',
       stripePaymentIntentId: 'stripe_payment_intent_id',
       createdAt: 'created_at',
       updatedAt: 'updated_at'
@@ -3952,6 +3992,7 @@ export const storage = {
 
   getUserPayments,
   getPaymentByTransactionId,
+  getLatestPaymentWithAuthGuid,
   updatePayment,
   getPaymentsWithFilters,
 
@@ -4062,6 +4103,9 @@ export const storage = {
       .single();
 
     if (error) {
+      if (handleLoginSessionError(error, 'createLoginSession')) {
+        return null;
+      }
       console.error('Error creating login session:', error);
       throw new Error(`Failed to create login session: ${error.message}`);
     }
@@ -4089,6 +4133,9 @@ export const storage = {
       .single();
 
     if (error) {
+      if (handleLoginSessionError(error, 'updateLoginSession')) {
+        return null;
+      }
       console.error('Error updating login session:', error);
       throw new Error(`Failed to update login session: ${error.message}`);
     }
@@ -4104,6 +4151,9 @@ export const storage = {
       .limit(limit);
 
     if (error) {
+      if (handleLoginSessionError(error, 'getUserLoginSessions')) {
+        return [];
+      }
       console.error('Error fetching user login sessions:', error);
       return [];
     }
@@ -4120,6 +4170,9 @@ export const storage = {
         .limit(limit);
 
       if (sessionsError) {
+        if (handleLoginSessionError(sessionsError, 'getAllLoginSessions')) {
+          return [];
+        }
         console.error('Error fetching all login sessions:', sessionsError);
         return [];
       }

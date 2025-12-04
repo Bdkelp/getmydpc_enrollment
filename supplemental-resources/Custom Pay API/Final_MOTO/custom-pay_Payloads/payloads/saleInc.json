@@ -1,0 +1,8 @@
+{
+  "amount": 10.00,
+  "cardEntryMethod": "Z",
+  "industryType": "M",  
+  "transaction": 123,
+  "batchId": "123",
+  "mac": "MAC123456789"
+}

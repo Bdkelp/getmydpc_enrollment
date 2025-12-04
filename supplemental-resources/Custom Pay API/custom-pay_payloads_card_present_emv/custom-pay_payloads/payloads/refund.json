@@ -1,0 +1,11 @@
+{
+  "account": "4111111111111111",
+  "expirationDate": "2512",
+  "cvv2": "123",
+  "amount": 127.99,
+  "transaction": 123,
+  "industryType": "P",
+  "batchID": 210408,
+  "mac": "MAC123456789",
+  "cardEntryMethod": "X"  
+}
