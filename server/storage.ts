@@ -3880,6 +3880,7 @@ export const storage = {
       const insertQuery = `
         INSERT INTO subscriptions (
           user_id,
+          member_id,
           plan_id,
           status,
           amount,
@@ -3892,13 +3893,14 @@ export const storage = {
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()
         )
         RETURNING *;
       `;
 
       const values = [
-        sub.userId,
+        sub.userId || null,
+        sub.memberId || null,
         sub.planId,
         sub.status || 'pending_payment',
         sub.amount,
@@ -3924,6 +3926,7 @@ export const storage = {
       return {
         id: data.id,
         userId: data.user_id,
+        memberId: data.member_id,
         planId: data.plan_id,
         status: data.status,
         pendingReason: data.pending_reason,

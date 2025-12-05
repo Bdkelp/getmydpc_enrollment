@@ -27,7 +27,8 @@ import {
   Shield,
   BarChart,
   User,
-  FileText
+  FileText,
+  Database
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";

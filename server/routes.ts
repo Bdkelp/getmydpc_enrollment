@@ -4069,7 +4069,8 @@ export async function registerRoutes(app: any) {
         try {
           console.log("[Agent Enrollment] Creating subscription...");
           subscription = await storage.createSubscription({
-            userId: member.id,
+            userId: null,
+            memberId: member.id,
             planId: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
