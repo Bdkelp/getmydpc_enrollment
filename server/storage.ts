@@ -3706,6 +3706,7 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
     // Map camelCase to snake_case for database columns
     const fieldMapping: Record<string, string> = {
       userId: 'user_id',
+      memberId: 'member_id',
       subscriptionId: 'subscription_id',
       paymentMethod: 'payment_method',
       transactionId: 'transaction_id',

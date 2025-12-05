@@ -395,12 +395,16 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
         // Persist EPX auth GUID + authorization details on payment record for future Server Post use
         const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
+        if (!authGuid) {
+          logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
+        }
         const transactionId = result.transactionId || req.body?.transactionId || req.body?.orderNumber;
 
         if (transactionId) {
           try {
             const paymentRecord = await storage.getPaymentByTransactionId(transactionId);
             if (paymentRecord) {
+              const finalizedMemberId = finalizeData.member?.id ?? paymentRecord.member_id ?? null;
               const updatedMetadata = {
                 ...(typeof paymentRecord.metadata === 'object' && paymentRecord.metadata ? paymentRecord.metadata : {}),
                 hostedCallback: {
@@ -415,6 +419,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 status: 'succeeded',
                 authorizationCode: result.authCode,
                 metadata: updatedMetadata,
+                memberId: finalizedMemberId,
                 epxAuthGuid: authGuid || paymentRecord.epxAuthGuid || null,
               });
 
