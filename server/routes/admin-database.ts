@@ -82,6 +82,8 @@ router.get('/api/admin/database/:table', authenticateToken, async (req: AuthRequ
       'enrollments',
       'commissions',
       'login_sessions',
+      'family_members',
+      'lead_activities',
     ];
 
     if (!allowedTables.includes(table)) {
