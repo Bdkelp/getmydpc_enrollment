@@ -559,7 +559,7 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
 
 /**
  * EPX CERTIFICATION TEST ENDPOINT - Server Post API
- * Creates a test subscription using EPX Recurring Billing API
+ * Submits a Manual/Recurring MIT transaction via Server Post (despite the legacy route name)
  * Use this to generate certification samples for EPX
  */
 router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthRequest, res: Response) => {

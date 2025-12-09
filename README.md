@@ -613,19 +613,18 @@ curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip
 
 ##### 3. **EPX Server Post API Integration**
 
-**Status**: Automated creation enabled via new recurring billing service (still off in production until `BILLING_SCHEDULER_ENABLED=true`).
+**Status**: Server Post MIT flow active; legacy Recurring Billing API code removed per EPX guidance.
 
 **Files**:
 
-- `server/services/epx-recurring-billing.ts` – shared helper + scheduler
-- `server/routes/finalize-registration.ts` – automatically provisions EPX subscription immediately after payment
-- `server/routes/admin-notifications.ts` – admin retry uses same helper
+- `server/routes/epx-hosted-routes.ts` – hosted checkout callbacks plus `/api/epx/test-recurring` MIT admin tooling
+- `server/routes/finalize-registration.ts` – saves BRIC tokens + metadata needed for downstream MIT pulls
+- `server/services/epx-payment-service.ts` – low-level Server Post client + logging helpers
 
-**Controls & Tips**:
+**Notes**:
 
-- Set `BILLING_SCHEDULER_ENABLED=true` to allow the background job to backfill any rows missing `epx_subscription_id`.
-- `BILLING_SCHEDULER_INTERVAL_MINUTES` and `BILLING_SCHEDULER_MIN_AGE_MINUTES` tune how frequently/soon retries run.
-- Hosted Checkout still drives the first payment; EPX Server Post now owns all future billing using the original enrollment day as the billing date.
+- `/api/epx/test-recurring` (admin only) now generates MIT request/response samples for certification.
+- Hosted Checkout still handles the first payment; subsequent billing is performed through explicit MIT submissions (manual or scripted) using stored AUTH_GUID tokens.
 
 ##### 4. **Commission Payout Automation**
 

@@ -90,64 +90,27 @@ This document tracks the current status of EPX certification requirements for th
 
 ---
 
-## 3️⃣ Server Post API (Recurring Billing)
+## 3️⃣ Server Post API (MIT Flow Only)
 
-### ⚠️ Implementation Status
+### ✅ Implementation Status
 
 **Current State:**
-- ✅ EPX Recurring Billing service exists (`server/services/epx-recurring-billing.ts`)
-- ✅ HMAC-SHA256 signing implemented
-- ✅ Card masking in logs implemented
-- ✅ Endpoints exist but may not be exposed
-- ❌ **Test endpoint NOT found** (`/api/epx/test-recurring`)
-- ⚠️ `BILLING_SCHEDULER_ENABLED=false` (recurring disabled)
+- ✅ EPX Recurring Billing API code removed; only Server Post MIT flow remains
+- ✅ HMAC-SHA256 signing + card masking implemented inside `epx-payment-service`
+- ✅ Admin-only `/api/epx/test-recurring` endpoint issues MIT requests and returns request/response payloads
+- ⚠️ MIT executions require agents/admins to trigger them manually for certification samples
 
 **Files to Check:**
-- `server/services/epx-recurring-billing.ts` - Core implementation
-- `server/routes/epx-routes.ts` - Main EPX routes
-- `server/routes/epx-hosted-routes.ts` - Hosted checkout routes
+- `server/routes/epx-hosted-routes.ts` - Hosted checkout routes + Server Post MIT test endpoint
+- `server/routes/finalize-registration.ts` - Stores EPX tokens + member metadata used for MIT pulls
+- `server/services/epx-payment-service.ts` - Core Server Post implementation/logging
 
 ### 🔍 Action Items:
 
-#### Option A: Create Test Endpoint (Recommended)
-Create `/api/epx/test-recurring` endpoint for certification samples:
+1. Use `/api/epx/test-recurring` (admin-authenticated) after each sandbox enrollment to capture MIT `requestPayload` and `rawResponse` samples.
+2. Export the EPX certification logs (`/api/epx/certification/export`) to provide EPX with proof of each MIT transaction.
+3. Keep `EPX_RECURRING_ENABLED`/`BILLING_SCHEDULER_*` unset—those controls are obsolete now that the Recurring Billing API is retired.
 
-```typescript
-// In server/routes/epx-routes.ts or epx-hosted-routes.ts
-router.post('/api/epx/test-recurring', async (req: Request, res: Response) => {
-  try {
-    const epxService = new EPXRecurringBillingService();
-    
-    // Test CreateSubscription call
-    const subscriptionResult = await epxService.createSubscription({
-      customerId: 'TEST-CERT-001',
-      planCode: 'MPP-BASE',
-      amount: 59.00,
-      // ... other required fields
-    });
-    
-    logEPX({
-      level: 'info',
-      phase: 'test-recurring',
-      message: 'Certification test - CreateSubscription',
-      data: subscriptionResult
-    });
-    
-    res.json({ success: true, result: subscriptionResult });
-  } catch (error) {
-    logEPX({
-      level: 'error',
-      phase: 'test-recurring',
-      message: 'Certification test failed',
-      data: { error: error.message }
-    });
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-```
-
-#### Option B: Use Existing Enrollment Flow
-If recurring billing is already triggered during enrollment:
 1. Enable temporarily: `BILLING_SCHEDULER_ENABLED=true`
 2. Complete a full test enrollment
 3. Monitor logs for Server Post API calls

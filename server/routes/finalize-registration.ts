@@ -8,9 +8,8 @@
  * 1. Receive registration data + payment token (BRIC) from EPX callback
  * 2. Create member in database
  * 3. Create subscription record
- * 4. Create EPX recurring billing subscription
- * 5. Calculate and create commission
- * 6. Clean up temp storage
+ * 4. Calculate and create commission
+ * 5. Clean up temp storage
  */
 
 import { Router } from "express";
@@ -18,7 +17,6 @@ import { storage } from "../storage";
 import { supabase } from "../lib/supabaseClient";
 import { calculateMembershipStartDate, isMembershipActive, daysUntilMembershipStarts, calculateNextBillingDate } from "../utils/membership-dates";
 import { calculateCommission } from "../commissionCalculator";
-import { createRecurringSubscription, recordEpxSubscriptionFailure } from "../services/epx-recurring-billing";
 
 const router = Router();
 
@@ -183,7 +181,6 @@ router.post("/api/finalize-registration", async (req, res) => {
 
     // === CREATE SUBSCRIPTION ===
     let subscriptionId: number | null = null;
-    let epxSubscriptionId: string | null = null;
 
     if (planId && totalMonthlyPrice) {
       try {
@@ -213,35 +210,6 @@ router.post("/api/finalize-registration", async (req, res) => {
         subscriptionId = subscription.id;
         console.log("[Finalize Registration] ✅ Subscription created:", subscriptionId);
 
-        // === CREATE EPX RECURRING SUBSCRIPTION ===
-        console.log("[Finalize Registration] Creating EPX recurring subscription...");
-        const epxResult = await createRecurringSubscription({
-          member,
-          subscriptionId,
-          amount: subscriptionAmount,
-          billingDate: firstPaymentDate,
-          paymentToken,
-          paymentMethodType,
-          source: 'finalize-registration'
-        });
-
-        if (epxResult.success && epxResult.epxSubscriptionId) {
-          epxSubscriptionId = epxResult.epxSubscriptionId;
-          console.log("[Finalize Registration] ✅ EPX subscription created:", epxSubscriptionId);
-        } else {
-          console.error("[Finalize Registration] ⚠️  EPX subscription creation failed:", epxResult.error);
-          await recordEpxSubscriptionFailure({
-            subscriptionId,
-            memberId: member.id,
-            error: epxResult.error || "Unknown error creating EPX subscription",
-            source: 'finalize-registration',
-            metadata: {
-              transactionId,
-              planId,
-            }
-          });
-          console.log("[Finalize Registration] ⚠️  Admin notification recorded for EPX failure");
-        }
       } catch (subError: any) {
         console.error("[Finalize Registration] Error creating subscription:", subError);
         // Don't throw - continue with commission creation
@@ -364,14 +332,13 @@ router.post("/api/finalize-registration", async (req, res) => {
         enrollmentDate: member.enrollmentDate,
         membershipStartDate: member.membershipStartDate,
       },
-      subscription: {
-        id: subscriptionId,
-        epxSubscriptionId: epxSubscriptionId,
-        status: 'active',
-      },
-      message: epxSubscriptionId 
-        ? "Registration completed successfully with recurring billing" 
-        : "Registration completed successfully - recurring billing setup pending admin review"
+      subscription: subscriptionId
+        ? {
+            id: subscriptionId,
+            status: 'active',
+          }
+        : null,
+      message: "Registration completed successfully; ongoing billing is handled via EPX Server Post MIT transactions."
     });
 
   } catch (error: any) {

@@ -24,14 +24,12 @@ import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
 import { scheduleCleanup as scheduleTempRegistrationCleanup } from "./services/temp-registration-service";
-import { scheduleRecurringBillingSync } from "./services/epx-recurring-billing";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import adminDatabaseRoutes from "./routes/admin-database";
 import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
-import epxRecurringRoutes from "./routes/epx-recurring-routes";
 import epxCertificationRoutes from "./routes/epx-certification";
 import finalizeRegistrationRoutes from "./routes/finalize-registration";
 import adminNotificationsRoutes from "./routes/admin-notifications";
@@ -129,9 +127,6 @@ app.use((req, res, next) => {
 (async () => {
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use('/', epxHostedRoutes);
-  
-  // Register EPX Recurring Billing routes (new API)
-  app.use('/', epxRecurringRoutes);
   app.use('/', epxCertificationRoutes);
   
   // Register finalize registration route (payment-first flow)
@@ -202,9 +197,6 @@ app.use((req, res, next) => {
 
       // Initialize temp registration cleanup scheduler
       scheduleTempRegistrationCleanup();
-
-      // Initialize EPX recurring billing scheduler (controlled via env)
-      scheduleRecurringBillingSync();
 
       // Validate EPX configuration
       try {
