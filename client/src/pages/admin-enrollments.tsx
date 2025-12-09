@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { hasAtLeastRole } from "@/lib/roles";
 import {
   Download,
   Users,
@@ -67,6 +68,7 @@ export default function AdminEnrollments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const queryClient = useQueryClient();
 
   log("Component mounted", { user: user?.email, authLoading });
@@ -77,14 +79,14 @@ export default function AdminEnrollments() {
       if (!user) {
         console.log("[AdminEnrollments] No user found, redirecting to login");
         setLocation("/login");
-      } else if (user.role !== "admin" && user.role !== "super_admin") {
+      } else if (!isAdminUser) {
         console.log("[AdminEnrollments] User role is not admin:", user.role);
         setLocation("/no-access");
       } else {
         console.log("[AdminEnrollments] Admin access confirmed for:", user.email);
       }
     }
-  }, [user, authLoading, setLocation]);
+  }, [user, authLoading, setLocation, isAdminUser]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
@@ -109,7 +111,7 @@ export default function AdminEnrollments() {
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
-    enabled: !!user && (user.role === "admin" || user.role === "super_admin"),
+    enabled: !!user && isAdminUser,
   });
 
   // Fetch enrollments with filters
@@ -143,7 +145,7 @@ export default function AdminEnrollments() {
         throw error;
       }
     },
-    enabled: !!user && (user.role === "admin" || user.role === "super_admin"),
+    enabled: !!user && isAdminUser,
     retry: (failureCount, error: any) => {
       // Don't retry on auth errors
       if (error?.message?.includes("401") || error?.message?.includes("403")) {
@@ -419,7 +421,7 @@ export default function AdminEnrollments() {
     return null; // Will redirect via useEffect
   }
 
-  if (user.role !== "admin" && user.role !== "super_admin") {
+  if (!isAdminUser) {
     return null; // Will redirect via useEffect
   }
 

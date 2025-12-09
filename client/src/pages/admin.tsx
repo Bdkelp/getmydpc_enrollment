@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { hasAtLeastRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
 import DashboardStats from "@/components/DashboardStats";
@@ -64,6 +65,7 @@ interface PendingUser {
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
@@ -119,7 +121,7 @@ export default function Admin() {
       return;
     }
 
-    if (!authLoading && user && user.role !== "admin" && user.role !== "super_admin") {
+    if (!authLoading && user && !isAdminUser) {
       toast({
         title: "Access Denied",
         description: "Admin access required.",
@@ -189,7 +191,7 @@ export default function Admin() {
 
   const { data: adminStats, isLoading: statsLoading, error: statsError } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminUser,
   });
 
   // Handle stats error
@@ -208,7 +210,7 @@ export default function Admin() {
 
   const { data: usersData, isLoading: usersLoading, error: usersError, refetch } = useQuery<UserData>({
     queryKey: ["/api/admin/users"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminUser,
   });
 
   // Handle users error
@@ -228,13 +230,13 @@ export default function Admin() {
   // Fetch pending users
   const { data: pendingUsers, isLoading: pendingLoading } = useQuery<PendingUser[]>({
     queryKey: ["/api/admin/pending-users"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminUser,
   });
 
   // Fetch all login sessions for monitoring
   const { data: allLoginSessions = [], isLoading: sessionsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/login-sessions"],
-    enabled: isAuthenticated && (user?.role === "admin" || user?.role === "super_admin"),
+    enabled: isAuthenticated && isAdminUser,
   });
 
   // Approve user mutation
@@ -293,7 +295,7 @@ export default function Admin() {
     );
   }
 
-  if (!isAuthenticated || !user || (user.role !== "admin" && user.role !== "super_admin")) {
+  if (!isAuthenticated || !user || !isAdminUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Card className="w-full max-w-md mx-4">
@@ -668,7 +670,7 @@ export default function Admin() {
                     </div>
                     <div className="text-right">
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        session.users?.role === 'admin' ? 'bg-red-100 text-red-800' :
+                        hasAtLeastRole(session.users?.role, 'admin') ? 'bg-red-100 text-red-800' :
                         session.users?.role === 'agent' ? 'bg-blue-100 text-blue-800' :
                         'bg-green-100 text-green-800'
                       }`}>
@@ -748,8 +750,8 @@ export default function Admin() {
                         </TableCell>
                         <TableCell>{user.email}</TableCell>
                         <TableCell>
-                          <Badge variant={user.role === 'admin' ? 'default' : user.role === 'agent' ? 'secondary' : 'outline'}>
-                            {user.role === 'agent' ? 'Agent (Staff)' : user.role}
+                          <Badge variant={hasAtLeastRole(user.role, 'admin') ? 'default' : user.role === 'agent' ? 'secondary' : 'outline'}>
+                            {user.role === 'super_admin' ? 'Super Admin' : user.role === 'agent' ? 'Agent (Staff)' : user.role}
                           </Badge>
                         </TableCell>
                         <TableCell>

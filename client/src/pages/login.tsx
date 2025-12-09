@@ -36,6 +36,7 @@ import {
 } from "react-icons/fa";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MagicLinkLogin } from "@/components/magic-link-login";
+import { hasAtLeastRole } from "@/lib/roles";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email"),
@@ -136,9 +137,11 @@ export default function Login() {
         await queryClient.invalidateQueries();
 
         const role = user?.role || "user";
+        const isAdminUser = hasAtLeastRole(role, "admin");
+        const isAgentOrAbove = hasAtLeastRole(role, "agent");
         setTimeout(() => {
-          if (role === "admin" || role === "super_admin") setLocation("/admin");
-          else if (role === "agent") setLocation("/agent");
+          if (isAdminUser) setLocation("/admin");
+          else if (isAgentOrAbove) setLocation("/agent");
           else setLocation("/");
         }, 500);
 

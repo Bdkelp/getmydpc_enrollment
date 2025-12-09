@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { DollarSign, Calendar, CheckCircle, ChevronLeft, Clock } from "lucide-react";
+import { hasAtLeastRole } from "@/lib/roles";
 import { format, startOfWeek, endOfWeek, isFuture, isPast, isToday } from "date-fns";
 import {
   Table,
@@ -48,6 +49,7 @@ export default function AdminCommissions() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const queryClient = useQueryClient();
 
   // Current week by default
@@ -69,7 +71,7 @@ export default function AdminCommissions() {
       });
       return await apiRequest(`/api/admin/commissions?${params}`, { method: "GET" });
     },
-    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
+    enabled: !!user && isAdminUser,
   });
 
   // Mark commissions as paid mutation

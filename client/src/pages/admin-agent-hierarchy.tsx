@@ -7,6 +7,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
+import { hasAtLeastRole } from "@/lib/roles";
 import { Users, TrendingUp, DollarSign, Network, ChevronLeft } from "lucide-react";
 import {
   Table,
@@ -60,6 +61,7 @@ export default function AdminAgentHierarchy() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const queryClient = useQueryClient();
 
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
@@ -71,7 +73,7 @@ export default function AdminAgentHierarchy() {
   // Fetch all agents
   const { data: agents, isLoading } = useQuery<Agent[]>({
     queryKey: ["/api/admin/agents/hierarchy"],
-    enabled: !!user && user.role === 'admin',
+    enabled: !!user && isAdminUser,
   });
 
   // Update agent hierarchy mutation

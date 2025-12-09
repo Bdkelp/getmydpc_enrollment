@@ -19,6 +19,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 import { Plus, ChevronLeft } from "lucide-react";
 import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode } from "@/lib/formatters";
+import { hasAtLeastRole } from "@/lib/roles";
 
 const registrationSchema = z.object({
   // Personal information
@@ -93,6 +94,8 @@ export default function Registration() {
     queryKey: ['/api/user'],
     enabled: isAuthenticated,
   });
+  const isAdminUser = hasAtLeastRole(currentUser?.role, 'admin');
+  const isAgentOrAbove = hasAtLeastRole(currentUser?.role, 'agent');
 
   // Check for recommended tier from quiz
   useEffect(() => {
@@ -486,14 +489,14 @@ export default function Registration() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation Header for Admin and Agent */}
-      {(currentUser?.role === 'admin' || currentUser?.role === 'agent' || currentUser?.role === 'super_admin') && (
+      {isAgentOrAbove && (
         <div className="bg-white shadow-sm border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="flex items-center">
-              <Link href={(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? '/admin' : '/agent'}>
+              <Link href={isAdminUser ? '/admin' : '/agent'}>
                 <Button variant="ghost" className="mr-4">
                   <ChevronLeft className="h-4 w-4 mr-1" />
-                  Back to {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') ? 'Admin' : 'Agent'} Dashboard
+                  Back to {isAdminUser ? 'Admin' : 'Agent'} Dashboard
                 </Button>
               </Link>
               <div>

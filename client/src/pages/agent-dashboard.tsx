@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { hasAtLeastRole } from "@/lib/roles";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -54,11 +55,13 @@ export default function AgentDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, 'admin');
+  const isAgentOrAbove = hasAtLeastRole(user?.role, 'agent');
   
   // For admin/super_admin: allow viewing other agents' dashboards
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const viewingAgentId = selectedAgentId || user?.id;
-  const isAdminViewing = (user?.role === 'admin' || user?.role === 'super_admin') && selectedAgentId;
+  const isAdminViewing = isAdminUser && selectedAgentId;
   
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
@@ -88,7 +91,7 @@ export default function AgentDashboard() {
   // For admin/super_admin: fetch all agents for selector
   const { data: allAgents } = useQuery({
     queryKey: ["/api/agents"],
-    enabled: user?.role === 'admin' || user?.role === 'super_admin',
+    enabled: isAdminUser,
   });
 
   // Get agent stats (for selected agent if admin, or current user)
@@ -270,7 +273,7 @@ export default function AgentDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {(user?.role === 'admin' || user?.role === 'super_admin') && (
+              {isAdminUser && (
                 <Button variant="outline" onClick={() => setLocation('/admin')}>
                   <Shield className="h-4 w-4 mr-2" />
                   Back to Admin View
@@ -301,7 +304,7 @@ export default function AgentDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Agent Selector for Admin/Super_Admin */}
-        {(user?.role === 'admin' || user?.role === 'super_admin') && (
+        {isAdminUser && (
           <Card className="mb-6 bg-blue-50 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">

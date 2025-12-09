@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
 import { ChevronLeft, Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
+import { hasAtLeastRole } from "@/lib/roles";
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 
@@ -44,6 +45,7 @@ export default function AdminLeads() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   
   // ALL hooks must be declared BEFORE any conditional returns
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -57,7 +59,7 @@ export default function AdminLeads() {
   // Fetch all leads - MUST be before any conditional returns
   const { data: leads, isLoading: leadsLoading, error: leadsError } = useQuery<Lead[]>({
     queryKey: ['/api/admin/leads', statusFilter, assignmentFilter],
-    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
+    enabled: !!user && isAdminUser,
     retry: (failureCount, error: any) => {
       logWarning('Query retry attempt', { failureCount, error: error?.message });
       if (error?.message?.includes('401') || error?.message?.includes('403')) {
@@ -102,7 +104,7 @@ export default function AdminLeads() {
   // Fetch agents for assignment - MUST be before any conditional returns
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: ['/api/admin/agents'],
-    enabled: !!user && (user.role === 'admin' || user.role === 'super_admin'),
+    enabled: !!user && isAdminUser,
     queryFn: async () => {
       const response = await apiRequest('/api/admin/agents', {
         method: "GET"
@@ -207,14 +209,14 @@ export default function AdminLeads() {
       if (!user) {
         logWarning('No user found, redirecting to login');
         setLocation('/login');
-      } else if (user.role !== 'admin' && user.role !== 'super_admin') {
+      } else if (!isAdminUser) {
         logWarning('User is not admin, redirecting to agent dashboard', { role: user.role });
         setLocation('/agent');
       } else {
         log('Admin user confirmed', { email: user.email });
       }
     }
-  }, [user, authLoading, setLocation, log, logWarning]);
+  }, [user, authLoading, setLocation, log, logWarning, isAdminUser]);
 
   // Log error if any
   useEffect(() => {
@@ -299,7 +301,7 @@ export default function AdminLeads() {
     );
   }
 
-  if (user.role !== 'admin' && user.role !== 'super_admin') {
+  if (!isAdminUser) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">

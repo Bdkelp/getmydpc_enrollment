@@ -9,12 +9,15 @@ import { Check, CheckCircle2, FileText, Phone, Mail, Globe, Download, Send, Prin
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { hasAtLeastRole } from "@/lib/roles";
 
 export default function Confirmation() {
   console.log("[Confirmation] Component rendering - v1.1");
   
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
+  const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const [membershipData, setMembershipData] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -460,7 +463,7 @@ export default function Confirmation() {
             <div className="text-center pt-6 border-t">
               <Button 
                 onClick={() => {
-                  const defaultRoute = (user?.role === "admin" || user?.role === "super_admin") ? "/admin" : user?.role === "agent" ? "/agent" : "/";
+                  const defaultRoute = isAdminUser ? "/admin" : isAgentOrAbove ? "/agent" : "/";
                   setLocation(defaultRoute);
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"

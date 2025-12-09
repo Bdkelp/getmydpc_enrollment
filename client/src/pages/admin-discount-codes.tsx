@@ -10,6 +10,7 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
+import { hasAtLeastRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { 
   ChevronLeft, 
@@ -74,8 +75,8 @@ export default function AdminDiscountCodes() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const isAdminOrAbove = hasAtLeastRole(user?.role, 'admin');
   const queryClient = useQueryClient();
-  const isAdminOrAbove = user?.role === 'super_admin' || user?.role === 'admin';
   const [searchTerm, setSearchTerm] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingCode, setEditingCode] = useState<DiscountCode | null>(null);

@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, ArrowRight, ArrowLeft, X, Users, FileText, CreditCard, BarChart3, MessageSquare, Calendar } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { hasAtLeastRole, Role } from '@/lib/roles';
 
 interface OnboardingStep {
   id: string;
@@ -17,7 +18,7 @@ interface OnboardingStep {
 }
 
 interface OnboardingWizardProps {
-  userRole: 'user' | 'agent' | 'admin';
+  userRole: Role;
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
@@ -27,7 +28,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
 
-  const getStepsForRole = (role: string): OnboardingStep[] => {
+  const getStepsForRole = (role: Role | undefined): OnboardingStep[] => {
     const commonSteps = [
       {
         id: 'welcome',
@@ -52,7 +53,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
       }
     ];
 
-    if (role === 'admin' || role === 'super_admin') {
+    if (hasAtLeastRole(role, 'admin')) {
       return [
         ...commonSteps,
         {
@@ -128,7 +129,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
       ];
     }
 
-    if (role === 'agent' || role === 'admin' || role === 'super_admin') {
+    if (hasAtLeastRole(role, 'agent')) {
       return [
         ...commonSteps,
         {

@@ -9,6 +9,7 @@ import path from 'path';
 import { EPXHostedCheckoutService, type EPXHostedCheckoutConfig } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
+import { hasAtLeastRole } from '../auth/roles';
 import { supabase } from '../lib/supabaseClient';
 import { verifyRecaptcha, isRecaptchaEnabled } from '../utils/recaptcha';
 import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
@@ -580,7 +581,7 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
  */
 router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'super_admin')) {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
       return res.status(403).json({ success: false, error: 'Admin access required' });
     }
 

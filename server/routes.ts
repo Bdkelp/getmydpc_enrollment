@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
+import { hasAtLeastRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
 import { sendEnrollmentNotification } from "./utils/notifications";
 import {
@@ -162,17 +163,17 @@ function sumCommissionAmounts(records: any[] = []) {
   }, 0);
 }
 
-// Helper function to check if user has admin access (admin or super_admin)
+// Helper functions leverage centralized role hierarchy
 const isAdmin = (role: string | undefined): boolean => {
-  return role === "admin" || role === "super_admin";
+  return hasAtLeastRole(role, "admin");
 };
 
 const isAgentRole = (role: string | undefined): boolean => {
-  return role === "agent" || role === "super_admin";
+  return role === "agent" || hasAtLeastRole(role, "super_admin");
 };
 
 const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
-  return role === "agent" || role === "admin" || role === "super_admin";
+  return role === "agent" || hasAtLeastRole(role, "admin");
 };
 
 // Public routes (no authentication required)
@@ -1508,7 +1509,7 @@ router.get("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
   try {
     let leads;
 
-    if (req.user!.role === "admin" || req.user!.role === "super_admin") {
+    if (isAdmin(req.user!.role)) {
       leads = await storage.getAllLeads();
     } else if (req.user!.role === "agent") {
       leads = await storage.getAgentLeads(req.user!.id);
@@ -1932,7 +1933,7 @@ router.get(
 
           // VALIDATION: Users table should ONLY contain 'admin', 'super_admin', and 'agent' roles
           // Members (DPC customers) are in a separate 'members' table with NO login access
-          if (user.role !== "agent" && user.role !== "admin" && user.role !== "super_admin") {
+          if (!hasAgentOrAdminAccess(user.role)) {
             console.warn(`[Admin Users API] INVALID ROLE in users table: ${user.role} for ${user.email} - should be admin/super_admin/agent only`);
           }
 
@@ -2551,11 +2552,7 @@ router.get(
   "/api/admin/members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (
-      req.user!.role !== "admin" &&
-      req.user!.role !== "agent" &&
-      req.user!.role !== "super_admin"
-    ) {
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
       return res
         .status(403)
         .json({ message: "Admin or agent access required" });
@@ -2947,11 +2944,7 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-    if (
-      req.user!.role !== "agent" &&
-      req.user!.role !== "admin" &&
-      req.user!.role !== "super_admin"
-    ) {
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
       console.log("❌ Access denied - not agent or admin");
       return res.status(403).json({ message: "Agent or admin access required" });
     }
@@ -2960,7 +2953,7 @@ router.get(
       const { startDate, endDate } = req.query;
       let enrollments;
 
-      if (req.user!.role === "admin" || req.user!.role === "super_admin") {
+      if (isAdmin(req.user!.role)) {
         // Admin and super_admin see all enrollments
         enrollments = await storage.getAllEnrollments(
           startDate as string, 
@@ -3292,7 +3285,7 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-    if (req.user!.role !== "agent" && req.user!.role !== "admin" && req.user!.role !== "super_admin") {
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
       console.log("❌ Access denied - not agent/admin/super_admin");
       return res.status(403).json({ message: "Agent or admin access required" });
     }
@@ -4144,11 +4137,7 @@ export async function registerRoutes(app: any) {
       console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
 
       // Validate agent has permission
-      if (
-        req.user?.role !== "agent" &&
-        req.user?.role !== "admin" &&
-        req.user?.role !== "super_admin"
-      ) {
+      if (!hasAgentOrAdminAccess(req.user?.role)) {
         return res.status(403).json({
           error: "Agent or admin access required"
         });
@@ -4353,9 +4342,8 @@ export async function registerRoutes(app: any) {
   app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
     try {
       const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
       
-      if (!allowedRoles.includes(userRole)) {
+      if (!hasAgentOrAdminAccess(userRole)) {
         console.log('[Agent Enrollments] Permission denied:', {
           userRole,
           rawRole: req.user?.role,
@@ -4369,7 +4357,7 @@ export async function registerRoutes(app: any) {
 
       // Allow admin/super_admin to view any agent's enrollments via query param
       const requestedAgentId = req.query.agentId;
-      const isAdminViewingOther = (userRole === 'admin' || userRole === 'super_admin') && requestedAgentId;
+      const isAdminViewingOther = isAdmin(userRole) && requestedAgentId;
       const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
       const { startDate, endDate } = req.query;
       
@@ -4417,20 +4405,19 @@ export async function registerRoutes(app: any) {
   app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
     try {
       const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
 
       console.log('[Agent Stats] Permission check:', {
         userRole,
         rawRole: req.user?.role,
-        isAllowed: allowedRoles.includes(userRole),
+        isAllowed: hasAgentOrAdminAccess(userRole),
         userId: req.user?.id
       });
 
-      if (!allowedRoles.includes(userRole)) {
+      if (!hasAgentOrAdminAccess(userRole)) {
         return res.status(403).json({
           message: 'Agent or admin access required',
           currentRole: userRole,
-          allowedRoles
+          allowedRoles: ['agent', 'admin', 'super_admin']
         });
       }
 
@@ -4438,7 +4425,7 @@ export async function registerRoutes(app: any) {
       const period = typeof req.query.period === 'string' ? req.query.period : undefined;
       const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
       const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
-      const isAdminViewingOther = (userRole === 'admin' || userRole === 'super_admin') && requestedAgentId;
+      const isAdminViewingOther = isAdmin(userRole) && requestedAgentId;
       const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
 
       const { start: periodStart, end: periodEnd } = getDateRangeFromQuery(period, startDate, endDate);
@@ -4606,7 +4593,7 @@ export async function registerRoutes(app: any) {
   // Admin: Get all commission totals with agent breakdown
   app.get('/api/admin/commission-totals', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4623,9 +4610,8 @@ export async function registerRoutes(app: any) {
   app.get('/api/agent/export-commissions', authMiddleware, async (req: any, res: any) => {
     try {
       const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
       
-      if (!allowedRoles.includes(userRole)) {
+      if (!hasAgentOrAdminAccess(userRole)) {
         return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
@@ -4745,7 +4731,7 @@ export async function registerRoutes(app: any) {
   // Fix: Missing admin endpoints for user management tabs
   app.get('/api/admin/pending-users', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4765,9 +4751,9 @@ export async function registerRoutes(app: any) {
       console.log('[Admin Commissions] Request from user:', req.user?.email, 'Role:', req.user?.role);
       
       // Only admins and super_admins can access this endpoint to see ALL commissions
-      const isAdmin = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+      const hasAdminPrivileges = isAdmin(req.user?.role);
       
-      if (!isAdmin) {
+      if (!hasAdminPrivileges) {
         console.error('[Admin Commissions] Access denied - user role:', req.user?.role);
         return res.status(403).json({ 
           error: 'Admin access required',
@@ -4795,7 +4781,7 @@ export async function registerRoutes(app: any) {
   // Admin: Mark commissions as paid
   app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4828,7 +4814,7 @@ export async function registerRoutes(app: any) {
   // Admin: Update single commission payout
   app.post('/api/admin/commission/:commissionId/payout', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4859,7 +4845,7 @@ export async function registerRoutes(app: any) {
   // Admin: Batch update commission payouts
   app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4891,7 +4877,7 @@ export async function registerRoutes(app: any) {
   // Admin: Get commissions for payout management
   app.get('/api/admin/commissions/payout-list', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4913,7 +4899,7 @@ export async function registerRoutes(app: any) {
   // Admin: Get agent hierarchy
   app.get('/api/admin/agents/hierarchy', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4928,7 +4914,7 @@ export async function registerRoutes(app: any) {
   // Admin: Update agent hierarchy
   app.post('/api/admin/agents/update-hierarchy', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -4959,7 +4945,7 @@ export async function registerRoutes(app: any) {
       console.log("User:", req.user?.email);
       console.log("Role:", req.user?.role);
 
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         console.log("❌ Access denied - not admin");
         return res.status(403).json({ error: 'Admin access required' });
       }
@@ -4976,7 +4962,7 @@ export async function registerRoutes(app: any) {
 
   app.put('/api/admin/users/:userId/role', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -5005,7 +4991,7 @@ export async function registerRoutes(app: any) {
 
   app.put('/api/admin/users/:userId/agent-number', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -5018,8 +5004,8 @@ export async function registerRoutes(app: any) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Only agents and admins should have agent numbers
-      if (user.role !== 'agent' && user.role !== 'admin') {
+      // Only agents, admins, or super admins should have agent numbers
+      if (!hasAgentOrAdminAccess(user.role)) {
         return res.status(400).json({
           error: 'Only agents and admins can be assigned agent numbers'
         });
@@ -5049,7 +5035,7 @@ export async function registerRoutes(app: any) {
 
   app.put('/api/admin/users/:userId', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -5113,7 +5099,7 @@ export async function registerRoutes(app: any) {
 
   app.put('/api/admin/users/:userId/suspend', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -5136,7 +5122,7 @@ export async function registerRoutes(app: any) {
 
   app.put('/api/admin/users/:userId/reactivate', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
@@ -5160,7 +5146,7 @@ export async function registerRoutes(app: any) {
 
   app.post('/api/admin/approve-user/:userId', authMiddleware, async (req: any, res: any) => {
     try {
-      if (req.user?.role !== 'admin') {
+      if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 

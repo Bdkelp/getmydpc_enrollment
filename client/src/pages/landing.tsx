@@ -10,9 +10,12 @@ import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
 import heroImage from "@assets/enrollment-dr-image.jpg";
 import apiClient from "@/lib/apiClient";
+import { hasAtLeastRole } from "@/lib/roles";
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
+  const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const [, setLocation] = useLocation();
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   
@@ -137,7 +140,7 @@ export default function Landing() {
                   <span className="text-sm text-gray-600">
                     Welcome, {user?.firstName || user?.email}
                   </span>
-                  {(user?.role === 'admin' || user?.role === 'super_admin') && (
+                  {isAdminUser && (
                     <Button 
                       variant="default"
                       onClick={() => setLocation("/admin")}
@@ -145,7 +148,7 @@ export default function Landing() {
                       Admin Dashboard
                     </Button>
                   )}
-                  {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                  {isAgentOrAbove && (
                     <Button 
                       variant="default"
                       onClick={() => setLocation("/agent")}
@@ -200,21 +203,21 @@ export default function Landing() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
-                  user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin" ? (
+                  isAgentOrAbove ? (
                     <div className="flex flex-col sm:flex-row gap-4">
                       <Link href="/registration">
                         <Button size="lg" className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4">
                           Enroll New Member
                         </Button>
                       </Link>
-                      {(user?.role === "admin" || user?.role === "super_admin") && (
+                      {isAdminUser && (
                         <Link href="/admin">
                           <Button size="lg" variant="outline" className="px-8 py-4">
                             Admin Dashboard
                           </Button>
                         </Link>
                       )}
-                      {(user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") && (
+                      {isAgentOrAbove && (
                         <Link href="/agent">
                           <Button size="lg" variant="outline" className="px-8 py-4">
                             Agent Dashboard
@@ -354,7 +357,7 @@ export default function Landing() {
                       ))}
                     </ul>
                     {isAuthenticated ? (
-                      user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin" ? (
+                      isAgentOrAbove ? (
                         <Link href="/registration">
                           <Button 
                             className={`w-full ${

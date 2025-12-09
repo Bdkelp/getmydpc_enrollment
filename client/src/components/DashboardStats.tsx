@@ -7,9 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Calendar, DollarSign, TrendingUp, Users, Filter, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { hasAtLeastRole, Role } from "@/lib/roles";
+
+type DashboardRole = Extract<Role, "agent" | "admin" | "super_admin">;
 
 interface DashboardStatsProps {
-  userRole: 'agent' | 'admin' | 'super_admin';
+  userRole: DashboardRole;
   agentId?: string;
 }
 
@@ -50,6 +53,9 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const statsRoleSegment: Extract<Role, "agent" | "admin"> = userRole === 'super_admin' ? 'admin' : userRole;
+  const isAdminUser = hasAtLeastRole(userRole, 'admin');
+  const isAgentUser = hasAtLeastRole(userRole, 'agent');
 
   // Build query parameters based on filters
   const getQueryParams = () => {
@@ -64,7 +70,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
       params.append('endDate', customEndDate);
     }
     
-    if (agentId && (userRole === 'agent' || userRole === 'admin' || userRole === 'super_admin')) {
+    if (agentId && isAgentUser) {
       params.append('agentId', agentId);
     }
     
@@ -73,10 +79,10 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
 
   // Fetch enhanced stats data
   const { data: stats, isLoading, refetch } = useQuery<StatsData>({
-    queryKey: [`/api/${userRole}/stats`, filterPeriod, customStartDate, customEndDate],
+    queryKey: [`/api/${statsRoleSegment}/stats`, filterPeriod, customStartDate, customEndDate],
     queryFn: () => {
       const queryString = getQueryParams();
-      const url = `/api/${userRole}/stats${queryString ? `?${queryString}` : ''}`;
+      const url = `/api/${statsRoleSegment}/stats${queryString ? `?${queryString}` : ''}`;
       return apiRequest(url);
     },
     refetchInterval: 30000, // Refresh every 30 seconds
@@ -172,7 +178,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-semibold">
-              {userRole === 'admin' ? 'Platform Overview' : 'Your Performance'}
+              {isAdminUser ? 'Platform Overview' : 'Your Performance'}
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button
@@ -362,7 +368,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
             <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {userRole === 'admin' ? (
+            {isAdminUser ? (
               <>
                 <Button 
                   variant="outline" 

@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Camera, User, Mail, Phone, MapPin, Building, Key, Save, Upload, CreditCard, ArrowLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import apiClient from "@/lib/apiClient";
+import { hasAtLeastRole } from "@/lib/roles";
 
 const profileSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -62,6 +63,8 @@ type PasswordChangeData = z.infer<typeof passwordChangeSchema>;
 
 export default function Profile() {
   const { user } = useAuth();
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
+  const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -72,10 +75,12 @@ export default function Profile() {
 
   // Function to navigate back to appropriate dashboard
   const handleGoBack = () => {
-    if (user?.role === 'admin' || user?.role === 'super_admin') {
+    if (isAdminUser) {
       setLocation('/admin');
-    } else {
+    } else if (isAgentOrAbove) {
       setLocation('/agent');
+    } else {
+      setLocation('/');
     }
   };
 
@@ -234,7 +239,7 @@ export default function Profile() {
           <div className="flex items-center gap-4 mb-4">
             <Button variant="ghost" onClick={handleGoBack} className="flex items-center gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back to {user?.role === 'admin' || user?.role === 'super_admin' ? 'Admin' : 'Agent'} Dashboard
+              Back to {isAdminUser ? 'Admin' : 'Agent'} Dashboard
             </Button>
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Profile Settings</h1>
@@ -290,20 +295,20 @@ export default function Profile() {
                   </Button>
                 </div>
 
-                {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                {isAgentOrAbove && (
                   <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                     <h4 className="font-semibold text-blue-900 mb-2">
-                      {(user?.role === 'admin' || user?.role === 'super_admin') ? 'Administrative Information' : 'Agency Information'}
+                          {isAdminUser ? 'Administrative Information' : 'Agency Information'}
                     </h4>
                     <div className="space-y-2 text-sm text-blue-800">
                       <p><strong>Role:</strong> {
-                        user.role === 'agent' ? 'Insurance Agent' : 
-                        (user.role === 'admin' || user.role === 'super_admin') ? 'System Administrator' : 
-                        user.role
+                        user?.role === 'agent' ? 'Insurance Agent' : 
+                        isAdminUser ? 'System Administrator' : 
+                        user?.role
                       }</p>
                       {profile?.agentNumber && (
                         <p><strong>
-                          {user?.role === 'admin' ? 'Admin ID' : 'Agent #'}:
+                          {isAdminUser ? 'Admin ID' : 'Agent #'}:
                         </strong> {profile.agentNumber}</p>
                       )}
                     </div>
@@ -423,7 +428,7 @@ export default function Profile() {
                           </div>
 
                           {/* Professional Information */}
-                          {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                          {isAgentOrAbove && (
                             <div className="space-y-4 border-t pt-6">
                               <h4 className="text-md font-semibold flex items-center gap-2">
                                 <Building className="h-4 w-4" />
@@ -436,7 +441,7 @@ export default function Profile() {
                                   render={({ field }) => (
                                     <FormItem>
                                       <FormLabel>
-                                        {(user?.role === 'admin' || user?.role === 'super_admin') ? 'Admin ID' : 'Agent Number'}
+                                        {isAdminUser ? 'Admin ID' : 'Agent Number'}
                                       </FormLabel>
                                       <FormControl>
                                         <Input 
@@ -669,7 +674,7 @@ export default function Profile() {
                     </div>
 
                     {/* Professional Information */}
-                    {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                    {isAgentOrAbove && (
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                           <Building className="h-5 w-5" />
@@ -681,17 +686,17 @@ export default function Profile() {
                             name="agentNumber"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>{(user?.role === 'admin' || user?.role === 'super_admin') ? 'Admin ID' : 'Agent Number'}</FormLabel>
+                                <FormLabel>{isAdminUser ? 'Admin ID' : 'Agent Number'}</FormLabel>
                                 <FormControl>
                                   <Input 
                                     {...field} 
                                     readOnly 
                                     className="bg-gray-50 text-gray-700"
-                                    placeholder={user?.role === 'admin' ? 'Admin ID assigned by system' : 'Agent number assigned by system'}
+                                    placeholder={isAdminUser ? 'Admin ID assigned by system' : 'Agent number assigned by system'}
                                   />
                                 </FormControl>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  This {user?.role === 'admin' ? 'ID' : 'number'} is automatically assigned and cannot be changed
+                                  This {isAdminUser ? 'ID' : 'number'} is automatically assigned and cannot be changed
                                 </p>
                                 <FormMessage />
                               </FormItem>
@@ -731,7 +736,7 @@ export default function Profile() {
                 {/* Banking Information Tab */}
                 <TabsContent value="banking" className="space-y-4">
                   {/* Banking Information for Commission Payouts */}
-                  {(user?.role === 'agent' || user?.role === 'admin' || user?.role === 'super_admin') && (
+                  {isAgentOrAbove && (
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold flex items-center gap-2">
                           <CreditCard className="h-5 w-5" />

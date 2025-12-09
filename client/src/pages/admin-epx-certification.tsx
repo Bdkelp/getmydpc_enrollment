@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import apiClient from "@/lib/apiClient";
+import { hasAtLeastRole } from "@/lib/roles";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,7 @@ const AdminEPXCertification = () => {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const isAdmin = hasAtLeastRole(user?.role, "admin");
 
   const [formState, setFormState] = useState({
     memberId: "",

@@ -45,10 +45,13 @@ import TestAuth from "@/pages/test-auth";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
 import { lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
+import { hasAtLeastRole } from "@/lib/roles";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
-  const isAdminUser = user?.role === "admin" || user?.role === "super_admin";
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
+  const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
+  const defaultAuthRoute = isAdminUser ? "/admin" : isAgentOrAbove ? "/agent" : "/no-access";
 
   console.log('Router state:', { isAuthenticated, isLoading, user });
 
@@ -78,8 +81,8 @@ function Router() {
       {/* Confirmation page - accessible to authenticated agents/admins after payment */}
       <Route path="/confirmation" component={Confirmation} />
       <Route path="/confirmation/:userId" component={Confirmation} />
-      <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={(user.role === "admin" || user.role === "super_admin") ? "/admin" : user.role === "agent" ? "/agent" : "/no-access"} /> : Login} />
-      <Route path="/register" component={isAuthenticated ? () => <Redirect to={(user?.role === "admin" || user?.role === "super_admin") ? "/admin" : user?.role === "agent" ? "/agent" : "/no-access"} /> : Register} />
+      <Route path="/login" component={isAuthenticated && user ? () => <Redirect to={defaultAuthRoute} /> : Login} />
+      <Route path="/register" component={isAuthenticated ? () => <Redirect to={defaultAuthRoute} /> : Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/change-password" component={ChangePassword} />
@@ -117,7 +120,7 @@ function Router() {
           )}
 
           {/* Agent routes - accessible to agents, admins, and super_admins */}
-          {(user?.role === "agent" || isAdminUser) && (
+          {(isAgentOrAbove) && (
             <>
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
@@ -165,7 +168,7 @@ function Router() {
       />
 
       {/* Registration requires authentication for agents/admins */}
-      <Route path="/registration" component={isAuthenticated && (user?.role === "agent" || user?.role === "admin" || user?.role === "super_admin") ? Registration : () => <Redirect to="/login" />} />
+      <Route path="/registration" component={isAuthenticated && isAgentOrAbove ? Registration : () => <Redirect to="/login" />} />
 
       {/* Catch protected routes that require authentication */}
       {!isAuthenticated && (

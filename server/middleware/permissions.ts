@@ -13,12 +13,13 @@
 
 import { Response, NextFunction } from 'express';
 import { supabase } from '../lib/supabaseClient';
+import { hasAtLeastRole, type Role } from '../auth/roles';
 
 export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
-    role: 'super_admin' | 'admin' | 'agent';
+    role: Role;
     agent_number?: string;
   };
 }
@@ -31,14 +32,14 @@ export interface AuthRequest extends Request {
  * Check if user has admin-level access (admin OR super_admin)
  */
 export const isAdmin = (role: string | undefined): boolean => {
-  return role === 'admin' || role === 'super_admin';
+  return hasAtLeastRole(role, 'admin');
 };
 
 /**
  * Check if user is super admin
  */
 export const isSuperAdmin = (role: string | undefined): boolean => {
-  return role === 'super_admin';
+  return hasAtLeastRole(role, 'super_admin');
 };
 
 /**
@@ -139,7 +140,7 @@ export async function hasDownline(agentId: string): Promise<boolean> {
  */
 export async function getAccessibleUserIds(
   userId: string,
-  userRole: 'super_admin' | 'admin' | 'agent'
+  userRole: Role
 ): Promise<string[]> {
   try {
     // Super admin can see everything
@@ -197,9 +198,9 @@ export async function getAccessibleUserIds(
  */
 export async function canViewUser(
   viewerId: string,
-  viewerRole: 'super_admin' | 'admin' | 'agent',
+  viewerRole: Role,
   targetId: string,
-  targetRole?: 'super_admin' | 'admin' | 'agent'
+  targetRole?: Role
 ): Promise<boolean> {
   // Super admin can view anyone
   if (viewerRole === 'super_admin') {
@@ -253,9 +254,9 @@ export async function canViewUser(
  */
 export async function canEditUser(
   editorId: string,
-  editorRole: 'super_admin' | 'admin' | 'agent',
+  editorRole: Role,
   targetId: string,
-  targetRole?: 'super_admin' | 'admin' | 'agent'
+  targetRole?: Role
 ): Promise<boolean> {
   // Super admin can edit anyone
   if (editorRole === 'super_admin') {
@@ -297,7 +298,7 @@ export async function canEditUser(
  */
 export async function filterUsersByPermissions(
   viewerId: string,
-  viewerRole: 'super_admin' | 'admin' | 'agent',
+  viewerRole: Role,
   users: any[]
 ): Promise<any[]> {
   // Super admin sees everything

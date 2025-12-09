@@ -7,13 +7,13 @@ import { Router, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
+import { hasAtLeastRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
 
 const router = Router();
 
 const hasAdminPrivileges = (req: AuthRequest): boolean => {
-  const role = req.user?.role;
-  return role === 'admin' || role === 'super_admin';
+  return hasAtLeastRole(req.user?.role, 'admin');
 };
 
 const sanitizeFilename = (value?: string): string => {

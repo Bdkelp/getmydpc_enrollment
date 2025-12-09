@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/apiClient";
+import { hasAtLeastRole } from "@/lib/roles";
 
 export default function ChangePassword() {
   const [, setLocation] = useLocation();
@@ -104,11 +105,13 @@ export default function ChangePassword() {
 
       // Determine redirect based on user role
       const userRole = authData.user?.user_metadata?.role || 'agent';
+      const isAdminUser = hasAtLeastRole(userRole, 'admin');
+      const isAgentOrAbove = hasAtLeastRole(userRole, 'agent');
       
       setTimeout(() => {
-        if (userRole === 'admin' || userRole === 'super_admin') {
+        if (isAdminUser) {
           setLocation('/admin');
-        } else if (userRole === 'agent') {
+        } else if (isAgentOrAbove) {
           setLocation('/agent');
         } else {
           setLocation('/');
