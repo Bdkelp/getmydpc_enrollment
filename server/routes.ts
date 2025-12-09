@@ -167,6 +167,14 @@ const isAdmin = (role: string | undefined): boolean => {
   return role === "admin" || role === "super_admin";
 };
 
+const isAgentRole = (role: string | undefined): boolean => {
+  return role === "agent" || role === "super_admin";
+};
+
+const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
+  return role === "agent" || role === "admin" || role === "super_admin";
+};
+
 // Public routes (no authentication required)
 router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -1465,8 +1473,8 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 USER ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
     
-    // Only agents can access their enrollments
-    if (req.user!.role !== "agent") {
+    // Only agents (and super admins acting as agents) can access their enrollments
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ 
         message: "Access denied. Only agents can view their enrollment activity." 
       });
@@ -2320,8 +2328,8 @@ router.put(
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Only agents and admins should have agent numbers (they enroll DPC members)
-      if (user.role !== "agent" && user.role !== "admin") {
+      // Only agents, admins, or super admins should have agent numbers (they enroll DPC members)
+      if (!hasAgentOrAdminAccess(user.role)) {
         return res.status(400).json({
           success: false,
           error: "Only agents and admins can be assigned agent numbers",
@@ -2983,7 +2991,7 @@ router.get(
   "/api/agent/members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ message: "Agent access required" });
     }
 
@@ -3037,7 +3045,7 @@ router.get(
   "/api/agent/members/:memberId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ message: "Agent access required" });
     }
 
@@ -3083,7 +3091,7 @@ router.put(
   "/api/agent/members/:memberId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ message: "Agent access required" });
     }
 
@@ -3151,7 +3159,7 @@ router.put(
   "/api/agent/members/:memberId/subscription",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ message: "Agent access required" });
     }
 
@@ -3234,7 +3242,7 @@ router.post(
   "/api/agent/members/:memberId/family",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "agent") {
+    if (!isAgentRole(req.user!.role)) {
       return res.status(403).json({ message: "Agent access required" });
     }
 
@@ -3608,7 +3616,7 @@ export async function registerRoutes(app: any) {
 
   // Admin role check middleware
   const adminRequired = (req: any, res: any, next: any) => {
-    if (req.user?.role !== "admin") {
+    if (!isAdmin(req.user?.role)) {
       return res.status(403).json({ error: "Admin access required" });
     }
     next();
@@ -4704,8 +4712,8 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      // Only return agent data if they are actually an agent
-      if (agent.role !== "agent" && agent.role !== "admin") {
+      // Only return agent data if they have enrollment privileges
+      if (!hasAgentOrAdminAccess(agent.role)) {
         return res.status(404).json({
           error: "Agent not found",
           agentId: agentId
