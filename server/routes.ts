@@ -2543,7 +2543,11 @@ router.get(
   "/api/admin/members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (req.user!.role !== "admin" && req.user!.role !== "agent") {
+    if (
+      req.user!.role !== "admin" &&
+      req.user!.role !== "agent" &&
+      req.user!.role !== "super_admin"
+    ) {
       return res
         .status(403)
         .json({ message: "Admin or agent access required" });
@@ -2904,7 +2908,11 @@ router.get(
   async (req: AuthRequest, res) => {
     console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
 
-    if (req.user!.role !== "agent" && req.user!.role !== "admin") {
+    if (
+      req.user!.role !== "agent" &&
+      req.user!.role !== "admin" &&
+      req.user!.role !== "super_admin"
+    ) {
       console.log("❌ Access denied - not agent or admin");
       return res.status(403).json({ message: "Agent or admin access required" });
     }
@@ -4097,7 +4105,11 @@ export async function registerRoutes(app: any) {
       console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
 
       // Validate agent has permission
-      if (req.user?.role !== "agent" && req.user?.role !== "admin") {
+      if (
+        req.user?.role !== "agent" &&
+        req.user?.role !== "admin" &&
+        req.user?.role !== "super_admin"
+      ) {
         return res.status(403).json({
           error: "Agent or admin access required"
         });

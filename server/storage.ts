@@ -3676,9 +3676,17 @@ export async function getUserPayments(userId: string): Promise<Payment[]> {
 
 export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
   try {
-    // Use direct Neon query instead of Supabase
+    // Use direct Neon query instead of Supabase. Match either the stored transaction_id
+    // or the original hosted checkout order number persisted in metadata.
     const result = await query(
-      'SELECT * FROM payments WHERE transaction_id = $1 LIMIT 1',
+      `
+        SELECT *
+        FROM payments
+        WHERE transaction_id = $1
+           OR (metadata->>'orderNumber') = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
       [transactionId]
     );
     return result.rows[0] || undefined;

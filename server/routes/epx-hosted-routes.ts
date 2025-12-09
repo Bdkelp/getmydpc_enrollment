@@ -211,6 +211,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
           environment: process.env.EPX_ENVIRONMENT || 'sandbox',
           customerEmail,
           description,
+          orderNumber,
           originalCustomerId: customerId,
           billingAddress: normalizedBillingAddress || null
         }
@@ -398,15 +399,28 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         if (!authGuid) {
           logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
         }
-        const transactionId = result.transactionId || req.body?.transactionId || req.body?.orderNumber;
+        const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
+        const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
 
-        if (transactionId) {
+        if (epxTransactionId || fallbackOrderNumber) {
           try {
-            const paymentRecord = await storage.getPaymentByTransactionId(transactionId);
+            let paymentRecord = epxTransactionId
+              ? await storage.getPaymentByTransactionId(epxTransactionId)
+              : undefined;
+
+            if (!paymentRecord && fallbackOrderNumber) {
+              paymentRecord = await storage.getPaymentByTransactionId(fallbackOrderNumber);
+            }
+
             if (paymentRecord) {
               const finalizedMemberId = finalizeData.member?.id ?? paymentRecord.member_id ?? null;
+              const metadataBase = (typeof paymentRecord.metadata === 'object' && paymentRecord.metadata)
+                ? paymentRecord.metadata as Record<string, any>
+                : {};
               const updatedMetadata = {
-                ...(typeof paymentRecord.metadata === 'object' && paymentRecord.metadata ? paymentRecord.metadata : {}),
+                ...metadataBase,
+                orderNumber: metadataBase.orderNumber || fallbackOrderNumber || paymentRecord.transaction_id || null,
+                epxTransactionId: epxTransactionId || metadataBase.epxTransactionId || null,
                 hostedCallback: {
                   status: req.body?.status,
                   amount: req.body?.amount,
@@ -418,6 +432,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               await storage.updatePayment(paymentRecord.id, {
                 status: 'succeeded',
                 authorizationCode: result.authCode,
+                transactionId: epxTransactionId || paymentRecord.transaction_id || fallbackOrderNumber || null,
                 metadata: updatedMetadata,
                 memberId: finalizedMemberId,
                 epxAuthGuid: authGuid || paymentRecord.epxAuthGuid || null,
@@ -429,7 +444,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 message: 'Payment record updated with EPX auth GUID',
                 data: {
                   paymentId: paymentRecord.id,
-                  transactionId,
+                  epxTransactionId,
+                  fallbackOrderNumber,
                   hasAuthGuid: !!authGuid,
                 }
               });
@@ -438,7 +454,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 level: 'warn',
                 phase: 'callback',
                 message: 'Payment record not found for transaction ID',
-                data: { transactionId }
+                data: { epxTransactionId, fallbackOrderNumber }
               });
             }
           } catch (paymentUpdateError: any) {
@@ -446,7 +462,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               level: 'error',
               phase: 'callback',
               message: 'Failed to update payment record with auth GUID',
-              data: { transactionId, error: paymentUpdateError.message }
+              data: { epxTransactionId, fallbackOrderNumber, error: paymentUpdateError.message }
             });
           }
         }
