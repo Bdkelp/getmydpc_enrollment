@@ -1290,6 +1290,47 @@ export async function updateMemberStatus(
   }
 }
 
+export async function activateMembershipNow(
+  memberId: string | number,
+  options?: { note?: string; initiatedBy?: string }
+): Promise<any> {
+  const numericId = typeof memberId === 'string' ? parseInt(memberId, 10) : memberId;
+  if (!numericId || Number.isNaN(numericId)) {
+    throw new Error(`Invalid member ID: ${memberId}`);
+  }
+
+  const now = new Date().toISOString();
+  const updates = {
+    status: 'active',
+    is_active: true,
+    membership_start_date: now,
+    updated_at: now,
+    cancellation_date: null,
+    cancellation_reason: null
+  };
+
+  try {
+    console.log('[Storage] Manual membership activation', { memberId: numericId, initiatedBy: options?.initiatedBy });
+
+    const { data, error } = await supabase
+      .from('members')
+      .update(updates)
+      .eq('id', numericId)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[Storage] Error activating membership immediately:', error);
+      throw new Error(`Failed to activate membership: ${error.message}`);
+    }
+
+    return data;
+  } catch (error: any) {
+    console.error('[Storage] Unhandled error in activateMembershipNow:', error);
+    throw error;
+  }
+}
+
 export async function recordEnrollmentModification(data: any): Promise<void> {
   try {
     await query(
@@ -3824,6 +3865,7 @@ export const storage = {
   getAllEnrollments,
   getEnrollmentsByAgent,
   updateMemberStatus,
+  activateMembershipNow,
   getMembersOnly,
   recordEnrollmentModification,
   recordBankingInfoChange,

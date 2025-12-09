@@ -2718,6 +2718,37 @@ router.patch(
   },
 );
 
+router.post(
+  "/api/admin/members/:memberId/activate-now",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { memberId } = req.params;
+    const { note } = req.body || {};
+
+    try {
+      const member = await storage.activateMembershipNow(memberId, {
+        note,
+        initiatedBy: req.user?.email,
+      });
+
+      res.json({
+        message: "Membership activated immediately",
+        member,
+      });
+    } catch (error: any) {
+      console.error("Error activating membership immediately:", error);
+      res.status(500).json({
+        message: "Failed to activate membership",
+        error: error.message,
+      });
+    }
+  },
+);
+
 router.get(
   "/api/admin/analytics",
   authenticateToken,

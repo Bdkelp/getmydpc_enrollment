@@ -260,6 +260,42 @@ export default function AdminEnrollments() {
     },
   });
 
+  const activateNowMutation = useMutation({
+    mutationFn: async ({
+      memberId,
+      note,
+    }: {
+      memberId: string;
+      note?: string;
+    }) => {
+      return apiRequest(`/api/admin/members/${memberId}/activate-now`, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Membership activated",
+        description: `Activation override applied for member #${variables.memberId}.`,
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) && query.queryKey[0] === "/api/admin/enrollments",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Activation failed",
+        description:
+          error?.message || "Unable to activate membership immediately. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleNewEnrollment = () => {
     setLocation("/registration");
   };
@@ -271,6 +307,21 @@ export default function AdminEnrollments() {
   const handleStatusChange = (memberId: string, newStatus: string) => {
     if (!newStatus) return;
     updateStatusMutation.mutate({ memberId, status: newStatus });
+  };
+
+  const handleActivateNow = (enrollment: Enrollment) => {
+    const confirmOverride = window.confirm(
+      `Activate membership for ${enrollment.firstName} ${enrollment.lastName} immediately?`,
+    );
+
+    if (!confirmOverride) {
+      return;
+    }
+
+    activateNowMutation.mutate({
+      memberId: enrollment.id,
+      note: "Manual activation override via admin panel",
+    });
   };
 
   const formatStatusLabel = (status: string) => {
@@ -686,6 +737,18 @@ export default function AdminEnrollments() {
                               ))}
                             </SelectContent>
                           </Select>
+                          {(enrollment.status === "pending_activation" ||
+                            enrollment.status === "pending") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-green-600 text-green-700 hover:bg-green-50"
+                              onClick={() => handleActivateNow(enrollment)}
+                              disabled={activateNowMutation.isPending}
+                            >
+                              Activate Now
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
