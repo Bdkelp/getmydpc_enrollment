@@ -9,34 +9,40 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
 interface DashboardStatsProps {
-  userRole: 'agent' | 'admin';
+  userRole: 'agent' | 'admin' | 'super_admin';
   agentId?: string;
 }
 
 interface StatsData {
   // Revenue data
-  totalRevenue: number;
-  monthlyRevenue: number;
-  yearlyRevenue: number;
-  averageRevenuePerMember: number;
+  totalRevenue?: number;
+  monthlyRevenue?: number;
+  yearlyRevenue?: number;
+  averageRevenuePerMember?: number;
   
   // Commission data
-  totalCommissions: number;
-  monthlyCommissions: number;
-  yearlyCommissions: number;
-  paidCommissions: number;
-  pendingCommissions: number;
+  totalCommissions?: number;
+  monthlyCommissions?: number;
+  yearlyCommissions?: number;
+  paidCommissions?: number;
+  pendingCommissions?: number;
+  totalCommission?: number;
+  monthlyCommission?: number;
   
   // Member/Enrollment data
-  totalMembers: number;
-  activeMembers: number;
-  monthlyEnrollments: number;
-  yearlyEnrollments: number;
+  totalMembers?: number;
+  activeMembers?: number;
+  monthlyEnrollments?: number;
+  yearlyEnrollments?: number;
+  totalEnrollments?: number;
+  pendingEnrollments?: number;
   
   // Growth metrics
-  revenueGrowth: number;
-  memberGrowth: number;
-  commissionGrowth: number;
+  revenueGrowth?: number;
+  memberGrowth?: number;
+  commissionGrowth?: number;
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }
 
 export default function DashboardStats({ userRole, agentId }: DashboardStatsProps) {
@@ -92,6 +98,44 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
     const sign = num > 0 ? '+' : '';
     return `${sign}${num?.toFixed(1)}%`;
   };
+
+  const formatDateDisplay = (value?: string | null) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const resolvedPeriodLabel = (() => {
+    if (filterPeriod === 'custom' && customStartDate && customEndDate) {
+      return 'Custom Range';
+    }
+    const labels: Record<string, string> = {
+      'all-time': 'All Time',
+      today: 'Today',
+      week: 'This Week',
+      month: 'This Month',
+      quarter: 'This Quarter',
+      year: 'This Year',
+      'last-30': 'Last 30 Days',
+      'last-90': 'Last 90 Days',
+      custom: 'Custom Range',
+    };
+    return labels[filterPeriod] || 'All Time';
+  })();
+
+  const resolvedPeriodRange = (() => {
+    const start = formatDateDisplay(stats?.periodStart);
+    const end = formatDateDisplay(stats?.periodEnd);
+    if (start && end) return `${start} – ${end}`;
+    if (start) return `Since ${start}`;
+    if (end) return `Through ${end}`;
+    return null;
+  })();
 
   const getGrowthColor = (growth: number) => {
     if (growth > 0) return 'text-green-600';
@@ -196,6 +240,13 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                 </>
               )}
             </div>
+          </CardContent>
+        )}
+
+        {resolvedPeriodRange && (
+          <CardContent className="pt-0 text-sm text-gray-600">
+            Showing <span className="font-medium">{resolvedPeriodLabel}</span>
+            <span className="text-gray-500"> ({resolvedPeriodRange})</span>
           </CardContent>
         )}
       </Card>

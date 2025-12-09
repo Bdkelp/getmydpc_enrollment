@@ -23,6 +23,145 @@ import {
 
 const router = Router();
 
+const PERIOD_FILTERS = new Set([
+  'today',
+  'week',
+  'month',
+  'quarter',
+  'year',
+  'last-30',
+  'last-90',
+  'custom',
+  'all-time'
+]);
+
+const startOfDay = (date: Date) => {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+};
+
+const endOfDay = (date: Date) => {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+};
+
+function parseDateInput(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?: string) {
+  const normalizedPeriod = typeof period === 'string' && PERIOD_FILTERS.has(period) ? period : undefined;
+  const now = new Date();
+  let start: Date | undefined;
+  let end: Date | undefined;
+
+  switch (normalizedPeriod) {
+    case 'today':
+      start = startOfDay(now);
+      end = endOfDay(now);
+      break;
+    case 'week': {
+      const temp = startOfDay(now);
+      const weekday = temp.getDay();
+      temp.setDate(temp.getDate() - weekday);
+      start = temp;
+      end = endOfDay(now);
+      break;
+    }
+    case 'month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = endOfDay(now);
+      break;
+    case 'quarter': {
+      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+      start = new Date(now.getFullYear(), quarterStartMonth, 1);
+      end = endOfDay(now);
+      break;
+    }
+    case 'year':
+      start = new Date(now.getFullYear(), 0, 1);
+      end = endOfDay(now);
+      break;
+    case 'last-30': {
+      const temp = new Date(now);
+      temp.setDate(temp.getDate() - 30);
+      start = startOfDay(temp);
+      end = endOfDay(now);
+      break;
+    }
+    case 'last-90': {
+      const temp = new Date(now);
+      temp.setDate(temp.getDate() - 90);
+      start = startOfDay(temp);
+      end = endOfDay(now);
+      break;
+    }
+    case 'custom':
+      start = parseDateInput(customStart);
+      end = parseDateInput(customEnd);
+      if (start) start = startOfDay(start);
+      if (end) end = endOfDay(end);
+      break;
+    case 'all-time':
+    default:
+      start = parseDateInput(customStart);
+      end = parseDateInput(customEnd);
+      if (start) start = startOfDay(start);
+      if (end) end = endOfDay(end);
+      break;
+  }
+
+  if (start && !end) {
+    end = endOfDay(now);
+  }
+
+  return { start, end };
+}
+
+function filterRecordsByDate(records: any[] = [], start?: Date, end?: Date) {
+  if (!start && !end) {
+    return records;
+  }
+
+  const startMs = start ? start.getTime() : Number.NEGATIVE_INFINITY;
+  const endMs = end ? end.getTime() : Number.POSITIVE_INFINITY;
+
+  return records.filter((record) => {
+    const timestamp = record?.createdAt || record?.created_at;
+    if (!timestamp) return false;
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return false;
+    const value = date.getTime();
+    return value >= startMs && value <= endMs;
+  });
+}
+
+function sumEnrollmentRevenue(records: any[] = []) {
+  return records.reduce((total, enrollment) => {
+    const raw = enrollment?.totalMonthlyPrice ?? enrollment?.total_monthly_price ?? enrollment?.planPrice ?? enrollment?.plan_price ?? 0;
+    const amount = typeof raw === 'number' ? raw : parseFloat(String(raw));
+    if (Number.isNaN(amount)) {
+      return total;
+    }
+    return total + amount;
+  }, 0);
+}
+
+function sumCommissionAmounts(records: any[] = []) {
+  return records.reduce((total, commission) => {
+    const raw = commission?.commissionAmount ?? commission?.commission_amount ?? 0;
+    const amount = typeof raw === 'number' ? raw : parseFloat(String(raw));
+    if (Number.isNaN(amount)) {
+      return total;
+    }
+    return total + amount;
+  }, 0);
+}
+
 // Helper function to check if user has admin access (admin or super_admin)
 const isAdmin = (role: string | undefined): boolean => {
   return role === "admin" || role === "super_admin";
@@ -4228,90 +4367,106 @@ export async function registerRoutes(app: any) {
     try {
       const userRole = req.user?.role?.trim();
       const allowedRoles = ['agent', 'admin', 'super_admin'];
-      
+
       console.log('[Agent Stats] Permission check:', {
         userRole,
         rawRole: req.user?.role,
         isAllowed: allowedRoles.includes(userRole),
         userId: req.user?.id
       });
-      
+
       if (!allowedRoles.includes(userRole)) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           message: 'Agent or admin access required',
           currentRole: userRole,
           allowedRoles
         });
       }
 
-      // Allow admin/super_admin to view any agent's stats via query param
       const requestedAgentId = req.query.agentId;
+      const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
       const isAdminViewingOther = (userRole === 'admin' || userRole === 'super_admin') && requestedAgentId;
       const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
-      
-      console.log('[Agent Stats] Fetching stats for agent:', agentId, isAdminViewingOther ? '(Admin viewing)' : '(Own stats)');
 
-      // Get enrollment counts
-      const enrollments = await storage.getAgentEnrollments(agentId);
-      console.log('[Agent Stats] Enrollments count:', enrollments.length);
-      if (enrollments.length > 0) {
-        console.log('[Agent Stats] Sample enrollment:', {
-          id: enrollments[0].id,
-          email: enrollments[0].email,
-          isActive: enrollments[0].isActive,
-          createdAt: enrollments[0].createdAt
-        });
-      }
-      
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
+      const { start: periodStart, end: periodEnd } = getDateRangeFromQuery(period, startDate, endDate);
 
-      const monthlyEnrollments = enrollments.filter(
-        (e) => new Date(e.createdAt) >= thisMonth,
-      ).length;
+      console.log('[Agent Stats] Fetching stats for agent:', agentId, {
+        isAdminViewingOther,
+        period,
+        periodStart: periodStart?.toISOString() || null,
+        periodEnd: periodEnd?.toISOString() || null
+      });
 
-      // Get active members count
-      const activeMembers = enrollments.filter((e) => e.isActive).length;
+      const enrollments = await storage.getEnrollmentsByAgent(agentId);
+      const reportingEnrollments = filterRecordsByDate(enrollments, periodStart, periodEnd);
+      const lifetimeTotal = enrollments.length;
+      const totalMembers = reportingEnrollments.length;
+      const activeMembers = reportingEnrollments.filter((e) => e.isActive || e.status === 'active').length;
+      const pendingEnrollments = reportingEnrollments.filter((e) => e.approvalStatus === 'pending' || e.status === 'pending_activation').length;
 
-      // Get commission stats from NEW agent_commissions table
+      const revenueTotal = sumEnrollmentRevenue(reportingEnrollments);
+
+      const now = new Date();
+      const endOfTodayDate = endOfDay(now);
+      const startOfMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfYearDate = new Date(now.getFullYear(), 0, 1);
+
+      const monthlyEnrollmentRecords = filterRecordsByDate(enrollments, startOfMonthDate, endOfTodayDate);
+      const yearlyEnrollmentRecords = filterRecordsByDate(enrollments, startOfYearDate, endOfTodayDate);
+
+      const monthlyEnrollments = monthlyEnrollmentRecords.length;
+      const yearlyEnrollments = yearlyEnrollmentRecords.length;
+
+      const monthlyRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords);
+      const yearlyRevenue = sumEnrollmentRevenue(yearlyEnrollmentRecords);
+      const averageRevenuePerMember = activeMembers > 0 ? revenueTotal / activeMembers : 0;
+
+      const startOfMonthIso = startOfMonthDate.toISOString();
+      const startOfYearIso = startOfYearDate.toISOString();
+      const todayIso = endOfTodayDate.toISOString();
+
       const commissionStats = await storage.getCommissionStatsNew(agentId);
-      console.log('[Agent Stats] Commission stats:', commissionStats);
-      
-      // Get monthly commissions (this month only)
-      const startOfMonth = thisMonth.toISOString().split('T')[0];
-      const today = new Date().toISOString().split('T')[0];
-      const monthlyCommissions = await storage.getAgentCommissionsNew(
-        agentId,
-        startOfMonth,
-        today
-      );
-      console.log('[Agent Stats] Monthly commissions count:', monthlyCommissions.length);
-      
-      const monthlyCommission = monthlyCommissions.reduce((sum, c) => {
-        return sum + (parseFloat(c.commissionAmount?.toString() || '0'));
-      }, 0);
-      
-      console.log('[Agent Stats] Final stats being sent:', {
-        totalEnrollments: enrollments.length,
-        monthlyEnrollments,
-        activeMembers: enrollments.filter((e) => e.isActive).length,
-        totalCommission: commissionStats.totalEarned,
-        monthlyCommission: parseFloat(monthlyCommission.toFixed(2))
-      });
 
-      res.json({
-        totalEnrollments: enrollments.length,
-        monthlyEnrollments,
+      const monthlyCommissions = await storage.getAgentCommissionsNew(agentId, startOfMonthIso, todayIso);
+      const yearlyCommissions = await storage.getAgentCommissionsNew(agentId, startOfYearIso, todayIso);
+
+      const monthlyCommissionTotal = parseFloat(sumCommissionAmounts(monthlyCommissions).toFixed(2));
+      const yearlyCommissionTotal = parseFloat(sumCommissionAmounts(yearlyCommissions).toFixed(2));
+
+      const responsePayload = {
+        success: true,
+        totalEnrollments: lifetimeTotal,
+        totalMembers,
         activeMembers,
-        pendingEnrollments: enrollments.filter(e => e.approvalStatus === 'pending').length,
+        pendingEnrollments,
+        totalRevenue: parseFloat(revenueTotal.toFixed(2)),
+        monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
+        yearlyRevenue: parseFloat(yearlyRevenue.toFixed(2)),
+        averageRevenuePerMember: parseFloat(averageRevenuePerMember.toFixed(2)),
+        revenueGrowth: 0,
+        memberGrowth: 0,
+        commissionGrowth: 0,
+        monthlyEnrollments,
+        yearlyEnrollments,
+        totalCommissions: commissionStats.totalEarned,
         totalCommission: commissionStats.totalEarned,
-        monthlyCommission: parseFloat(monthlyCommission.toFixed(2)),
-        activeLeads: 0, // TODO: Implement leads count
-        conversionRate: 0, // TODO: Implement conversion rate
-        leads: [], // TODO: Implement leads data
+        monthlyCommissions: monthlyCommissionTotal,
+        monthlyCommission: monthlyCommissionTotal,
+        yearlyCommissions: yearlyCommissionTotal,
+        paidCommissions: commissionStats.totalPaid,
+        pendingCommissions: commissionStats.totalPending,
+        activeLeads: 0,
+        conversionRate: 0,
+        leads: [],
+        periodStart: periodStart ? periodStart.toISOString() : null,
+        periodEnd: periodEnd ? periodEnd.toISOString() : null,
         ...commissionStats
-      });
+      };
+
+      console.log('[Agent Stats] Final stats being sent:', responsePayload);
+      res.json(responsePayload);
     } catch (error: any) {
       console.error('Agent stats error:', error);
       res.status(500).json({ error: 'Failed to fetch stats' });
