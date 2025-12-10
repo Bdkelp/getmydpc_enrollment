@@ -126,6 +126,9 @@ FROM_EMAIL=noreply@getmydpc.com
 FRONTEND_URL=http://localhost:5173
 PORT=3000
 NODE_ENV=development
+
+# Role overrides (comma-separated allow list of emails that should have full admin visibility)
+FULL_ACCESS_EMAILS=owner@example.com,ops@example.com
 ```
 
 #### Frontend (Vercel)
@@ -138,6 +141,8 @@ VITE_SUPABASE_URL=https://[project].supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbG...
 VITE_RECAPTCHA_SITE_KEY=6LflwiQgAAAAAC8yO38mzv-g9a9QiR91Bw4y62ww
 ```
+
+`FULL_ACCESS_EMAILS` lets you keep a user's stored role as `admin` while still granting full super-admin permissions at runtime. List the emails that should always have unrestricted access, separated by commas. The backend elevates those accounts automatically during authentication.
 
 ### Running Locally
 

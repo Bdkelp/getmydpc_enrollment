@@ -4,6 +4,21 @@ export type Role = "agent" | "admin" | "super_admin";
 
 const ROLE_ORDER: Role[] = ["agent", "admin", "super_admin"];
 
+const fullAccessEmailSet = new Set<string>(
+  (process.env.FULL_ACCESS_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+export function isFullAccessEmail(email?: string | null): boolean {
+  if (!email) {
+    return false;
+  }
+
+  return fullAccessEmailSet.has(email.toLowerCase());
+}
+
 export function hasAtLeastRole(
   userRole: string | undefined | null,
   minRole: Role,

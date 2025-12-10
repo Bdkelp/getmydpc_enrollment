@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
+import { isFullAccessEmail } from './roles';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -94,7 +95,19 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       });
     }
 
-    req.user = dbUser;
+    let authUser = dbUser;
+
+    if (isFullAccessEmail(dbUser.email)) {
+      authUser = {
+        ...dbUser,
+        originalRole: dbUser.role,
+        role: 'super_admin'
+      };
+
+      console.log('[Auth] Elevated allow-listed user to super_admin:', dbUser.email);
+    }
+
+    req.user = authUser;
     req.token = token;
     next();
   } catch (error) {
