@@ -17,6 +17,7 @@ import { submitServerPostRecurringPayment } from '../services/epx-payment-servic
 import { certificationLogger } from '../services/certification-logger';
 
 const router = Router();
+const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
 
 // Initialize Hosted Checkout Service
 let hostedCheckoutService: EPXHostedCheckoutService | null = null;
@@ -264,7 +265,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber, hasBillingAddress: !!normalizedBillingAddress } });
 
-    if (process.env.ENABLE_CERTIFICATION_LOGGING === 'true') {
+    if (certificationLoggingEnabled) {
       try {
         certificationLogger.logCertificationEntry({
           transactionId: orderNumber,
@@ -351,6 +352,28 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     );
 
     logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: req.body } });
+
+    if (certificationLoggingEnabled) {
+      try {
+        certificationLogger.logCertificationEntry({
+          purpose: 'hosted-callback-received',
+          transactionId: req.body?.transactionId || req.body?.orderNumber || req.body?.TRANSACTION_ID,
+          amount: req.body?.amount ? parseFloat(req.body.amount) : undefined,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          request: {
+            timestamp: new Date().toISOString(),
+            method: 'POST',
+            endpoint: '/api/epx/hosted/callback',
+            headers: req.headers as Record<string, any>,
+            body: req.body,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') || undefined
+          }
+        });
+      } catch (callbackLogError: any) {
+        console.warn('[EPX Hosted Callback] Certification logging failed', callbackLogError.message);
+      }
+    }
 
     // Process the callback
     const result = hostedCheckoutService.processCallback(req.body);
@@ -469,14 +492,44 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         }
 
         // Return success to EPX
-        return res.json({
+        const successPayload = {
           success: true,
           transactionId: result.transactionId,
           authCode: result.authCode,
           amount: result.amount,
           memberId: finalizeData.member?.id,
           customerNumber: finalizeData.member?.customerNumber
-        });
+        };
+
+        if (certificationLoggingEnabled) {
+          certificationLogger.logCertificationEntry({
+            purpose: 'hosted-callback-success',
+            transactionId: result.transactionId,
+            amount: result.amount,
+            environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+            metadata: {
+              hasAuthGuid: !!authGuid,
+              paymentId: paymentRecord?.id,
+              memberId: finalizeData.member?.id
+            },
+            request: {
+              timestamp: new Date().toISOString(),
+              method: 'POST',
+              endpoint: '/api/epx/hosted/callback',
+              headers: req.headers as Record<string, any>,
+              body: req.body,
+              ipAddress: req.ip,
+              userAgent: req.get('user-agent') || undefined
+            },
+            response: {
+              statusCode: 200,
+              headers: { 'content-type': 'application/json' },
+              body: successPayload
+            }
+          });
+        }
+
+        return res.json(successPayload);
         
       } catch (finalizeError: any) {
         logEPX({ level: 'error', phase: 'callback', message: 'Member creation failed', data: { error: finalizeError.message } });
@@ -503,21 +556,92 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         }
       }
       
-      return res.json({
+      const declinePayload = {
         success: false,
         error: result.error,
         transactionId: result.transactionId
-      });
+      };
+
+      if (certificationLoggingEnabled) {
+        certificationLogger.logCertificationEntry({
+          purpose: 'hosted-callback-declined',
+          transactionId: result.transactionId,
+          amount: result.amount,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          request: {
+            timestamp: new Date().toISOString(),
+            method: 'POST',
+            endpoint: '/api/epx/hosted/callback',
+            headers: req.headers as Record<string, any>,
+            body: req.body,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') || undefined
+          },
+          response: {
+            statusCode: 200,
+            headers: { 'content-type': 'application/json' },
+            body: declinePayload
+          }
+        });
+      }
+
+      return res.json(declinePayload);
     }
 
     // Missing registration data - cannot process
     logEPX({ level: 'error', phase: 'callback', message: 'Missing registration data or BRIC token' });
+    if (certificationLoggingEnabled) {
+      certificationLogger.logCertificationEntry({
+        purpose: 'hosted-callback-invalid',
+        transactionId: req.body?.transactionId || req.body?.orderNumber,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        request: {
+          timestamp: new Date().toISOString(),
+          method: 'POST',
+          endpoint: '/api/epx/hosted/callback',
+          headers: req.headers as Record<string, any>,
+          body: req.body,
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent') || undefined
+        },
+        response: {
+          statusCode: 400,
+          headers: { 'content-type': 'application/json' },
+          body: { success: false, error: 'Invalid callback - missing registration data' }
+        }
+      });
+    }
     return res.status(400).json({
       success: false,
       error: 'Invalid callback - missing registration data'
     });
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
+    if (certificationLoggingEnabled) {
+      certificationLogger.logCertificationEntry({
+        purpose: 'hosted-callback-error',
+        transactionId: req.body?.transactionId || req.body?.orderNumber,
+        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        request: {
+          timestamp: new Date().toISOString(),
+          method: 'POST',
+          endpoint: '/api/epx/hosted/callback',
+          headers: req.headers as Record<string, any>,
+          body: req.body,
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent') || undefined
+        },
+        response: {
+          statusCode: 500,
+          headers: { 'content-type': 'application/json' },
+          body: { success: false, error: error.message || 'Failed to process callback' }
+        },
+        metadata: {
+          error: error?.message,
+          stack: error?.stack
+        }
+      });
+    }
     
     const errorResponse = {
       success: false,

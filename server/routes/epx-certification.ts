@@ -46,6 +46,28 @@ router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, 
   });
 });
 
+router.get('/api/epx/certification/callbacks', authenticateToken, (req: AuthRequest, res: Response) => {
+  if (!hasAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+
+  const limitParam = parseInt((req.query.limit as string) || '50', 10);
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 50;
+
+  // Pull a larger recent set, then filter down to hosted callback events
+  const recentEntries = certificationLogger.getRecentEntries(500);
+  const callbackEntries = recentEntries.filter((entry) =>
+    typeof entry?.purpose === 'string' && entry.purpose.startsWith('hosted-callback')
+  ).slice(0, limit);
+
+  res.json({
+    success: true,
+    entries: callbackEntries,
+    totalEntries: callbackEntries.length,
+    limit
+  });
+});
+
 router.get('/api/epx/certification/report', authenticateToken, (req: AuthRequest, res: Response) => {
   if (!hasAdminPrivileges(req)) {
     return res.status(403).json({ success: false, error: 'Admin access required' });
