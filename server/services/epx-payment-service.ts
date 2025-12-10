@@ -620,13 +620,16 @@ export async function submitServerPostRecurringPayment(
 
     if (firstName) requestFields.FIRST_NAME = firstName;
     if (lastName) requestFields.LAST_NAME = lastName;
-    if (email) requestFields.EMAIL = email;
+    if (email) {
+      // EPX does not accept an EMAIL field; stash it in a user-data slot instead
+      requestFields.USER_DATA_1 = email;
+    }
     if (address) requestFields.ADDRESS = address;
     if (city) requestFields.CITY = city;
     if (stateRaw) requestFields.STATE = stateRaw.slice(0, 2).toUpperCase();
     if (zipCode) requestFields.ZIP_CODE = zipCode;
-    if (phone) requestFields.PHONE = phone;
-    if (options.description) requestFields.USER_DATA_1 = options.description;
+    if (phone) requestFields.PHONE_CELL = phone;
+    if (options.description) requestFields.USER_DATA_2 = options.description;
 
     requestPayload = buildServerPostPayload(requestFields);
     const maskedFields = maskServerPostFields(requestFields);
