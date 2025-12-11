@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ArrowLeft } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface CertificationLogEntry {
   transactionId?: string;
@@ -42,6 +43,40 @@ interface CertificationExportResponse {
   entries: CertificationLogEntry[];
 }
 
+interface CertificationPayment {
+  id: number;
+  memberId?: number | null;
+  planName?: string | null;
+  amount?: number | string | null;
+  status?: string | null;
+  createdAt?: string | null;
+  transactionId?: string | null;
+  epxAuthGuid?: string | null;
+  environment?: string | null;
+  metadata?: Record<string, any> | null;
+  member?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    customerNumber?: string | null;
+  } | null;
+}
+
+interface CertificationPaymentsResponse {
+  success: boolean;
+  payments: CertificationPayment[];
+  limit: number;
+  status?: string;
+}
+
+const TRAN_TYPES = [
+  { value: "CCE1", label: "MIT (CCE1)" },
+  { value: "CCE2", label: "MIT (CCE2)" },
+  { value: "V", label: "Void" },
+  { value: "R", label: "Refund/Reversal" },
+] as const;
+type TranType = (typeof TRAN_TYPES)[number]["value"];
+
 const AdminEPXCertification = () => {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -57,9 +92,11 @@ const AdminEPXCertification = () => {
     description: "Certification Server Post test via admin panel",
   });
   const [logsLimit, setLogsLimit] = useState(10);
+  const [paymentsLimit, setPaymentsLimit] = useState(15);
   const [latestResult, setLatestResult] = useState<any>(null);
   const [exportFileName, setExportFileName] = useState("epx-certification-samples.json");
   const [exportPreview, setExportPreview] = useState<CertificationExportResponse | null>(null);
+  const [tranType, setTranType] = useState<TranType>("CCE1");
 
   const logsQuery = useQuery<CertificationLogResponse>(
     {
@@ -74,7 +111,7 @@ const AdminEPXCertification = () => {
 
   const runTestMutation = useMutation({
     mutationFn: async (payload: Record<string, any>) => {
-      return apiClient.post("/api/epx/test-recurring", payload);
+      return apiClient.post("/api/epx/certification/server-post", payload);
     },
     onSuccess: (data) => {
       setLatestResult(data);
@@ -83,6 +120,7 @@ const AdminEPXCertification = () => {
         description: "Check the log viewer below for captured samples.",
       });
       queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
     },
     onError: (error: any) => {
       toast({
@@ -129,6 +167,49 @@ const AdminEPXCertification = () => {
     },
   });
 
+  const paymentsQuery = useQuery<CertificationPaymentsResponse>({
+    queryKey: ["epx-cert-payments", paymentsLimit],
+    enabled: isAuthenticated && isAdmin,
+    queryFn: async () => {
+      const response = await apiClient.get(`/api/epx/certification/payments?limit=${paymentsLimit}`);
+      return response as CertificationPaymentsResponse;
+    },
+  });
+
+  const paymentActionMutation = useMutation({
+    mutationFn: async ({ payment, action }: { payment: CertificationPayment; action: TranType }) => {
+      const amountValue = payment.amount ? Number(payment.amount) : 0;
+      if (!payment.transactionId && !payment.epxAuthGuid) {
+        throw new Error("Payment is missing both transaction ID and AUTH GUID.");
+      }
+
+      return apiClient.post("/api/epx/certification/server-post", {
+        tranType: action,
+        transactionId: payment.transactionId,
+        memberId: payment.memberId,
+        amount: amountValue,
+        authGuid: payment.epxAuthGuid,
+        description: `Toolkit ${action} for payment ${payment.id}`,
+      });
+    },
+    onSuccess: (data) => {
+      setLatestResult(data);
+      toast({
+        title: "Server Post submitted",
+        description: "EPX response captured below.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to submit",
+        description: error?.message || "The requested action could not be sent to EPX.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleInputChange = (field: keyof typeof formState) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }));
   };
@@ -148,6 +229,7 @@ const AdminEPXCertification = () => {
     const payload: Record<string, any> = {
       amount: parseFloat(formState.amount) || 0,
       description: formState.description.trim() || undefined,
+      tranType,
     };
 
     if (formState.memberId.trim()) {
@@ -168,7 +250,30 @@ const AdminEPXCertification = () => {
     setLogsLimit(Number.isFinite(nextValue) ? Math.min(Math.max(nextValue, 1), 200) : 10);
   };
 
+  const handlePaymentsLimitChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = parseInt(event.target.value || "15", 10);
+    setPaymentsLimit(Number.isFinite(nextValue) ? Math.min(Math.max(nextValue, 1), 200) : 15);
+  };
+
   const formattedLogs = useMemo(() => logsQuery.data?.entries || [], [logsQuery.data]);
+  const recentPayments = paymentsQuery.data?.payments || [];
+
+  const handlePaymentAction = (payment: CertificationPayment, action: TranType) => {
+    if (paymentActionMutation.isPending) {
+      return;
+    }
+
+    if (!payment.transactionId && !payment.epxAuthGuid) {
+      toast({
+        title: "Missing identifiers",
+        description: "That payment is missing a transaction number and AUTH GUID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    paymentActionMutation.mutate({ payment, action });
+  };
 
   if (authLoading) {
     return (
@@ -215,6 +320,110 @@ const AdminEPXCertification = () => {
           </Button>
         </div>
 
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Recent Payments & Quick Actions</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Trigger MIT, void, or refund samples directly from live payment history.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div>
+                <Label htmlFor="paymentsLimit" className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Rows
+                </Label>
+                <Input
+                  id="paymentsLimit"
+                  type="number"
+                  min={5}
+                  max={200}
+                  value={paymentsLimit}
+                  onChange={handlePaymentsLimitChange}
+                  className="w-24"
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => paymentsQuery.refetch()}
+                disabled={paymentsQuery.isFetching}
+              >
+                {paymentsQuery.isFetching ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {paymentsQuery.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <LoadingSpinner />
+              </div>
+            ) : recentPayments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payment history found for the selected range.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase text-muted-foreground">
+                      <th className="px-3 py-2">Member</th>
+                      <th className="px-3 py-2">Amount</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Created</th>
+                      <th className="px-3 py-2">Tran ID</th>
+                      <th className="px-3 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentPayments.map((payment) => (
+                      <tr key={payment.id} className="border-t">
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col">
+                            <span className="font-medium">
+                              {payment.member?.firstName || "Member"} {payment.member?.lastName || ""}
+                            </span>
+                            {payment.member?.email && (
+                              <span className="text-xs text-muted-foreground">{payment.member.email}</span>
+                            )}
+                            {payment.memberId && (
+                              <span className="text-xs text-muted-foreground">ID #{payment.memberId}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          ${Number(payment.amount || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline">{payment.status || "pending"}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {payment.createdAt ? formatDistanceToNow(new Date(payment.createdAt), { addSuffix: true }) : "unknown"}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {payment.transactionId || "—"}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-2">
+                            {TRAN_TYPES.map((option) => (
+                              <Button
+                                key={`${payment.id}-${option.value}`}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePaymentAction(payment, option.value)}
+                                disabled={paymentActionMutation.isPending}
+                              >
+                                {option.label}
+                              </Button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
@@ -254,13 +463,28 @@ const AdminEPXCertification = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="description">Description</Label>
-                    <Input
-                      id="description"
-                      value={formState.description}
-                      onChange={handleInputChange("description")}
-                    />
+                    <Label htmlFor="tranType">Transaction Type</Label>
+                    <Select value={tranType} onValueChange={(value: TranType) => setTranType(value)}>
+                      <SelectTrigger id="tranType">
+                        <SelectValue placeholder="Select Tran Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TRAN_TYPES.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Input
+                    id="description"
+                    value={formState.description}
+                    onChange={handleInputChange("description")}
+                  />
                 </div>
                 <div>
                   <Label htmlFor="authGuid">EPX AUTH GUID (optional)</Label>

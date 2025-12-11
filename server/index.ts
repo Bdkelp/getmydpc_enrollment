@@ -34,6 +34,7 @@ import epxCertificationRoutes from "./routes/epx-certification";
 import finalizeRegistrationRoutes from "./routes/finalize-registration";
 import adminNotificationsRoutes from "./routes/admin-notifications";
 import discountCodesRoutes from "./routes/discount-codes";
+import paymentsRoutes from "./routes/payments";
 
 const app = express();
 
@@ -143,6 +144,7 @@ app.use((req, res, next) => {
   app.use('/', debugPaymentsRoutes);
   app.use('/', debugRecentPaymentsRoutes);
   app.use('/', devUtilitiesRoutes);
+  app.use('/', paymentsRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

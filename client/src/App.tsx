@@ -29,6 +29,7 @@ import PaymentSuccess from "@/pages/payment-success";
 import PaymentFailed from "@/pages/payment-failed";
 import PaymentCancel from "@/pages/payment-cancel";
 import PaymentCallback from "@/pages/payment-callback";
+import PaymentUpdate from "@/pages/payment-update";
 import FamilyEnrollment from "@/pages/family-enrollment";
 import Confirmation from "@/pages/confirmation";
 import Quiz from "@/pages/quiz";
@@ -132,6 +133,7 @@ function Router() {
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
               <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
+              <Route path="/payments/update" component={PaymentUpdate} />
             </>
           )}
 

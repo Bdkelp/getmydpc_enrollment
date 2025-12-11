@@ -3842,6 +3842,35 @@ export async function getPaymentsWithFilters(filters: { limit?: number; offset?:
   return data || [];
 }
 
+export async function getRecentPaymentsDetailed(options: { limit?: number; status?: string } = {}): Promise<any[]> {
+  const limit = Math.min(Math.max(options.limit ?? 25, 1), 200);
+  const values: any[] = [];
+  const whereClauses: string[] = [];
+
+  if (options.status) {
+    values.push(options.status);
+    whereClauses.push(`p.status = $${values.length}`);
+  }
+
+  const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const sql = `
+    SELECT
+      p.*,
+      m.first_name AS member_first_name,
+      m.last_name AS member_last_name,
+      m.email AS member_email,
+      m.customer_number AS member_customer_number
+    FROM payments p
+    LEFT JOIN members m ON p.member_id = m.id
+    ${whereSql}
+    ORDER BY p.created_at DESC
+    LIMIT ${limit}
+  `;
+
+  const result = await query(sql, values);
+  return result.rows || [];
+}
+
 export const storage = {
   // Core user functions that exist
   getUser,
@@ -4108,6 +4137,7 @@ export const storage = {
   createCommission,
   updateCommission,
   getAgentCommissions,
+  getRecentPaymentsDetailed,
   getAllCommissions,
   getCommissionBySubscriptionId,
   getCommissionByMemberId,
