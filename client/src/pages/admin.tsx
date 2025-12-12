@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, ChangeEvent, FormEvent } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -62,6 +62,13 @@ interface PendingUser {
   [key: string]: any;
 }
 
+const MANUAL_TRANSACTION_TYPES = [
+  { value: "CCE1", label: "Sale / MIT (CCE1)" },
+  { value: "CCE2", label: "Sale / MIT (CCE2)" },
+  { value: "V", label: "Void" },
+  { value: "R", label: "Refund / Reversal" },
+] as const;
+
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -73,6 +80,15 @@ export default function Admin() {
   const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
   const [editUserDialog, setEditUserDialog] = useState<{ open: boolean; user: any | null }>({ open: false, user: null });
   const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
+  const [manualTransactionForm, setManualTransactionForm] = useState({
+    memberId: '',
+    transactionId: '',
+    authGuid: '',
+    amount: '',
+    description: 'Manual EPX action from dashboard',
+    tranType: MANUAL_TRANSACTION_TYPES[0].value,
+  });
+  const [manualTransactionResult, setManualTransactionResult] = useState<any | null>(null);
 
   // Test authentication
   useEffect(() => {
@@ -286,6 +302,109 @@ export default function Admin() {
       });
     },
   });
+
+  const manualTransactionMutation = useMutation({
+    mutationFn: async (payload: Record<string, any>) => {
+      return apiRequest('/api/admin/payments/manual-transaction', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (data) => {
+      setManualTransactionResult(data);
+      toast({
+        title: "EPX request submitted",
+        description: "Review the response below for details.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to submit",
+        description: error?.message || 'Check console for additional details.',
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleManualFieldChange = (field: keyof typeof manualTransactionForm) => (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = event.target.value;
+    setManualTransactionForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleManualTranTypeChange = (value: string) => {
+    setManualTransactionForm((prev) => ({ ...prev, tranType: value }));
+  };
+
+  const handleManualTransactionSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (
+      !manualTransactionForm.memberId.trim() &&
+      !manualTransactionForm.transactionId.trim() &&
+      !manualTransactionForm.authGuid.trim()
+    ) {
+      toast({
+        title: "Provide member info",
+        description: "Enter a member ID, transaction ID, or AUTH GUID.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const parsedAmount = parseFloat(manualTransactionForm.amount || '0');
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Enter a positive dollar amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload: Record<string, any> = {
+      amount: parsedAmount,
+      tranType: manualTransactionForm.tranType,
+      description: manualTransactionForm.description.trim() || undefined,
+    };
+
+    if (manualTransactionForm.memberId.trim()) {
+      const memberIdNumber = Number(manualTransactionForm.memberId.trim());
+      if (!Number.isFinite(memberIdNumber)) {
+        toast({
+          title: "Invalid member ID",
+          description: "Member ID must be numeric.",
+          variant: "destructive",
+        });
+        return;
+      }
+      payload.memberId = memberIdNumber;
+    }
+
+    if (manualTransactionForm.transactionId.trim()) {
+      payload.transactionId = manualTransactionForm.transactionId.trim();
+    }
+
+    if (manualTransactionForm.authGuid.trim()) {
+      payload.authGuid = manualTransactionForm.authGuid.trim();
+    }
+
+    setManualTransactionResult(null);
+    manualTransactionMutation.mutate(payload);
+  };
+
+  const resetManualTransactionForm = () => {
+    setManualTransactionForm({
+      memberId: '',
+      transactionId: '',
+      authGuid: '',
+      amount: '',
+      description: 'Manual EPX action from dashboard',
+      tranType: MANUAL_TRANSACTION_TYPES[0].value,
+    });
+    setManualTransactionResult(null);
+  };
 
   if (authLoading || statsLoading) {
     return (
@@ -537,6 +656,144 @@ export default function Admin() {
 
         {/* Enhanced Dashboard Stats */}
         <DashboardStats userRole="admin" />
+
+        {/* Manual EPX Transactions */}
+        <Card className="mb-8 border border-blue-200 bg-white">
+          <CardContent className="p-6 space-y-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Manual EPX Transactions</h2>
+                <p className="text-sm text-gray-600">
+                  Run SALE, refund, or void events directly from the admin dashboard without opening the certification toolkit.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setManualTransactionResult(null)}
+                  disabled={!manualTransactionResult}
+                >
+                  Clear Result
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetManualTransactionForm}
+                  disabled={manualTransactionMutation.isPending}
+                >
+                  Reset Form
+                </Button>
+              </div>
+            </div>
+
+            <form className="space-y-4" onSubmit={handleManualTransactionSubmit}>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="manual-member-id">Member ID</Label>
+                  <Input
+                    id="manual-member-id"
+                    placeholder="1234"
+                    value={manualTransactionForm.memberId}
+                    onChange={handleManualFieldChange('memberId')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="manual-transaction-id">Transaction ID</Label>
+                  <Input
+                    id="manual-transaction-id"
+                    placeholder="Existing EPX transaction"
+                    value={manualTransactionForm.transactionId}
+                    onChange={handleManualFieldChange('transactionId')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="manual-auth-guid">EPX AUTH GUID</Label>
+                  <Input
+                    id="manual-auth-guid"
+                    placeholder="Paste AUTH GUID"
+                    value={manualTransactionForm.authGuid}
+                    onChange={handleManualFieldChange('authGuid')}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="manual-amount">Amount (USD)</Label>
+                  <Input
+                    id="manual-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={manualTransactionForm.amount}
+                    onChange={handleManualFieldChange('amount')}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="manual-tran-type">Transaction Type</Label>
+                  <Select value={manualTransactionForm.tranType} onValueChange={handleManualTranTypeChange}>
+                    <SelectTrigger id="manual-tran-type">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MANUAL_TRANSACTION_TYPES.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="manual-description">Reference Note</Label>
+                  <Input
+                    id="manual-description"
+                    placeholder="Shown in EPX memo"
+                    value={manualTransactionForm.description}
+                    onChange={handleManualFieldChange('description')}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-gray-600">
+                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for all tran types.
+                </p>
+                <Button
+                  type="submit"
+                  className="w-full md:w-auto"
+                  disabled={manualTransactionMutation.isPending}
+                >
+                  {manualTransactionMutation.isPending ? 'Submitting...' : 'Run Transaction'}
+                </Button>
+              </div>
+            </form>
+
+            {manualTransactionResult && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {manualTransactionResult.transactionReference && (
+                  <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
+                    Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
+                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                    {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
+                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                    {JSON.stringify(manualTransactionResult.response || {}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Pending Approvals Section */}
         <Card className="mb-8">

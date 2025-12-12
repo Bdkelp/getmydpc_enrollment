@@ -35,6 +35,149 @@ const sanitizeFilename = (value?: string): string => {
   return sanitized.endsWith('.json') ? sanitized : `${sanitized}.json`;
 };
 
+type ServerPostPayload = {
+  tranType?: string;
+  transactionId?: string;
+  memberId?: number | string;
+  amount?: number | string;
+  description?: string;
+  aciExt?: string;
+  cardEntryMethod?: string;
+  industryType?: string;
+  authGuid?: string;
+  paymentTransactionId?: string;
+};
+
+const executeServerPostAction = async (
+  payload: ServerPostPayload,
+  initiatedBy?: string,
+  source: string = 'epx-certification'
+): Promise<{ status: number; body: Record<string, any> }> => {
+  try {
+    const {
+      tranType = 'CCE1',
+      transactionId,
+      memberId,
+      amount,
+      description,
+      aciExt,
+      cardEntryMethod,
+      industryType,
+      authGuid,
+      paymentTransactionId
+    } = payload || {};
+
+    const normalizedTranType = typeof tranType === 'string' ? tranType.toUpperCase() : 'CCE1';
+    if (!isSupportedTranType(normalizedTranType)) {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')}`
+        }
+      };
+    }
+
+    let paymentRecord;
+    if (paymentTransactionId || transactionId) {
+      paymentRecord = await storage.getPaymentByTransactionId(paymentTransactionId || transactionId);
+    }
+
+    const resolvedAuthGuid = authGuid || paymentRecord?.epx_auth_guid;
+    if (!resolvedAuthGuid) {
+      return {
+        status: 400,
+        body: {
+          success: false,
+          error: 'An EPX AUTH_GUID is required (provide authGuid or reference a payment with one).'
+        }
+      };
+    }
+
+    let resolvedMemberId: number | null = null;
+    if (typeof memberId === 'number') {
+      resolvedMemberId = memberId;
+    } else if (typeof memberId === 'string' && memberId.trim()) {
+      resolvedMemberId = Number(memberId);
+    } else if (paymentRecord?.member_id) {
+      resolvedMemberId = Number(paymentRecord.member_id);
+    }
+
+    const member = resolvedMemberId ? await storage.getMember(resolvedMemberId) : null;
+
+    let resolvedAmount: number | null = null;
+    if (typeof amount === 'number') {
+      resolvedAmount = amount;
+    } else if (typeof amount === 'string' && amount.trim()) {
+      resolvedAmount = parseFloat(amount);
+    } else if (paymentRecord?.amount) {
+      resolvedAmount = parseFloat(String(paymentRecord.amount));
+    }
+
+    if (!resolvedAmount || !Number.isFinite(resolvedAmount) || resolvedAmount <= 0) {
+      return {
+        status: 400,
+        body: { success: false, error: 'A valid amount is required.' }
+      };
+    }
+
+    const response = await submitServerPostRecurringPayment({
+      amount: resolvedAmount,
+      authGuid: resolvedAuthGuid,
+      transactionId: paymentRecord?.transaction_id || transactionId,
+      member: member ? (member as Record<string, any>) : undefined,
+      description: description || `Manual ${normalizedTranType} initiated by ${initiatedBy || 'unknown admin'}`,
+      aciExt,
+      cardEntryMethod,
+      industryType,
+      tranType: normalizedTranType,
+      metadata: {
+        initiatedBy,
+        paymentId: paymentRecord?.id || null,
+        toolkit: source
+      }
+    });
+
+    return {
+      status: response.success ? 200 : 502,
+      body: {
+        success: response.success,
+        tranType: normalizedTranType,
+        transactionReference: response.requestFields?.TRAN_NBR,
+        payment: paymentRecord
+          ? {
+              id: paymentRecord.id,
+              memberId: paymentRecord.member_id,
+              transactionId: paymentRecord.transaction_id,
+              amount: paymentRecord.amount,
+              epxAuthGuidMasked: paymentRecord.epx_auth_guid
+                ? `${paymentRecord.epx_auth_guid.slice(0, 4)}****${paymentRecord.epx_auth_guid.slice(-4)}`
+                : null
+            }
+          : null,
+        request: {
+          fields: response.requestFields,
+          payload: response.requestPayload
+        },
+        response: {
+          fields: response.responseFields,
+          raw: response.rawResponse
+        },
+        error: response.error
+      }
+    };
+  } catch (error: any) {
+    console.error(`[EPX Manual Transaction] ${source} helper failed`, error);
+    return {
+      status: 500,
+      body: {
+        success: false,
+        error: error?.message || 'Server Post helper failed'
+      }
+    };
+  }
+};
+
 router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, res: Response) => {
   if (!hasAdminPrivileges(req)) {
     return res.status(403).json({ success: false, error: 'Admin access required' });
@@ -175,104 +318,17 @@ router.post('/api/epx/certification/server-post', authenticateToken, async (req:
     return res.status(403).json({ success: false, error: 'Admin access required' });
   }
 
-  try {
-    const {
-      tranType = 'CCE1',
-      transactionId,
-      memberId,
-      amount,
-      description,
-      aciExt,
-      cardEntryMethod,
-      industryType,
-      authGuid,
-      paymentTransactionId
-    } = req.body || {};
+  const result = await executeServerPostAction(req.body || {}, req.user?.email, 'epx-certification');
+  return res.status(result.status).json(result.body);
+});
 
-    const normalizedTranType = typeof tranType === 'string' ? tranType.toUpperCase() : 'CCE1';
-    if (!isSupportedTranType(normalizedTranType)) {
-      return res.status(400).json({
-        success: false,
-        error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')}`
-      });
-    }
-
-    let paymentRecord;
-    if (paymentTransactionId || transactionId) {
-      paymentRecord = await storage.getPaymentByTransactionId(paymentTransactionId || transactionId);
-    }
-
-    const resolvedAuthGuid = authGuid || paymentRecord?.epx_auth_guid;
-    if (!resolvedAuthGuid) {
-      return res.status(400).json({ success: false, error: 'An EPX AUTH_GUID is required (provide authGuid or reference a payment with one).' });
-    }
-
-    let resolvedMemberId: number | null = null;
-    if (typeof memberId === 'number') {
-      resolvedMemberId = memberId;
-    } else if (typeof memberId === 'string' && memberId.trim()) {
-      resolvedMemberId = Number(memberId);
-    } else if (paymentRecord?.member_id) {
-      resolvedMemberId = Number(paymentRecord.member_id);
-    }
-
-    const member = resolvedMemberId ? await storage.getMember(resolvedMemberId) : null;
-
-    let resolvedAmount: number | null = null;
-    if (typeof amount === 'number') {
-      resolvedAmount = amount;
-    } else if (typeof amount === 'string' && amount.trim()) {
-      resolvedAmount = parseFloat(amount);
-    } else if (paymentRecord?.amount) {
-      resolvedAmount = parseFloat(String(paymentRecord.amount));
-    }
-
-    if (!resolvedAmount || !Number.isFinite(resolvedAmount) || resolvedAmount <= 0) {
-      return res.status(400).json({ success: false, error: 'A valid amount is required.' });
-    }
-
-    const response = await submitServerPostRecurringPayment({
-      amount: resolvedAmount,
-      authGuid: resolvedAuthGuid,
-      transactionId: paymentRecord?.transaction_id || transactionId,
-      member: member ? (member as Record<string, any>) : undefined,
-      description: description || `Certification ${normalizedTranType} initiated by ${req.user?.email}`,
-      aciExt,
-      cardEntryMethod,
-      industryType,
-      tranType: normalizedTranType,
-      metadata: {
-        initiatedBy: req.user?.email,
-        paymentId: paymentRecord?.id || null,
-        toolkit: 'epx-certification'
-      }
-    });
-
-    res.status(response.success ? 200 : 502).json({
-      success: response.success,
-      tranType: normalizedTranType,
-      transactionReference: response.requestFields?.TRAN_NBR,
-      payment: paymentRecord ? {
-        id: paymentRecord.id,
-        memberId: paymentRecord.member_id,
-        transactionId: paymentRecord.transaction_id,
-        amount: paymentRecord.amount,
-        epxAuthGuidMasked: paymentRecord.epx_auth_guid ? `${paymentRecord.epx_auth_guid.slice(0, 4)}****${paymentRecord.epx_auth_guid.slice(-4)}` : null
-      } : null,
-      request: {
-        fields: response.requestFields,
-        payload: response.requestPayload
-      },
-      response: {
-        fields: response.responseFields,
-        raw: response.rawResponse
-      },
-      error: response.error
-    });
-  } catch (error: any) {
-    console.error('[EPX Certification] Server Post helper failed', error);
-    res.status(500).json({ success: false, error: error.message || 'Server Post helper failed' });
+router.post('/api/admin/payments/manual-transaction', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!hasAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
   }
+
+  const result = await executeServerPostAction(req.body || {}, req.user?.email, 'admin-dashboard');
+  return res.status(result.status).json(result.body);
 });
 
 export default router;
