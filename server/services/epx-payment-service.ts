@@ -463,6 +463,8 @@ const SERVER_POST_ENDPOINTS = {
   production: 'https://services.epx.com/serverpost/'
 } as const;
 
+type ServerPostTranType = 'CCE1' | 'CCE2' | 'V' | 'R';
+
 interface ServerPostRecurringOptions {
   amount: number;
   authGuid: string;
@@ -472,7 +474,7 @@ interface ServerPostRecurringOptions {
   aciExt?: string;
   cardEntryMethod?: string;
   industryType?: string;
-  tranType?: 'CCE1' | 'CCE2';
+  tranType?: ServerPostTranType;
   tranNbr?: string;
   batchId?: string;
   metadata?: Record<string, any>;
@@ -524,16 +526,25 @@ function buildServerPostPayload(fields: Record<string, string>): string {
   return params.toString();
 }
 
+function maskAuthGuid(value?: string | null): string {
+  if (!value) return '********';
+  return value.length > 8 ? `${value.slice(0, 4)}****${value.slice(-4)}` : '********';
+}
+
 function maskServerPostFields(fields: Record<string, string>): Record<string, string> {
   const masked: Record<string, string> = {};
   Object.entries(fields).forEach(([key, value]) => {
     if (key === 'ORIG_AUTH_GUID' && value) {
-      masked[key] = value.length > 8 ? `${value.slice(0, 4)}****${value.slice(-4)}` : '********';
+      masked[key] = maskAuthGuid(value);
     } else {
       masked[key] = value;
     }
   });
   return masked;
+}
+
+function shouldLogAuthGuidRaw(): boolean {
+  return (process.env.EPX_LOG_AUTH_GUID_RAW || '').toLowerCase() === 'true';
 }
 
 function parseServerPostResponse(xml: string): Record<string, string> {
@@ -574,10 +585,15 @@ export async function submitServerPostRecurringPayment(
   options: ServerPostRecurringOptions
 ): Promise<ServerPostRecurringResult> {
   const startTime = Date.now();
+  const logAuthGuidRaw = shouldLogAuthGuidRaw();
+  const authGuidVisibility: 'raw' | 'masked' = logAuthGuidRaw ? 'raw' : 'masked';
+  let authGuidLogValue = '********';
   let requestFields: Record<string, string> = {};
+  let rawFieldSnapshot: Record<string, string> | undefined;
   let requestPayload = '';
   let responseFields: Record<string, string> = {};
   let rawResponse = '';
+  const resolvedTranType: ServerPostTranType = options.tranType || 'CCE1';
 
   try {
     const credentials = ensureServerPostCredentials();
@@ -585,6 +601,11 @@ export async function submitServerPostRecurringPayment(
     const amount = Number(options.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error('Invalid amount for Server Post transaction.');
+    }
+
+    const authGuid = typeof options.authGuid === 'string' ? options.authGuid.trim() : '';
+    if (!authGuid) {
+      throw new Error('Missing EPX auth GUID (ORIG_AUTH_GUID) for Server Post MIT transaction.');
     }
 
     const member = options.member || undefined;
@@ -608,11 +629,11 @@ export async function submitServerPostRecurringPayment(
       MERCH_NBR: credentials.merchNbr,
       DBA_NBR: credentials.dbaNbr,
       TERMINAL_NBR: credentials.terminalNbr,
-      TRAN_TYPE: options.tranType || 'CCE1',
+      TRAN_TYPE: resolvedTranType,
       AMOUNT: formatAmount(amount),
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
-      ORIG_AUTH_GUID: options.authGuid,
+      ORIG_AUTH_GUID: authGuid,
       CARD_ENT_METH: options.cardEntryMethod || 'Z',
       INDUSTRY_TYPE: options.industryType || 'E',
       ACI_EXT: options.aciExt || 'RB'
@@ -631,16 +652,24 @@ export async function submitServerPostRecurringPayment(
     if (phone) requestFields.PHONE_CELL = phone;
     if (options.description) requestFields.USER_DATA_2 = options.description;
 
+    rawFieldSnapshot = { ...requestFields };
+
     requestPayload = buildServerPostPayload(requestFields);
     const maskedFields = maskServerPostFields(requestFields);
+    const maskedAuthGuid = maskAuthGuid(authGuid);
+    authGuidLogValue = logAuthGuidRaw ? authGuid : maskedAuthGuid;
 
     logEPX({
       level: 'info',
       phase: 'server-post',
-      message: 'Submitting Server Post MIT transaction',
+      message: 'Submitting Server Post transaction',
       data: {
         transactionId: options.transactionId || requestFields.TRAN_NBR,
         environment: credentials.environment,
+        authGuidPresent: Boolean(authGuid),
+        authGuidVisibility,
+        authGuid: authGuidLogValue,
+        tranType: resolvedTranType,
         request: maskedFields
       }
     });
@@ -663,6 +692,7 @@ export async function submitServerPostRecurringPayment(
       message: approved ? 'Server Post transaction approved' : 'Server Post transaction declined',
       data: {
         transactionId: requestFields.TRAN_NBR,
+        tranType: resolvedTranType,
         authResp: responseFields.AUTH_RESP,
         authCode: responseFields.AUTH_CODE,
         message: responseFields.AUTH_RESP_TEXT || responseFields.RESPONSE_TEXT
@@ -674,7 +704,7 @@ export async function submitServerPostRecurringPayment(
       customerId: resolvedCustomerId,
       amount,
       environment: credentials.environment,
-      purpose: 'server-post-mit',
+      purpose: resolvedTranType === 'R' ? 'server-post-reversal' : 'server-post-mit',
       request: {
         timestamp: new Date().toISOString(),
         method: 'POST',
@@ -685,7 +715,10 @@ export async function submitServerPostRecurringPayment(
         },
         body: {
           form: maskedFields,
-          raw: requestPayload
+          rawFields: rawFieldSnapshot,
+          raw: requestPayload,
+          authGuid: authGuidLogValue,
+          authGuidVisibility
         }
       },
       response: {
@@ -699,6 +732,7 @@ export async function submitServerPostRecurringPayment(
       sensitiveFieldsMasked: ['ORIG_AUTH_GUID'],
       metadata: {
         tranNbr: requestFields.TRAN_NBR,
+        tranType: resolvedTranType,
         memberId: (member as any)?.id || (member as any)?.member_id || null,
         additional: options.metadata || null
       }
@@ -719,22 +753,27 @@ export async function submitServerPostRecurringPayment(
       message: 'Server Post transaction failed',
       data: {
         error: error.message,
-        transactionId: requestFields.TRAN_NBR
+        transactionId: requestFields.TRAN_NBR,
+        tranType: resolvedTranType
       }
     });
 
     if (requestPayload) {
+      const fallbackRawFields = rawFieldSnapshot || (Object.keys(requestFields).length ? { ...requestFields } : undefined);
       certificationLogger.logCertificationEntry({
         transactionId: options.transactionId || requestFields.TRAN_NBR,
         amount: options.amount,
         environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        purpose: 'server-post-mit',
+        purpose: resolvedTranType === 'R' ? 'server-post-reversal' : 'server-post-mit',
         request: {
           timestamp: new Date().toISOString(),
           method: 'POST',
           endpoint: '/serverpost',
           body: {
-            raw: requestPayload
+            raw: requestPayload,
+            rawFields: fallbackRawFields,
+            authGuid: authGuidLogValue,
+            authGuidVisibility
           }
         },
         response: {

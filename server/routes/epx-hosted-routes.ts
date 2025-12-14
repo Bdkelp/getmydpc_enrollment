@@ -40,6 +40,8 @@ type BillingAddress = {
   country?: string;
 };
 
+type PaymentRecord = ReturnType<typeof storage.getPaymentByTransactionId> extends Promise<infer T> ? T : never;
+
 function loadHostedConfig(): EPXHostedCheckoutConfig {
   const envConfig: Partial<EPXHostedCheckoutConfig> = {
     publicKey: process.env.EPX_PUBLIC_KEY || undefined,
@@ -219,10 +221,43 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         }
       };
 
-      await storage.createPayment(paymentData);
-      logEPX({ level: 'info', phase: 'create-payment', message: 'Payment record created', data: { transactionId: orderNumber } });
+      logEPX({
+        level: 'info',
+        phase: 'create-payment',
+        message: 'Attempting to insert payment row',
+        data: {
+          transactionId: orderNumber,
+          amount: paymentData.amount,
+          userId,
+          memberId,
+          metadataKeys: Object.keys(paymentData.metadata || {})
+        }
+      });
+
+      const createdPayment = await storage.createPayment(paymentData);
+
+      logEPX({
+        level: 'info',
+        phase: 'create-payment',
+        message: 'Payment record created successfully',
+        data: {
+          transactionId: orderNumber,
+          paymentId: createdPayment?.id,
+          status: createdPayment?.status,
+          environment: createdPayment?.metadata?.environment || paymentData.metadata?.environment
+        }
+      });
     } catch (storageError: any) {
-      logEPX({ level: 'warn', phase: 'create-payment', message: 'Storage createPayment failed (non-fatal)', data: { error: storageError?.message } });
+      logEPX({
+        level: 'error',
+        phase: 'create-payment',
+        message: 'Storage createPayment failed (non-fatal)',
+        data: {
+          error: storageError?.message,
+          stack: storageError?.stack,
+          transactionId: orderNumber
+        }
+      });
       // Continue even if storage fails - payment can still process
     }
 
@@ -378,6 +413,20 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     // Process the callback
     const result = hostedCheckoutService.processCallback(req.body);
 
+    logEPX({
+      level: 'info',
+      phase: 'callback',
+      message: 'Processed EPX callback payload',
+      data: {
+        transactionId: result.transactionId || req.body?.transactionId || req.body?.orderNumber,
+        approved: result.isApproved,
+        hasRegistrationData: Boolean(req.body?.registrationData),
+        hasBricToken: Boolean(result.bricToken),
+        status: req.body?.status,
+        amount: req.body?.amount
+      }
+    });
+
     // === PAYMENT-FIRST FLOW ===
     // Payment approved - create member record now
     if (result.isApproved && req.body.registrationData && result.bricToken) {
@@ -406,7 +455,15 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
         if (!finalizeResponse.ok) {
           const errorData = await finalizeResponse.json();
-          logEPX({ level: 'error', phase: 'callback', message: 'Finalize registration failed', data: errorData });
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Finalize registration failed',
+            data: {
+              error: errorData,
+              transactionId: result.transactionId
+            }
+          });
           
           // Return error to EPX
           return res.status(500).json({
@@ -416,7 +473,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         }
 
         const finalizeData = await finalizeResponse.json();
-        logEPX({ level: 'info', phase: 'callback', message: 'Member created successfully', data: { memberId: finalizeData.member?.id } });
+        logEPX({ level: 'info', phase: 'callback', message: 'Member created successfully', data: { memberId: finalizeData.member?.id, transactionId: result.transactionId } });
 
         // Persist EPX auth GUID + authorization details on payment record for future Server Post use
         const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
@@ -425,6 +482,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         }
         const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
         const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
+        let paymentRecordForLogging: PaymentRecord | null = null;
+        const maskedAuthGuid = authGuid ? `${authGuid.slice(0, 4)}***${authGuid.slice(-4)}` : null;
 
         if (epxTransactionId || fallbackOrderNumber) {
           try {
@@ -437,6 +496,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             }
 
             if (paymentRecord) {
+              paymentRecordForLogging = paymentRecord;
               const finalizedMemberId = finalizeData.member?.id ?? paymentRecord.member_id ?? null;
               const metadataBase = (typeof paymentRecord.metadata === 'object' && paymentRecord.metadata)
                 ? paymentRecord.metadata as Record<string, any>
@@ -449,7 +509,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                   status: req.body?.status,
                   amount: req.body?.amount,
                   message: req.body?.message,
-                  authGuidMasked: authGuid ? `${authGuid.slice(0, 4)}***${authGuid.slice(-4)}` : undefined,
+                  authGuidMasked: maskedAuthGuid || undefined,
                 }
               };
 
@@ -509,8 +569,13 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             environment: process.env.EPX_ENVIRONMENT || 'sandbox',
             metadata: {
               hasAuthGuid: !!authGuid,
-              paymentId: paymentRecord?.id,
-              memberId: finalizeData.member?.id
+              paymentId: paymentRecordForLogging?.id,
+              memberId: finalizeData.member?.id,
+              authGuidMasked: maskedAuthGuid,
+              transactionLookup: {
+                epxTransactionId,
+                fallbackOrderNumber
+              }
             },
             request: {
               timestamp: new Date().toISOString(),
@@ -543,7 +608,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
     // === PAYMENT DECLINED ===
     if (!result.isApproved) {
-      logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error } });
+      logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error, transactionId: result.transactionId } });
       
       // Track payment attempt if we have temp registration ID
       if (req.body.tempRegistrationId) {
@@ -589,7 +654,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     }
 
     // Missing registration data - cannot process
-    logEPX({ level: 'error', phase: 'callback', message: 'Missing registration data or BRIC token' });
+    logEPX({ level: 'error', phase: 'callback', message: 'Missing registration data or BRIC token', data: { transactionId: result.transactionId } });
     if (certificationLoggingEnabled) {
       certificationLogger.logCertificationEntry({
         purpose: 'hosted-callback-invalid',

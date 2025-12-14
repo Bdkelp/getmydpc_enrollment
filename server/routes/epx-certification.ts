@@ -23,6 +23,27 @@ type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
 const isSupportedTranType = (value: string): value is SupportedTranType =>
   SUPPORTED_TRAN_TYPES.includes(value as SupportedTranType);
 
+const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null => {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const upper = trimmed.toUpperCase();
+  const aliasMap: Record<string, SupportedTranType> = {
+    REVERSAL: 'R',
+    REV: 'R',
+    RETURN: 'R'
+  };
+
+  const normalized = aliasMap[upper] || (upper as SupportedTranType);
+  return isSupportedTranType(normalized) ? normalized : null;
+};
+
 const sanitizeFilename = (value?: string): string => {
   if (!value || typeof value !== 'string') {
     return '';
@@ -67,15 +88,19 @@ const executeServerPostAction = async (
       paymentTransactionId
     } = payload || {};
 
-    const normalizedTranType = typeof tranType === 'string' ? tranType.toUpperCase() : 'CCE1';
-    if (!isSupportedTranType(normalizedTranType)) {
-      return {
-        status: 400,
-        body: {
-          success: false,
-          error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')}`
-        }
-      };
+    let resolvedTranType: SupportedTranType = 'CCE1';
+    if (typeof tranType === 'string' && tranType.trim()) {
+      const normalizedValue = normalizeTranTypeInput(tranType);
+      if (!normalizedValue) {
+        return {
+          status: 400,
+          body: {
+            success: false,
+            error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')} (REVERSAL/REV map to R)`
+          }
+        };
+      }
+      resolvedTranType = normalizedValue;
     }
 
     let paymentRecord;
@@ -126,11 +151,11 @@ const executeServerPostAction = async (
       authGuid: resolvedAuthGuid,
       transactionId: paymentRecord?.transaction_id || transactionId,
       member: member ? (member as Record<string, any>) : undefined,
-      description: description || `Manual ${normalizedTranType} initiated by ${initiatedBy || 'unknown admin'}`,
+      description: description || `Manual ${resolvedTranType} initiated by ${initiatedBy || 'unknown admin'}`,
       aciExt,
       cardEntryMethod,
       industryType,
-      tranType: normalizedTranType,
+      tranType: resolvedTranType,
       metadata: {
         initiatedBy,
         paymentId: paymentRecord?.id || null,
@@ -142,7 +167,7 @@ const executeServerPostAction = async (
       status: response.success ? 200 : 502,
       body: {
         success: response.success,
-        tranType: normalizedTranType,
+        tranType: resolvedTranType,
         transactionReference: response.requestFields?.TRAN_NBR,
         payment: paymentRecord
           ? {
