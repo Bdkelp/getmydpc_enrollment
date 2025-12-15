@@ -15,6 +15,29 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ArrowLeft } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+type JsonRecord = Record<string, any>;
+
+interface CertificationRequestBody extends JsonRecord {
+  form?: JsonRecord;
+  rawFields?: JsonRecord;
+  raw?: string;
+  authGuid?: string;
+  authGuidVisibility?: string;
+}
+
+interface CertificationResponseBody extends JsonRecord {
+  fields?: JsonRecord;
+  raw?: string;
+}
+
+interface CertificationRequestInfo extends JsonRecord {
+  body?: CertificationRequestBody;
+}
+
+interface CertificationResponseInfo extends JsonRecord {
+  body?: CertificationResponseBody;
+}
+
 interface CertificationLogEntry {
   transactionId?: string;
   customerId?: string;
@@ -24,8 +47,8 @@ interface CertificationLogEntry {
   timestamp?: string;
   fileName?: string;
   metadata?: Record<string, any>;
-  request?: Record<string, any>;
-  response?: Record<string, any>;
+  request?: CertificationRequestInfo;
+  response?: CertificationResponseInfo;
 }
 
 interface CertificationLogResponse {
@@ -563,6 +586,22 @@ const AdminEPXCertification = () => {
                   </pre>
                 </div>
               </div>
+              {latestResult.request?.payload && (
+                <div>
+                  <p className="text-sm font-medium mb-2">Raw Request Payload</p>
+                  <pre className="bg-slate-900 text-green-200 rounded-md p-3 text-xs overflow-x-auto whitespace-pre-wrap break-words">
+                    {latestResult.request.payload}
+                  </pre>
+                </div>
+              )}
+              {latestResult.response?.raw && (
+                <div>
+                  <p className="text-sm font-medium mb-2">Raw Response Payload</p>
+                  <pre className="bg-slate-900 text-blue-200 rounded-md p-3 text-xs overflow-x-auto whitespace-pre-wrap break-words">
+                    {latestResult.response.raw}
+                  </pre>
+                </div>
+              )}
               {latestResult.message && (
                 <p className="text-sm">Server message: {latestResult.message}</p>
               )}
@@ -604,39 +643,75 @@ const AdminEPXCertification = () => {
             ) : formattedLogs.length === 0 ? (
               <p className="text-sm text-muted-foreground">No certification logs found yet.</p>
             ) : (
-              formattedLogs.map((entry) => (
-                <div key={entry.fileName || entry.timestamp} className="rounded-lg border bg-white p-4 shadow-sm">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Badge variant="outline">{entry.purpose || 'unknown-purpose'}</Badge>
-                    <span className="text-sm font-medium">TX: {entry.transactionId || 'n/a'}</span>
-                    {entry.amount && (
-                      <span className="text-sm text-muted-foreground">${entry.amount.toFixed(2)}</span>
+              formattedLogs.map((entry) => {
+                const requestBody = entry.request?.body as CertificationRequestBody | undefined;
+                const responseBody = entry.response?.body as CertificationResponseBody | undefined;
+                const rawRequestFields = requestBody?.rawFields;
+                const rawRequestPayload = requestBody?.raw;
+                const rawResponsePayload = responseBody?.raw;
+
+                return (
+                  <div key={entry.fileName || entry.timestamp} className="rounded-lg border bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Badge variant="outline">{entry.purpose || 'unknown-purpose'}</Badge>
+                      <span className="text-sm font-medium">TX: {entry.transactionId || 'n/a'}</span>
+                      {typeof entry.amount === "number" && (
+                        <span className="text-sm text-muted-foreground">${entry.amount.toFixed(2)}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {entry.timestamp ? formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true }) : 'timestamp unknown'}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid gap-4 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs uppercase text-muted-foreground mb-1">Request Snapshot</p>
+                          <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                            {JSON.stringify(entry.request, null, 2)}
+                          </pre>
+                        </div>
+                        {rawRequestFields && (
+                          <div>
+                            <p className="text-xs uppercase text-muted-foreground mb-1">Raw Form Fields</p>
+                            <pre className="bg-slate-900 text-emerald-200 rounded-md p-3 text-xs overflow-x-auto">
+                              {JSON.stringify(rawRequestFields, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                        {rawRequestPayload && (
+                          <div>
+                            <p className="text-xs uppercase text-muted-foreground mb-1">Raw Request Payload</p>
+                            <pre className="bg-slate-900 text-emerald-100 rounded-md p-3 text-xs overflow-x-auto whitespace-pre-wrap break-words">
+                              {rawRequestPayload}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs uppercase text-muted-foreground mb-1">Response Snapshot</p>
+                          <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                            {JSON.stringify(entry.response, null, 2)}
+                          </pre>
+                        </div>
+                        {rawResponsePayload && (
+                          <div>
+                            <p className="text-xs uppercase text-muted-foreground mb-1">Raw Response Payload</p>
+                            <pre className="bg-slate-900 text-sky-100 rounded-md p-3 text-xs overflow-x-auto whitespace-pre-wrap break-words">
+                              {rawResponsePayload}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {entry.metadata && (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        Metadata: {JSON.stringify(entry.metadata)}
+                      </div>
                     )}
-                    <span className="text-xs text-muted-foreground">
-                      {entry.timestamp ? formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true }) : 'timestamp unknown'}
-                    </span>
                   </div>
-                  <div className="mt-3 grid gap-4 md:grid-cols-2">
-                    <div>
-                      <p className="text-xs uppercase text-muted-foreground mb-1">Request Snapshot</p>
-                      <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                        {JSON.stringify(entry.request, null, 2)}
-                      </pre>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase text-muted-foreground mb-1">Response Snapshot</p>
-                      <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                        {JSON.stringify(entry.response, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                  {entry.metadata && (
-                    <div className="mt-3 text-xs text-muted-foreground">
-                      Metadata: {JSON.stringify(entry.metadata)}
-                    </div>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

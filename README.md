@@ -497,6 +497,16 @@ await storage.markCommissionPaymentCaptured(member.id, orderNumber, orderNumber)
 window.location.href = `/confirmation?transaction=${orderNumber}&amount=95.00`;
 ```
 
+### EPX Certification Toolkit
+
+Use the admin-only endpoint `POST /api/epx/certification/server-post` (authenticate with your Supabase token) to generate the `requestPayload` and `rawResponse/responseFields` samples EPX requires. The payload supports:
+
+- `tranType`: `CCE1`, `CCE2`, `V`, or `R` (sale, MIT, void, refund)
+- `paymentTransactionId` or `transactionId`: optional pointers to an existing payment so the service can reuse its amount/AUTH_GUID
+- `authGuid`, `memberId`, `amount`, `description`, `aciExt`, `cardEntryMethod`, `industryType`: optional overrides
+
+Each call returns the exact `request.fields`, `request.payload`, `response.fields`, and `response.raw` values for submission, and the certification logger also stores the entry for later export.
+
 ### Database Schema Relationships
 
 ```
@@ -1279,6 +1289,43 @@ curl -X POST http://localhost:3000/api/epx/hosted/create-payment \
   -H "Content-Type: application/json" \
   -d '{"amount": 95.00, "customerId": "123", "customerEmail": "test@example.com"}'
 ```
+
+### 🧰 Super Admin EPX Toolbox (Training Guide)
+
+The admin dashboard now exposes three payment controls under **Manual EPX Transactions** and **Membership Cancellation**. These run against whichever EPX environment your env vars point to (currently `sandbox`).
+
+#### Buttons & Purpose
+- **Run Transaction** – Fires an immediate server-post (SALE/MIT, refund, void) with the stored card token + AUTH_GUID. Use this for adjustments on an existing payment record.
+- **Launch Hosted Checkout** – Opens the EPX hosted iframe so the member can enter new card data in real time. Requires `CCE1`/`CCE2`, a member ID, and amount.
+- **Membership Cancellation** – Sends the cancellation command to EPX to halt a recurring subscription. It does not refund prior charges.
+
+#### Running a Manual Transaction
+1. Enter at least one identifier (member ID, EPX transaction ID, or AUTH GUID) plus the USD amount.
+2. Pick the appropriate `TRAN_TYPE`:
+   - `CCE1` / `CCE2`: new sale/MIT against an existing authorization
+   - `V`: void same-day sale
+   - `R`: refund/reversal
+3. Optionally add a note (shows in EPX memo fields).
+4. Click **Run Transaction** → review the confirmation dialog → confirm to post to `/api/admin/payments/manual-transaction`.
+5. Inspect the “Request/Response Snapshot” panel below the form for EPX’s response codes.
+
+#### Launching Hosted Checkout for a Fresh Payment
+1. Set the manual form to `CCE1` or `CCE2`, enter the member ID, amount, and a reference note.
+2. Click **Launch Hosted Checkout**. Confirm the warning so we can fetch the member + subscription profile.
+3. A modal loads the `EPXHostedPayment` component (same as the enrollment flow). Hand control to the member to enter card data.
+4. On success we toast the transaction ID and close the modal—no redirect occurs inside the admin view.
+
+Use this flow when the stored card is invalid or you need a card-on-file before creating a brand-new AUTH GUID.
+
+#### Canceling an EPX Subscription
+1. Fill either **Subscription ID** (preferred) or a prior **Transaction ID** so the backend can look up the subscription metadata.
+2. Provide a short reason (shown in certification logs for audit trails).
+3. Submit → confirm the dialog. The route `/api/admin/payments/cancel-subscription` logs the request and forwards it to EPX.
+4. Review the response snapshot for `success: true` before notifying the member.
+
+#### Sandbox vs. Production
+- Until you swap `EPX_PUBLIC_KEY`, `EPX_TERMINAL_PROFILE_ID`, and `EPX_ENVIRONMENT`, everything runs in sandbox. Feel free to practice against your latest sandbox transactions.
+- Recommended drill: run a hosted checkout in sandbox, then refund/void the same transaction using **Run Transaction**, and finally cancel the associated subscription to verify the full toolchain.
 
 ### Debugging
 
