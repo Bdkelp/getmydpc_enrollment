@@ -4,6 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,6 +13,7 @@ import { hasAtLeastRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
 import DashboardStats from "@/components/DashboardStats";
+import EPXHostedPayment from "@/components/EPXHostedPayment";
 import { 
   Users, 
   DollarSign, 
@@ -29,7 +31,9 @@ import {
   BarChart,
   User,
   FileText,
-  Database
+  Database,
+  AlertTriangle,
+  X
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -41,6 +45,17 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 
 // Type definitions for API responses
 interface AdminStats {
@@ -69,10 +84,16 @@ const MANUAL_TRANSACTION_TYPES = [
   { value: "R", label: "Refund / Reversal" },
 ] as const;
 
+const getManualTranLabel = (value: string) => {
+  const match = MANUAL_TRANSACTION_TYPES.find((option) => option.value === value);
+  return match ? match.label : value;
+};
+
 export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
+  const isSuperAdmin = user?.role === 'super_admin';
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
@@ -89,6 +110,16 @@ export default function Admin() {
     tranType: MANUAL_TRANSACTION_TYPES[0].value,
   });
   const [manualTransactionResult, setManualTransactionResult] = useState<any | null>(null);
+  const [cancelSubscriptionForm, setCancelSubscriptionForm] = useState({
+    subscriptionId: '',
+    transactionId: '',
+    reason: 'Subscription cancellation via admin dashboard',
+  });
+  const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<any | null>(null);
+  const [manualConfirmPayload, setManualConfirmPayload] = useState<{ payload: Record<string, any>; amount: number; tranType: string; memberId?: number } | null>(null);
+  const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
+  const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string } | null>(null);
+  const [hostedModalData, setHostedModalData] = useState<{ member: any; subscription: any; amount: number; description?: string } | null>(null);
 
   // Test authentication
   useEffect(() => {
@@ -326,6 +357,37 @@ export default function Admin() {
     },
   });
 
+  const cancelSubscriptionMutation = useMutation({
+    mutationFn: async (payload: Record<string, any>) => {
+      return apiRequest('/api/admin/payments/cancel-subscription', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (data, variables) => {
+      setCancelSubscriptionResult({ ...data, request: variables });
+      toast({
+        title: 'Cancellation request submitted',
+        description: 'Review the response below for EPX confirmation.',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Unable to cancel subscription',
+        description: error?.message || 'Check console for additional details.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const hostedMemberLookup = useMutation({
+    mutationFn: async (memberId: number) => {
+      return apiRequest(`/api/admin/members/${memberId}`, {
+        method: 'GET',
+      });
+    },
+  });
+
   const handleManualFieldChange = (field: keyof typeof manualTransactionForm) => (
     event: ChangeEvent<HTMLInputElement>
   ) => {
@@ -391,7 +453,12 @@ export default function Admin() {
     }
 
     setManualTransactionResult(null);
-    manualTransactionMutation.mutate(payload);
+    setManualConfirmPayload({
+      payload,
+      amount: parsedAmount,
+      tranType: manualTransactionForm.tranType,
+      memberId: payload.memberId,
+    });
   };
 
   const resetManualTransactionForm = () => {
@@ -404,6 +471,172 @@ export default function Admin() {
       tranType: MANUAL_TRANSACTION_TYPES[0].value,
     });
     setManualTransactionResult(null);
+  };
+
+  const handleCancelFieldChange = (field: keyof typeof cancelSubscriptionForm) => (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const value = event.target.value;
+    setCancelSubscriptionForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const resetCancelSubscriptionForm = () => {
+    setCancelSubscriptionForm({
+      subscriptionId: '',
+      transactionId: '',
+      reason: 'Subscription cancellation via admin dashboard',
+    });
+    setCancelSubscriptionResult(null);
+  };
+
+  const handleCancelSubscriptionSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (
+      !cancelSubscriptionForm.subscriptionId.trim() &&
+      !cancelSubscriptionForm.transactionId.trim()
+    ) {
+      toast({
+        title: 'Provide subscription context',
+        description: 'Enter a subscription ID or reference transaction ID.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const payload: Record<string, any> = {};
+
+    if (cancelSubscriptionForm.subscriptionId.trim()) {
+      const parsed = Number(cancelSubscriptionForm.subscriptionId.trim());
+      if (!Number.isFinite(parsed)) {
+        toast({
+          title: 'Invalid subscription ID',
+          description: 'Subscription ID must be numeric.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      payload.subscriptionId = parsed;
+    }
+
+    if (cancelSubscriptionForm.transactionId.trim()) {
+      payload.transactionId = cancelSubscriptionForm.transactionId.trim();
+    }
+
+    if (cancelSubscriptionForm.reason.trim()) {
+      payload.reason = cancelSubscriptionForm.reason.trim();
+    }
+
+    setCancelSubscriptionResult(null);
+    setCancelConfirmPayload({
+      payload,
+      subscriptionId: payload.subscriptionId,
+      transactionId: payload.transactionId,
+    });
+  };
+
+  const executeManualTransaction = () => {
+    if (!manualConfirmPayload) {
+      return;
+    }
+
+    manualTransactionMutation.mutate(manualConfirmPayload.payload, {
+      onSettled: () => setManualConfirmPayload(null),
+    });
+  };
+
+  const executeCancelSubscription = () => {
+    if (!cancelConfirmPayload) {
+      return;
+    }
+
+    cancelSubscriptionMutation.mutate(cancelConfirmPayload.payload, {
+      onSettled: () => setCancelConfirmPayload(null),
+    });
+  };
+
+  const handleHostedCheckoutRequest = () => {
+    const memberIdRaw = manualTransactionForm.memberId.trim();
+    if (!memberIdRaw) {
+      toast({
+        title: 'Member required',
+        description: 'Enter the member ID to launch hosted checkout.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const memberIdNumber = Number(memberIdRaw);
+    if (!Number.isFinite(memberIdNumber)) {
+      toast({
+        title: 'Invalid member ID',
+        description: 'Member ID must be numeric before opening hosted checkout.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const parsedAmount = parseFloat(manualTransactionForm.amount || '0');
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: 'Invalid amount',
+        description: 'Hosted checkout requires a positive USD amount.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!['CCE1', 'CCE2'].includes(manualTransactionForm.tranType)) {
+      toast({
+        title: 'Hosted checkout is for sales only',
+        description: 'Switch the transaction type to CCE1 or CCE2 to collect a new payment.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setHostedConfirmPayload({
+      memberId: memberIdNumber,
+      amount: parsedAmount,
+      description: manualTransactionForm.description.trim() || undefined,
+    });
+  };
+
+  const finalizeHostedCheckoutLaunch = async () => {
+    if (!hostedConfirmPayload) {
+      return;
+    }
+
+    try {
+      const response = await hostedMemberLookup.mutateAsync(hostedConfirmPayload.memberId);
+      if (!response?.success || !response?.member) {
+        throw new Error(response?.error || 'Member lookup failed');
+      }
+
+      if (!response.member.email) {
+        throw new Error('Member record is missing an email address required by hosted checkout.');
+      }
+
+      setHostedModalData({
+        member: response.member,
+        subscription: response.subscription,
+        amount: hostedConfirmPayload.amount,
+        description: hostedConfirmPayload.description,
+      });
+    } catch (error: any) {
+      console.error('[Admin] Hosted checkout launch failed', error);
+      toast({
+        title: 'Unable to load member',
+        description: error?.message || 'Verify the member ID and try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setHostedConfirmPayload(null);
+    }
+  };
+
+  const closeHostedModal = () => {
+    setHostedModalData(null);
   };
 
   if (authLoading || statsLoading) {
@@ -687,6 +920,19 @@ export default function Admin() {
               </div>
             </div>
 
+            <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+              <div className="flex gap-3">
+                <AlertTriangle className="h-5 w-5 mt-0.5" />
+                <div>
+                  <AlertTitle>Live EPX controls</AlertTitle>
+                  <AlertDescription>
+                    Charges, refunds, and voids are transmitted to EPX immediately. Double-check the member identifiers,
+                    dollar amount, and transaction type before continuing.
+                  </AlertDescription>
+                </div>
+              </div>
+            </Alert>
+
             <form className="space-y-4" onSubmit={handleManualTransactionSubmit}>
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
@@ -759,15 +1005,26 @@ export default function Admin() {
 
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <p className="text-sm text-gray-600">
-                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for all tran types.
+                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.
                 </p>
-                <Button
-                  type="submit"
-                  className="w-full md:w-auto"
-                  disabled={manualTransactionMutation.isPending}
-                >
-                  {manualTransactionMutation.isPending ? 'Submitting...' : 'Run Transaction'}
-                </Button>
+                <div className="flex flex-col gap-2 w-full md:w-auto md:flex-row">
+                  <Button
+                    type="submit"
+                    className="w-full md:w-auto"
+                    disabled={manualTransactionMutation.isPending}
+                  >
+                    {manualTransactionMutation.isPending ? 'Submitting...' : 'Run Transaction'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full md:w-auto"
+                    onClick={handleHostedCheckoutRequest}
+                    disabled={hostedMemberLookup.isPending || manualTransactionMutation.isPending}
+                  >
+                    {hostedMemberLookup.isPending ? 'Preparing Hosted Checkout...' : 'Launch Hosted Checkout'}
+                  </Button>
+                </div>
               </div>
             </form>
 
@@ -788,6 +1045,117 @@ export default function Admin() {
                   <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
                   <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
                     {JSON.stringify(manualTransactionResult.response || {}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Subscription Cancellation */}
+        <Card className="mb-8 border border-red-200 bg-white">
+          <CardContent className="p-6 space-y-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Membership Cancellation</h2>
+                <p className="text-sm text-gray-600">
+                  Cancel a recurring subscription directly from the admin dashboard. Hosted checkout remains available for new payments.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setCancelSubscriptionResult(null)}
+                  disabled={!cancelSubscriptionResult}
+                >
+                  Clear Result
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetCancelSubscriptionForm}
+                  disabled={cancelSubscriptionMutation.isPending}
+                >
+                  Reset Form
+                </Button>
+              </div>
+            </div>
+
+            <Alert variant="destructive" className="border-red-300 bg-red-50 text-red-900">
+              <div className="flex gap-3">
+                <AlertTriangle className="h-5 w-5 mt-0.5" />
+                <div>
+                  <AlertTitle>Heads up</AlertTitle>
+                  <AlertDescription>
+                    Canceling a subscription immediately halts future billing and notifies EPX. Confirm with the member before continuing.
+                    Pause functionality will be added next, but for now this action cannot be undone from the dashboard.
+                  </AlertDescription>
+                </div>
+              </div>
+            </Alert>
+
+            <form className="space-y-4" onSubmit={handleCancelSubscriptionSubmit}>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="cancel-subscription-id">Subscription ID</Label>
+                  <Input
+                    id="cancel-subscription-id"
+                    placeholder="Numeric subscription ID"
+                    value={cancelSubscriptionForm.subscriptionId}
+                    onChange={handleCancelFieldChange('subscriptionId')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cancel-transaction-id">Transaction ID</Label>
+                  <Input
+                    id="cancel-transaction-id"
+                    placeholder="Reference payment (optional)"
+                    value={cancelSubscriptionForm.transactionId}
+                    onChange={handleCancelFieldChange('transactionId')}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cancel-reason">Reason</Label>
+                  <Textarea
+                    id="cancel-reason"
+                    placeholder="Visible in audit logs"
+                    value={cancelSubscriptionForm.reason}
+                    onChange={handleCancelFieldChange('reason')}
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p className="text-sm text-gray-600">
+                  Provide either a subscription ID or a transaction ID that contains subscription metadata. Cancellations are sent directly to EPX.
+                </p>
+                <Button
+                  type="submit"
+                  className="w-full md:w-auto"
+                  disabled={cancelSubscriptionMutation.isPending}
+                >
+                  {cancelSubscriptionMutation.isPending ? 'Submitting...' : 'Submit Cancellation'}
+                </Button>
+              </div>
+            </form>
+
+            {cancelSubscriptionResult && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  Subscription ID: <span className="font-semibold">{cancelSubscriptionResult.subscriptionId || 'N/A'}</span>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
+                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                    {JSON.stringify(cancelSubscriptionResult.request || {}, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
+                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                    {JSON.stringify(cancelSubscriptionResult.response || cancelSubscriptionResult || {}, null, 2)}
                   </pre>
                 </div>
               </div>
@@ -1503,6 +1871,147 @@ export default function Admin() {
             queryClient.invalidateQueries({ queryKey: ['users'] });
           }}
         />
+
+        <AlertDialog open={!!manualConfirmPayload} onOpenChange={(open) => {
+          if (!open && !manualTransactionMutation.isPending) {
+            setManualConfirmPayload(null);
+          }
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm manual EPX transaction</AlertDialogTitle>
+              <AlertDialogDescription>
+                You're about to send a {getManualTranLabel(manualConfirmPayload?.tranType || '')} request for{' '}
+                <span className="font-semibold">${manualConfirmPayload?.amount?.toFixed(2) ?? '0.00'}</span>
+                {manualConfirmPayload?.memberId ? ` on member #${manualConfirmPayload.memberId}` : ''}. This will post directly to EPX.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={manualTransactionMutation.isPending}>
+                Never mind
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={executeManualTransaction}
+                disabled={manualTransactionMutation.isPending}
+              >
+                {manualTransactionMutation.isPending ? 'Sending...' : 'Send to EPX'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!cancelConfirmPayload} onOpenChange={(open) => {
+          if (!open && !cancelSubscriptionMutation.isPending) {
+            setCancelConfirmPayload(null);
+          }
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm membership cancellation</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will immediately halt the member's EPX subscription
+                {cancelConfirmPayload?.subscriptionId ? ` #${cancelConfirmPayload.subscriptionId}` : ''} and prevent future billing.
+                Make sure the member understands this change.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={cancelSubscriptionMutation.isPending}>
+                Keep Active
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={executeCancelSubscription}
+                disabled={cancelSubscriptionMutation.isPending}
+              >
+                {cancelSubscriptionMutation.isPending ? 'Submitting...' : 'Confirm Cancellation'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!hostedConfirmPayload} onOpenChange={(open) => {
+          if (!open && !hostedMemberLookup.isPending) {
+            setHostedConfirmPayload(null);
+          }
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Launch hosted checkout?</AlertDialogTitle>
+              <AlertDialogDescription>
+                We'll open a secure EPX window to collect{' '}
+                <span className="font-semibold">${hostedConfirmPayload?.amount?.toFixed(2) ?? '0.00'}</span>
+                {' '}from member #{hostedConfirmPayload?.memberId}. Continue only if the member is ready to provide card details.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={hostedMemberLookup.isPending}>
+                Not yet
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={finalizeHostedCheckoutLaunch}
+                disabled={hostedMemberLookup.isPending}
+              >
+                {hostedMemberLookup.isPending ? 'Preparing...' : 'Open Hosted Checkout'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {hostedModalData && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 py-8">
+            <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl">
+              <button
+                type="button"
+                aria-label="Close hosted checkout"
+                className="absolute right-4 top-4 text-gray-500 hover:text-gray-800"
+                onClick={closeHostedModal}
+              >
+                <X className="h-5 w-5" />
+              </button>
+              <div className="px-6 pt-6 pb-4 border-b border-gray-200">
+                <h3 className="text-xl font-semibold text-gray-900">EPX Hosted Checkout</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Collecting ${hostedModalData.amount.toFixed(2)} for {hostedModalData.member.firstName || hostedModalData.member.lastName ? `${hostedModalData.member.firstName || ''} ${hostedModalData.member.lastName || ''}`.trim() : `member #${hostedModalData.member.id}`}.
+                </p>
+                {hostedModalData.subscription?.planName && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Active plan: {hostedModalData.subscription.planName}
+                  </p>
+                )}
+              </div>
+              <div className="p-6">
+                <EPXHostedPayment
+                  amount={hostedModalData.amount}
+                  customerId={String(hostedModalData.member.id)}
+                  customerEmail={hostedModalData.member.email}
+                  customerName={`${hostedModalData.member.firstName || ''} ${hostedModalData.member.lastName || ''}`.trim() || hostedModalData.member.email}
+                  subscriptionId={hostedModalData.subscription?.id ? String(hostedModalData.subscription.id) : undefined}
+                  description={hostedModalData.description || 'Manual EPX payment from admin dashboard'}
+                  billingAddress={{
+                    streetAddress: hostedModalData.member.address || '',
+                    city: hostedModalData.member.city || '',
+                    state: hostedModalData.member.state || '',
+                    postalCode: hostedModalData.member.zipCode || '',
+                  }}
+                  redirectOnSuccess={false}
+                  onSuccess={(transactionId) => {
+                    toast({
+                      title: 'Hosted payment complete',
+                      description: `EPX accepted transaction ${transactionId}. Hosted window can be closed.`,
+                    });
+                    closeHostedModal();
+                  }}
+                  onError={(message) => {
+                    toast({
+                      title: 'Hosted payment error',
+                      description: message || 'See console for additional details.',
+                      variant: 'destructive',
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

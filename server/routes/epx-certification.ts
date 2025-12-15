@@ -10,13 +10,11 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed } from '../storage';
-import { submitServerPostRecurringPayment } from '../services/epx-payment-service';
+import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 
 const router = Router();
 
-const hasAdminPrivileges = (req: AuthRequest): boolean => {
-  return hasAtLeastRole(req.user?.role, 'admin');
-};
+const hasSuperAdminPrivileges = (req: AuthRequest): boolean => req.user?.role === 'super_admin';
 
 const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE2', 'V', 'R'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
@@ -42,6 +40,38 @@ const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null
 
   const normalized = aliasMap[upper] || (upper as SupportedTranType);
   return isSupportedTranType(normalized) ? normalized : null;
+};
+
+const toNumber = (value: unknown): number | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseMetadata = (metadata: unknown): Record<string, any> | null => {
+  if (!metadata) return null;
+  if (typeof metadata === 'object') return metadata as Record<string, any>;
+  if (typeof metadata === 'string') {
+    try {
+      return JSON.parse(metadata);
+    } catch (error) {
+      console.warn('[EPX Certification] Failed to parse payment metadata JSON', error);
+      return null;
+    }
+  }
+  return null;
+};
+
+const extractSubscriptionIdFromPayment = (payment: any): number | undefined => {
+  if (!payment) return undefined;
+  const direct = toNumber(payment.subscription_id ?? payment.subscriptionId);
+  if (direct) return direct;
+
+  const metadata = parseMetadata(payment.metadata);
+  if (!metadata) return undefined;
+  return toNumber(metadata.subscriptionId ?? metadata.subscription_id);
 };
 
 const sanitizeFilename = (value?: string): string => {
@@ -203,9 +233,86 @@ const executeServerPostAction = async (
   }
 };
 
+const handleSubscriptionCancellation = async (
+  req: AuthRequest,
+  res: Response,
+  source: 'epx-certification' | 'admin-dashboard'
+) => {
+  try {
+    const { subscriptionId, transactionId, reason } = req.body || {};
+    let resolvedSubscriptionId = toNumber(subscriptionId);
+    let paymentRecord: any | undefined;
+
+    if (!resolvedSubscriptionId && transactionId) {
+      paymentRecord = await storage.getPaymentByTransactionId(transactionId);
+      resolvedSubscriptionId = extractSubscriptionIdFromPayment(paymentRecord);
+    }
+
+    if (!resolvedSubscriptionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provide a subscriptionId or reference a payment with subscription metadata.'
+      });
+    }
+
+    const epxService = getEPXService();
+    const cancelResult = await epxService.cancelSubscription(resolvedSubscriptionId);
+    const endpointPath = source === 'admin-dashboard'
+      ? '/api/admin/payments/cancel-subscription'
+      : '/api/epx/certification/cancel-subscription';
+
+    certificationLogger.logCertificationEntry({
+      purpose: 'subscription-cancel',
+      transactionId: transactionId || paymentRecord?.transaction_id,
+      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      amount: paymentRecord?.amount ? Number(paymentRecord.amount) : undefined,
+      customerId: paymentRecord?.member_id ? String(paymentRecord.member_id) : undefined,
+      metadata: {
+        subscriptionId: resolvedSubscriptionId,
+        paymentId: paymentRecord?.id || null,
+        initiatedBy: req.user?.email,
+        reason: reason || null,
+        toolkit: source,
+      },
+      request: {
+        timestamp: new Date().toISOString(),
+        method: 'POST',
+        endpoint: endpointPath,
+        headers: req.headers as Record<string, any>,
+        body: {
+          subscriptionId: resolvedSubscriptionId,
+          transactionId,
+          reason,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent') || undefined,
+      },
+      response: {
+        statusCode: cancelResult.success ? 200 : 502,
+        headers: { 'content-type': 'application/json' },
+        body: cancelResult,
+      },
+    });
+
+    return res.status(cancelResult.success ? 200 : 502).json({
+      success: cancelResult.success,
+      subscriptionId: resolvedSubscriptionId,
+      paymentId: paymentRecord?.id || null,
+      response: cancelResult.data,
+      error: cancelResult.error,
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Cancel subscription failed', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to cancel subscription',
+    });
+  }
+};
+
 router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const limitParam = parseInt((req.query.limit as string) || '25', 10);
@@ -222,8 +329,8 @@ router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, 
 });
 
 router.get('/api/epx/certification/callbacks', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const limitParam = parseInt((req.query.limit as string) || '50', 10);
@@ -244,8 +351,8 @@ router.get('/api/epx/certification/callbacks', authenticateToken, (req: AuthRequ
 });
 
 router.get('/api/epx/certification/payments', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const limitParam = parseInt((req.query.limit as string) || '25', 10);
@@ -288,8 +395,8 @@ router.get('/api/epx/certification/payments', authenticateToken, async (req: Aut
 });
 
 router.get('/api/epx/certification/report', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const report = certificationLogger.generateCertificationReport();
@@ -303,8 +410,8 @@ router.get('/api/epx/certification/report', authenticateToken, (req: AuthRequest
 });
 
 router.post('/api/epx/certification/export', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const providedName = sanitizeFilename(req.body?.filename);
@@ -339,17 +446,33 @@ router.post('/api/epx/certification/export', authenticateToken, (req: AuthReques
 });
 
 router.post('/api/epx/certification/server-post', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'epx-certification');
   return res.status(result.status).json(result.body);
 });
 
+router.post('/api/epx/certification/cancel-subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
+  }
+
+  return handleSubscriptionCancellation(req, res, 'epx-certification');
+});
+
+router.post('/api/admin/payments/cancel-subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
+  }
+
+  return handleSubscriptionCancellation(req, res, 'admin-dashboard');
+});
+
 router.post('/api/admin/payments/manual-transaction', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Admin access required' });
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
   }
 
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'admin-dashboard');

@@ -5,6 +5,41 @@ import { hasAtLeastRole } from '../auth/roles';
 
 const router = Router();
 
+const mapMemberRecord = (row: Record<string, any>) => ({
+  id: row.id,
+  firstName: row.first_name,
+  lastName: row.last_name,
+  email: row.email,
+  phone: row.phone,
+  address: row.address,
+  address2: row.address2,
+  city: row.city,
+  state: row.state,
+  zipCode: row.zip_code,
+  customerNumber: row.customer_number,
+  planId: row.plan_id,
+  planStartDate: row.plan_start_date,
+  membershipStartDate: row.membership_start_date,
+  totalMonthlyPrice: row.total_monthly_price,
+  status: row.status,
+  isActive: row.is_active,
+  cancellationDate: row.cancellation_date,
+  cancellationReason: row.cancellation_reason,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapSubscriptionRecord = (row: Record<string, any>) => ({
+  id: row.id,
+  planId: row.plan_id,
+  planName: row.plan_name,
+  status: row.status,
+  startDate: row.start_date,
+  nextBillingDate: row.next_billing_date,
+  cancellationDate: row.cancellation_date,
+  createdAt: row.created_at,
+});
+
 /**
  * Get statistics for all database tables
  */
@@ -118,6 +153,50 @@ router.get('/api/admin/database/:table', authenticateToken, async (req: AuthRequ
       success: false,
       error: error.message || 'Failed to fetch table data',
     });
+  }
+});
+
+router.get('/api/admin/members/:memberId', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!hasAtLeastRole(req.user?.role, 'admin')) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  const memberId = parseInt(req.params.memberId, 10);
+  if (!Number.isFinite(memberId)) {
+    return res.status(400).json({ success: false, error: 'Member ID must be numeric' });
+  }
+
+  try {
+    const memberResult = await neonPool.query(
+      `SELECT id, first_name, last_name, email, phone, address, address2, city, state, zip_code,
+              customer_number, plan_id, plan_start_date, membership_start_date, total_monthly_price,
+              status, is_active, cancellation_date, cancellation_reason, created_at, updated_at
+       FROM members WHERE id = $1 LIMIT 1`,
+      [memberId]
+    );
+
+    if (memberResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const subscriptionResult = await neonPool.query(
+      `SELECT id, plan_id, plan_name, status, start_date, next_billing_date,
+              cancellation_date, created_at
+       FROM subscriptions
+       WHERE member_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [memberId]
+    );
+
+    return res.json({
+      success: true,
+      member: mapMemberRecord(memberResult.rows[0]),
+      subscription: subscriptionResult.rows[0] ? mapSubscriptionRecord(subscriptionResult.rows[0]) : null,
+    });
+  } catch (error: any) {
+    console.error('[Admin Database] Failed to load member', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Unable to load member' });
   }
 });
 

@@ -34,6 +34,7 @@ interface EPXHostedPaymentProps {
   };
   onSuccess?: (transactionId: string) => void;
   onError?: (error: string) => void;
+  redirectOnSuccess?: boolean;
 }
 
 declare global {
@@ -55,7 +56,8 @@ export default function EPXHostedPayment({
   description,
   billingAddress = {},
   onSuccess,
-  onError
+  onError,
+  redirectOnSuccess = true
 }: EPXHostedPaymentProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -303,22 +305,24 @@ export default function EPXHostedPayment({
         onSuccess(sessionData.transactionId);
       }
 
-      // Redirect to confirmation page with transaction details
-      // Include planId so confirmation can show plan details even if sessionStorage cleared
-      setTimeout(() => {
-        const transactionId = sessionData?.transactionId || 'unknown';
-        const params = new URLSearchParams({
-          transaction: transactionId,
-          amount: amount.toFixed(2)
-        });
-        
-        // Add planId if available (won't affect EPX - this is our internal redirect)
-        if (planId) {
-          params.append('planId', planId);
-        }
-        
-        window.location.href = `/confirmation?${params.toString()}`;
-      }, 2000);
+      if (redirectOnSuccess !== false) {
+        // Redirect to confirmation page with transaction details
+        // Include planId so confirmation can show plan details even if sessionStorage cleared
+        setTimeout(() => {
+          const transactionId = sessionData?.transactionId || 'unknown';
+          const params = new URLSearchParams({
+            transaction: transactionId,
+            amount: amount.toFixed(2)
+          });
+          
+          // Add planId if available (won't affect EPX - this is our internal redirect)
+          if (planId) {
+            params.append('planId', planId);
+          }
+          
+          window.location.href = `/confirmation?${params.toString()}`;
+        }, 2000);
+      }
     };
 
     // Failure callback
