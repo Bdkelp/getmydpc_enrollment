@@ -300,34 +300,92 @@ export default function EPXHostedPayment({
   // Setup callback functions
   useEffect(() => {
     // Success callback
-    window.epxSuccessCallback = (msg: string) => {
-      console.log('[EPX Hosted] Payment success:', msg);
-      toast({
-        title: "Payment Successful",
-        description: "Your payment has been processed successfully."
-      });
-      
-      if (sessionData?.transactionId && onSuccess) {
-        onSuccess(sessionData.transactionId);
+    window.epxSuccessCallback = async (msg: string) => {
+      console.log('[EPX Hosted] Payment success payload:', msg);
+      setError(null);
+
+      const parsedMessage = parseHostedMessage(msg);
+      const tokenFromPayload = extractPaymentToken(parsedMessage);
+      const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
+      const effectiveTempId = tempRegistrationId || sessionStorage.getItem('tempRegistrationId') || null;
+      const effectiveRegistration = registrationData || (() => {
+        try {
+          const stored = sessionStorage.getItem('registrationData');
+          return stored ? JSON.parse(stored) : null;
+        } catch (storageError) {
+          console.warn('[EPX Hosted] Unable to parse stored registration data after payment', storageError);
+          return null;
+        }
+      })();
+
+      if (!tokenFromPayload) {
+        console.error('[EPX Hosted] Missing BRIC token in success payload');
+        setError('Payment succeeded, but no billing token was returned. Please contact support.');
+        toast({
+          title: 'Payment Received – Action Needed',
+          description: 'Payment succeeded, but we could not finalize enrollment automatically. Please contact support.',
+          variant: 'destructive'
+        });
+        return;
       }
 
-      if (redirectOnSuccess !== false) {
-        // Redirect to confirmation page with transaction details
-        // Include planId so confirmation can show plan details even if sessionStorage cleared
-        setTimeout(() => {
-          const transactionId = sessionData?.transactionId || 'unknown';
-          const params = new URLSearchParams({
-            transaction: transactionId,
-            amount: amount.toFixed(2)
-          });
-          
-          // Add planId if available (won't affect EPX - this is our internal redirect)
-          if (planId) {
-            params.append('planId', planId);
-          }
-          
-          window.location.href = `/confirmation?${params.toString()}`;
-        }, 2000);
+      if (!transactionFromPayload) {
+        console.error('[EPX Hosted] Missing transaction/order number in success payload');
+        setError('Payment succeeded, but transaction details were missing. Please contact support.');
+        return;
+      }
+
+      setIsLoading(true);
+
+      try {
+        await apiClient.post('/api/epx/hosted/complete', {
+          transactionId: transactionFromPayload,
+          paymentToken: tokenFromPayload,
+          paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
+          tempRegistrationId: effectiveTempId,
+          registrationData: effectiveRegistration,
+          authGuid: extractAuthGuid(parsedMessage),
+          authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
+          amount: parsedMessage.amount || amount
+        });
+
+        sessionStorage.removeItem('registrationData');
+        sessionStorage.removeItem('tempRegistrationId');
+        sessionStorage.removeItem('paymentAttempts');
+
+        toast({
+          title: 'Payment Successful',
+          description: 'Enrollment finalized successfully.'
+        });
+
+        if (sessionData?.transactionId && onSuccess) {
+          onSuccess(sessionData.transactionId);
+        }
+
+        if (redirectOnSuccess !== false) {
+          setTimeout(() => {
+            const transactionId = transactionFromPayload || sessionData?.transactionId || 'unknown';
+            const params = new URLSearchParams({
+              transaction: transactionId,
+              amount: amount.toFixed(2)
+            });
+            if (planId) {
+              params.append('planId', planId);
+            }
+            window.location.href = `/confirmation?${params.toString()}`;
+          }, 1500);
+        }
+      } catch (completionError: any) {
+        console.error('[EPX Hosted] Failed to finalize enrollment after payment', completionError);
+        const message = completionError?.message || 'Payment succeeded, but we could not finalize enrollment. Please try again or contact support.';
+        setError(message);
+        toast({
+          title: 'Finalize Failed',
+          description: message,
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -604,4 +662,64 @@ export default function EPXHostedPayment({
       </CardContent>
     </Card>
   );
+}
+
+const EPX_GUID_CANDIDATES = [
+  'AUTH_GUID',
+  'authGuid',
+  'ORIG_AUTH_GUID',
+  'origAuthGuid',
+  'ORIG_AUTH',
+  'origAuth'
+];
+
+const EPX_TOKEN_CANDIDATES = ['GUID', 'paymentToken', 'token'];
+
+function parseHostedMessage(message: string): Record<string, any> {
+  if (!message) {
+    return {};
+  }
+
+  if (typeof message === 'object') {
+    return message as Record<string, any>;
+  }
+
+  try {
+    return JSON.parse(message);
+  } catch (jsonError) {
+    try {
+      const params = new URLSearchParams(message);
+      const parsed: Record<string, any> = {};
+      params.forEach((value, key) => {
+        parsed[key] = value;
+      });
+      if (Object.keys(parsed).length > 0) {
+        return parsed;
+      }
+    } catch (paramError) {
+      // Ignore parsing failure – fall through to raw message
+    }
+  }
+
+  return { rawMessage: message };
+}
+
+function extractCandidate(payload: Record<string, any>, candidates: string[]): string | undefined {
+  for (const key of candidates) {
+    if (payload[key]) {
+      return payload[key];
+    }
+    if (payload.result && payload.result[key]) {
+      return payload.result[key];
+    }
+  }
+  return undefined;
+}
+
+function extractAuthGuid(payload: Record<string, any>): string | undefined {
+  return extractCandidate(payload, EPX_GUID_CANDIDATES);
+}
+
+function extractPaymentToken(payload: Record<string, any>): string | undefined {
+  return extractCandidate(payload, EPX_TOKEN_CANDIDATES);
 }

@@ -512,6 +512,120 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 });
 
 /**
+ * Frontend-triggered completion when EPX hosted checkout returns success
+ * This replaces the never-fired server callback by running finalize-registration directly.
+ */
+router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
+  try {
+    const {
+      transactionId,
+      paymentToken,
+      paymentMethodType = 'CreditCard',
+      tempRegistrationId,
+      registrationData,
+      authGuid,
+      authCode,
+      amount
+    } = req.body || {};
+
+    if (!transactionId || !paymentToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'transactionId and paymentToken are required'
+      });
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'hosted-complete',
+      message: 'Finalize requested from frontend',
+      data: {
+        transactionId,
+        tempRegistrationId,
+        hasRegistration: Boolean(registrationData)
+      }
+    });
+
+    const persistResult = await persistHostedPaymentUpdate({
+      epxTransactionId: transactionId,
+      authGuid,
+      authCode,
+      amount,
+      tempRegistrationId,
+      bricTokenPresent: true,
+      paymentStatus: 'succeeded'
+    });
+
+    const finalizePayload = {
+      registrationData,
+      paymentToken,
+      paymentMethodType,
+      transactionId,
+      tempRegistrationId
+    };
+
+    const inferredHost = req.get('host');
+    const fallbackBase = inferredHost ? `${req.protocol}://${inferredHost}` : 'http://127.0.0.1';
+    const finalizeBaseUrl = process.env.API_BASE_URL || fallbackBase;
+    const finalizeUrl = `${finalizeBaseUrl.replace(/\/$/, '')}/api/finalize-registration`;
+
+    const finalizeResponse = await fetch(finalizeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(finalizePayload)
+    });
+
+    const finalizeData = await finalizeResponse.json().catch(() => ({}));
+
+    if (!finalizeResponse.ok) {
+      logEPX({
+        level: 'error',
+        phase: 'hosted-complete',
+        message: 'Finalize registration failed via frontend flow',
+        data: { transactionId, error: finalizeData }
+      });
+      return res.status(finalizeResponse.status).json({
+        success: false,
+        error: finalizeData?.error || finalizeData?.message || 'Failed to finalize registration'
+      });
+    }
+
+    if (persistResult.paymentRecord && finalizeData?.member?.id) {
+      try {
+        await storage.updatePayment(persistResult.paymentRecord.id, {
+          memberId: finalizeData.member.id
+        });
+      } catch (updateError: any) {
+        logEPX({
+          level: 'warn',
+          phase: 'hosted-complete',
+          message: 'Failed to attach member to payment after frontend finalize',
+          data: { paymentId: persistResult.paymentRecord.id, error: updateError?.message }
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      member: finalizeData.member,
+      subscription: finalizeData.subscription || null,
+      paymentId: persistResult.paymentRecord?.id || null
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'hosted-complete',
+      message: 'Unhandled error finalizing hosted payment from frontend',
+      data: { error: error?.message }
+    });
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to complete hosted payment'
+    });
+  }
+});
+
+/**
  * Handle success callback from EPX
  */
 router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
