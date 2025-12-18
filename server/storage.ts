@@ -1,5 +1,6 @@
 import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
+import { normalizeRole } from './auth/roles';
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
@@ -278,7 +279,11 @@ export async function createUser(userData: Partial<User>): Promise<User> {
     let agentNumber = userData.agentNumber;
     // Users table should ONLY have 'admin' or 'agent' roles - default to 'agent'
     // Never set 'member' here - members are in separate members table
-    const role = userData.role || 'agent';
+    const normalizedRole = normalizeRole(userData.role);
+    if (!normalizedRole && userData.role) {
+      console.warn(`[Storage] Unexpected role "${userData.role}" provided during createUser - defaulting to agent`);
+    }
+    const role = normalizedRole || 'agent';
     
     // Generate agent number if SSN is available
     if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
@@ -386,11 +391,11 @@ function mapUserFromDB(data: any): User | null {
   // Users table should contain 'super_admin', 'admin', and 'agent' roles
   // Legacy 'user' or 'member' should never appear here - they belong in members table
   // If somehow a null role is found, default to 'agent' (most common)
-  const normalizedRole = data.role || 'agent';
-  
-  if (!['super_admin', 'admin', 'agent'].includes(normalizedRole)) {
-    console.warn(`[Storage] Unexpected role "${normalizedRole}" in users table for ${data.email} - defaulting to agent`);
+  const normalizedRole = normalizeRole(data.role);
+  if (!normalizedRole && data.role) {
+    console.warn(`[Storage] Unexpected role "${data.role}" in users table for ${data.email} - defaulting to agent`);
   }
+  const roleValue = normalizedRole || 'agent';
 
   return {
     // The Supabase users table doesn't have an id column - use email as identifier
@@ -410,7 +415,7 @@ function mapUserFromDB(data: any): User | null {
     zipCode: data.zip_code || data.zipCode,
     emergencyContactName: data.emergency_contact_name || data.emergencyContactName,
     emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
-    role: normalizedRole,
+    role: roleValue,
     agentNumber: data.agent_number || data.agentNumber,
     isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
     approvalStatus: data.approval_status || data.approvalStatus || 'approved',

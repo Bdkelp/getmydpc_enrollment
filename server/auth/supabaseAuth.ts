@@ -116,7 +116,7 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
   }
 };
 
-function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "member" {
+function determineUserRole(email: string): "super_admin" | "admin" | "agent" {
   // Super admin
   if (email === 'michael@mypremierplans.com') {
     return "super_admin";
@@ -141,6 +141,6 @@ function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "
 
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
-  return "member";
+  return "agent";
 }
 

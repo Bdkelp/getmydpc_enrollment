@@ -1223,7 +1223,7 @@ router.post("/api/auth/resend-verification", async (req, res) => {
 });
 
 // Helper function to determine user role
-function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "member" {
+function determineUserRole(email: string): "super_admin" | "admin" | "agent" {
   // Super Admin - full platform access
   if (email === "michael@mypremierplans.com") {
     return "super_admin";
@@ -1246,8 +1246,7 @@ function determineUserRole(email: string): "super_admin" | "admin" | "agent" | "
 
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
-  // NOTE: 'member' should NEVER be in users table - members are enrolled customers in separate members table
-  // Anyone signing up through normal flow defaults to 'agent' role
+  // NOTE: Users table defaults to 'agent' for unknown emails; members live in members table
   return "agent";
 }
 

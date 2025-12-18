@@ -617,7 +617,7 @@ function determineUserRole(email: string): string {
     return 'agent';
   }
   
-  return 'user';
+  return 'agent';
 }
 
 export default router;
