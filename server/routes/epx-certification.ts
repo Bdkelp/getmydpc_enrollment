@@ -11,6 +11,7 @@ import { hasAtLeastRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
+import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 
 const router = Router();
 
@@ -50,26 +51,12 @@ const toNumber = (value: unknown): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
-const parseMetadata = (metadata: unknown): Record<string, any> | null => {
-  if (!metadata) return null;
-  if (typeof metadata === 'object') return metadata as Record<string, any>;
-  if (typeof metadata === 'string') {
-    try {
-      return JSON.parse(metadata);
-    } catch (error) {
-      console.warn('[EPX Certification] Failed to parse payment metadata JSON', error);
-      return null;
-    }
-  }
-  return null;
-};
-
 const extractSubscriptionIdFromPayment = (payment: any): number | undefined => {
   if (!payment) return undefined;
   const direct = toNumber(payment.subscription_id ?? payment.subscriptionId);
   if (direct) return direct;
 
-  const metadata = parseMetadata(payment.metadata);
+  const metadata = parsePaymentMetadata(payment.metadata);
   if (!metadata) return undefined;
   return toNumber(metadata.subscriptionId ?? metadata.subscription_id);
 };
@@ -193,6 +180,20 @@ const executeServerPostAction = async (
       }
     });
 
+    if (paymentRecord) {
+      await persistServerPostResult({
+        paymentRecord,
+        tranType: resolvedTranType,
+        amount: resolvedAmount,
+        initiatedBy,
+        requestFields: response.requestFields,
+        responseFields: response.responseFields,
+        transactionReference: response.requestFields?.TRAN_NBR || paymentRecord.transaction_id || transactionId || null,
+        authGuidUsed: resolvedAuthGuid,
+        metadataSource: source
+      });
+    }
+
     return {
       status: response.success ? 200 : 502,
       body: {
@@ -205,9 +206,7 @@ const executeServerPostAction = async (
               memberId: paymentRecord.member_id,
               transactionId: paymentRecord.transaction_id,
               amount: paymentRecord.amount,
-              epxAuthGuidMasked: paymentRecord.epx_auth_guid
-                ? `${paymentRecord.epx_auth_guid.slice(0, 4)}****${paymentRecord.epx_auth_guid.slice(-4)}`
-                : null
+              epxAuthGuidMasked: maskAuthGuidValue(paymentRecord.epx_auth_guid)
             }
           : null,
         request: {

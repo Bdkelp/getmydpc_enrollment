@@ -15,6 +15,7 @@ import { verifyRecaptcha, isRecaptchaEnabled } from '../utils/recaptcha';
 import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
 import { submitServerPostRecurringPayment } from '../services/epx-payment-service';
 import { certificationLogger } from '../services/certification-logger';
+import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -41,6 +42,153 @@ type BillingAddress = {
 };
 
 type PaymentRecord = ReturnType<typeof storage.getPaymentByTransactionId> extends Promise<infer T> ? T : never;
+
+type HostedCallbackMetadata = {
+  status?: string | null;
+  amount?: string | number | null;
+  message?: string | null;
+  authGuidMasked?: string | null;
+  updatedAt?: string;
+  hasBricToken?: boolean;
+} & Record<string, any>;
+
+type HostedPaymentUpdateOptions = {
+  epxTransactionId?: string | null;
+  fallbackOrderNumber?: string | null;
+  authGuid?: string | null;
+  authCode?: string | null;
+  amount?: number | string | null;
+  callbackStatus?: string | null;
+  callbackMessage?: string | null;
+  memberId?: number | null;
+  tempRegistrationId?: string | null;
+  bricTokenPresent?: boolean;
+  paymentStatus?: string;
+}
+
+async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
+  const {
+    epxTransactionId,
+    fallbackOrderNumber,
+    authGuid,
+    authCode,
+    amount,
+    callbackStatus,
+    callbackMessage,
+    memberId,
+    tempRegistrationId,
+    bricTokenPresent,
+    paymentStatus = 'succeeded'
+  } = options;
+
+  if (!epxTransactionId && !fallbackOrderNumber) {
+    return { paymentRecord: null as PaymentRecord | null, maskedAuthGuid: null as string | null };
+  }
+
+  let paymentRecord: PaymentRecord | undefined;
+
+  if (epxTransactionId) {
+    paymentRecord = await storage.getPaymentByTransactionId(epxTransactionId);
+  }
+
+  if (!paymentRecord && fallbackOrderNumber) {
+    paymentRecord = await storage.getPaymentByTransactionId(fallbackOrderNumber);
+  }
+
+  if (!paymentRecord) {
+    logEPX({
+      level: 'warn',
+      phase: 'callback',
+      message: 'Unable to locate payment record for hosted callback',
+      data: { epxTransactionId, fallbackOrderNumber }
+    });
+    return { paymentRecord: null as PaymentRecord | null, maskedAuthGuid: null as string | null };
+  }
+
+  const metadataBase = parsePaymentMetadata(paymentRecord.metadata);
+  const existingHostedMeta: HostedCallbackMetadata = typeof metadataBase.hostedCallback === 'object' && metadataBase.hostedCallback
+    ? { ...metadataBase.hostedCallback }
+    : {};
+
+  const maskedAuthGuid = authGuid ? maskAuthGuidValue(authGuid) : (existingHostedMeta.authGuidMasked || null);
+
+  const hostedCallbackMetadata: HostedCallbackMetadata = {
+    ...existingHostedMeta,
+    status: callbackStatus ?? existingHostedMeta.status ?? null,
+    amount: amount ?? existingHostedMeta.amount ?? null,
+    message: callbackMessage ?? existingHostedMeta.message ?? null,
+    authGuidMasked: maskedAuthGuid,
+    updatedAt: new Date().toISOString(),
+    hasBricToken: typeof bricTokenPresent === 'boolean'
+      ? bricTokenPresent
+      : existingHostedMeta.hasBricToken
+  };
+
+  const updatedMetadata: Record<string, any> = { ...metadataBase };
+
+  if (!updatedMetadata.orderNumber && (fallbackOrderNumber || paymentRecord.transaction_id)) {
+    updatedMetadata.orderNumber = fallbackOrderNumber || paymentRecord.transaction_id;
+  }
+
+  if (!updatedMetadata.epxTransactionId && (epxTransactionId || paymentRecord.transaction_id)) {
+    updatedMetadata.epxTransactionId = epxTransactionId || paymentRecord.transaction_id;
+  }
+
+  if (tempRegistrationId) {
+    updatedMetadata.tempRegistrationId = tempRegistrationId;
+  }
+
+  updatedMetadata.hostedCallback = hostedCallbackMetadata;
+
+  const normalizedTransactionId = epxTransactionId || paymentRecord.transaction_id || fallbackOrderNumber || null;
+  const updatePayload: Record<string, any> = {
+    metadata: updatedMetadata,
+    status: paymentStatus
+  };
+
+  if (authCode) {
+    updatePayload.authorizationCode = authCode;
+  }
+
+  if (normalizedTransactionId) {
+    updatePayload.transactionId = normalizedTransactionId;
+  }
+
+  if (typeof memberId === 'number') {
+    updatePayload.memberId = memberId;
+  }
+
+  if (authGuid) {
+    updatePayload.epxAuthGuid = authGuid;
+  }
+
+  try {
+    await storage.updatePayment(paymentRecord.id, updatePayload);
+    logEPX({
+      level: 'info',
+      phase: 'callback',
+      message: 'Payment record updated from hosted callback',
+      data: {
+        paymentId: paymentRecord.id,
+        transactionId: normalizedTransactionId,
+        hasAuthGuid: !!authGuid
+      }
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'callback',
+      message: 'Failed to persist hosted payment update',
+      data: {
+        error: error?.message,
+        paymentId: paymentRecord.id,
+        transactionId: normalizedTransactionId
+      }
+    });
+  }
+
+  return { paymentRecord, maskedAuthGuid };
+}
 
 function loadHostedConfig(): EPXHostedCheckoutConfig {
   const envConfig: Partial<EPXHostedCheckoutConfig> = {
@@ -427,6 +575,34 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
     });
 
+    const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
+    const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
+    const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
+    let paymentRecordForLogging: PaymentRecord | null = null;
+    let maskedAuthGuid: string | null = null;
+
+    if (result.isApproved) {
+      const persistResult = await persistHostedPaymentUpdate({
+        epxTransactionId,
+        fallbackOrderNumber,
+        authGuid,
+        authCode: result.authCode,
+        amount: result.amount,
+        callbackStatus: req.body?.status || null,
+        callbackMessage: req.body?.message || null,
+        tempRegistrationId: req.body?.tempRegistrationId,
+        bricTokenPresent: Boolean(result.bricToken),
+        paymentStatus: 'succeeded'
+      });
+
+      paymentRecordForLogging = persistResult.paymentRecord;
+      maskedAuthGuid = persistResult.maskedAuthGuid;
+
+      if (!authGuid) {
+        logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
+      }
+    }
+
     // === PAYMENT-FIRST FLOW ===
     // Payment approved - create member record now
     if (result.isApproved && req.body.registrationData && result.bricToken) {
@@ -475,78 +651,20 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         const finalizeData = await finalizeResponse.json();
         logEPX({ level: 'info', phase: 'callback', message: 'Member created successfully', data: { memberId: finalizeData.member?.id, transactionId: result.transactionId } });
 
-        // Persist EPX auth GUID + authorization details on payment record for future Server Post use
-        const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
-        if (!authGuid) {
-          logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
-        }
-        const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
-        const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
-        let paymentRecordForLogging: PaymentRecord | null = null;
-        const maskedAuthGuid = authGuid ? `${authGuid.slice(0, 4)}***${authGuid.slice(-4)}` : null;
-
-        if (epxTransactionId || fallbackOrderNumber) {
+        if (paymentRecordForLogging && finalizeData.member?.id) {
           try {
-            let paymentRecord = epxTransactionId
-              ? await storage.getPaymentByTransactionId(epxTransactionId)
-              : undefined;
-
-            if (!paymentRecord && fallbackOrderNumber) {
-              paymentRecord = await storage.getPaymentByTransactionId(fallbackOrderNumber);
-            }
-
-            if (paymentRecord) {
-              paymentRecordForLogging = paymentRecord;
-              const finalizedMemberId = finalizeData.member?.id ?? paymentRecord.member_id ?? null;
-              const metadataBase = (typeof paymentRecord.metadata === 'object' && paymentRecord.metadata)
-                ? paymentRecord.metadata as Record<string, any>
-                : {};
-              const updatedMetadata = {
-                ...metadataBase,
-                orderNumber: metadataBase.orderNumber || fallbackOrderNumber || paymentRecord.transaction_id || null,
-                epxTransactionId: epxTransactionId || metadataBase.epxTransactionId || null,
-                hostedCallback: {
-                  status: req.body?.status,
-                  amount: req.body?.amount,
-                  message: req.body?.message,
-                  authGuidMasked: maskedAuthGuid || undefined,
-                }
-              };
-
-              await storage.updatePayment(paymentRecord.id, {
-                status: 'succeeded',
-                authorizationCode: result.authCode,
-                transactionId: epxTransactionId || paymentRecord.transaction_id || fallbackOrderNumber || null,
-                metadata: updatedMetadata,
-                memberId: finalizedMemberId,
-                epxAuthGuid: authGuid || paymentRecord.epxAuthGuid || null,
-              });
-
-              logEPX({
-                level: 'info',
-                phase: 'callback',
-                message: 'Payment record updated with EPX auth GUID',
-                data: {
-                  paymentId: paymentRecord.id,
-                  epxTransactionId,
-                  fallbackOrderNumber,
-                  hasAuthGuid: !!authGuid,
-                }
-              });
-            } else {
-              logEPX({
-                level: 'warn',
-                phase: 'callback',
-                message: 'Payment record not found for transaction ID',
-                data: { epxTransactionId, fallbackOrderNumber }
-              });
-            }
-          } catch (paymentUpdateError: any) {
+            await storage.updatePayment(paymentRecordForLogging.id, {
+              memberId: finalizeData.member.id
+            });
+          } catch (memberUpdateError: any) {
             logEPX({
               level: 'error',
               phase: 'callback',
-              message: 'Failed to update payment record with auth GUID',
-              data: { epxTransactionId, fallbackOrderNumber, error: paymentUpdateError.message }
+              message: 'Failed to attach member to payment record',
+              data: {
+                paymentId: paymentRecordForLogging.id,
+                error: memberUpdateError?.message
+              }
             });
           }
         }
@@ -606,6 +724,60 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
     }
 
+    if (result.isApproved) {
+      logEPX({
+        level: 'info',
+        phase: 'callback',
+        message: 'Payment approved without registration payload',
+        data: {
+          transactionId: result.transactionId,
+          hasRegistrationData: Boolean(req.body?.registrationData),
+          hasBricToken: Boolean(result.bricToken)
+        }
+      });
+
+      const successPayload = {
+        success: true,
+        transactionId: result.transactionId,
+        authCode: result.authCode,
+        amount: result.amount,
+        registrationDataReceived: Boolean(req.body?.registrationData),
+        paymentId: paymentRecordForLogging?.id || null,
+        memberId: paymentRecordForLogging?.member_id || null
+      };
+
+      if (certificationLoggingEnabled) {
+        certificationLogger.logCertificationEntry({
+          purpose: 'hosted-callback-success-manual',
+          transactionId: result.transactionId,
+          amount: result.amount,
+          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          metadata: {
+            hasAuthGuid: !!authGuid,
+            paymentId: paymentRecordForLogging?.id,
+            authGuidMasked: maskedAuthGuid,
+            registrationDataProvided: Boolean(req.body?.registrationData)
+          },
+          request: {
+            timestamp: new Date().toISOString(),
+            method: 'POST',
+            endpoint: '/api/epx/hosted/callback',
+            headers: req.headers as Record<string, any>,
+            body: req.body,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') || undefined
+          },
+          response: {
+            statusCode: 200,
+            headers: { 'content-type': 'application/json' },
+            body: successPayload
+          }
+        });
+      }
+
+      return res.json(successPayload);
+    }
+
     // === PAYMENT DECLINED ===
     if (!result.isApproved) {
       logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error, transactionId: result.transactionId } });
@@ -653,33 +825,6 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       return res.json(declinePayload);
     }
 
-    // Missing registration data - cannot process
-    logEPX({ level: 'error', phase: 'callback', message: 'Missing registration data or BRIC token', data: { transactionId: result.transactionId } });
-    if (certificationLoggingEnabled) {
-      certificationLogger.logCertificationEntry({
-        purpose: 'hosted-callback-invalid',
-        transactionId: req.body?.transactionId || req.body?.orderNumber,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        request: {
-          timestamp: new Date().toISOString(),
-          method: 'POST',
-          endpoint: '/api/epx/hosted/callback',
-          headers: req.headers as Record<string, any>,
-          body: req.body,
-          ipAddress: req.ip,
-          userAgent: req.get('user-agent') || undefined
-        },
-        response: {
-          statusCode: 400,
-          headers: { 'content-type': 'application/json' },
-          body: { success: false, error: 'Invalid callback - missing registration data' }
-        }
-      });
-    }
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid callback - missing registration data'
-    });
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'callback', message: 'Unhandled callback exception', data: { error: error?.message } });
     if (certificationLoggingEnabled) {
@@ -869,6 +1014,20 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
     const maskedGuid = resolvedAuthGuid.length > 8
       ? `${resolvedAuthGuid.slice(0, 4)}****${resolvedAuthGuid.slice(-4)}`
       : '********';
+
+    if (paymentRecord) {
+      await persistServerPostResult({
+        paymentRecord,
+        tranType: mitResult.requestFields?.TRAN_TYPE || tranType || 'CCE1',
+        amount: parsedAmount,
+        initiatedBy: req.user.email,
+        requestFields: mitResult.requestFields,
+        responseFields: mitResult.responseFields,
+        transactionReference: mitResult.requestFields?.TRAN_NBR || transactionReference,
+        authGuidUsed: resolvedAuthGuid,
+        metadataSource: 'admin-test-route'
+      });
+    }
 
     res.status(mitResult.success ? 200 : 502).json({
       success: mitResult.success,

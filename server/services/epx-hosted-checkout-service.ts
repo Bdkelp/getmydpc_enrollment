@@ -33,6 +33,35 @@ export interface HostedCheckoutResponse {
   error?: string;
 }
 
+function extractAuthGuid(payload: any): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const candidates = [
+    payload.AUTH_GUID,
+    payload.authGuid,
+    payload.ORIG_AUTH_GUID,
+    payload.origAuthGuid,
+    payload.ORIG_AUTH,
+    payload.origAuth,
+    payload.result?.AUTH_GUID,
+    payload.result?.authGuid,
+    payload.result?.ORIG_AUTH_GUID,
+    payload.result?.origAuthGuid,
+    payload.result?.ORIG_AUTH,
+    payload.result?.origAuth
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim().length) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
 export class EPXHostedCheckoutService {
   private config: EPXHostedCheckoutConfig;
   private scriptUrl: string;
@@ -129,7 +158,7 @@ export class EPXHostedCheckoutService {
     const isApproved = payload.status === "approved" || payload.success === true;
 
     if (isApproved) {
-      const authGuid = payload.AUTH_GUID || payload.authGuid || payload.result?.AUTH_GUID;
+      const authGuid = extractAuthGuid(payload);
       return {
         isApproved: true,
         transactionId: payload.transactionId || payload.orderNumber,
