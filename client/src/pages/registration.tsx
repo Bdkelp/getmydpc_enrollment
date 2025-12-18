@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import apiClient from "@/lib/apiClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
@@ -245,6 +246,18 @@ export default function Registration() {
           zipCode: data.zipCode
         })
       );
+
+      try {
+        const tempRegistration = await apiClient.post("/api/temp-registrations", {
+          registrationData,
+          agentId: currentUser?.id || null
+        });
+        if (tempRegistration?.id) {
+          sessionStorage.setItem("tempRegistrationId", tempRegistration.id);
+        }
+      } catch (tempError) {
+        console.error("[Registration] Failed to persist temp registration", tempError);
+      }
       
       // Return mock success for UI flow
       return { 

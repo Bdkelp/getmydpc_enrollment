@@ -17,11 +17,12 @@ import { storage } from "../storage";
 import { supabase } from "../lib/supabaseClient";
 import { calculateMembershipStartDate, isMembershipActive, daysUntilMembershipStarts, calculateNextBillingDate } from "../utils/membership-dates";
 import { calculateCommission } from "../commissionCalculator";
+import { createTempRegistration, getTempRegistration } from "../services/temp-registration-service";
 
 const router = Router();
 
 interface FinalizeRegistrationRequest {
-  registrationData: {
+  registrationData?: {
     // Member info
     email: string;
     firstName: string;
@@ -58,10 +59,52 @@ interface FinalizeRegistrationRequest {
   tempRegistrationId?: string; // Optional: for cleanup
 }
 
+router.post("/api/temp-registrations", async (req, res) => {
+  try {
+    const { registrationData, agentId } = req.body || {};
+
+    if (!registrationData) {
+      return res.status(400).json({
+        success: false,
+        error: "registrationData is required"
+      });
+    }
+
+    const record = await createTempRegistration(registrationData, agentId);
+
+    return res.status(201).json({
+      success: true,
+      id: record.id,
+      expiresAt: record.expiresAt,
+      createdAt: record.createdAt
+    });
+  } catch (error: any) {
+    console.error("[Temp Registration] Failed to create record", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create temporary registration",
+      message: error?.message
+    });
+  }
+});
+
 router.post("/api/finalize-registration", async (req, res) => {
   try {
     console.log("[Finalize Registration] Request received");
-    const { registrationData, paymentToken, paymentMethodType, transactionId, tempRegistrationId } = req.body as FinalizeRegistrationRequest;
+    let { registrationData, paymentToken, paymentMethodType, transactionId, tempRegistrationId } = req.body as FinalizeRegistrationRequest;
+
+    if (!registrationData && tempRegistrationId) {
+      try {
+        const tempRecord = await getTempRegistration(tempRegistrationId);
+        if (tempRecord?.registrationData) {
+          registrationData = typeof tempRecord.registrationData === "string"
+            ? JSON.parse(tempRecord.registrationData)
+            : tempRecord.registrationData;
+        }
+      } catch (tempLoadError) {
+        console.error("[Finalize Registration] Failed to load temp registration", tempLoadError);
+      }
+    }
 
     // Validate required fields
     if (!registrationData || !paymentToken || !transactionId) {

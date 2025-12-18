@@ -73,6 +73,7 @@ export default function EPXHostedPayment({
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [registrationData, setRegistrationData] = useState<any>(null);
+  const [tempRegistrationId, setTempRegistrationId] = useState<string | null>(null);
   const [paymentAttempts, setPaymentAttempts] = useState(0);
   const { toast } = useToast();
   
@@ -111,6 +112,10 @@ export default function EPXHostedPayment({
       const storedRegData = sessionStorage.getItem('registrationData');
       if (storedRegData) {
         setRegistrationData(JSON.parse(storedRegData));
+      }
+      const storedTempId = sessionStorage.getItem('tempRegistrationId');
+      if (storedTempId) {
+        setTempRegistrationId(storedTempId);
       }
       
       const attempts = sessionStorage.getItem('paymentAttempts');
@@ -209,7 +214,8 @@ export default function EPXHostedPayment({
           subscriptionId,
           description: description || 'DPC Subscription Payment',
           billingAddress: populatedBillingAddress,
-          captchaToken: captchaToken
+          captchaToken: captchaToken,
+          tempRegistrationId: tempRegistrationId || sessionStorage.getItem('tempRegistrationId') || null
         });
 
         if (!response.success) {
@@ -569,6 +575,7 @@ export default function EPXHostedPayment({
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
+          <input type="hidden" name="tempRegistrationId" value={tempRegistrationId || ''} />
           
           {/* Payment-First Flow: Include registration data */}
           {registrationData && (

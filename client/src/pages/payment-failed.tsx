@@ -44,6 +44,7 @@ export default function PaymentFailed() {
       sessionStorage.removeItem('paymentAttempts');
       sessionStorage.removeItem('selectedPlanId');
       sessionStorage.removeItem('memberData');
+      sessionStorage.removeItem('tempRegistrationId');
       setLocation('/enroll');
     } else {
       // Retry payment with existing registration data
@@ -59,6 +60,7 @@ export default function PaymentFailed() {
     sessionStorage.removeItem('memberData');
     sessionStorage.removeItem('coverageType');
     sessionStorage.removeItem('familyMembers');
+    sessionStorage.removeItem('tempRegistrationId');
     setLocation('/enroll');
   };
 

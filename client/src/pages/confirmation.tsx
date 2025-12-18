@@ -134,6 +134,7 @@ export default function Confirmation() {
       sessionStorage.removeItem("paymentAttempts"); // Clear attempt counter
       sessionStorage.removeItem("memberData");
       sessionStorage.removeItem("familyMembers");
+      sessionStorage.removeItem("tempRegistrationId");
     }, 5000); // Increased to 5 seconds
   }, [user, setLocation, toast, retryCount]);
 

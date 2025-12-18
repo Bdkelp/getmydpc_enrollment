@@ -16,6 +16,7 @@ import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
 import { submitServerPostRecurringPayment } from '../services/epx-payment-service';
 import { certificationLogger } from '../services/certification-logger';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
+import { getTempRegistration } from '../services/temp-registration-service';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -289,7 +290,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       subscriptionId,
       description,
       billingAddress,
-      captchaToken
+      captchaToken,
+      tempRegistrationId
     } = req.body;
 
     const numericAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
@@ -303,7 +305,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       level: 'info',
       phase: 'create-payment',
       message: 'Create payment request received',
-      data: { amount: numericAmount, customerId, customerEmail, planId, hasBillingAddress: !!normalizedBillingAddress }
+      data: { amount: numericAmount, customerId, customerEmail, planId, hasBillingAddress: !!normalizedBillingAddress, tempRegistrationId }
     });
 
     // Server-side reCAPTCHA verification (production only or when enabled)
@@ -365,7 +367,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
           description,
           orderNumber,
           originalCustomerId: customerId,
-          billingAddress: normalizedBillingAddress || null
+          billingAddress: normalizedBillingAddress || null,
+          tempRegistrationId: tempRegistrationId || null
         }
       };
 
@@ -474,7 +477,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
               subscriptionId,
               description,
               billingAddress: normalizedBillingAddress,
-              captchaToken: captchaToken || null
+              captchaToken: captchaToken || null,
+              tempRegistrationId: tempRegistrationId || null
             },
             ipAddress: req.ip,
             userAgent: req.get('user-agent') || undefined
@@ -580,6 +584,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
     let paymentRecordForLogging: PaymentRecord | null = null;
     let maskedAuthGuid: string | null = null;
+    let tempRegistrationId: string | null = req.body?.tempRegistrationId || req.body?.TEMP_REGISTRATION_ID || null;
 
     if (result.isApproved) {
       const persistResult = await persistHostedPaymentUpdate({
@@ -590,29 +595,55 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         amount: result.amount,
         callbackStatus: req.body?.status || null,
         callbackMessage: req.body?.message || null,
-        tempRegistrationId: req.body?.tempRegistrationId,
+        tempRegistrationId,
         bricTokenPresent: Boolean(result.bricToken),
         paymentStatus: 'succeeded'
       });
 
       paymentRecordForLogging = persistResult.paymentRecord;
       maskedAuthGuid = persistResult.maskedAuthGuid;
+      if (!tempRegistrationId && paymentRecordForLogging?.metadata?.tempRegistrationId) {
+        tempRegistrationId = paymentRecordForLogging.metadata.tempRegistrationId;
+      }
 
       if (!authGuid) {
         logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
       }
     }
 
+    let registrationData: any = null;
+    let registrationDataSource: string | null = null;
+
+    if (req.body.registrationData) {
+      try {
+        registrationData = typeof req.body.registrationData === 'string'
+          ? JSON.parse(req.body.registrationData)
+          : req.body.registrationData;
+        registrationDataSource = 'callback';
+      } catch (registrationParseError) {
+        logEPX({ level: 'error', phase: 'callback', message: 'Failed to parse registrationData from callback', data: { error: registrationParseError?.message } });
+      }
+    }
+
+    if (!registrationData && tempRegistrationId) {
+      try {
+        const tempRecord = await getTempRegistration(tempRegistrationId);
+        if (tempRecord?.registrationData) {
+          registrationData = typeof tempRecord.registrationData === 'string'
+            ? JSON.parse(tempRecord.registrationData)
+            : tempRecord.registrationData;
+          registrationDataSource = 'temp-storage';
+        }
+      } catch (tempError) {
+        logEPX({ level: 'error', phase: 'callback', message: 'Failed to load temp registration data', data: { error: tempError?.message, tempRegistrationId } });
+      }
+    }
+
     // === PAYMENT-FIRST FLOW ===
     // Payment approved - create member record now
-    if (result.isApproved && req.body.registrationData && result.bricToken) {
+    if (result.isApproved && registrationData && result.bricToken) {
       try {
-        logEPX({ level: 'info', phase: 'callback', message: 'Payment approved - creating member', data: { hasBRIC: !!result.bricToken } });
-        
-        // Parse registration data from EPX callback
-        const registrationData = typeof req.body.registrationData === 'string' 
-          ? JSON.parse(req.body.registrationData) 
-          : req.body.registrationData;
+        logEPX({ level: 'info', phase: 'callback', message: 'Payment approved - creating member', data: { hasBRIC: !!result.bricToken, registrationDataSource } });
         
         // Call finalize-registration endpoint
         const finalizeResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:5000'}/api/finalize-registration`, {
@@ -625,7 +656,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             paymentToken: result.bricToken,
             paymentMethodType: req.body.paymentMethodType || 'CreditCard',
             transactionId: result.transactionId,
-            tempRegistrationId: req.body.tempRegistrationId
+            tempRegistrationId
           })
         });
 
@@ -722,6 +753,25 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           error: 'Failed to complete registration after payment'
         });
       }
+    }
+
+    if (result.isApproved && (!registrationData || !result.bricToken)) {
+      logEPX({
+        level: 'error',
+        phase: 'callback',
+        message: 'Missing registration payload or BRIC token after approval',
+        data: {
+          transactionId: result.transactionId,
+          hasRegistrationData: Boolean(registrationData),
+          hasBricToken: Boolean(result.bricToken),
+          tempRegistrationId,
+          registrationDataSource
+        }
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Payment approved but registration data missing'
+      });
     }
 
     if (result.isApproved) {

@@ -212,6 +212,7 @@ export default function Payment() {
     sessionStorage.removeItem("totalMonthlyPrice");
     sessionStorage.removeItem("basePlanPrice");
     sessionStorage.removeItem("registrationData");
+    sessionStorage.removeItem("tempRegistrationId");
 
     toast({
       title: "Payment successful!",
