@@ -53,6 +53,17 @@ async function main() {
     await client.query("BEGIN");
 
     for (const table of TABLES_IN_DELETE_ORDER) {
+      const publicQualified = `public.${table}`;
+      const existsResult = await client.query<{ oid: string | null }>(
+        'SELECT COALESCE(to_regclass($1), to_regclass($2)) AS oid',
+        [publicQualified, table]
+      );
+
+      if (!existsResult.rows[0]?.oid) {
+        console.log(`[Scrub] Skipping ${table} (table not found)`);
+        continue;
+      }
+
       console.log(`[Scrub] Truncating ${table}...`);
       await client.query(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE;`);
     }
