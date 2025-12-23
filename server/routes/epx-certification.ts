@@ -12,15 +12,31 @@ import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
+import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
 
 const router = Router();
 
 const hasSuperAdminPrivileges = (req: AuthRequest): boolean => req.user?.role === 'super_admin';
 
-const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE2', 'V', 'R'] as const;
+const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE7', 'CCE9'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
 const isSupportedTranType = (value: string): value is SupportedTranType =>
   SUPPORTED_TRAN_TYPES.includes(value as SupportedTranType);
+
+const LOG_PHASES: EPXLogEvent['phase'][] = [
+  'create-payment',
+  'callback',
+  'recaptcha',
+  'status',
+  'server-post',
+  'general',
+  'certification',
+  'recurring',
+  'scheduler'
+];
+
+const isValidLogPhase = (value: string): value is EPXLogEvent['phase'] =>
+  LOG_PHASES.includes(value as EPXLogEvent['phase']);
 
 const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null => {
   if (!value || typeof value !== 'string') {
@@ -34,9 +50,10 @@ const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null
 
   const upper = trimmed.toUpperCase();
   const aliasMap: Record<string, SupportedTranType> = {
-    REVERSAL: 'R',
-    REV: 'R',
-    RETURN: 'R'
+    REVERSAL: 'CCE7',
+    REV: 'CCE7',
+    RETURN: 'CCE9',
+    REFUND: 'CCE9'
   };
 
   const normalized = aliasMap[upper] || (upper as SupportedTranType);
@@ -324,6 +341,42 @@ router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, 
     entries,
     totalEntries: entries.length,
     limit
+  });
+});
+
+router.get('/api/epx/certification/logs/transaction/:transactionId', authenticateToken, (req: AuthRequest, res: Response) => {
+  if (!hasSuperAdminPrivileges(req)) {
+    return res.status(403).json({ success: false, error: 'Super admin access required' });
+  }
+
+  const transactionId = req.params.transactionId?.trim();
+  if (!transactionId) {
+    return res.status(400).json({ success: false, error: 'transactionId path parameter is required' });
+  }
+
+  const limitParam = parseInt((req.query.limit as string) || '100', 10);
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 100;
+  const dateParam = typeof req.query.date === 'string' ? req.query.date : undefined;
+  const phaseParam = typeof req.query.phases === 'string' ? req.query.phases : undefined;
+
+  const requestedPhases = phaseParam
+    ? phaseParam.split(',').map((phase) => phase.trim()).filter(isValidLogPhase)
+    : [];
+
+  const logs = getTransactionLogs(transactionId, {
+    date: dateParam,
+    limit,
+    phases: requestedPhases.length ? requestedPhases : undefined
+  });
+
+  res.json({
+    success: true,
+    transactionId,
+    date: dateParam || null,
+    limit,
+    totalEntries: logs.length,
+    phases: requestedPhases.length ? requestedPhases : null,
+    logs
   });
 });
 

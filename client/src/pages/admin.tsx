@@ -78,10 +78,9 @@ interface PendingUser {
 }
 
 const MANUAL_TRANSACTION_TYPES = [
-  { value: "CCE1", label: "Sale / MIT (CCE1)" },
-  { value: "CCE2", label: "Sale / MIT (CCE2)" },
-  { value: "V", label: "Void" },
-  { value: "R", label: "Refund / Reversal" },
+  { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
+  { value: "CCE7", label: "Reversal (CCE7)", description: "Auth/Sale reversal" },
+  { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
 ] as const;
 
 const getManualTranLabel = (value: string) => {
@@ -586,10 +585,10 @@ export default function Admin() {
       return;
     }
 
-    if (!['CCE1', 'CCE2'].includes(manualTransactionForm.tranType)) {
+    if (manualTransactionForm.tranType !== 'CCE1') {
       toast({
-        title: 'Hosted checkout is for sales only',
-        description: 'Switch the transaction type to CCE1 or CCE2 to collect a new payment.',
+        title: 'Hosted checkout is for initial captures only',
+        description: 'Switch the transaction type to CCE1 to collect a new payment.',
         variant: 'destructive',
       });
       return;
@@ -986,7 +985,12 @@ export default function Admin() {
                     <SelectContent>
                       {MANUAL_TRANSACTION_TYPES.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
-                          {option.label}
+                          <div className="flex flex-col">
+                            <span className="font-medium">{option.label}</span>
+                            {option.description && (
+                              <span className="text-xs text-muted-foreground">{option.description}</span>
+                            )}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>

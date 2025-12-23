@@ -51,6 +51,8 @@ type HostedCallbackMetadata = {
   authGuidMasked?: string | null;
   updatedAt?: string;
   hasBricToken?: boolean;
+  tranType?: string | null;
+  paymentMethodType?: string | null;
 } & Record<string, any>;
 
 type HostedPaymentUpdateOptions = {
@@ -65,6 +67,8 @@ type HostedPaymentUpdateOptions = {
   tempRegistrationId?: string | null;
   bricTokenPresent?: boolean;
   paymentStatus?: string;
+  tranType?: string | null;
+  paymentMethodType?: string | null;
 }
 
 async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
@@ -79,7 +83,9 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     memberId,
     tempRegistrationId,
     bricTokenPresent,
-    paymentStatus = 'succeeded'
+    paymentStatus = 'succeeded',
+    tranType,
+    paymentMethodType
   } = options;
 
   if (!epxTransactionId && !fallbackOrderNumber) {
@@ -122,7 +128,9 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     updatedAt: new Date().toISOString(),
     hasBricToken: typeof bricTokenPresent === 'boolean'
       ? bricTokenPresent
-      : existingHostedMeta.hasBricToken
+      : existingHostedMeta.hasBricToken,
+    tranType: tranType || existingHostedMeta.tranType || null,
+    paymentMethodType: paymentMethodType || existingHostedMeta.paymentMethodType || null
   };
 
   const updatedMetadata: Record<string, any> = { ...metadataBase };
@@ -553,7 +561,9 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       amount,
       tempRegistrationId,
       bricTokenPresent: true,
-      paymentStatus: 'succeeded'
+      paymentStatus: 'succeeded',
+      tranType: 'CCE1',
+      paymentMethodType
     });
 
     const finalizePayload = {
@@ -711,7 +721,9 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         callbackMessage: req.body?.message || null,
         tempRegistrationId,
         bricTokenPresent: Boolean(result.bricToken),
-        paymentStatus: 'succeeded'
+        paymentStatus: 'succeeded',
+        tranType: req.body?.tranType || req.body?.TRAN_TYPE || 'CCE1',
+        paymentMethodType: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'
       });
 
       paymentRecordForLogging = persistResult.paymentRecord;

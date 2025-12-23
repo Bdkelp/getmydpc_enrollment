@@ -463,7 +463,7 @@ const SERVER_POST_ENDPOINTS = {
   production: 'https://services.epx.com/serverpost/'
 } as const;
 
-type ServerPostTranType = 'CCE1' | 'CCE2' | 'V' | 'R';
+type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9';
 
 interface ServerPostRecurringOptions {
   amount: number;
@@ -594,6 +594,12 @@ export async function submitServerPostRecurringPayment(
   let responseFields: Record<string, string> = {};
   let rawResponse = '';
   const resolvedTranType: ServerPostTranType = options.tranType || 'CCE1';
+  const certificationPurpose =
+    resolvedTranType === 'CCE7'
+      ? 'server-post-reversal'
+      : resolvedTranType === 'CCE9'
+        ? 'server-post-refund'
+        : 'server-post-mit';
 
   try {
     const credentials = ensureServerPostCredentials();
@@ -704,7 +710,7 @@ export async function submitServerPostRecurringPayment(
       customerId: resolvedCustomerId,
       amount,
       environment: credentials.environment,
-      purpose: resolvedTranType === 'R' ? 'server-post-reversal' : 'server-post-mit',
+      purpose: certificationPurpose,
       request: {
         timestamp: new Date().toISOString(),
         method: 'POST',
@@ -764,7 +770,7 @@ export async function submitServerPostRecurringPayment(
         transactionId: options.transactionId || requestFields.TRAN_NBR,
         amount: options.amount,
         environment: process.env.EPX_ENVIRONMENT || 'sandbox',
-        purpose: resolvedTranType === 'R' ? 'server-post-reversal' : 'server-post-mit',
+        purpose: certificationPurpose,
         request: {
           timestamp: new Date().toISOString(),
           method: 'POST',
