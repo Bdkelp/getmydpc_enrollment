@@ -7,7 +7,7 @@ import { Router, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { hasAtLeastRole } from '../auth/roles';
+import { requireRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
@@ -16,7 +16,7 @@ import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-lo
 
 const router = Router();
 
-const hasSuperAdminPrivileges = (req: AuthRequest): boolean => req.user?.role === 'super_admin';
+const requireSuperAdmin = requireRole('super_admin');
 
 const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE7', 'CCE9'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
@@ -326,10 +326,7 @@ const handleSubscriptionCancellation = async (
   }
 };
 
-router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.get('/api/epx/certification/logs', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const limitParam = parseInt((req.query.limit as string) || '25', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
@@ -344,10 +341,7 @@ router.get('/api/epx/certification/logs', authenticateToken, (req: AuthRequest, 
   });
 });
 
-router.get('/api/epx/certification/logs/transaction/:transactionId', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.get('/api/epx/certification/logs/transaction/:transactionId', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const transactionId = req.params.transactionId?.trim();
   if (!transactionId) {
@@ -380,10 +374,7 @@ router.get('/api/epx/certification/logs/transaction/:transactionId', authenticat
   });
 });
 
-router.get('/api/epx/certification/callbacks', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.get('/api/epx/certification/callbacks', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const limitParam = parseInt((req.query.limit as string) || '50', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 50;
@@ -402,10 +393,7 @@ router.get('/api/epx/certification/callbacks', authenticateToken, (req: AuthRequ
   });
 });
 
-router.get('/api/epx/certification/payments', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.get('/api/epx/certification/payments', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   const limitParam = parseInt((req.query.limit as string) || '25', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
@@ -446,10 +434,7 @@ router.get('/api/epx/certification/payments', authenticateToken, async (req: Aut
   }
 });
 
-router.get('/api/epx/certification/report', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.get('/api/epx/certification/report', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const report = certificationLogger.generateCertificationReport();
   const summary = certificationLogger.getLogsSummary();
@@ -461,10 +446,7 @@ router.get('/api/epx/certification/report', authenticateToken, (req: AuthRequest
   });
 });
 
-router.post('/api/epx/certification/export', authenticateToken, (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const providedName = sanitizeFilename(req.body?.filename);
   const defaultName = `epx-certification-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
@@ -497,35 +479,23 @@ router.post('/api/epx/certification/export', authenticateToken, (req: AuthReques
   }
 });
 
-router.post('/api/epx/certification/server-post', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.post('/api/epx/certification/server-post', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'epx-certification');
   return res.status(result.status).json(result.body);
 });
 
-router.post('/api/epx/certification/cancel-subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.post('/api/epx/certification/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   return handleSubscriptionCancellation(req, res, 'epx-certification');
 });
 
-router.post('/api/admin/payments/cancel-subscription', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.post('/api/admin/payments/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   return handleSubscriptionCancellation(req, res, 'admin-dashboard');
 });
 
-router.post('/api/admin/payments/manual-transaction', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasSuperAdminPrivileges(req)) {
-    return res.status(403).json({ success: false, error: 'Super admin access required' });
-  }
+router.post('/api/admin/payments/manual-transaction', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'admin-dashboard');
   return res.status(result.status).json(result.body);

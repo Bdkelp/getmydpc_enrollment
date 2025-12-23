@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { hasAtLeastRole } from "@/lib/roles";
+import { hasAtLeastRole, isSuperAdmin as isSuperAdminRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
 import DashboardStats from "@/components/DashboardStats";
@@ -28,6 +28,7 @@ import {
   XCircle,
   Clock,
   Shield,
+  Lock,
   BarChart,
   User,
   FileText,
@@ -92,7 +93,7 @@ export default function Admin() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
-  const isSuperAdmin = user?.role === 'super_admin';
+  const isSuperAdmin = isSuperAdminRole(user?.role);
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
@@ -119,6 +120,19 @@ export default function Admin() {
   const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
   const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string } | null>(null);
   const [hostedModalData, setHostedModalData] = useState<{ member: any; subscription: any; amount: number; description?: string } | null>(null);
+
+  const ensureSuperAdminAccess = (actionLabel: string): boolean => {
+    if (isSuperAdmin) {
+      return true;
+    }
+
+    toast({
+      title: 'Super admin access required',
+      description: `${actionLabel} is limited to super admins.`,
+      variant: 'destructive'
+    });
+    return false;
+  };
 
   // Test authentication
   useEffect(() => {
@@ -401,6 +415,10 @@ export default function Admin() {
   const handleManualTransactionSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!ensureSuperAdminAccess('Manual EPX transactions')) {
+      return;
+    }
+
     if (
       !manualTransactionForm.memberId.trim() &&
       !manualTransactionForm.transactionId.trim() &&
@@ -491,6 +509,10 @@ export default function Admin() {
   const handleCancelSubscriptionSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!ensureSuperAdminAccess('Subscription cancellations')) {
+      return;
+    }
+
     if (
       !cancelSubscriptionForm.subscriptionId.trim() &&
       !cancelSubscriptionForm.transactionId.trim()
@@ -539,6 +561,11 @@ export default function Admin() {
       return;
     }
 
+    if (!ensureSuperAdminAccess('Manual EPX transactions')) {
+      setManualConfirmPayload(null);
+      return;
+    }
+
     manualTransactionMutation.mutate(manualConfirmPayload.payload, {
       onSettled: () => setManualConfirmPayload(null),
     });
@@ -549,12 +576,21 @@ export default function Admin() {
       return;
     }
 
+    if (!ensureSuperAdminAccess('Subscription cancellations')) {
+      setCancelConfirmPayload(null);
+      return;
+    }
+
     cancelSubscriptionMutation.mutate(cancelConfirmPayload.payload, {
       onSettled: () => setCancelConfirmPayload(null),
     });
   };
 
   const handleHostedCheckoutRequest = () => {
+    if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
+      return;
+    }
+
     const memberIdRaw = manualTransactionForm.memberId.trim();
     if (!memberIdRaw) {
       toast({
@@ -603,6 +639,11 @@ export default function Admin() {
 
   const finalizeHostedCheckoutLaunch = async () => {
     if (!hostedConfirmPayload) {
+      return;
+    }
+
+    if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
+      setHostedConfirmPayload(null);
       return;
     }
 
@@ -663,6 +704,8 @@ export default function Admin() {
       </div>
     );
   }
+
+  const superAdminRestricted = !isSuperAdmin;
 
   const stats = [
     {
@@ -889,6 +932,21 @@ export default function Admin() {
         {/* Enhanced Dashboard Stats */}
         <DashboardStats userRole="admin" />
 
+        {superAdminRestricted && (
+          <Alert className="mb-8 border-amber-300 bg-amber-50 text-amber-900">
+            <div className="flex gap-3">
+              <Shield className="h-5 w-5" />
+              <div>
+                <AlertTitle>Limited control mode</AlertTitle>
+                <AlertDescription>
+                  You are signed in as an admin. Viewing analytics is allowed, but EPX live controls, cancellations, and certification tools
+                  stay disabled unless a super admin is present.
+                </AlertDescription>
+              </div>
+            </div>
+          </Alert>
+        )}
+
         {/* Manual EPX Transactions */}
         <Card className="mb-8 border border-blue-200 bg-white">
           <CardContent className="p-6 space-y-6">
@@ -932,7 +990,22 @@ export default function Admin() {
               </div>
             </Alert>
 
-            <form className="space-y-4" onSubmit={handleManualTransactionSubmit}>
+            {superAdminRestricted && (
+              <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-900">
+                <div className="flex gap-3">
+                  <Lock className="h-5 w-5 mt-0.5" />
+                  <div>
+                    <AlertTitle>Super admin access required</AlertTitle>
+                    <AlertDescription>
+                      Manual EPX commands stay read-only for admins. Ping a super admin when you need to run a charge, refund, or hosted checkout.
+                    </AlertDescription>
+                  </div>
+                </div>
+              </Alert>
+            )}
+
+            <form onSubmit={handleManualTransactionSubmit}>
+              <fieldset disabled={superAdminRestricted} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <Label htmlFor="manual-member-id">Member ID</Label>
@@ -1030,6 +1103,7 @@ export default function Admin() {
                   </Button>
                 </div>
               </div>
+              </fieldset>
             </form>
 
             {manualTransactionResult && (
@@ -1099,7 +1173,22 @@ export default function Admin() {
               </div>
             </Alert>
 
-            <form className="space-y-4" onSubmit={handleCancelSubscriptionSubmit}>
+            {superAdminRestricted && (
+              <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-900">
+                <div className="flex gap-3">
+                  <Lock className="h-5 w-5 mt-0.5" />
+                  <div>
+                    <AlertTitle>Super admin access required</AlertTitle>
+                    <AlertDescription>
+                      Only super admins can cancel active subscriptions from this dashboard.
+                    </AlertDescription>
+                  </div>
+                </div>
+              </Alert>
+            )}
+
+            <form onSubmit={handleCancelSubscriptionSubmit}>
+              <fieldset disabled={superAdminRestricted} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
                   <Label htmlFor="cancel-subscription-id">Subscription ID</Label>
@@ -1143,6 +1232,7 @@ export default function Admin() {
                   {cancelSubscriptionMutation.isPending ? 'Submitting...' : 'Submit Cancellation'}
                 </Button>
               </div>
+              </fieldset>
             </form>
 
             {cancelSubscriptionResult && (

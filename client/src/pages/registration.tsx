@@ -374,49 +374,48 @@ export default function Registration() {
         if (isValid) setCurrentStep(2);
       });
     } else if (currentStep === 2) {
-      // Validate employment information - only required for member-only
+      // Validate employment information when required
       const memberType = form.getValues('memberType');
-      const planStartField = ['planStartDate'] as const;
-      
       if (memberType === 'member-only') {
-        // For individual plans, employer fields are required
-        const employmentFields = ['employerName', 'dateOfHire', 'planStartDate'] as const;
+        const employmentFields = ['employerName', 'dateOfHire'] as const;
         form.trigger(employmentFields).then((isValid) => {
           if (isValid) setCurrentStep(3);
         });
       } else {
-        // For family plans, only plan start date is required
-        form.trigger(planStartField).then((isValid) => {
-          if (isValid) setCurrentStep(3);
-        });
+        setCurrentStep(3);
       }
     } else if (currentStep === 3) {
+      // Validate plan timing fields
+      const planTimingFields = ['planStartDate'] as const;
+      form.trigger(planTimingFields).then((isValid) => {
+        if (isValid) setCurrentStep(4);
+      });
+    } else if (currentStep === 4) {
       // Validate address information
       const addressFields = ['address', 'city', 'state', 'zipCode'] as const;
       form.trigger(addressFields).then((isValid) => {
         if (isValid) {
-          // Check if we need to collect family members
           if (coverageType === "Member/Spouse" || coverageType === "Family") {
-            setCurrentStep(4); // Go to spouse info
+            setCurrentStep(5);
           } else if (coverageType === "Member/Child") {
-            setCurrentStep(5); // Go to children info
+            setCurrentStep(6);
           } else {
-            setCurrentStep(6); // Go to plan selection
+            setCurrentStep(7);
           }
         }
       });
-    } else if (currentStep === 4) {
-      // Spouse info completed, check if we need children info
-      if (coverageType === "Family") {
-        setCurrentStep(5); // Go to children info
-      } else {
-        setCurrentStep(6); // Go to plan selection
-      }
     } else if (currentStep === 5) {
-      // Children info completed, go to plan selection
-      setCurrentStep(6);
+      // Spouse step complete; decide if we need children info
+      if (coverageType === "Family") {
+        setCurrentStep(6);
+      } else {
+        setCurrentStep(7);
+      }
     } else if (currentStep === 6) {
-      // Check if plan is selected
+      // Children info complete
+      setCurrentStep(7);
+    } else if (currentStep === 7) {
+      // Ensure plan is selected before review
       if (!selectedPlanId) {
         toast({
           title: "Please select a healthcare membership",
@@ -425,11 +424,10 @@ export default function Registration() {
         });
         return;
       }
-      // Plan selected, move to review
       form.setValue('planId', selectedPlanId);
-      setCurrentStep(7);
-    } else if (currentStep === 7) {
-      // Validate all checkboxes before allowing submission
+      setCurrentStep(8);
+    } else if (currentStep === 8) {
+      // Validate acknowledgments
       const checkboxFields = ['termsAccepted', 'privacyNoticeAcknowledged', 'communicationsConsent', 'faqDownloaded'] as const;
       form.trigger(checkboxFields).then((isValid) => {
         if (!isValid) {
@@ -444,26 +442,28 @@ export default function Registration() {
   };
 
   const handlePrevStep = () => {
-    if (currentStep === 7) {
-      setCurrentStep(6); // Go back to plan selection
-    } else if (currentStep === 6) {
-      // Go back from plan selection
+    if (currentStep === 8) {
+      setCurrentStep(7);
+    } else if (currentStep === 7) {
       if (coverageType === "Family" || coverageType === "Member/Child") {
-        setCurrentStep(5); // Go back to children info
+        setCurrentStep(6);
       } else if (coverageType === "Member/Spouse") {
-        setCurrentStep(4); // Go back to spouse info
+        setCurrentStep(5);
       } else {
-        setCurrentStep(3); // Go back to address
+        setCurrentStep(4);
+      }
+    } else if (currentStep === 6) {
+      if (coverageType === "Family") {
+        setCurrentStep(5);
+      } else {
+        setCurrentStep(4);
       }
     } else if (currentStep === 5) {
-      // Go back from children info
-      if (coverageType === "Family") {
-        setCurrentStep(4); // Go back to spouse info
-      } else {
-        setCurrentStep(3); // Go back to address
-      }
+      setCurrentStep(4);
     } else if (currentStep === 4) {
-      setCurrentStep(3); // Go back to address
+      setCurrentStep(3);
+    } else if (currentStep === 3) {
+      setCurrentStep(2);
     } else if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
@@ -526,26 +526,28 @@ export default function Registration() {
           <Card className="p-8">
             <CardContent className="p-0">
               {/* Progress Indicator */}
-              <ProgressIndicator currentStep={currentStep} totalSteps={7} />
+              <ProgressIndicator currentStep={currentStep} totalSteps={8} />
 
               <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">
                   {currentStep === 1 && "Personal Information"}
                   {currentStep === 2 && "Employment Information"}
-                  {currentStep === 3 && "Address Information"}
-                  {currentStep === 4 && "Spouse Information"}
-                  {currentStep === 5 && "Children Information"}
-                  {currentStep === 6 && "Select Your Healthcare Membership"}
-                  {currentStep === 7 && "Review & Terms"}
+                  {currentStep === 3 && "Plan Start & Discounts"}
+                  {currentStep === 4 && "Address Information"}
+                  {currentStep === 5 && "Spouse Information"}
+                  {currentStep === 6 && "Children Information"}
+                  {currentStep === 7 && "Select Your Healthcare Membership"}
+                  {currentStep === 8 && "Review & Terms"}
                 </h1>
                 <p className="text-gray-600">
                   {currentStep === 1 && "Tell us about yourself"}
                   {currentStep === 2 && "Tell us about your employer"}
-                  {currentStep === 3 && "Where can we reach you?"}
-                  {currentStep === 4 && "Tell us about your spouse"}
-                  {currentStep === 5 && "Tell us about your children"}
-                  {currentStep === 6 && "Choose your healthcare membership level"}
-                  {currentStep === 7 && "Review your information and accept terms"}
+                  {currentStep === 3 && "Choose when coverage begins and apply discounts"}
+                  {currentStep === 4 && "Where can we reach you?"}
+                  {currentStep === 5 && "Tell us about your spouse"}
+                  {currentStep === 6 && "Tell us about your children"}
+                  {currentStep === 7 && "Choose your healthcare membership level"}
+                  {currentStep === 8 && "Review your information and accept terms"}
                 </p>
               </div>
 
@@ -778,45 +780,47 @@ export default function Registration() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <FormField
-                        control={form.control}
-                        name="dateOfHire"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              Date of Hire {form.watch("memberType") !== "member-only" && "*"}
-                              {form.watch("memberType") === "member-only" && " (Optional for individual enrollments)"}
-                            </FormLabel>
-                            <FormControl>
-                              <Input type="date" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="planStartDate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Plan Start Date * (Today or up to 30 days from now)</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="date" 
-                                {...field}
-                                min={new Date().toISOString().split('T')[0]} // No backdating
-                                max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Max 30 days
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                    <FormField
+                      control={form.control}
+                      name="dateOfHire"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Date of Hire {form.watch("memberType") !== "member-only" && "*"}
+                            {form.watch("memberType") === "member-only" && " (Optional for individual enrollments)"}
+                          </FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
 
-                    {/* Discount Code Section */}
-                    <div className="border-t pt-6 mt-6">
+                {currentStep === 3 && (
+                  <div className="space-y-6">
+                    <FormField
+                      control={form.control}
+                      name="planStartDate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Plan Start Date * (Today or up to 30 days from now)</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="date" 
+                              {...field}
+                              min={new Date().toISOString().split('T')[0]} // No backdating
+                              max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Max 30 days
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="border-t pt-6">
                       <FormField
                         control={form.control}
                         name="discountCode"
@@ -830,7 +834,6 @@ export default function Registration() {
                                   {...field}
                                   onChange={(e) => {
                                     field.onChange(e);
-                                    // Clear validation when user types
                                     setDiscountValidation(null);
                                   }}
                                   className={
@@ -863,7 +866,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 3 && (
+                {currentStep === 5 && (
                   <div className="space-y-6">
                     <FormField
                       control={form.control}
@@ -1164,7 +1167,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 5 && (
+                {currentStep === 6 && (
                   <div className="space-y-6">
                     <div className="mb-4">
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Children Information</h3>
@@ -1329,7 +1332,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 6 && (
+                {currentStep === 7 && (
                   <div className="space-y-6">
                     {plansLoading ? (
                       <div className="flex justify-center">
@@ -1488,7 +1491,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 7 && (
+                {currentStep === 8 && (
                   <div className="space-y-6">
                     {/* Important Disclaimer */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -1868,12 +1871,12 @@ export default function Registration() {
                     Back
                   </Button>
                   
-                  {currentStep < 7 ? (
+                  {currentStep < 8 ? (
                     <Button 
                       type="button" 
                       className="flex-1 medical-blue-600 hover:medical-blue-700"
                       onClick={handleNextStep}
-                      disabled={currentStep === 6 && !selectedPlanId}
+                      disabled={currentStep === 7 && !selectedPlanId}
                     >
                       Continue
                     </Button>

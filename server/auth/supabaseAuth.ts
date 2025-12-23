@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
-import { isFullAccessEmail } from './roles';
+import { isFullAccessEmail, normalizeRole, type Role } from './roles';
 
 export interface AuthRequest extends Request {
   user?: any;
@@ -95,12 +95,26 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       });
     }
 
-    let authUser = dbUser;
+    const normalizedRole = normalizeRole(dbUser.role) || determineUserRole(dbUser.email);
+
+    if (dbUser.role !== normalizedRole) {
+      console.info('[Auth] Normalizing user role', {
+        userId: dbUser.id,
+        previousRole: dbUser.role,
+        normalizedRole
+      });
+      dbUser.role = normalizedRole;
+    }
+
+    let authUser: typeof dbUser & { role: Role } = {
+      ...dbUser,
+      role: normalizedRole as Role
+    };
 
     if (isFullAccessEmail(dbUser.email)) {
       authUser = {
-        ...dbUser,
-        originalRole: dbUser.role,
+        ...authUser,
+        originalRole: authUser.role,
         role: 'super_admin'
       };
 
