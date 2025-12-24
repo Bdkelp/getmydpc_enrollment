@@ -19,6 +19,8 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copiedPassword, setCopiedPassword] = useState(false);
 
   const createUserMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -53,14 +55,8 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
     },
     onSuccess: (data: any) => {
       setSuccessMessage(`User "${data.user.email}" created successfully!`);
-      
-      // Show temporary password if generated
-      if (data.temporaryPassword) {
-        setSuccessMessage(
-          `User created! Temporary password: ${data.temporaryPassword}\n\n` +
-          `Please save this password and share it securely with the user.`
-        );
-      }
+      setTempPassword(data.temporaryPassword || null);
+      setCopiedPassword(false);
 
       // Reset form
       setFormData({
@@ -75,11 +71,6 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
       // Call callback
       onUserCreated?.(data.user);
 
-      // Close after 2 seconds
-      setTimeout(() => {
-        onClose();
-        setSuccessMessage('');
-      }, 2000);
     },
     onError: (error: any) => {
       const errorMessage = error.message || 'Failed to create user';
@@ -115,7 +106,25 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
     }
   };
 
+  const handleClose = () => {
+    setSuccessMessage('');
+    setTempPassword(null);
+    setCopiedPassword(false);
+    onClose();
+  };
+
   if (!isOpen) return null;
+
+  const handleCopyPassword = async () => {
+    if (!tempPassword) return;
+    try {
+      await navigator.clipboard.writeText(tempPassword);
+      setCopiedPassword(true);
+      setTimeout(() => setCopiedPassword(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy password', error);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -124,7 +133,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold text-gray-900">Create User Account</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
             aria-label="Close dialog"
           >
@@ -136,9 +145,35 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Success Message */}
           {successMessage && (
-            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <CheckCircle size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-green-800 whitespace-pre-wrap">{successMessage}</p>
+            <div className="space-y-3 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <CheckCircle size={20} className="text-green-600 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-green-800 whitespace-pre-wrap">{successMessage}</p>
+              </div>
+              {tempPassword && (
+                <div className="bg-white border border-green-200 rounded-md p-3">
+                  <p className="text-xs text-gray-600 mb-2">
+                    Temporary password (share securely and prompt the user to change it after first login):
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <code className="flex-1 px-3 py-2 bg-gray-100 rounded text-gray-900 font-mono text-sm break-all">
+                      {tempPassword}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopyPassword}
+                      className="px-3 py-2 text-sm font-medium text-blue-600 border border-blue-200 rounded hover:bg-blue-50"
+                    >
+                      {copiedPassword ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!tempPassword && (
+                <p className="text-xs text-gray-600">
+                  No temporary password was generated. The user will receive the standard verification email.
+                </p>
+              )}
             </div>
           )}
 
@@ -263,7 +298,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             disabled={createUserMutation.isPending}
           >
