@@ -301,7 +301,7 @@ export default function EPXHostedPayment({
   useEffect(() => {
     // Success callback
     window.epxSuccessCallback = async (msg: string) => {
-      console.log('[EPX Hosted] Payment success payload:', msg);
+      console.log('[EPX Hosted] Payment success payload (raw):', msg);
       setError(null);
 
       const parsedMessage = parseHostedMessage(msg);
@@ -687,6 +687,8 @@ const EPX_TOKEN_CANDIDATES = [
   'BricToken',
   'bricGuid'
 ];
+const GENERIC_TOKEN_KEYS = ['token', 'guid', 'bric', 'payment_token'];
+const GUID_PATTERN = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
 
 function parseHostedMessage(message: string): Record<string, any> {
   if (!message) {
@@ -729,10 +731,60 @@ function extractCandidate(payload: Record<string, any>, candidates: string[]): s
   return undefined;
 }
 
+function findValueByKeyMatch(payload: any, matcher: (key: string) => boolean): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (matcher(key) && typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+    if (typeof value === 'object') {
+      const nested = findValueByKeyMatch(value, matcher);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function findGuidLikeValue(payload: any): string | undefined {
+  if (!payload) {
+    return undefined;
+  }
+
+  if (typeof payload === 'string') {
+    const match = payload.match(GUID_PATTERN);
+    return match ? match[0] : undefined;
+  }
+
+  if (typeof payload === 'object') {
+    for (const value of Object.values(payload)) {
+      const candidate = findGuidLikeValue(value);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function extractAuthGuid(payload: Record<string, any>): string | undefined {
-  return extractCandidate(payload, EPX_GUID_CANDIDATES);
+  return (
+    extractCandidate(payload, EPX_GUID_CANDIDATES) ||
+    findValueByKeyMatch(payload, key => key.toLowerCase().includes('auth_guid') || key.toLowerCase().includes('authguid')) ||
+    findGuidLikeValue(payload)
+  );
 }
 
 function extractPaymentToken(payload: Record<string, any>): string | undefined {
-  return extractCandidate(payload, EPX_TOKEN_CANDIDATES);
+  return (
+    extractCandidate(payload, EPX_TOKEN_CANDIDATES) ||
+    findValueByKeyMatch(payload, key => GENERIC_TOKEN_KEYS.some(fragment => key.toLowerCase().includes(fragment))) ||
+    findGuidLikeValue(payload)
+  );
 }
