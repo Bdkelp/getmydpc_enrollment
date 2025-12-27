@@ -305,6 +305,7 @@ export default function EPXHostedPayment({
       setError(null);
 
       const parsedMessage = parseHostedMessage(msg);
+      console.log('[EPX Hosted] Parsed success payload:', parsedMessage);
       const tokenFromPayload = extractPaymentToken(parsedMessage);
       const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
       const effectiveTempId = tempRegistrationId || sessionStorage.getItem('tempRegistrationId') || null;
@@ -319,7 +320,7 @@ export default function EPXHostedPayment({
       })();
 
       if (!tokenFromPayload) {
-        console.error('[EPX Hosted] Missing BRIC token in success payload');
+        console.error('[EPX Hosted] Missing BRIC token in success payload. Parsed message:', parsedMessage);
         setError('Payment succeeded, but no billing token was returned. Please contact support.');
         toast({
           title: 'Payment Received – Action Needed',
@@ -673,7 +674,19 @@ const EPX_GUID_CANDIDATES = [
   'origAuth'
 ];
 
-const EPX_TOKEN_CANDIDATES = ['GUID', 'paymentToken', 'token'];
+const EPX_TOKEN_CANDIDATES = [
+  'GUID',
+  'paymentToken',
+  'token',
+  'BRIC',
+  'BRIC_TOKEN',
+  'BRICTOKEN',
+  'BRIC_GUID',
+  'bricToken',
+  'bric_token',
+  'BricToken',
+  'bricGuid'
+];
 
 function parseHostedMessage(message: string): Record<string, any> {
   if (!message) {
