@@ -563,7 +563,7 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>First Name *</FormLabel>
                             <FormControl>
-                              <Input placeholder="John" {...field} />
+                              <Input placeholder="John" autoComplete="given-name" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -576,7 +576,7 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>Middle Name</FormLabel>
                             <FormControl>
-                              <Input placeholder="A" {...field} />
+                              <Input placeholder="A" autoComplete="additional-name" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -589,7 +589,7 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>Last Name *</FormLabel>
                             <FormControl>
-                              <Input placeholder="Smith" {...field} />
+                              <Input placeholder="Smith" autoComplete="family-name" {...field} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -605,7 +605,12 @@ export default function Registration() {
                           <FormItem>
                             <FormLabel>Email Address *</FormLabel>
                             <FormControl>
-                              <Input type="email" placeholder="john.smith@email.com" {...field} />
+                              <Input
+                                type="email"
+                                placeholder="john.smith@email.com"
+                                autoComplete="email"
+                                {...field}
+                              />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -866,7 +871,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 5 && (
+                {currentStep === 4 && (
                   <div className="space-y-6">
                     <FormField
                       control={form.control}
@@ -1047,7 +1052,7 @@ export default function Registration() {
                   </div>
                 )}
 
-                {currentStep === 4 && (
+                {currentStep === 5 && (
                   <div className="space-y-6">
                     <div className="mb-4">
                       <h3 className="text-lg font-semibold text-gray-900 mb-2">Spouse Information</h3>
