@@ -40,6 +40,12 @@ export function hasAtLeastRole(
   return ROLE_ORDER.indexOf(normalized) >= ROLE_ORDER.indexOf(minRole);
 }
 
+export function isAtLeastAdmin(
+  userRole: string | undefined | null,
+): boolean {
+  return hasAtLeastRole(userRole, "admin");
+}
+
 export function normalizeRole(
   userRole: string | undefined | null,
 ): Role | null {

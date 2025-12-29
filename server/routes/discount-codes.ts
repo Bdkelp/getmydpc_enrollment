@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db";
 import type { AuthRequest } from "../auth/supabaseAuth";
 import { authenticateToken } from "../auth/supabaseAuth";
-import { hasAtLeastRole } from "../auth/roles";
+import { isAtLeastAdmin } from "../auth/roles";
 import type { Request } from "express";
 
 const router = Router();
@@ -114,7 +114,7 @@ router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthReque
   try {
     const userRole = req.user?.role;
     
-    if (!hasAtLeastRole(userRole, 'admin')) {
+    if (!isAtLeastAdmin(userRole)) {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
@@ -156,7 +156,7 @@ router.post("/api/admin/discount-codes", authenticateToken, async (req: AuthRequ
   try {
     const userRole = req.user?.role;
     
-    if (!hasAtLeastRole(userRole, 'admin')) {
+    if (!isAtLeastAdmin(userRole)) {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
@@ -248,7 +248,7 @@ router.put("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthR
   try {
     const userRole = req.user?.role;
     
-    if (!hasAtLeastRole(userRole, 'admin')) {
+    if (!isAtLeastAdmin(userRole)) {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
@@ -339,7 +339,7 @@ router.patch("/api/admin/discount-codes/:id/toggle", authenticateToken, async (r
   try {
     const userRole = req.user?.role;
     
-    if (!hasAtLeastRole(userRole, 'admin')) {
+    if (!isAtLeastAdmin(userRole)) {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
@@ -386,7 +386,7 @@ router.delete("/api/admin/discount-codes/:id", authenticateToken, async (req: Au
   try {
     const userRole = req.user?.role;
     
-    if (!hasAtLeastRole(userRole, 'admin')) {
+    if (!isAtLeastAdmin(userRole)) {
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 

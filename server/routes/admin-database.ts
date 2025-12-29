@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { neonPool } from '../lib/neonDb';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { hasAtLeastRole } from '../auth/roles';
+import { isAtLeastAdmin } from '../auth/roles';
 
 const router = Router();
 
@@ -44,7 +44,7 @@ const mapSubscriptionRecord = (row: Record<string, any>) => ({
  * Get statistics for all database tables
  */
 router.get('/api/admin/database/stats', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAtLeastRole(req.user?.role, 'admin')) {
+  if (!isAtLeastAdmin(req.user?.role)) {
     return res.status(403).json({ message: 'Admin access required' });
   }
 
@@ -95,7 +95,7 @@ router.get('/api/admin/database/stats', authenticateToken, async (req: AuthReque
  * Get data from a specific table
  */
 router.get('/api/admin/database/:table', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAtLeastRole(req.user?.role, 'admin')) {
+  if (!isAtLeastAdmin(req.user?.role)) {
     return res.status(403).json({ message: 'Admin access required' });
   }
 
@@ -157,7 +157,7 @@ router.get('/api/admin/database/:table', authenticateToken, async (req: AuthRequ
 });
 
 router.get('/api/admin/members/:memberId', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!hasAtLeastRole(req.user?.role, 'admin')) {
+  if (!isAtLeastAdmin(req.user?.role)) {
     return res.status(403).json({ message: 'Admin access required' });
   }
 

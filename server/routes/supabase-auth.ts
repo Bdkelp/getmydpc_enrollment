@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
 import { storage } from '../storage';
 import { sendEmailVerification } from '../email';
-import { hasAtLeastRole } from '../auth/roles';
+import { isAtLeastAdmin } from '../auth/roles';
 import axios from 'axios';
 
 const router = Router();
@@ -409,7 +409,7 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     // PERMISSION CHECK
     // ============================================
-    if (!hasAtLeastRole(adminDbUser.role, 'admin')) {
+    if (!isAtLeastAdmin(adminDbUser.role)) {
       console.warn(`[Admin Create User] Unauthorized attempt by ${adminDbUser.email} with role ${adminDbUser.role}`);
       return res.status(403).json({ 
         message: 'Only admins can create user accounts',

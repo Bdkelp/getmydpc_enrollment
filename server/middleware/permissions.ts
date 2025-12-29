@@ -13,7 +13,7 @@
 
 import { Response, NextFunction } from 'express';
 import { supabase } from '../lib/supabaseClient';
-import { hasAtLeastRole, type Role } from '../auth/roles';
+import { hasAtLeastRole, isAtLeastAdmin, type Role } from '../auth/roles';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -32,7 +32,7 @@ export interface AuthRequest extends Request {
  * Check if user has admin-level access (admin OR super_admin)
  */
 export const isAdmin = (role: string | undefined): boolean => {
-  return hasAtLeastRole(role, 'admin');
+  return isAtLeastAdmin(role);
 };
 
 /**
