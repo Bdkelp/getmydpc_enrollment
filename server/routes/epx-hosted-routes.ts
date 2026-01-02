@@ -430,6 +430,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       sessionId: sessionResponse.sessionId,
       publicKey: sessionResponse.publicKey,
       scriptUrl: config.scriptUrl,
+      terminalProfileId: config.terminalProfileId,
       environment: config.environment,
       captchaMode: config.captchaMode,
       paymentMethod: 'hosted-checkout',

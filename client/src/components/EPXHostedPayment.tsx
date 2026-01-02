@@ -631,6 +631,7 @@ export default function EPXHostedPayment({
           <input type="hidden" name="OrderNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
+          <input type="hidden" name="TerminalProfileId" value={sessionData?.terminalProfileId || ''} />
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />

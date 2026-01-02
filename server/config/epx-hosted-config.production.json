@@ -1,0 +1,7 @@
+{
+  "publicKey": "eyAidGVybWluYWxQcm9maWxlSWQiOiAiODBkODE2MjUtZmUwMC00N2JkLTg5YzktNjNjYTk4ZDdmZTkxIiB9",
+  "terminalProfileId": "80d81625-fe00-47bd-89c9-63ca98d7fe91",
+  "environment": "production",
+  "successCallback": "epxSuccessCallback",
+  "failureCallback": "epxFailureCallback"
+}
