@@ -54,7 +54,7 @@ export const apiRequest = async (url: string, options: RequestInit = {}) => {
   const requestId = Math.random().toString(36).substr(2, 9);
   const startTime = Date.now();
   
-  // Import API_URL from apiClient to get the Railway backend URL
+  // Import API_URL from apiClient to get the DigitalOcean backend URL
   const { API_URL } = await import("@/lib/apiClient");
   
   // Construct full URL if it's a relative path

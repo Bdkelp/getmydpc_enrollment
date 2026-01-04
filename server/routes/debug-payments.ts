@@ -185,7 +185,6 @@ router.get('/api/debug/epx-config', async (req: Request, res: Response) => {
       EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || 'NOT_SET',
       EPX_DBA_NBR: process.env.EPX_DBA_NBR || 'NOT_SET',
       EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT_SET',
-      REPLIT_DEV_DOMAIN: process.env.REPLIT_DEV_DOMAIN || 'NOT_SET',
       NODE_ENV: process.env.NODE_ENV || 'NOT_SET'
     };
 
@@ -205,10 +204,6 @@ router.get('/api/debug/epx-config', async (req: Request, res: Response) => {
       issues.push('EPX_MERCH_NBR is not set');
     }
     
-    if (!process.env.REPLIT_DEV_DOMAIN) {
-      issues.push('REPLIT_DEV_DOMAIN is not set');
-    }
-
     console.log('[Debug EPX Config] Configuration check completed');
 
     res.json({

@@ -21,6 +21,7 @@ const RECAPTCHA_SITE_KEY = ((import.meta as any)?.env?.VITE_RECAPTCHA_SITE_KEY |
 interface EPXHostedPaymentProps {
   amount: number;
   customerId: string;
+  memberId: number;
   customerEmail: string;
   customerName?: string;
   planId?: string;
@@ -49,6 +50,7 @@ declare global {
 export default function EPXHostedPayment({
   amount,
   customerId,
+  memberId,
   customerEmail,
   customerName = 'Customer',
   planId,
@@ -72,9 +74,6 @@ export default function EPXHostedPayment({
     postalCode: ''
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [registrationData, setRegistrationData] = useState<any>(null);
-  const [tempRegistrationId, setTempRegistrationId] = useState<string | null>(null);
-  const [paymentAttempts, setPaymentAttempts] = useState(0);
   const { toast } = useToast();
   
   const refreshCaptchaToken = useCallback(async (): Promise<string | null> => {
@@ -105,27 +104,6 @@ export default function EPXHostedPayment({
   
   // Determine which address to use based on checkbox
   const [populatedBillingAddress, setPopulatedBillingAddress] = useState(billingAddress);
-
-  // Load registration data and payment attempts from sessionStorage
-  useEffect(() => {
-    try {
-      const storedRegData = sessionStorage.getItem('registrationData');
-      if (storedRegData) {
-        setRegistrationData(JSON.parse(storedRegData));
-      }
-      const storedTempId = sessionStorage.getItem('tempRegistrationId');
-      if (storedTempId) {
-        setTempRegistrationId(storedTempId);
-      }
-      
-      const attempts = sessionStorage.getItem('paymentAttempts');
-      if (attempts) {
-        setPaymentAttempts(parseInt(attempts));
-      }
-    } catch (err) {
-      console.error('[EPX] Error loading registration data:', err);
-    }
-  }, []);
 
   // Load home address from sessionStorage
   useEffect(() => {
@@ -214,8 +192,7 @@ export default function EPXHostedPayment({
           subscriptionId,
           description: description || 'DPC Subscription Payment',
           billingAddress: populatedBillingAddress,
-          captchaToken: captchaToken,
-          tempRegistrationId: tempRegistrationId || sessionStorage.getItem('tempRegistrationId') || null
+          captchaToken: captchaToken
         });
 
         if (!response.success) {
@@ -308,16 +285,6 @@ export default function EPXHostedPayment({
       console.log('[EPX Hosted] Parsed success payload:', parsedMessage);
       const tokenFromPayload = extractPaymentToken(parsedMessage);
       const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
-      const effectiveTempId = tempRegistrationId || sessionStorage.getItem('tempRegistrationId') || null;
-      const effectiveRegistration = registrationData || (() => {
-        try {
-          const stored = sessionStorage.getItem('registrationData');
-          return stored ? JSON.parse(stored) : null;
-        } catch (storageError) {
-          console.warn('[EPX Hosted] Unable to parse stored registration data after payment', storageError);
-          return null;
-        }
-      })();
 
       if (!tokenFromPayload) {
         console.error('[EPX Hosted] Missing BRIC token in success payload. Parsed message:', parsedMessage);
@@ -336,6 +303,12 @@ export default function EPXHostedPayment({
         return;
       }
 
+      if (!memberId || Number.isNaN(memberId)) {
+        console.error('[EPX Hosted] Missing memberId for hosted payment completion');
+        setError('Payment succeeded, but we could not locate your membership record. Please contact support.');
+        return;
+      }
+
       setIsLoading(true);
 
       try {
@@ -343,16 +316,11 @@ export default function EPXHostedPayment({
           transactionId: transactionFromPayload,
           paymentToken: tokenFromPayload,
           paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
-          tempRegistrationId: effectiveTempId,
-          registrationData: effectiveRegistration,
+          memberId,
           authGuid: extractAuthGuid(parsedMessage),
           authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
           amount: parsedMessage.amount || amount
         });
-
-        sessionStorage.removeItem('registrationData');
-        sessionStorage.removeItem('tempRegistrationId');
-        sessionStorage.removeItem('paymentAttempts');
 
         toast({
           title: 'Payment Successful',
@@ -414,7 +382,7 @@ export default function EPXHostedPayment({
         window.epxFailureCallback = undefined as any;
       }
     };
-  }, [sessionData, onSuccess, onError]);
+  }, [sessionData, onSuccess, onError, memberId]);
 
   const handleSubmit = async () => {
     if (!scriptLoaded || !window.Epx) {
@@ -635,16 +603,6 @@ export default function EPXHostedPayment({
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
-          <input type="hidden" name="tempRegistrationId" value={tempRegistrationId || ''} />
-          
-          {/* Payment-First Flow: Include registration data */}
-          {registrationData && (
-            <>
-              <input type="hidden" name="registrationData" value={JSON.stringify(registrationData)} />
-              <input type="hidden" name="paymentMethodType" value="CreditCard" />
-              <input type="hidden" name="paymentAttempts" value={paymentAttempts.toString()} />
-            </>
-          )}
         </form>
 
         {/* Submit Button */}

@@ -54,6 +54,9 @@ export default function Payment() {
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [showEPXPayment, setShowEPXPayment] = useState(false);
   const [memberData, setMemberData] = useState<any>(null);
+  const [memberId, setMemberId] = useState<number | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [epxRetryKey, setEpxRetryKey] = useState(0);
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -92,6 +95,23 @@ export default function Payment() {
         description: "Please go back to registration and select a healthcare membership.",
         variant: "destructive",
       });
+    }
+
+    const storedMemberId = sessionStorage.getItem("memberId");
+    if (storedMemberId) {
+      const parsedMemberId = parseInt(storedMemberId, 10);
+      if (!Number.isNaN(parsedMemberId)) {
+        setMemberId(parsedMemberId);
+      }
+    } else {
+      toast({
+        title: "Member Not Found",
+        description: "Please restart registration before submitting payment.",
+        variant: "destructive"
+      });
+      setTimeout(() => {
+        setLocation("/registration");
+      }, 1500);
     }
 
     // Load member data for payment (use member's info, not agent's)
@@ -190,7 +210,20 @@ export default function Payment() {
     setIsProcessingPayment(false);
     
     // Check if user data is loaded
+    if (!memberId) {
+      toast({
+        title: "Member not available",
+        description: "We need your enrollment record before collecting payment. Please restart registration.",
+        variant: "destructive"
+      });
+      setTimeout(() => {
+        setLocation("/registration");
+      }, 500);
+      return;
+    }
+
     if (user?.id && user?.email) {
+      setPaymentError(null);
       setShowEPXPayment(true);
     } else {
       toast({
@@ -205,19 +238,23 @@ export default function Payment() {
     setShowPolicyModal(false);
   };
   
-  const handleEPXPaymentSuccess = async (transactionId: string) => {
-    // Clear session storage
+  const handleEPXPaymentSuccess = async () => {
+    // Clear plan selections to prevent duplicate payments
     sessionStorage.removeItem("selectedPlanId");
     sessionStorage.removeItem("coverageType");
     sessionStorage.removeItem("totalMonthlyPrice");
     sessionStorage.removeItem("basePlanPrice");
-    sessionStorage.removeItem("registrationData");
-    sessionStorage.removeItem("tempRegistrationId");
+    sessionStorage.removeItem("memberId");
+    sessionStorage.removeItem("memberData");
 
     toast({
       title: "Payment successful!",
       description: "Your subscription has been activated.",
     });
+
+    setShowEPXPayment(false);
+    setPaymentError(null);
+    setEpxRetryKey((prev) => prev + 1);
 
     setTimeout(() => {
       setLocation("/confirmation");
@@ -226,6 +263,7 @@ export default function Payment() {
 
   const handleEPXPaymentError = (error: string) => {
     console.error("EPX Payment error:", error);
+    setPaymentError(error || "There was an error processing your payment.");
     toast({
       title: "Payment failed",
       description: error || "There was an error processing your payment.",
@@ -234,11 +272,17 @@ export default function Payment() {
   };
 
   const handleEPXPaymentCancel = () => {
+    setPaymentError(null);
     setShowEPXPayment(false);
     toast({
       title: "Payment cancelled",
       description: "You can complete your payment anytime.",
     });
+  };
+
+  const handleRetryPayment = () => {
+    setPaymentError(null);
+    setEpxRetryKey((prev) => prev + 1);
   };
 
   return (
@@ -402,9 +446,19 @@ export default function Payment() {
                                 });
                                 return;
                               }
+                              if (!memberId) {
+                                toast({
+                                  title: "Member record missing",
+                                  description: "Please restart registration before completing payment.",
+                                  variant: "destructive"
+                                });
+                                setLocation("/registration");
+                                return;
+                              }
+                              setPaymentError(null);
                               setShowEPXPayment(true);
                             }}
-                            disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email}
+                            disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email || !memberId}
                           >
                             {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
                           </Button>
@@ -580,9 +634,38 @@ export default function Payment() {
       />
       
       {/* EPX Payment Modal */}
-      {showEPXPayment && selectedPlan && user?.id && user?.email && (
+      {showEPXPayment && selectedPlan && user?.id && user?.email && memberId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Complete Payment</h2>
+                <p className="text-sm text-gray-500">Secure EPX hosted checkout</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleEPXPaymentCancel}
+                className="rounded-md p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+
+            {paymentError && (
+              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <p className="font-semibold text-red-900">Payment attempt failed</p>
+                <p className="mt-1">{paymentError}</p>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Button className="flex-1" onClick={handleRetryPayment}>
+                    Retry Payment
+                  </Button>
+                  <Button variant="outline" className="flex-1" onClick={handleEPXPaymentCancel}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {(() => {
               const finalCustomerName = memberData ? `${memberData.firstName || ''} ${memberData.lastName || ''}`.trim() : `${user.firstName || ''} ${user.lastName || ''}`.trim();
               const finalCustomerEmail = memberData?.email || user.email;
@@ -590,12 +673,15 @@ export default function Payment() {
                 memberData,
                 finalCustomerName,
                 finalCustomerEmail,
-                userId: user.id
+                userId: user.id,
+                memberId
               });
               return (
                 <EPXHostedPayment
+                  key={epxRetryKey}
                   amount={epxPaymentAmount}
-                  customerId={memberData?.id || user.id}
+                  memberId={memberId}
+                  customerId={memberId.toString()}
                   customerEmail={finalCustomerEmail}
                   customerName={finalCustomerName}
                   planId={selectedPlanId?.toString()}

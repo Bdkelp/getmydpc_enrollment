@@ -3,13 +3,13 @@
 ## Architecture Overview
 
 This is a **split-deployment DPC (Direct Primary Care) enrollment platform** with strict separation:
-- **Frontend**: React + TypeScript + Vite (deployed to Vercel)
-- **Backend**: Express + TypeScript (deployed to Railway)
+- **Frontend**: React + TypeScript + Vite (served via DigitalOcean App Platform static hosting)
+- **Backend**: Express + TypeScript (DigitalOcean App Platform service)
 - **Database**: Supabase PostgreSQL (auth + business data)
 - **Payments**: EPX Hosted Checkout integration
 
 ### Critical Split-Deployment Pattern
-All API calls use `client/src/lib/apiClient.ts` with `API_BASE_URL` pointing to DigitalOcean backend. Never assume same-origin deployment. The `vercel.json` proxies `/api/*` requests to DigitalOcean.
+All API calls use `client/src/lib/apiClient.ts` with `API_BASE_URL` pointing to the DigitalOcean backend. Never assume same-origin deployment.
 
 ## Data Architecture - Dual Database Pattern
 
@@ -108,7 +108,7 @@ npm run db:push
 
 ### Deployment
 - **Backend**: DigitalOcean App Platform auto-deploys from `main` branch
-- **Frontend**: Vercel auto-deploys `client/` directory
+- **Frontend**: DigitalOcean App Platform serves `client/` build artifacts alongside the API
 - **Health Check**: `/api/health` endpoint for DigitalOcean
 
 ## Critical File Patterns
@@ -149,7 +149,7 @@ const commission = calculateCommission(planName, memberType, isFamily);
 Production origins in `server/index.ts`:
 - `enrollment.getmydpc.com`
 - `getmydpc-enrollment-gjk6m.ondigitalocean.app`
-- DigitalOcean/Vercel patterns
+- DigitalOcean domains
 
 ## Key Debugging Commands
 
@@ -176,7 +176,7 @@ curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/test-cors
 ## Production Deployment Notes
 
 - Use `cleanup_for_production.ps1` before deployment
-- Verify environment variables in both Railway and Vercel
+- Verify environment variables in DigitalOcean App Platform
 - Test payment flows in EPX sandbox before production
 - Monitor `/api/health` endpoint for backend status
 

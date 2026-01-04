@@ -181,7 +181,7 @@ router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Temporary endpoint to check Railway's outbound IP for EPX ACL whitelist
+// Temporary endpoint to check DigitalOcean's outbound IP for EPX ACL whitelist
 router.get("/api/check-ip", async (req, res) => {
   try {
     const response = await fetch("https://api.ipify.org?format=json");
@@ -189,7 +189,7 @@ router.get("/api/check-ip", async (req, res) => {
     res.json({ 
       outboundIP: data.ip,
       timestamp: new Date().toISOString(),
-      message: "This is the IP address that Railway uses for outbound requests (needed for EPX ACL)"
+      message: "This is the IP address that DigitalOcean uses for outbound requests (needed for EPX ACL)"
     });
   } catch (error) {
     console.error('[IP Check] Failed to fetch IP:', error);
@@ -1659,7 +1659,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     'http://localhost:5000'
   ];
 
-  const regexPatterns = [/\.vercel\.app$/, /\.ondigitalocean\.app$/];
+  const regexPatterns = [/\.ondigitalocean\.app$/];
   const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
 
   // Always set CORS headers for this public endpoint

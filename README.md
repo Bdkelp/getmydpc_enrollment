@@ -11,7 +11,7 @@
 
 ## 📋 Tech Stack
 
-### Frontend (Vercel)
+### Frontend (DigitalOcean Static App)
 - **Framework**: React 18 + TypeScript
 - **Build Tool**: Vite
 - **Routing**: Wouter (lightweight React Router alternative)
@@ -40,10 +40,10 @@
 ### Deployment Pattern (Split Architecture)
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Frontend (Vercel)                                          │
+│  Frontend (DigitalOcean Static App)                         │
 │  ├─ React App (enrollment.getmydpc.com)                     │
-│  ├─ Static Assets                                           │
-│  └─ API Proxy (/api/* → DigitalOcean)                       │
+│  ├─ Static Assets served from DigitalOcean build            │
+│  └─ API calls → DigitalOcean backend base URL               │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -77,7 +77,6 @@
 - Git
 - Code editor (VS Code recommended)
 - DigitalOcean CLI (optional, for backend debugging)
-- Vercel CLI (optional, for frontend testing)
 
 ### Initial Setup
 
@@ -131,7 +130,7 @@ NODE_ENV=development
 FULL_ACCESS_EMAILS=owner@example.com,ops@example.com
 ```
 
-#### Frontend (Vercel)
+#### Frontend (DigitalOcean Static App)
 
 Create `client/.env`:
 
@@ -562,7 +561,7 @@ leads
 - [x] Google reCAPTCHA v3 implementation (client + server)
 - [x] Structured JSONL logging system for EPX payments
 - [x] Server-side reCAPTCHA token verification
-- [x] Split-deployment architecture (Vercel + DigitalOcean)
+- [x] Split-deployment architecture (DigitalOcean App Platform static + API services)
 - [x] Commission calculation system
 - [x] Agent hierarchy support
 - [x] Role-based access control (RBAC)
@@ -618,12 +617,12 @@ const response = await apiClient.post('/api/epx/hosted/create-payment', {
 # 6. Send IP + domain to EPX for whitelisting
 ```
 
-**Alternative (Railway Only)**:
+**DigitalOcean App Platform outbound IP helper**:
 
 ```bash
-# Get Railway outbound IP
+# Get the outbound IP used by the running app
 curl https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/check-ip
-# Send this IP to EPX if not using separate DigitalOcean server
+# Share this IP with EPX when refreshing ACL rules
 ```
 
 ##### 3. **EPX Server Post API Integration**
@@ -933,48 +932,32 @@ User Registration → EPX Hosted Checkout → reCAPTCHA v3 → Payment → Callb
 
 ### Continuous Deployment (Auto)
 
-Both frontend and backend auto-deploy on push to `main` branch.
-
-#### Railway (Backend)
+DigitalOcean App Platform handles both the backend service and the static frontend bundle on every push to `main`.
 
 1. Push to `main` branch
-2. Railway detects changes and rebuilds (~2 minutes)
+2. DigitalOcean rebuilds the project (backend via `npm run build`, frontend via `npm run build:client`)
 3. Health check: `GET https://getmydpc-enrollment-gjk6m.ondigitalocean.app/api/health`
-4. Logs available in Railway dashboard
+4. Static assets served at `https://enrollment.getmydpc.com`
 
-**Build Command**: `npm run build` (esbuild)  
-**Start Command**: `npm start` or `node dist/index.js`  
-**Port**: Automatically assigned by DigitalOcean (`PORT` env variable, typically 8080)
-
-#### Vercel (Frontend)
-
-1. Push to `main` branch
-2. Vercel detects changes and rebuilds (~1-2 minutes)
-3. Site live at `https://enrollment.getmydpc.com`
-4. API proxy: `/api/*` → DigitalOcean backend (configured in `vercel.json`)
-
-**Build Command**: `npm run build` (Vite)  
-**Output Directory**: `dist`  
-**Framework**: Vite
+**Backend Build Command**: `npm run build` (esbuild)  
+**Backend Start Command**: `npm start` or `node dist/index.js`  
+**Frontend Output Directory**: `client/dist`  
+**Port**: Provided by DigitalOcean App Platform via `PORT`
 
 ### Manual Deployment
 
 ```bash
-# DigitalOcean CLI (backend)
+# Trigger a new deployment
 doctl apps create-deployment <app-id>
 
-# Vercel CLI (frontend)
-cd client
-vercel --prod
-
-# Check deployments
+# Inspect status/logs
 doctl apps list
-vercel ls
+doctl apps logs <app-id>
 ```
 
 ### Pre-Deployment Checklist
 
-- [ ] All environment variables set in DigitalOcean and Vercel
+- [ ] All environment variables set in DigitalOcean App Platform
 - [ ] Database migrations applied (`npm run db:push`)
 - [ ] EPX credentials configured and tested
 - [ ] reCAPTCHA secret key and site key configured
@@ -1007,7 +990,7 @@ Expected response:
 
 ```plaintext
 getmydpc_enrollment/
-├── client/                          # Frontend (React + Vite) - Deployed to Vercel
+├── client/                          # Frontend (React + Vite) - Built and served via DigitalOcean
 │   ├── src/
 │   │   ├── components/             # Reusable UI components
 │   │   │   ├── ui/                # Shadcn/ui base components (Button, Input, etc.)
@@ -1037,7 +1020,6 @@ getmydpc_enrollment/
 │   │   └── index.css              # Global Tailwind styles
 │   ├── public/                    # Static assets served by Vite
 │   │   └── avatars/              # User profile images
-│   ├── vercel.json               # ⚙️ Vercel config + API proxy to DigitalOcean
 │   ├── vite.config.ts            # Vite build config (path aliases, plugins)
 │   ├── tailwind.config.cjs       # Tailwind CSS theme customization
 │   ├── tsconfig.json             # TypeScript config (strict mode)
@@ -1091,10 +1073,6 @@ getmydpc_enrollment/
 ├── migrations/                     # Drizzle database migrations (SQL)
 │   └── 0000_initial_schema.sql
 │
-├── api/                            # Serverless functions (Vercel)
-│   └── public/
-│       └── leads.ts              # Public lead form endpoint
-│
 ├── .github/                        # GitHub configuration
 │   └── copilot-instructions.md   # AI coding agent instructions
 │
@@ -1103,8 +1081,6 @@ getmydpc_enrollment/
 ├── client.tsconfig.json            # Client-specific TS config
 ├── .env                            # Environment variables (gitignored)
 ├── .gitignore                      # Git ignore rules
-├── railway.json                    # Legacy deployment config (not used)
-├── nixpacks.toml                   # Railway build configuration
 └── README.md                       # 📖 This file
 ```
 
@@ -1114,7 +1090,7 @@ getmydpc_enrollment/
 
 - **Landing Page**: `client/src/pages/landing.tsx`
 - **Lead Form**: `client/src/components/LeadForm.tsx`
-- **API Endpoint**: `api/public/leads.ts` (Vercel serverless function)
+- **API Endpoint**: `/api/public/leads` (handled by `server/routes.ts`)
 
 #### 🔐 Authentication Flow
 
@@ -1330,11 +1306,8 @@ Use this flow when the stored card is invalid or you need a card-on-file before 
 ### Debugging
 
 ```bash
-# View Railway backend logs
-railway logs
-
-# View Vercel frontend logs
-vercel logs
+# View DigitalOcean App Platform logs
+doctl apps logs <app-id> --tail
 
 # Local server logs with debug output
 DEBUG=* npm run dev:server
@@ -1436,13 +1409,13 @@ See project-specific documentation for test login credentials.
 ### Payment Issues
 
 - Verify EPX environment variables set (`EPX_PUBLIC_KEY`, `EPX_TERMINAL_PROFILE_ID`)
-- Check Railway outbound IP is whitelisted in EPX ACL
+- Check DigitalOcean outbound IP is whitelisted in EPX ACL
 - Review EPX logs: `GET /api/epx/logs/recent`
 - Ensure reCAPTCHA secret key configured
 
 ### Authentication Issues
 
-- Verify Supabase URLs and keys match in both Railway and Vercel
+- Verify Supabase URLs and keys match in your DigitalOcean environment variables
 - Check JWT token format in browser dev tools (Network tab)
 - Review role assignments in `users` table
 - Ensure RLS policies are correct in Supabase dashboard
@@ -1452,12 +1425,11 @@ See project-specific documentation for test login credentials.
 - Check for TypeScript errors: `npm run build`
 - Ensure all dependencies installed: `npm install`
 - Verify environment variables are set
-- Review Railway build logs for errors
+- Review DigitalOcean build logs for errors
 
 ### CORS Errors
 
 - Verify production origins in `server/index.ts` (CORS config)
-- Check `vercel.json` proxy configuration
 - Ensure `FRONTEND_URL` env variable is set correctly
 
 ## 📞 Support & Contact

@@ -73,7 +73,7 @@ export function serveStatic(app: Express) {
 
   if (!fs.existsSync(distPath)) {
     log(`⚠️  Static files not found at ${distPath}, skipping static file serving`);
-    log(`   This is normal in production - static files are served by Vercel`);
+    log(`   This is normal in production - static files are served by the DigitalOcean build output`);
     return;
   }
 

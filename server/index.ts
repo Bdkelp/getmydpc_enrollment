@@ -11,8 +11,8 @@ const __dirname = path.dirname(__filename);
 // Force rebuild: Fix agent endpoint role checks
 dotenv.config();
 
-// Fix SSL certificate validation issues in production (Railway/Vercel)
-// This is needed for Supabase connections
+// Fix SSL certificate validation issues in production (DigitalOcean App Platform)
+// This is needed for Supabase connections when DO injects custom certs
 if (process.env.NODE_ENV === 'production') {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
@@ -23,7 +23,6 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
-import { scheduleCleanup as scheduleTempRegistrationCleanup } from "./services/temp-registration-service";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import adminDatabaseRoutes from "./routes/admin-database";
@@ -31,7 +30,6 @@ import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
 import epxCertificationRoutes from "./routes/epx-certification";
-import finalizeRegistrationRoutes from "./routes/finalize-registration";
 import adminNotificationsRoutes from "./routes/admin-notifications";
 import discountCodesRoutes from "./routes/discount-codes";
 import paymentsRoutes from "./routes/payments";
@@ -51,11 +49,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS setup - production deployment configuration
+// CORS setup - DigitalOcean deployment configuration
 app.use(
   cors({
     origin: [
-      /^https:\/\/.*\.vercel\.app$/,
       /^https:\/\/.*\.ondigitalocean\.app$/,
       /^http:\/\/localhost:\d+$/,
       /^http:\/\/127\.0\.0\.1:\d+$/,
@@ -130,9 +127,6 @@ app.use((req, res, next) => {
   app.use('/', epxHostedRoutes);
   app.use('/', epxCertificationRoutes);
   
-  // Register finalize registration route (payment-first flow)
-  app.use('/', finalizeRegistrationRoutes);
-  
   // Register all API routes
   const server = await registerRoutes(app);
 
@@ -183,7 +177,7 @@ app.use((req, res, next) => {
     await setupVite(app, server);
   }
 
-  // Use Railway's PORT environment variable in production, fallback to 5000 for local dev
+  // Use platform-provided PORT in production, fallback to 5000 for local dev
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
   const serverInstance = server.listen(port, "0.0.0.0", () => {
       log(`serving on port ${port}`);
@@ -196,9 +190,6 @@ app.use((req, res, next) => {
 
       // Initialize membership activation scheduler
       scheduleMembershipActivation();
-
-      // Initialize temp registration cleanup scheduler
-      scheduleTempRegistrationCleanup();
 
       // Validate EPX configuration
       try {

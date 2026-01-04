@@ -142,7 +142,7 @@ import type {
 } from "@shared/schema";
 
 export interface IStorage {
-  // User operations (required for Replit Auth)
+  // User operations (Supabase-authenticated agents/admins)
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, data: Partial<User>): Promise<User>;
@@ -4811,6 +4811,15 @@ export const storage = {
 
   updateMember: async (id: number, data: Partial<Member>): Promise<Member> => {
     try {
+      const normalizeTimestamp = (value?: string | Date | null) => {
+        if (!value) return undefined;
+        const date = value instanceof Date ? value : new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return undefined;
+        }
+        return date.toISOString();
+      };
+
       // Format fields if provided
       const formattedData = {
         ...data,
@@ -4823,6 +4832,37 @@ export const storage = {
         zipCode: data.zipCode ? formatZipCode(data.zipCode) : undefined,
         state: data.state?.toUpperCase().slice(0, 2),
         gender: data.gender?.toUpperCase().slice(0, 1),
+        firstPaymentDate: normalizeTimestamp(data.firstPaymentDate ?? undefined),
+        membershipStartDate: normalizeTimestamp(data.membershipStartDate ?? undefined),
+        enrollmentDate: normalizeTimestamp(data.enrollmentDate ?? undefined)
+      } as Record<string, any>;
+
+      const columnMapping: Record<string, string> = {
+        firstName: 'first_name',
+        lastName: 'last_name',
+        middleName: 'middle_name',
+        emergencyContactName: 'emergency_contact_name',
+        emergencyContactPhone: 'emergency_contact_phone',
+        employerName: 'employer_name',
+        divisionName: 'division_name',
+        memberType: 'member_type',
+        dateOfBirth: 'date_of_birth',
+        dateOfHire: 'date_of_hire',
+        planStartDate: 'plan_start_date',
+        planId: 'plan_id',
+        coverageType: 'coverage_type',
+        totalMonthlyPrice: 'total_monthly_price',
+        addRxValet: 'add_rx_valet',
+        agentNumber: 'agent_number',
+        enrolledByAgentId: 'enrolled_by_agent_id',
+        customerNumber: 'customer_number',
+        paymentToken: 'payment_token',
+        paymentMethodType: 'payment_method_type',
+        firstPaymentDate: 'first_payment_date',
+        membershipStartDate: 'membership_start_date',
+        enrollmentDate: 'enrollment_date',
+        zipCode: 'zip_code',
+        isActive: 'is_active'
       };
 
       // Build dynamic UPDATE query
@@ -4832,7 +4872,8 @@ export const storage = {
 
       Object.entries(formattedData).forEach(([key, value]) => {
         if (value !== undefined) {
-          updates.push(`${key} = $${paramIndex}`);
+          const dbField = columnMapping[key] || key;
+          updates.push(`${dbField} = $${paramIndex}`);
           values.push(value);
           paramIndex++;
         }

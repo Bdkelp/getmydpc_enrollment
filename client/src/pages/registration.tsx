@@ -161,21 +161,21 @@ export default function Registration() {
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
-      const subtotal = selectedPlan ? 
-        parseFloat(selectedPlan.price) + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0) : 0;
-      const totalWithFees = (subtotal * 1.04).toFixed(2); // Add 4% administration fee
-      
-      // PAYMENT-FIRST FLOW: Store registration data in sessionStorage ONLY
-      // Member record will be created AFTER payment succeeds
-      const registrationData = {
-        // Required fields
+      const isFamilyCoverage = coverageType === "Family";
+      const rxValetPrice = isFamilyCoverage ? 21 : 19;
+      const planPrice = selectedPlan ? parseFloat(selectedPlan.price) : 0;
+      const subtotal = planPrice + (addRxValet ? rxValetPrice : 0);
+      const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
+      const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
+      const processingFee = Number((subtotalAfterDiscount * 0.04).toFixed(2));
+      const totalWithFees = Number((subtotalAfterDiscount * 1.04).toFixed(2));
+
+      const registrationPayload = {
         email: data.email,
         firstName: data.firstName,
         lastName: data.lastName,
-        phone: data.phone,
-        
-        // Additional enrollment data
         middleName: data.middleName,
+        phone: data.phone,
         dateOfBirth: data.dateOfBirth,
         gender: data.gender,
         ssn: data.ssn,
@@ -187,120 +187,92 @@ export default function Registration() {
         emergencyContactName: data.emergencyContactName,
         emergencyContactPhone: data.emergencyContactPhone,
         employerName: data.employerName,
+        divisionName: data.divisionName,
         dateOfHire: data.dateOfHire,
-        
-        // Plan and pricing
+        memberType: data.memberType,
+        planStartDate: data.planStartDate,
         planId: selectedPlanId,
         coverageType,
-        totalMonthlyPrice: parseFloat(totalWithFees),
         addRxValet,
-        
-        // Family members (if any)
-        familyMembers: familyMembers,
-        
-        // Consent flags
+        totalMonthlyPrice: totalWithFees,
+        familyMembers,
         termsAccepted: data.termsAccepted,
         privacyAccepted: data.privacyNoticeAcknowledged,
+        privacyNoticeAcknowledged: data.privacyNoticeAcknowledged,
         smsConsent: data.communicationsConsent,
+        communicationsConsent: data.communicationsConsent,
         faqDownloaded: data.faqDownloaded,
-        
-        // Agent information (if enrolled by agent)
+        discountCode: data.discountCode || null,
         agentNumber: currentUser?.agentNumber || null,
         enrolledByAgentId: currentUser?.id || null
       };
-      
-      console.log('[Registration] Storing data in sessionStorage (payment-first flow)');
-      console.log('[Registration] Data:', {
-        email: registrationData.email,
-        firstName: registrationData.firstName,
-        lastName: registrationData.lastName,
-        planId: registrationData.planId,
-        totalMonthlyPrice: registrationData.totalMonthlyPrice
-      });
-      
-      // Store in sessionStorage - no API call yet
-      sessionStorage.setItem("registrationData", JSON.stringify(registrationData));
+
+      const apiResponse = await apiClient.post("/api/registration", registrationPayload);
+
+      return {
+        apiResponse,
+        pricing: {
+          subtotal,
+          discountAmount,
+          subtotalAfterDiscount,
+          processingFee,
+          totalWithFees
+        }
+      };
+    },
+    onSuccess: ({ apiResponse, pricing }) => {
+      console.log("[Registration] Member created, preparing payment session");
+
+      if (!apiResponse?.member?.id) {
+        toast({
+          title: "Registration Error",
+          description: "Member record missing from server response.",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const member = apiResponse.member;
+      const formValues = form.getValues();
+
       sessionStorage.setItem("paymentAttempts", "0");
-      sessionStorage.setItem(
-        "primaryAddress",
-        JSON.stringify({
-          address: data.address || "",
-          address2: data.address2 || "",
-          city: data.city || "",
-          state: data.state || "",
-          zipCode: data.zipCode || "",
-          phone: data.phone || ""
-        })
-      );
+      sessionStorage.setItem("memberId", member.id.toString());
       sessionStorage.setItem(
         "memberData",
         JSON.stringify({
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email,
-          phone: data.phone,
-          address: data.address,
-          address2: data.address2,
-          city: data.city,
-          state: data.state,
-          zipCode: data.zipCode
+          id: member.id,
+          customerNumber: member.customerNumber,
+          firstName: member.firstName || formValues.firstName,
+          lastName: member.lastName || formValues.lastName,
+          email: member.email || formValues.email,
+          phone: formValues.phone,
+          totalMonthlyPrice: pricing.totalWithFees.toFixed(2)
+        })
+      );
+      sessionStorage.setItem(
+        "primaryAddress",
+        JSON.stringify({
+          address: formValues.address || "",
+          address2: formValues.address2 || "",
+          city: formValues.city || "",
+          state: formValues.state || "",
+          zipCode: formValues.zipCode || "",
+          phone: formValues.phone || ""
         })
       );
 
-      try {
-        const tempRegistration = await apiClient.post("/api/temp-registrations", {
-          registrationData,
-          agentId: currentUser?.id || null
-        });
-        if (tempRegistration?.id) {
-          sessionStorage.setItem("tempRegistrationId", tempRegistration.id);
-        }
-      } catch (tempError) {
-        console.error("[Registration] Failed to persist temp registration", tempError);
-      }
-      
-      // Return mock success for UI flow
-      return { 
-        success: true, 
-        message: "Registration data stored, proceed to payment" 
-      };
-    },
-    onSuccess: (data) => {
-      console.log("[Registration] Data stored in sessionStorage, redirecting to payment");
-      
-      // Store additional session data for payment page
-      const isFamily = coverageType === "Family";
-      const rxValetPrice = isFamily ? 21 : 19;
-      const subtotal = selectedPlan ? 
-        parseFloat(selectedPlan.price) + (addRxValet ? rxValetPrice : 0) : 0;
-      
-      // Apply discount if valid
-      const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
-      const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
-      
-      const processingFee = (subtotalAfterDiscount * 0.04).toFixed(2);
-      const totalWithFees = (subtotalAfterDiscount * 1.04).toFixed(2);
-      
       sessionStorage.setItem("selectedPlanId", selectedPlanId?.toString() || "");
       sessionStorage.setItem("addRxValet", addRxValet.toString());
       sessionStorage.setItem("rxValet", addRxValet ? "yes" : "no");
       sessionStorage.setItem("basePlanPrice", selectedPlan?.price || "0");
-      sessionStorage.setItem("discountCode", data.discountCode || "");
-      sessionStorage.setItem("discountAmount", discountAmount.toFixed(2));
-      sessionStorage.setItem("subtotal", subtotal.toFixed(2));
-      sessionStorage.setItem("processingFee", processingFee);
-      sessionStorage.setItem("totalMonthlyPrice", totalWithFees);
+      sessionStorage.setItem("discountCode", formValues.discountCode || "");
+      sessionStorage.setItem("discountAmount", pricing.discountAmount.toFixed(2));
+      sessionStorage.setItem("subtotal", pricing.subtotal.toFixed(2));
+      sessionStorage.setItem("processingFee", pricing.processingFee.toFixed(2));
+      sessionStorage.setItem("totalMonthlyPrice", pricing.totalWithFees.toFixed(2));
       sessionStorage.setItem("coverageType", coverageType);
       sessionStorage.setItem("familyMembers", JSON.stringify(familyMembers));
-      
-      console.log("Stored plan info:", {
-        selectedPlanId,
-        selectedPlanName: selectedPlan?.name,
-        coverageType,
-        totalMonthlyPrice: totalWithFees
-      });
-      
-      // Registration complete - proceed to EPX payment
+
       toast({
         title: "Registration Complete",
         description: "Your information has been saved. Proceeding to payment...",
