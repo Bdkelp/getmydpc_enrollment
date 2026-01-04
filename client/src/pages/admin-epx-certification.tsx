@@ -121,6 +121,16 @@ const AdminEPXCertification = () => {
   const [exportPreview, setExportPreview] = useState<CertificationExportResponse | null>(null);
   const [tranType, setTranType] = useState<TranType>("CCE1");
 
+  // AUTH_GUID query
+  const authGuidQuery = useQuery({
+    queryKey: ["epx-auth-guid"],
+    enabled: isAuthenticated && isAdmin,
+    queryFn: async () => {
+      const response = await apiClient.get("/api/epx/certification/auth-guid");
+      return response;
+    },
+  });
+
   const logsQuery = useQuery<CertificationLogResponse>(
     {
       queryKey: ["epx-cert-logs", logsLimit],
@@ -342,6 +352,100 @@ const AdminEPXCertification = () => {
             Back to Admin View
           </Button>
         </div>
+
+        {/* AUTH_GUID Display Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle>AUTH_GUID for EPX Certification</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Most recent AUTH_GUID from completed payments. Provide this to EPX for certification.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {authGuidQuery.isLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <LoadingSpinner />
+              </div>
+            ) : authGuidQuery.data?.mostRecent ? (
+              <div className="space-y-4">
+                <div className="bg-muted p-4 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">AUTH_GUID (Full)</Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <code className="bg-background px-3 py-2 rounded text-sm font-mono flex-1 break-all">
+                          {authGuidQuery.data.mostRecent.authGuid}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(authGuidQuery.data.mostRecent.authGuid);
+                            toast({ title: "Copied!", description: "AUTH_GUID copied to clipboard" });
+                          }}
+                        >
+                          Copy
+                        </Button>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Transaction ID</Label>
+                      <p className="text-sm font-mono mt-1">{authGuidQuery.data.mostRecent.transactionId}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Amount</Label>
+                      <p className="text-sm mt-1">${authGuidQuery.data.mostRecent.amount}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Plan</Label>
+                      <p className="text-sm mt-1">{authGuidQuery.data.mostRecent.planName || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Member</Label>
+                      <p className="text-sm mt-1">
+                        {authGuidQuery.data.mostRecent.member?.name || 'N/A'} 
+                        {authGuidQuery.data.mostRecent.member?.email && ` (${authGuidQuery.data.mostRecent.member.email})`}
+                      </p>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Created</Label>
+                      <p className="text-sm mt-1">
+                        {authGuidQuery.data.mostRecent.createdAt 
+                          ? formatDistanceToNow(new Date(authGuidQuery.data.mostRecent.createdAt), { addSuffix: true })
+                          : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => authGuidQuery.refetch()}
+                  disabled={authGuidQuery.isFetching}
+                  className="w-full"
+                >
+                  {authGuidQuery.isFetching ? "Refreshing..." : "Refresh AUTH_GUID"}
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-muted-foreground mb-4">
+                  {authGuidQuery.data?.message || "No payments with AUTH_GUID found."}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Complete a test enrollment to generate an AUTH_GUID.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => authGuidQuery.refetch()}
+                  disabled={authGuidQuery.isFetching}
+                  className="mt-4"
+                >
+                  {authGuidQuery.isFetching ? "Checking..." : "Check Again"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
