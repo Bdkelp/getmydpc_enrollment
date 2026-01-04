@@ -5,6 +5,24 @@ import bcrypt from 'bcryptjs';
 
 const router = Router();
 
+// Public endpoint to check outbound IP
+router.get('/api/check-outbound-ip', async (req, res) => {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json');
+    const data = await response.json();
+    res.json({
+      success: true,
+      ip: data.ip,
+      message: 'This is the outbound IP that EPX needs to whitelist for Server Post API'
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Middleware to check if we're in development mode
 const requireDevelopmentMode = (req: any, res: any, next: any) => {
   // Allow in development or if explicitly enabled
