@@ -680,13 +680,28 @@ export async function submitServerPostRecurringPayment(
       }
     });
 
-    const response = await fetch(credentials.serverPostUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: requestPayload
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+
+    let response;
+    try {
+      response = await fetch(credentials.serverPostUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: requestPayload,
+        signal: controller.signal
+      });
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('EPX Server Post request timed out after 25 seconds');
+      }
+      throw new Error(`EPX Server Post request failed: ${fetchError.message}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     rawResponse = await response.text();
     responseFields = parseServerPostResponse(rawResponse);
