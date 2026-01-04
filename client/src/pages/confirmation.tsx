@@ -274,7 +274,10 @@ export default function Confirmation() {
               <CheckCircle2 className="h-16 w-16 text-green-600 mx-auto mb-4" />
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Membership Enrollment Confirmed!</h1>
               <p className="text-gray-600">Your enrollment has been successfully processed.</p>
-              <p className="text-lg font-semibold text-medical-blue-600 mt-2">Customer Number: {membershipData.customerNumber}</p>
+              <div className="mt-4 space-y-1">
+                <p className="text-lg font-semibold text-medical-blue-600">Member ID: {membershipData.memberId}</p>
+                <p className="text-lg font-semibold text-medical-blue-600">Customer Number: {membershipData.customerNumber}</p>
+              </div>
             </div>
 
             {/* Action Buttons */}

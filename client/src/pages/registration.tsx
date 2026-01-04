@@ -274,15 +274,15 @@ export default function Registration() {
       sessionStorage.setItem("familyMembers", JSON.stringify(familyMembers));
 
       toast({
-        title: "Registration Complete! ✅",
-        description: `Member #${member.customerNumber || member.id} created. Redirecting to payment...`,
-        duration: 3000
+        title: "✅ Registration Complete!",
+        description: `Member ID: ${member.id} | Customer #: ${member.customerNumber || member.id}\nRedirecting to payment...`,
+        duration: 4000
       });
       
-      // Brief delay to show member confirmation before payment
+      // Show member info before redirecting to payment
       setTimeout(() => {
         setLocation("/payment");
-      }, 2000);
+      }, 3000);
     },
     onError: (error) => {
       if (isUnauthorizedError(error)) {
