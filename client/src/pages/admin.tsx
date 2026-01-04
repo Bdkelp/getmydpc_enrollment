@@ -2075,7 +2075,6 @@ export default function Admin() {
               <div className="p-6">
                 <EPXHostedPayment
                   amount={hostedModalData.amount}
-                  memberId={hostedModalData.member.id}
                   customerId={String(hostedModalData.member.id)}
                   customerEmail={hostedModalData.member.email}
                   customerName={`${hostedModalData.member.firstName || ''} ${hostedModalData.member.lastName || ''}`.trim() || hostedModalData.member.email}

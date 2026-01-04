@@ -680,7 +680,6 @@ export default function Payment() {
                 <EPXHostedPayment
                   key={epxRetryKey}
                   amount={epxPaymentAmount}
-                  memberId={memberId}
                   customerId={memberId.toString()}
                   customerEmail={finalCustomerEmail}
                   customerName={finalCustomerName}

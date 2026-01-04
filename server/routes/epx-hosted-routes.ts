@@ -527,25 +527,60 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       amount
     } = req.body || {};
 
-    if (!transactionId || !paymentToken || !memberId) {
+    if (!transactionId || !paymentToken) {
       return res.status(400).json({
         success: false,
-        error: 'transactionId, paymentToken, and memberId are required'
+        error: 'transactionId and paymentToken are required'
       });
-    }
-
-    const numericMemberId = typeof memberId === 'string'
-      ? parseInt(memberId, 10)
-      : Number(memberId);
-
-    if (!Number.isFinite(numericMemberId) || numericMemberId <= 0) {
-      return res.status(400).json({ success: false, error: 'memberId must be a valid numeric identifier' });
     }
 
     logEPX({
       level: 'info',
       phase: 'hosted-complete',
       message: 'Recording hosted checkout completion',
+      data: { transactionId, providedMemberId: memberId || 'will lookup from payment' }
+    });
+
+    // Look up payment record to find the member
+    const paymentRecord = await storage.getPaymentByTransactionId(transactionId);
+    if (!paymentRecord) {
+      return res.status(404).json({
+        success: false,
+        error: 'Payment record not found for transaction'
+      });
+    }
+
+    // Use memberId from payment record if not provided
+    let numericMemberId = memberId;
+    if (!numericMemberId && paymentRecord.member_id) {
+      numericMemberId = paymentRecord.member_id;
+      logEPX({
+        level: 'info',
+        phase: 'hosted-complete',
+        message: 'Retrieved memberId from payment record',
+        data: { transactionId, memberId: numericMemberId }
+      });
+    }
+
+    if (!numericMemberId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Unable to determine member for this payment'
+      });
+    }
+
+    if (typeof numericMemberId === 'string') {
+      numericMemberId = parseInt(numericMemberId, 10);
+    }
+
+    if (!Number.isFinite(numericMemberId) || numericMemberId <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid memberId' });
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'hosted-complete',
+      message: 'Finalizing payment for member',
       data: { transactionId, memberId: numericMemberId }
     });
 

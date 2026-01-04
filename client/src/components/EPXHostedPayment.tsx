@@ -21,7 +21,6 @@ const RECAPTCHA_SITE_KEY = ((import.meta as any)?.env?.VITE_RECAPTCHA_SITE_KEY |
 interface EPXHostedPaymentProps {
   amount: number;
   customerId: string;
-  memberId: number;
   customerEmail: string;
   customerName?: string;
   planId?: string;
@@ -50,7 +49,6 @@ declare global {
 export default function EPXHostedPayment({
   amount,
   customerId,
-  memberId,
   customerEmail,
   customerName = 'Customer',
   planId,
@@ -303,12 +301,6 @@ export default function EPXHostedPayment({
         return;
       }
 
-      if (!memberId || Number.isNaN(memberId)) {
-        console.error('[EPX Hosted] Missing memberId for hosted payment completion');
-        setError('Payment succeeded, but we could not locate your membership record. Please contact support.');
-        return;
-      }
-
       setIsLoading(true);
 
       try {
@@ -316,7 +308,6 @@ export default function EPXHostedPayment({
           transactionId: transactionFromPayload,
           paymentToken: tokenFromPayload,
           paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
-          memberId,
           authGuid: extractAuthGuid(parsedMessage),
           authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
           amount: parsedMessage.amount || amount
@@ -382,7 +373,7 @@ export default function EPXHostedPayment({
         window.epxFailureCallback = undefined as any;
       }
     };
-  }, [sessionData, onSuccess, onError, memberId]);
+  }, [sessionData, onSuccess, onError]);
 
   const handleSubmit = async () => {
     if (!scriptLoaded || !window.Epx) {
