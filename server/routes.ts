@@ -5211,6 +5211,58 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  /**
+   * GET /api/payments/by-transaction/:transactionId
+   * Public endpoint to fetch payment and member details by transaction ID
+   * Used by confirmation page after EPX redirect
+   */
+  router.get('/api/payments/by-transaction/:transactionId', async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      
+      if (!transactionId) {
+        return res.status(400).json({ success: false, error: 'Transaction ID required' });
+      }
+
+      const payment = await storage.getPaymentByTransactionId(transactionId);
+      
+      if (!payment) {
+        return res.status(404).json({ success: false, error: 'Payment not found' });
+      }
+
+      let member = null;
+      if (payment.member_id) {
+        try {
+          member = await storage.getMember(payment.member_id);
+        } catch (memberError) {
+          console.warn('[Payments] Could not fetch member for payment', { transactionId, memberId: payment.member_id });
+        }
+      }
+
+      res.json({
+        success: true,
+        payment: {
+          id: payment.id,
+          transactionId: payment.transaction_id,
+          amount: payment.amount,
+          status: payment.status,
+          createdAt: payment.created_at
+        },
+        member: member ? {
+          id: member.id,
+          customerNumber: member.customerNumber,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          email: member.email,
+          status: member.status
+        } : null
+      });
+    } catch (error: any) {
+      console.error('[Payments] Error fetching payment by transaction ID:', error);
+      res.status(500).json({ success: false, error: 'Failed to fetch payment details' });
+    }
+  });
+
   // Log the new routes
   console.log("[Route] POST /api/registration");
   console.log("[Route] POST /api/agent/enrollment");
@@ -5221,6 +5273,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");
   console.log("[Route] POST /api/send-confirmation-email");
+  console.log("[Route] GET /api/payments/by-transaction/:transactionId");
 
   // Return the app with routes registered
   return app;

@@ -143,6 +143,37 @@ export default function Confirmation() {
     enabled: !!membershipData, // Load plans as soon as we have any membership data
   });
 
+  // Fetch actual member data from payment record if we have a transaction ID
+  const urlParams = new URLSearchParams(window.location.search);
+  const epxTransaction = urlParams.get('transaction');
+  
+  const { data: paymentData } = useQuery({
+    queryKey: ['/api/payments/transaction', epxTransaction],
+    queryFn: async () => {
+      if (!epxTransaction) return null;
+      const response = await apiRequest(`/api/payments/by-transaction/${epxTransaction}`);
+      return response;
+    },
+    enabled: !!epxTransaction && (membershipData?.memberId === 'Pending' || membershipData?.customerNumber === 'Pending'),
+    retry: 2,
+    retryDelay: 1000
+  });
+
+  // Update membership data when payment data loads
+  useEffect(() => {
+    if (paymentData?.payment && paymentData?.member) {
+      console.log('[Confirmation] Updating with fetched payment data:', paymentData);
+      setMembershipData((prev: any) => ({
+        ...prev,
+        memberId: paymentData.member.id,
+        customerNumber: paymentData.member.customerNumber || paymentData.member.id,
+        firstName: paymentData.member.firstName || prev.firstName,
+        lastName: paymentData.member.lastName || prev.lastName,
+        email: paymentData.member.email || prev.email
+      }));
+    }
+  }, [paymentData]);
+
   // Only show loading if we're actively processing a payment
   // Don't block on auth loading - agents need immediate confirmation for back-to-back enrollments
   if (isProcessingPayment) {
