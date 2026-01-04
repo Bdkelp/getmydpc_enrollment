@@ -479,6 +479,51 @@ router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmi
   }
 });
 
+/**
+ * GET /api/epx/certification/auth-guid
+ * Quick endpoint to retrieve most recent AUTH_GUID for EPX certification
+ */
+router.get('/api/epx/certification/auth-guid', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const recentPayments = await getRecentPaymentsDetailed({ limit: 10, status: 'completed' });
+    
+    const paymentsWithAuthGuid = recentPayments
+      .filter(p => p.epx_auth_guid && p.epx_auth_guid.trim())
+      .map(p => ({
+        id: p.id,
+        memberId: p.member_id,
+        transactionId: p.transaction_id,
+        amount: p.amount,
+        planName: p.plan_name,
+        createdAt: p.created_at,
+        authGuid: p.epx_auth_guid,
+        authGuidMasked: maskAuthGuidValue(p.epx_auth_guid),
+        member: p.member_id ? {
+          name: `${p.member_first_name || ''} ${p.member_last_name || ''}`.trim(),
+          email: p.member_email,
+          customerNumber: p.member_customer_number
+        } : null
+      }));
+
+    const mostRecent = paymentsWithAuthGuid[0];
+
+    res.json({
+      success: true,
+      mostRecent: mostRecent || null,
+      recentPayments: paymentsWithAuthGuid,
+      message: mostRecent 
+        ? `Found AUTH_GUID from transaction ${mostRecent.transactionId}`
+        : 'No payments with AUTH_GUID found. Complete a test enrollment first.'
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Failed to retrieve AUTH_GUID', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error?.message || 'Failed to retrieve AUTH_GUID' 
+    });
+  }
+});
+
 router.post('/api/epx/certification/server-post', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'epx-certification');
