@@ -9,6 +9,28 @@
 -- Now we create members first, then process payment
 DROP TABLE IF EXISTS temp_registrations CASCADE;
 
+-- ============================================================
+-- Clean Test Data from Payments Table
+-- ============================================================
+
+-- Option 1: Remove ALL payments (use if still in testing/development phase)
+-- WARNING: This will delete ALL payment records
+-- TRUNCATE TABLE payments RESTART IDENTITY CASCADE;
+
+-- Option 2: Remove only obvious test payments (selective cleanup)
+-- Uncomment the DELETE statements you want to use:
+
+-- Delete payments with test email patterns
+-- DELETE FROM payments WHERE email ILIKE '%test%' OR email ILIKE '%example.com%';
+
+-- Delete payments with $1.00 or other test amounts
+-- DELETE FROM payments WHERE amount IN (1.00, 0.01, 99.99);
+
+-- Delete payments from specific test date range (adjust dates as needed)
+-- DELETE FROM payments WHERE created_at < '2026-01-01';
+
+-- ============================================================
+
 -- Optional: Drop sessions table if using Supabase Auth exclusively
 -- (Uncomment if you want to remove session storage - Supabase handles auth sessions)
 -- DROP TABLE IF EXISTS sessions CASCADE;
