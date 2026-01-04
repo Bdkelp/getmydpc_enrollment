@@ -3752,8 +3752,8 @@ export async function registerRoutes(app: any) {
         daysUntilActive: daysUntilMembershipStarts(enrollmentDate, membershipStartDate)
       });
 
-      // Determine initial status: pending_activation if membership starts in future, active if today
-      const initialStatus = isMembershipActive(membershipStartDate) ? 'active' : 'pending_activation';
+      // Set members to active immediately for commission/revenue tracking
+      const initialStatus = 'active';
       console.log("[Registration] Initial member status:", initialStatus);
 
       // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
@@ -3784,8 +3784,8 @@ export async function registerRoutes(app: any) {
         enrollmentDate: enrollmentDate,
         firstPaymentDate: firstPaymentDate,
         membershipStartDate: membershipStartDate,
-        isActive: initialStatus === 'active', // Only active if membership has started
-        status: initialStatus, // pending_activation or active
+        isActive: true, // Active immediately for commission tracking
+        status: 'active', // Active immediately
         planId: planId ? parseInt(planId) : null,
         coverageType: coverageType || memberType || "member-only",
         totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
