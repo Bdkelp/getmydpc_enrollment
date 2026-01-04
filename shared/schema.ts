@@ -254,20 +254,6 @@ export const leadActivities = pgTable("lead_activities", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Temporary registration storage for payment-first flow
-export const tempRegistrations = pgTable("temp_registrations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  registrationData: jsonb("registration_data").notNull(), // Complete registration form data
-  paymentAttempts: integer("payment_attempts").default(0), // Track failed payment attempts (max 3)
-  lastPaymentError: text("last_payment_error"), // Store last payment error message
-  agentId: varchar("agent_id", { length: 255 }), // Agent who initiated registration
-  createdAt: timestamp("created_at").defaultNow(),
-  expiresAt: timestamp("expires_at").notNull(), // Auto-expire after 1 hour
-}, (table) => [
-  index("idx_temp_registrations_expires_at").on(table.expiresAt), // For cleanup job
-  index("idx_temp_registrations_created_at").on(table.createdAt),
-]);
-
 // Admin notifications for system alerts
 export const adminNotifications = pgTable("admin_notifications", {
   id: serial("id").primaryKey(),
