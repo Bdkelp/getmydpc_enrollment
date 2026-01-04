@@ -10,24 +10,29 @@
 DROP TABLE IF EXISTS temp_registrations CASCADE;
 
 -- ============================================================
--- Clean Test Data from Payments Table
+-- Clean ALL Test Enrollment Data
+-- ============================================================
+-- WARNING: This removes ALL members, payments, commissions, and related data
+-- Preserves: users, plans, discount_codes, and other configuration tables
 -- ============================================================
 
--- Option 1: Remove ALL payments (use if still in testing/development phase)
--- WARNING: This will delete ALL payment records
--- TRUNCATE TABLE payments RESTART IDENTITY CASCADE;
+-- Clear member-related data (order matters due to foreign keys)
+TRUNCATE TABLE family_members RESTART IDENTITY CASCADE;
+TRUNCATE TABLE subscriptions RESTART IDENTITY CASCADE;
+TRUNCATE TABLE member_change_requests RESTART IDENTITY CASCADE;
+TRUNCATE TABLE member_discount_codes RESTART IDENTITY CASCADE;
+TRUNCATE TABLE enrollment_modifications RESTART IDENTITY CASCADE;
 
--- Option 2: Remove only obvious test payments (selective cleanup)
--- Uncomment the DELETE statements you want to use:
+-- Clear payment and commission data
+TRUNCATE TABLE payments RESTART IDENTITY CASCADE;
+TRUNCATE TABLE agent_commissions RESTART IDENTITY CASCADE;
 
--- Delete payments with test email patterns
--- DELETE FROM payments WHERE email ILIKE '%test%' OR email ILIKE '%example.com%';
+-- Clear members (this will cascade to any remaining dependent tables)
+TRUNCATE TABLE members RESTART IDENTITY CASCADE;
 
--- Delete payments with $1.00 or other test amounts
--- DELETE FROM payments WHERE amount IN (1.00, 0.01, 99.99);
-
--- Delete payments from specific test date range (adjust dates as needed)
--- DELETE FROM payments WHERE created_at < '2026-01-01';
+-- Optional: Clear leads if you want fresh start on lead tracking too
+TRUNCATE TABLE lead_activities RESTART IDENTITY CASCADE;
+TRUNCATE TABLE leads RESTART IDENTITY CASCADE;
 
 -- ============================================================
 
