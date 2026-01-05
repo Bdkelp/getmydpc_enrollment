@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Check, CheckCircle2, FileText, Phone, Mail, Globe, Download, Send, Printer } from "lucide-react";
+import { Check, CheckCircle2, FileText, Phone, Mail, Globe, Download, Send, Printer, Copy } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -295,6 +295,39 @@ export default function Confirmation() {
     }
   };
 
+  const resolvedMemberId = membershipData?.memberId && membershipData.memberId !== 'Pending'
+    ? membershipData.memberId
+    : null;
+  const resolvedCustomerNumber = membershipData?.customerNumber && membershipData.customerNumber !== 'Pending'
+    ? membershipData.customerNumber
+    : null;
+
+  const handleCopy = async (label: string, value?: string | number | null) => {
+    if (!value) {
+      toast({
+        title: `${label} not ready yet`,
+        description: 'This value is still pending — please refresh in a moment.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(String(value));
+      toast({
+        title: `${label} copied`,
+        description: `${label} ${value} is now on your clipboard.`
+      });
+    } catch (error) {
+      console.error('[Confirmation] Failed to copy field', label, error);
+      toast({
+        title: 'Copy failed',
+        description: 'Your browser blocked clipboard access. Please copy it manually.',
+        variant: 'destructive'
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-12">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -305,9 +338,41 @@ export default function Confirmation() {
               <CheckCircle2 className="h-16 w-16 text-green-600 mx-auto mb-4" />
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Membership Enrollment Confirmed!</h1>
               <p className="text-gray-600">Your enrollment has been successfully processed.</p>
-              <div className="mt-4 space-y-1">
-                <p className="text-lg font-semibold text-medical-blue-600">Member ID: {membershipData.memberId}</p>
-                <p className="text-lg font-semibold text-medical-blue-600">Customer Number: {membershipData.customerNumber}</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-sm uppercase tracking-wide text-gray-500">Member ID</p>
+                  <div className="mt-1 flex items-center justify-center gap-2">
+                    <span className="text-lg font-semibold text-medical-blue-600">
+                      {resolvedMemberId || 'Pending'}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8"
+                      disabled={!resolvedMemberId}
+                      onClick={() => handleCopy('Member ID', resolvedMemberId)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm uppercase tracking-wide text-gray-500">Customer Number</p>
+                  <div className="mt-1 flex items-center justify-center gap-2">
+                    <span className="text-lg font-semibold text-medical-blue-600">
+                      {resolvedCustomerNumber || 'Pending'}
+                    </span>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8"
+                      disabled={!resolvedCustomerNumber}
+                      onClick={() => handleCopy('Customer Number', resolvedCustomerNumber)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -353,7 +418,7 @@ export default function Confirmation() {
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Member ID</p>
-                  <p className="font-medium">{membershipData?.email || "Pending"}</p>
+                  <p className="font-medium">{resolvedMemberId || "Pending"}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Enrollment Date</p>
