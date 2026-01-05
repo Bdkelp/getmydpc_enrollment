@@ -94,9 +94,8 @@ interface CertificationPaymentsResponse {
 
 const TRAN_TYPES = [
   { value: "CCE1", label: "MIT (CCE1)" },
-  { value: "CCE2", label: "MIT (CCE2)" },
-  { value: "V", label: "Void" },
-  { value: "R", label: "Refund/Reversal" },
+  { value: "CCE7", label: "Reversal (CCE7)" },
+  { value: "CCE9", label: "Refund (CCE9)" },
 ] as const;
 type TranType = (typeof TRAN_TYPES)[number]["value"];
 
