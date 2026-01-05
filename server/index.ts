@@ -33,6 +33,7 @@ import epxCertificationRoutes from "./routes/epx-certification";
 import adminNotificationsRoutes from "./routes/admin-notifications";
 import discountCodesRoutes from "./routes/discount-codes";
 import paymentsRoutes from "./routes/payments";
+import { initializePaymentEnvironment } from "./services/payment-environment-service";
 
 const app = express();
 
@@ -123,6 +124,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  try {
+    const env = await initializePaymentEnvironment();
+    console.log(`[Server] Payment environment initialized: ${env}`);
+  } catch (error: any) {
+    console.warn('[Server] Failed to initialize payment environment from storage:', error?.message || error);
+  }
+
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use('/', epxHostedRoutes);
   app.use('/', epxCertificationRoutes);

@@ -13,10 +13,12 @@ import { storage, getRecentPaymentsDetailed } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
+import { getPaymentEnvironmentDetails, paymentEnvironment, type PaymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 
 const requireSuperAdmin = requireRole('super_admin');
+const requireAdmin = requireRole('admin');
 
 const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE7', 'CCE9'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
@@ -271,7 +273,8 @@ const handleSubscriptionCancellation = async (
       });
     }
 
-    const epxService = getEPXService();
+    const epxService = await getEPXService();
+    const environment = await paymentEnvironment.getEnvironment();
     const cancelResult = await epxService.cancelSubscription(resolvedSubscriptionId);
     const endpointPath = source === 'admin-dashboard'
       ? '/api/admin/payments/cancel-subscription'
@@ -280,7 +283,7 @@ const handleSubscriptionCancellation = async (
     certificationLogger.logCertificationEntry({
       purpose: 'subscription-cancel',
       transactionId: transactionId || paymentRecord?.transaction_id,
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+      environment,
       amount: paymentRecord?.amount ? Number(paymentRecord.amount) : undefined,
       customerId: paymentRecord?.member_id ? String(paymentRecord.member_id) : undefined,
       metadata: {
@@ -533,6 +536,52 @@ router.post('/api/epx/certification/server-post', authenticateToken, requireSupe
 router.post('/api/epx/certification/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
 
   return handleSubscriptionCancellation(req, res, 'epx-certification');
+});
+
+router.get('/api/admin/payments/environment', authenticateToken, requireAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const details = await getPaymentEnvironmentDetails();
+    res.json({
+      success: true,
+      environment: details.environment,
+      updatedAt: details.updatedAt,
+      updatedBy: details.updatedBy,
+      allowed: ['sandbox', 'production'] as PaymentEnvironment[],
+    });
+  } catch (error: any) {
+    console.error('[EPX Admin] Failed to load payment environment', error);
+    res.status(500).json({ success: false, error: error?.message || 'Unable to load payment environment' });
+  }
+});
+
+router.post('/api/admin/payments/environment', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+  const requested = typeof req.body?.environment === 'string'
+    ? req.body.environment.trim().toLowerCase()
+    : '';
+
+  if (requested !== 'sandbox' && requested !== 'production') {
+    return res.status(400).json({
+      success: false,
+      error: 'Environment must be "sandbox" or "production"',
+    });
+  }
+
+  try {
+    const previous = paymentEnvironment.getCachedEnvironment();
+    const updated = await paymentEnvironment.setEnvironment(requested as PaymentEnvironment, req.user?.id);
+    const details = await getPaymentEnvironmentDetails();
+
+    res.json({
+      success: true,
+      previousEnvironment: previous,
+      environment: updated,
+      updatedAt: details.updatedAt,
+      updatedBy: details.updatedBy,
+    });
+  } catch (error: any) {
+    console.error('[EPX Admin] Failed to update payment environment', error);
+    res.status(500).json({ success: false, error: error?.message || 'Unable to update payment environment' });
+  }
 });
 
 router.post('/api/admin/payments/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {

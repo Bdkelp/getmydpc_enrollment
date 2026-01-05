@@ -6,6 +6,7 @@
 import { Router, Request, Response } from "express";
 import { getEPXService } from "../services/epx-payment-service";
 import { certificationLogger } from "../services/certification-logger";
+import { paymentEnvironment } from "../services/payment-environment-service";
 
 const router = Router();
 
@@ -27,7 +28,8 @@ router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
     }
 
     // Get EPX service instance
-    const epxService = getEPXService();
+    const epxService = await getEPXService();
+    const environment = await paymentEnvironment.getEnvironment();
 
     // Generate TAC
     const tacResponse = await epxService.generateTAC({
@@ -87,13 +89,13 @@ router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
             body: {
               success: true,
               formData,
-              environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+              environment,
               paymentMethod: 'server-post'
             },
             processingTimeMs: processingTime
           },
           amount,
-          environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+          environment,
           purpose: 'server-post-payment-creation',
           sensitiveFieldsMasked: ['customerId', 'customerEmail', 'aciExt'],
           timestamp: new Date().toISOString()
@@ -108,7 +110,7 @@ router.post("/api/epx/create-payment", async (req: Request, res: Response) => {
       success: true,
       formData,
       paymentMethod: 'server-post',
-      environment: process.env.EPX_ENVIRONMENT || 'sandbox'
+      environment
     });
   } catch (error: any) {
     console.error('[EPX Server Post] Create payment error:', error);

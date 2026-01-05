@@ -16,6 +16,7 @@ import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
 import { submitServerPostRecurringPayment } from '../services/epx-payment-service';
 import { certificationLogger } from '../services/certification-logger';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
+import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -193,17 +194,18 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
 }
 
 function loadHostedConfig(): EPXHostedCheckoutConfig {
+  const cachedEnvironment = paymentEnvironment.getCachedEnvironment();
   const envConfig: Partial<EPXHostedCheckoutConfig> = {
     publicKey: process.env.EPX_PUBLIC_KEY || undefined,
     terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || undefined,
-    environment: (process.env.EPX_ENVIRONMENT === 'production' ? 'production' : 'sandbox')
+    environment: cachedEnvironment
   };
 
   if (envConfig.publicKey && envConfig.terminalProfileId) {
     return {
       publicKey: envConfig.publicKey,
       terminalProfileId: envConfig.terminalProfileId,
-      environment: envConfig.environment || 'sandbox',
+      environment: envConfig.environment || cachedEnvironment,
       successCallback: process.env.EPX_HOSTED_SUCCESS_CALLBACK || 'epxSuccessCallback',
       failureCallback: process.env.EPX_HOSTED_FAILURE_CALLBACK || 'epxFailureCallback'
     };
@@ -217,7 +219,7 @@ function loadHostedConfig(): EPXHostedCheckoutConfig {
         return {
           publicKey: parsed.publicKey,
           terminalProfileId: parsed.terminalProfileId,
-          environment: (parsed.environment === 'production' ? 'production' : 'sandbox'),
+          environment: cachedEnvironment,
           successCallback: parsed.successCallback || 'epxSuccessCallback',
           failureCallback: parsed.failureCallback || 'epxFailureCallback'
         };
@@ -270,15 +272,24 @@ function normalizeBillingAddress(address: any): BillingAddress | undefined {
  * Create payment session for Hosted Checkout
  */
 router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response) => {
-  initializeService(); // Ensure service is initialized
-
   const requestStartTime = Date.now();
 
   try {
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
+    initializeService();
+
+    if (hostedCheckoutService) {
+      const activeConfig = hostedCheckoutService.getCheckoutConfig();
+      if (activeConfig.environment !== currentEnvironment) {
+        console.log('[EPX Hosted Checkout] Environment mismatch detected. Reinitializing service.');
+        initializeService(true);
+      }
+    }
+
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
         success: false,
-        error: 'Hosted Checkout service not initialized'
+        error: initError || 'Hosted Checkout service not initialized'
       });
     }
 
@@ -362,7 +373,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         metadata: {
           planId,
           paymentType: 'hosted-checkout',
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: currentEnvironment,
           customerEmail,
           description,
           orderNumber,
@@ -457,7 +468,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
           transactionId: orderNumber,
           customerId: (memberId && String(memberId)) || userId || (customerId ? String(customerId) : undefined),
           amount: numericAmount,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: currentEnvironment,
           purpose: 'hosted-checkout-create-payment',
           request: {
             timestamp: new Date(requestStartTime).toISOString(),
@@ -682,6 +693,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       });
     }
 
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
+
     // Log the full callback request from EPX (headers + body)
     console.log(
       '[EPX Server Post - REQUEST]',
@@ -703,7 +716,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           purpose: 'hosted-callback-received',
           transactionId: req.body?.transactionId || req.body?.orderNumber || req.body?.TRANSACTION_ID,
           amount: req.body?.amount ? parseFloat(req.body.amount) : undefined,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: currentEnvironment,
           request: {
             timestamp: new Date().toISOString(),
             method: 'POST',
@@ -799,7 +812,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           purpose: 'hosted-callback-success',
           transactionId: result.transactionId,
           amount: result.amount,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: currentEnvironment,
           metadata: {
             hasAuthGuid: !!authGuid,
             paymentId: paymentRecordForLogging?.id,
@@ -845,7 +858,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           purpose: 'hosted-callback-declined',
           transactionId: result.transactionId,
           amount: result.amount,
-          environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+          environment: currentEnvironment,
           request: {
             timestamp: new Date().toISOString(),
             method: 'POST',
@@ -872,7 +885,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       certificationLogger.logCertificationEntry({
         purpose: 'hosted-callback-error',
         transactionId: req.body?.transactionId || req.body?.orderNumber,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        environment: currentEnvironment,
         request: {
           timestamp: new Date().toISOString(),
           method: 'POST',

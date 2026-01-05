@@ -85,6 +85,65 @@ export function formatZipCode(zip: string): string {
   return zip.replace(/\D/g, '').slice(0, 5);
 }
 
+export interface PlatformSettingRecord<T = any> {
+  key: string;
+  value: T;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export async function getPlatformSetting<T = any>(key: string): Promise<PlatformSettingRecord<T> | null> {
+  try {
+    const { data, error } = await supabase
+      .from('platform_settings')
+      .select('key, value, updated_at, updated_by')
+      .eq('key', key)
+      .limit(1);
+
+    if (error) {
+      console.warn(`[Storage] Failed to read platform setting ${key}:`, error.message);
+      return null;
+    }
+
+    const record = Array.isArray(data) ? data[0] : null;
+    if (!record) {
+      return null;
+    }
+
+    return {
+      key: record.key ?? key,
+      value: record.value as T,
+      updatedAt: record.updated_at || record.updatedAt,
+      updatedBy: record.updated_by || record.updatedBy,
+    };
+  } catch (error: any) {
+    console.error(`[Storage] Unexpected error reading platform setting ${key}:`, error.message);
+    return null;
+  }
+}
+
+export async function upsertPlatformSetting<T = any>(key: string, value: T, updatedBy?: string): Promise<T> {
+  try {
+    const payload: Record<string, any> = { key, value };
+    if (updatedBy) {
+      payload.updated_by = updatedBy;
+    }
+
+    const { error } = await supabase
+      .from('platform_settings')
+      .upsert(payload, { onConflict: 'key' });
+
+    if (error) {
+      throw error;
+    }
+
+    return value;
+  } catch (error: any) {
+    console.error(`[Storage] Failed to upsert platform setting ${key}:`, error.message);
+    throw new Error(`Failed to update platform setting ${key}`);
+  }
+}
+
 function normalizeStartDate(startDate?: string): string | undefined {
   if (!startDate) return undefined;
   const start = new Date(startDate);

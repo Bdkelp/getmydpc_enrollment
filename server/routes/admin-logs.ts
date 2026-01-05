@@ -1,6 +1,7 @@
 
 import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
+import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 
@@ -46,6 +47,8 @@ router.get('/api/admin/transaction-logs', async (req: Request, res: Response) =>
       userAgent: payment.metadata?.userAgent
     }));
 
+    const activeEnvironment = await paymentEnvironment.getEnvironment();
+
     res.json({
       success: true,
       logs: logEntries,
@@ -54,7 +57,7 @@ router.get('/api/admin/transaction-logs', async (req: Request, res: Response) =>
         startDate,
         endDate,
         status,
-        environment: environment || process.env.EPX_ENVIRONMENT || 'sandbox'
+        environment: environment || activeEnvironment
       }
     });
 

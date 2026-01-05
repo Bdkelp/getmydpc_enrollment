@@ -443,6 +443,14 @@ export const memberChangeRequests = pgTable("member_change_requests", {
   index("idx_change_requests_requested_by").on(table.requestedBy),
 ]);
 
+// Platform-wide configuration storage (runtime toggles, etc.)
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
@@ -663,3 +671,5 @@ export type BillingSchedule = typeof billingSchedule.$inferSelect;
 export type InsertBillingSchedule = z.infer<typeof insertBillingScheduleSchema>;
 export type RecurringBillingLog = typeof recurringBillingLog.$inferSelect;
 export type InsertRecurringBillingLog = z.infer<typeof insertRecurringBillingLogSchema>;
+export type PlatformSetting = typeof platformSettings.$inferSelect;
+export type InsertPlatformSetting = typeof platformSettings.$inferInsert;

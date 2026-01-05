@@ -3,6 +3,7 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
+import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 
@@ -25,6 +26,7 @@ router.get('/api/debug/test', async (req: Request, res: Response) => {
 router.get('/api/debug/payments', async (req: Request, res: Response) => {
   try {
     console.log('[Debug Payments] Checking recent payment activity...');
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
 
     // Get recent payments from database - use direct supabase query
     const { data: recentPayments, error } = await supabase
@@ -71,7 +73,7 @@ router.get('/api/debug/payments', async (req: Request, res: Response) => {
 
     // Get environment info
     const envInfo = {
-      EPX_ENVIRONMENT: process.env.EPX_ENVIRONMENT || 'sandbox',
+      EPX_ENVIRONMENT: currentEnvironment,
       NODE_ENV: process.env.NODE_ENV,
       hasEPXConfig: !!(process.env.EPX_MAC && process.env.EPX_CUST_NBR),
       serverTime: new Date().toISOString()
@@ -134,6 +136,7 @@ router.get('/api/debug/payments', async (req: Request, res: Response) => {
 router.post('/api/debug/test-payment-creation', async (req: Request, res: Response) => {
   try {
     console.log('[Debug] Testing payment creation...');
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
 
     const testPayment = {
       userId: 'debug-user-' + Date.now(),
@@ -143,7 +146,7 @@ router.post('/api/debug/test-payment-creation', async (req: Request, res: Respon
       paymentMethod: 'card',
       transactionId: 'DEBUG_' + Date.now(),
       metadata: {
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        environment: currentEnvironment,
         debug: true,
         timestamp: new Date().toISOString()
       }
@@ -177,9 +180,10 @@ router.post('/api/debug/test-payment-creation', async (req: Request, res: Respon
 router.get('/api/debug/epx-config', async (req: Request, res: Response) => {
   try {
     console.log('[Debug EPX Config] Checking EPX configuration...');
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
 
     const config = {
-      EPX_ENVIRONMENT: process.env.EPX_ENVIRONMENT || 'sandbox',
+      EPX_ENVIRONMENT: currentEnvironment,
       EPX_MAC: process.env.EPX_MAC ? `${process.env.EPX_MAC.substring(0, 8)}...` : 'NOT_SET',
       EPX_CUST_NBR: process.env.EPX_CUST_NBR || 'NOT_SET',
       EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || 'NOT_SET',

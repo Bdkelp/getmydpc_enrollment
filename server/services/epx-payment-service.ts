@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { certificationLogger } from './certification-logger';
 import { logEPX } from './epx-payment-logger';
+import { paymentEnvironment, type PaymentEnvironment } from './payment-environment-service';
 
 // ============================================================
 // CARD DATA MASKING UTILITY
@@ -436,15 +437,16 @@ export class EPXServerPostService {
 // SERVICE FACTORY
 // ============================================================
 
-export function getEPXService() {
+export async function getEPXService() {
+  const environment = await paymentEnvironment.getEnvironment();
   const config: EPXServerPostConfig = {
     apiKey: process.env.EPX_MAC || process.env.EPX_MAC_KEY || '',
     custNbr: process.env.EPX_CUST_NBR || '',
     merchNbr: process.env.EPX_MERCH_NBR || '',
     dbaNbr: process.env.EPX_DBA_NBR || '',
     terminalNbr: process.env.EPX_TERMINAL_NBR || '',
-    environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
-    apiUrl: process.env.EPX_ENVIRONMENT === 'production'
+    environment,
+    apiUrl: environment === 'production'
       ? 'https://billing.epx.com'
       : 'https://billing.epxuap.com'  // UAP sandbox
   };
@@ -490,8 +492,17 @@ interface ServerPostRecurringResult {
   error?: string;
 }
 
-function ensureServerPostCredentials() {
-  const environment = (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production';
+type ServerPostCredentials = {
+  environment: PaymentEnvironment;
+  custNbr: string;
+  merchNbr: string;
+  dbaNbr: string;
+  terminalNbr: string;
+  serverPostUrl: string;
+};
+
+async function ensureServerPostCredentials(): Promise<ServerPostCredentials> {
+  const environment = await paymentEnvironment.getEnvironment();
   const custNbr = process.env.EPX_CUST_NBR || '';
   const merchNbr = process.env.EPX_MERCH_NBR || '';
   const dbaNbr = process.env.EPX_DBA_NBR || '';
@@ -602,8 +613,11 @@ export async function submitServerPostRecurringPayment(
         ? 'server-post-refund'
         : 'server-post-mit';
 
+  let credentials: ServerPostCredentials | null = null;
+
   try {
-    const credentials = ensureServerPostCredentials();
+    const resolvedCredentials = await ensureServerPostCredentials();
+    credentials = resolvedCredentials;
 
     const amount = Number(options.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -636,10 +650,10 @@ export async function submitServerPostRecurringPayment(
       : undefined;
 
     requestFields = {
-      CUST_NBR: credentials.custNbr,
-      MERCH_NBR: credentials.merchNbr,
-      DBA_NBR: credentials.dbaNbr,
-      TERMINAL_NBR: credentials.terminalNbr,
+      CUST_NBR: resolvedCredentials.custNbr,
+      MERCH_NBR: resolvedCredentials.merchNbr,
+      DBA_NBR: resolvedCredentials.dbaNbr,
+      TERMINAL_NBR: resolvedCredentials.terminalNbr,
       TRAN_TYPE: resolvedTranType,
       AMOUNT: formatAmount(amount),
       BATCH_ID: options.batchId || generateBatchId(),
@@ -679,7 +693,7 @@ export async function submitServerPostRecurringPayment(
       message: 'Submitting Server Post transaction',
       data: {
         transactionId: options.transactionId || requestFields.TRAN_NBR,
-        environment: credentials.environment,
+        environment: resolvedCredentials.environment,
         authGuidPresent: Boolean(authGuid),
         authGuidVisibility,
         authGuid: authGuidLogValue,
@@ -693,7 +707,7 @@ export async function submitServerPostRecurringPayment(
 
     let response;
     try {
-      response = await fetch(credentials.serverPostUrl, {
+      response = await fetch(resolvedCredentials.serverPostUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
@@ -732,13 +746,13 @@ export async function submitServerPostRecurringPayment(
       transactionId: options.transactionId || requestFields.TRAN_NBR,
       customerId: resolvedCustomerId,
       amount,
-      environment: credentials.environment,
+      environment: resolvedCredentials.environment,
       purpose: certificationPurpose,
       request: {
         timestamp: new Date().toISOString(),
         method: 'POST',
         endpoint: '/serverpost',
-        url: credentials.serverPostUrl,
+        url: resolvedCredentials.serverPostUrl,
         headers: {
           'content-type': 'application/x-www-form-urlencoded'
         },
@@ -789,10 +803,11 @@ export async function submitServerPostRecurringPayment(
 
     if (requestPayload) {
       const fallbackRawFields = rawFieldSnapshot || (Object.keys(requestFields).length ? { ...requestFields } : undefined);
+      const fallbackEnvironment = credentials?.environment ?? paymentEnvironment.getCachedEnvironment();
       certificationLogger.logCertificationEntry({
         transactionId: options.transactionId || requestFields.TRAN_NBR,
         amount: options.amount,
-        environment: process.env.EPX_ENVIRONMENT || 'sandbox',
+        environment: fallbackEnvironment,
         purpose: certificationPurpose,
         request: {
           timestamp: new Date().toISOString(),
