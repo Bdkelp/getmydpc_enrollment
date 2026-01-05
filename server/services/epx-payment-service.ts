@@ -459,8 +459,9 @@ export type EPXService = EPXServerPostService;
 // ============================================================
 
 const SERVER_POST_ENDPOINTS = {
-  sandbox: 'https://services.epxuap.com/serverpost/',
-  production: 'https://services.epx.com/serverpost/'
+  // Server Post endpoints provided by EPX (secure.* hosts)
+  sandbox: 'https://secure.epxuap.com/',
+  production: 'https://secure.epx.com/'
 } as const;
 
 type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9';
@@ -630,6 +631,10 @@ export async function submitServerPostRecurringPayment(
       || (typeof (member as any)?.id !== 'undefined' ? String((member as any).id)
       : typeof (member as any)?.member_id !== 'undefined' ? String((member as any).member_id) : undefined);
 
+    const resolvedAciExt = resolvedTranType === 'CCE1'
+      ? (options.aciExt ?? 'RB')
+      : undefined;
+
     requestFields = {
       CUST_NBR: credentials.custNbr,
       MERCH_NBR: credentials.merchNbr,
@@ -641,9 +646,12 @@ export async function submitServerPostRecurringPayment(
       TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
       ORIG_AUTH_GUID: authGuid,
       CARD_ENT_METH: options.cardEntryMethod || 'Z',
-      INDUSTRY_TYPE: options.industryType || 'E',
-      ACI_EXT: options.aciExt || 'RB'
+      INDUSTRY_TYPE: options.industryType || 'E'
     };
+
+    if (resolvedAciExt) {
+      requestFields.ACI_EXT = resolvedAciExt;
+    }
 
     if (firstName) requestFields.FIRST_NAME = firstName;
     if (lastName) requestFields.LAST_NAME = lastName;
