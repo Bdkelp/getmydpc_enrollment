@@ -175,7 +175,10 @@ const executeServerPostAction = async (
       resolvedAmount = parseFloat(String(paymentRecord.amount));
     }
 
-    if (!resolvedAmount || !Number.isFinite(resolvedAmount) || resolvedAmount <= 0) {
+    const hasValidAmount = Boolean(resolvedAmount && Number.isFinite(resolvedAmount) && resolvedAmount > 0);
+    const amountToSend = hasValidAmount ? resolvedAmount as number : undefined;
+
+    if (!hasValidAmount && resolvedTranType !== 'CCE7') {
       return {
         status: 400,
         body: { success: false, error: 'A valid amount is required.' }
@@ -183,7 +186,7 @@ const executeServerPostAction = async (
     }
 
     const response = await submitServerPostRecurringPayment({
-      amount: resolvedAmount,
+      amount: amountToSend,
       authGuid: resolvedAuthGuid,
       transactionId: paymentRecord?.transaction_id || transactionId,
       member: member ? (member as Record<string, any>) : undefined,
@@ -195,7 +198,8 @@ const executeServerPostAction = async (
       metadata: {
         initiatedBy,
         paymentId: paymentRecord?.id || null,
-        toolkit: source
+        toolkit: source,
+        fullReversal: !amountToSend && resolvedTranType === 'CCE7'
       }
     });
 
@@ -203,7 +207,7 @@ const executeServerPostAction = async (
       await persistServerPostResult({
         paymentRecord,
         tranType: resolvedTranType,
-        amount: resolvedAmount,
+        amount: amountToSend ?? (paymentRecord?.amount ? Number(paymentRecord.amount) : null),
         initiatedBy,
         requestFields: response.requestFields,
         responseFields: response.responseFields,

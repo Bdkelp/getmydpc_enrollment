@@ -469,7 +469,7 @@ const SERVER_POST_ENDPOINTS = {
 type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9';
 
 interface ServerPostRecurringOptions {
-  amount: number;
+  amount?: number;
   authGuid: string;
   transactionId?: string | null;
   member?: Record<string, any> | null;
@@ -619,8 +619,10 @@ export async function submitServerPostRecurringPayment(
     const resolvedCredentials = await ensureServerPostCredentials();
     credentials = resolvedCredentials;
 
-    const amount = Number(options.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const amountIsProvided = typeof options.amount === 'number' && Number.isFinite(options.amount) && options.amount > 0;
+    const amount = amountIsProvided ? Number(options.amount) : undefined;
+
+    if (!amountIsProvided && resolvedTranType !== 'CCE7') {
       throw new Error('Invalid amount for Server Post transaction.');
     }
 
@@ -655,7 +657,7 @@ export async function submitServerPostRecurringPayment(
       DBA_NBR: resolvedCredentials.dbaNbr,
       TERMINAL_NBR: resolvedCredentials.terminalNbr,
       TRAN_TYPE: resolvedTranType,
-      AMOUNT: formatAmount(amount),
+      AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
       ORIG_AUTH_GUID: authGuid,

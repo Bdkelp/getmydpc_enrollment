@@ -215,14 +215,19 @@ const AdminEPXCertification = () => {
         throw new Error("Payment is missing both transaction ID and AUTH GUID.");
       }
 
-      return apiClient.post("/api/epx/certification/server-post", {
+      const payload: Record<string, any> = {
         tranType: action,
         transactionId: payment.transactionId,
         memberId: payment.memberId,
-        amount: amountValue,
         authGuid: payment.epxAuthGuid,
         description: `Toolkit ${action} for payment ${payment.id}`,
-      });
+      };
+
+      if (action !== "CCE7" && amountValue > 0) {
+        payload.amount = amountValue;
+      }
+
+      return apiClient.post("/api/epx/certification/server-post", payload);
     },
     onSuccess: (data) => {
       setLatestResult(data);
@@ -258,11 +263,38 @@ const AdminEPXCertification = () => {
       return;
     }
 
+    const trimmedAmount = formState.amount.trim();
+    let parsedAmount: number | undefined;
+
+    if (trimmedAmount) {
+      parsedAmount = parseFloat(trimmedAmount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        toast({
+          title: "Invalid amount",
+          description: "Enter a positive dollar amount.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    if (tranType !== "CCE7" && !parsedAmount) {
+      toast({
+        title: "Amount required",
+        description: "Sales and refunds must include an amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload: Record<string, any> = {
-      amount: parseFloat(formState.amount) || 0,
       description: formState.description.trim() || undefined,
       tranType,
     };
+
+    if (parsedAmount) {
+      payload.amount = parsedAmount;
+    }
 
     if (formState.memberId.trim()) {
       payload.memberId = Number(formState.memberId.trim());
@@ -577,7 +609,9 @@ const AdminEPXCertification = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="amount">Amount</Label>
+                    <Label htmlFor="amount">
+                      Amount {tranType === "CCE7" ? "(optional for full reversal)" : ""}
+                    </Label>
                     <Input
                       id="amount"
                       type="number"
@@ -585,8 +619,13 @@ const AdminEPXCertification = () => {
                       min="0.50"
                       value={formState.amount}
                       onChange={handleInputChange("amount")}
-                      required
+                      placeholder={tranType === "CCE7" ? "Leave blank to void entire sale" : "10.00"}
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {tranType === "CCE7"
+                        ? "Clear this field to send a full reversal. Enter a smaller amount to keep that portion on a partial reversal."
+                        : "Provide the amount to charge or refund for this sample."}
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="tranType">Transaction Type</Label>
@@ -622,7 +661,7 @@ const AdminEPXCertification = () => {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Provide at least a member ID or a transaction ID. If the system cannot locate the stored AUTH_GUID automatically, paste it in the field above so the Server Post MIT sample can still run.
+                  Provide at least a member ID or a transaction ID. If the system cannot locate the stored AUTH_GUID automatically, paste it in the field above so the Server Post MIT sample can still run. Clearing the amount while running a CCE7 reversal sends a full void; enter a smaller amount to keep part of the original sale instead.
                 </p>
                 <Button
                   type="submit"
