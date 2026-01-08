@@ -32,7 +32,7 @@ interface EPXHostedPaymentProps {
     state?: string;
     postalCode?: string;
   };
-  onSuccess?: (transactionId: string) => void;
+  onSuccess?: (transactionId?: string | null, amount?: number) => void;
   onError?: (error: string) => void;
   redirectOnSuccess?: boolean;
 }
@@ -284,6 +284,18 @@ export default function EPXHostedPayment({
       const tokenFromPayload = extractPaymentToken(parsedMessage);
       const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
 
+      const amountFromPayloadRaw = parsedMessage.amount ?? (parsedMessage as Record<string, any>)?.AMOUNT ?? null;
+      const amountFromPayload = typeof amountFromPayloadRaw === 'number'
+        ? amountFromPayloadRaw
+        : amountFromPayloadRaw
+          ? parseFloat(String(amountFromPayloadRaw))
+          : undefined;
+      const normalizedAmount = Number.isFinite(amountFromPayload as number)
+        ? (amountFromPayload as number)
+        : Number.isFinite(amount)
+          ? amount
+          : undefined;
+
       if (!tokenFromPayload) {
         console.error('[EPX Hosted] Missing BRIC token in success payload. Parsed message:', parsedMessage);
         setError('Payment succeeded, but no billing token was returned. Please contact support.');
@@ -318,17 +330,19 @@ export default function EPXHostedPayment({
           description: 'Enrollment finalized successfully.'
         });
 
-        if (sessionData?.transactionId && onSuccess) {
-          onSuccess(sessionData.transactionId);
+        if (onSuccess) {
+          onSuccess(transactionFromPayload || sessionData?.transactionId, normalizedAmount);
         }
 
         if (redirectOnSuccess !== false) {
           setTimeout(() => {
             const transactionId = transactionFromPayload || sessionData?.transactionId || 'unknown';
-            const params = new URLSearchParams({
-              transaction: transactionId,
-              amount: amount.toFixed(2)
-            });
+            const params = new URLSearchParams({ transaction: transactionId });
+            if (typeof normalizedAmount === 'number' && Number.isFinite(normalizedAmount)) {
+              params.append('amount', normalizedAmount.toFixed(2));
+            } else if (typeof amount === 'number' && Number.isFinite(amount)) {
+              params.append('amount', amount.toFixed(2));
+            }
             if (planId) {
               params.append('planId', planId);
             }

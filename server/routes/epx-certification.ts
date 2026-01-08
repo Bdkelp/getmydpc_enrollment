@@ -166,22 +166,34 @@ const executeServerPostAction = async (
 
     const member = resolvedMemberId ? await storage.getMember(resolvedMemberId) : null;
 
-    let resolvedAmount: number | null = null;
+    let explicitAmount: number | null = null;
     if (typeof amount === 'number') {
-      resolvedAmount = amount;
+      explicitAmount = amount;
     } else if (typeof amount === 'string' && amount.trim()) {
-      resolvedAmount = parseFloat(amount);
-    } else if (paymentRecord?.amount) {
-      resolvedAmount = parseFloat(String(paymentRecord.amount));
+      explicitAmount = parseFloat(amount);
     }
 
-    const hasValidAmount = Boolean(resolvedAmount && Number.isFinite(resolvedAmount) && resolvedAmount > 0);
-    const amountToSend = hasValidAmount ? resolvedAmount as number : undefined;
-
-    if (!hasValidAmount && resolvedTranType !== 'CCE7') {
+    if (explicitAmount !== null && (!Number.isFinite(explicitAmount) || explicitAmount <= 0)) {
       return {
         status: 400,
-        body: { success: false, error: 'A valid amount is required.' }
+        body: { success: false, error: 'Enter a positive amount or leave blank for a full reversal.' }
+      };
+    }
+
+    const fallbackAmount = paymentRecord?.amount ? parseFloat(String(paymentRecord.amount)) : null;
+    const isFullReversal = resolvedTranType === 'CCE7' && explicitAmount === null;
+
+    let amountToSend: number | undefined;
+    if (explicitAmount !== null) {
+      amountToSend = explicitAmount;
+    } else if (!isFullReversal) {
+      amountToSend = fallbackAmount && Number.isFinite(fallbackAmount) ? fallbackAmount : undefined;
+    }
+
+    if ((resolvedTranType === 'CCE1' || resolvedTranType === 'CCE9') && (amountToSend === undefined || amountToSend <= 0)) {
+      return {
+        status: 400,
+        body: { success: false, error: 'A valid amount is required for this transaction type.' }
       };
     }
 

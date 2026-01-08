@@ -238,27 +238,47 @@ export default function Payment() {
     setShowPolicyModal(false);
   };
   
-  const handleEPXPaymentSuccess = async () => {
-    // Clear plan selections to prevent duplicate payments
-    sessionStorage.removeItem("selectedPlanId");
-    sessionStorage.removeItem("coverageType");
-    sessionStorage.removeItem("totalMonthlyPrice");
-    sessionStorage.removeItem("basePlanPrice");
-    sessionStorage.removeItem("memberId");
-    sessionStorage.removeItem("memberData");
-
+  const handleEPXPaymentSuccess = async (transactionId?: string | null, amountOverride?: number | null) => {
     toast({
       title: "Payment successful!",
       description: "Your subscription has been activated.",
     });
 
+    if (transactionId) {
+      sessionStorage.setItem("lastTransactionId", transactionId);
+    }
+
+    if (typeof amountOverride === "number" && Number.isFinite(amountOverride)) {
+      sessionStorage.setItem("lastPaymentAmount", amountOverride.toFixed(2));
+    }
+
     setShowEPXPayment(false);
     setPaymentError(null);
     setEpxRetryKey((prev) => prev + 1);
 
+    const params = new URLSearchParams();
+    if (transactionId) {
+      params.set("transaction", transactionId);
+    }
+
+    const normalizedAmount = typeof amountOverride === "number" && Number.isFinite(amountOverride)
+      ? amountOverride
+      : Number.isFinite(epxPaymentAmount)
+        ? epxPaymentAmount
+        : undefined;
+
+    if (typeof normalizedAmount === "number") {
+      params.set("amount", normalizedAmount.toFixed(2));
+    }
+
+    if (selectedPlanId) {
+      params.set("planId", selectedPlanId.toString());
+    }
+
     setTimeout(() => {
-      setLocation("/confirmation");
-    }, 1500);
+      const query = params.toString();
+      setLocation(`/confirmation${query ? `?${query}` : ""}`);
+    }, 1200);
   };
 
   const handleEPXPaymentError = (error: string) => {
@@ -691,6 +711,7 @@ export default function Payment() {
                     state: memberData?.state || user.state || '',
                     postalCode: memberData?.zipCode || user.zipCode || ''
                   }}
+                  redirectOnSuccess={false}
                   onSuccess={handleEPXPaymentSuccess}
                   onError={handleEPXPaymentError}
                 />
