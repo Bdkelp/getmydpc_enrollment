@@ -3825,7 +3825,6 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       transactionId: 'transaction_id',
       authorizationCode: 'authorization_code',
       epxAuthGuid: 'epx_auth_guid',
-      stripePaymentIntentId: 'stripe_payment_intent_id',
       createdAt: 'created_at',
       updatedAt: 'updated_at'
     };
@@ -4011,7 +4010,6 @@ export const storage = {
       endDate: sub.end_date,
       nextBillingDate: sub.next_billing_date,
       amount: sub.amount,
-      stripeSubscriptionId: sub.stripe_subscription_id,
       createdAt: sub.created_at,
       updatedAt: sub.updated_at
     }));
@@ -4033,11 +4031,10 @@ export const storage = {
           pending_reason,
           pending_details,
           next_billing_date,
-          stripe_subscription_id,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
         )
         RETURNING *;
       `;
@@ -4052,8 +4049,7 @@ export const storage = {
         sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         sub.pendingReason || null,
         sub.pendingDetails || null,
-        sub.nextBillingDate || null,
-        sub.stripeSubscriptionId || null
+        sub.nextBillingDate || null
       ];
 
       console.log('[Storage] Executing direct SQL insert to Neon database');
@@ -4081,7 +4077,6 @@ export const storage = {
         currentPeriodStart: data.start_date, // Map for compatibility
         currentPeriodEnd: data.end_date, // Map for compatibility
         amount: parseFloat(data.amount),
-        stripeSubscriptionId: data.stripe_subscription_id,
         createdAt: data.created_at,
         updatedAt: data.updated_at
       };
@@ -4100,7 +4095,6 @@ export const storage = {
     if (updates.pendingDetails !== undefined) dbUpdates.pending_details = updates.pendingDetails;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
     if (updates.nextBillingDate !== undefined) dbUpdates.next_billing_date = updates.nextBillingDate;
-    if (updates.stripeSubscriptionId !== undefined) dbUpdates.stripe_subscription_id = updates.stripeSubscriptionId;
     if (updates.updatedAt !== undefined) dbUpdates.updated_at = updates.updatedAt;
     else dbUpdates.updated_at = new Date().toISOString();
 
@@ -4128,7 +4122,6 @@ export const storage = {
       endDate: updatedSub.end_date,
       nextBillingDate: updatedSub.next_billing_date,
       amount: updatedSub.amount,
-      stripeSubscriptionId: updatedSub.stripe_subscription_id,
       createdAt: updatedSub.created_at,
       updatedAt: updatedSub.updated_at
     };

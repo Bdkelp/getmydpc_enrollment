@@ -161,7 +161,6 @@ export const plans = pgTable("plans", {
   features: jsonb("features"), // Array of features
   maxMembers: integer("max_members").default(1),
   isActive: boolean("is_active").default(true),
-  stripePriceId: varchar("stripe_price_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -180,7 +179,6 @@ export const subscriptions = pgTable("subscriptions", {
   endDate: timestamp("end_date"),
   nextBillingDate: timestamp("next_billing_date"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  stripeSubscriptionId: varchar("stripe_subscription_id").unique(),
   epxSubscriptionId: varchar("epx_subscription_id", { length: 100 }).unique(), // EPX recurring billing subscription ID
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -199,8 +197,6 @@ export const payments = pgTable("payments", {
   currency: varchar("currency").default("USD"), // Payment currency
   status: varchar("status").notNull(), // succeeded, failed, pending, refunded
   transactionId: varchar("transaction_id").unique(), // External transaction ID
-  stripePaymentIntentId: varchar("stripe_payment_intent_id").unique(),
-  stripeChargeId: varchar("stripe_charge_id"),
   paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
   epxAuthGuid: varchar("epx_auth_guid", { length: 255 }),
   metadata: jsonb("metadata"), // Additional payment metadata
