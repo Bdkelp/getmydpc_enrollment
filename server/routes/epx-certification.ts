@@ -20,7 +20,7 @@ const router = Router();
 const requireSuperAdmin = requireRole('super_admin');
 const requireAdmin = requireRole('admin');
 
-const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE7', 'CCE9'] as const;
+const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE9'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
 const isSupportedTranType = (value: string): value is SupportedTranType =>
   SUPPORTED_TRAN_TYPES.includes(value as SupportedTranType);
@@ -52,8 +52,6 @@ const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null
 
   const upper = trimmed.toUpperCase();
   const aliasMap: Record<string, SupportedTranType> = {
-    REVERSAL: 'CCE7',
-    REV: 'CCE7',
     RETURN: 'CCE9',
     REFUND: 'CCE9'
   };
@@ -132,7 +130,7 @@ const executeServerPostAction = async (
           status: 400,
           body: {
             success: false,
-            error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')} (REVERSAL/REV map to R)`
+            error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')}`
           }
         };
       }
@@ -173,24 +171,24 @@ const executeServerPostAction = async (
       explicitAmount = parseFloat(amount);
     }
 
-    if (explicitAmount !== null && (!Number.isFinite(explicitAmount) || explicitAmount <= 0)) {
-      return {
-        status: 400,
-        body: { success: false, error: 'Enter a positive amount or leave blank for a full reversal.' }
-      };
+    if (explicitAmount !== null) {
+      if (!Number.isFinite(explicitAmount) || explicitAmount <= 0) {
+        return {
+          status: 400,
+          body: { success: false, error: 'Enter a positive numeric amount.' }
+        };
+      }
     }
 
     const fallbackAmount = paymentRecord?.amount ? parseFloat(String(paymentRecord.amount)) : null;
-    const isFullReversal = resolvedTranType === 'CCE7' && explicitAmount === null;
 
-    let amountToSend: number | undefined;
-    if (explicitAmount !== null) {
-      amountToSend = explicitAmount;
-    } else if (!isFullReversal) {
-      amountToSend = fallbackAmount && Number.isFinite(fallbackAmount) ? fallbackAmount : undefined;
-    }
+    const amountToSend = explicitAmount !== null
+      ? explicitAmount
+      : fallbackAmount && Number.isFinite(fallbackAmount)
+        ? fallbackAmount
+        : undefined;
 
-    if ((resolvedTranType === 'CCE1' || resolvedTranType === 'CCE9') && (amountToSend === undefined || amountToSend <= 0)) {
+    if (!amountToSend || amountToSend <= 0) {
       return {
         status: 400,
         body: { success: false, error: 'A valid amount is required for this transaction type.' }
@@ -210,8 +208,7 @@ const executeServerPostAction = async (
       metadata: {
         initiatedBy,
         paymentId: paymentRecord?.id || null,
-        toolkit: source,
-        fullReversal: !amountToSend && resolvedTranType === 'CCE7'
+        toolkit: source
       }
     });
 

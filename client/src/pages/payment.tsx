@@ -51,7 +51,6 @@ export default function Payment() {
   const [cardNumber, setCardNumber] = useState('');
   const [cardType, setCardType] = useState('unknown');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
-  const [policyAccepted, setPolicyAccepted] = useState(false);
   const [showEPXPayment, setShowEPXPayment] = useState(false);
   const [memberData, setMemberData] = useState<any>(null);
   const [memberId, setMemberId] = useState<number | null>(null);
@@ -181,57 +180,12 @@ export default function Payment() {
     availablePlans: plans?.map((p: any) => ({ id: p.id, name: p.name }))
   });
 
-  const handleMockPayment = async () => {
-    if (!selectedPlanId) {
-      toast({
-        title: "No Plan Selected",
-        description: "Please select a healthcare membership first.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Show cancellation policy modal first
-    setShowPolicyModal(true);
-  };
-  
-  const handlePolicyAccept = async () => {
-    // Close modal and mark policy as accepted
+  const handlePolicyAccept = () => {
     setShowPolicyModal(false);
-    setPolicyAccepted(true);
-    
-    // Show acknowledgment toast
     toast({
-      title: "Terms Acknowledged",
-      description: "Cancellation and refund terms have been reviewed. Opening payment form...",
+      title: "Policy acknowledged",
+      description: "Thanks for reviewing the cancellation and refund terms.",
     });
-    
-    // Use EPX payment directly (in sandbox mode, no real charges)
-    setIsProcessingPayment(false);
-    
-    // Check if user data is loaded
-    if (!memberId) {
-      toast({
-        title: "Member not available",
-        description: "We need your enrollment record before collecting payment. Please restart registration.",
-        variant: "destructive"
-      });
-      setTimeout(() => {
-        setLocation("/registration");
-      }, 500);
-      return;
-    }
-
-    if (user?.id && user?.email) {
-      setPaymentError(null);
-      setShowEPXPayment(true);
-    } else {
-      toast({
-        title: "User data not loaded",
-        description: "Please wait for your user information to load before proceeding.",
-        variant: "destructive"
-      });
-    }
   };
   
   const handlePolicyClose = () => {
@@ -482,21 +436,11 @@ export default function Payment() {
                           >
                             {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
                           </Button>
-                          
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="w-full py-3"
-                            onClick={handleMockPayment}
-                            disabled={isProcessingPayment || !selectedPlanId}
-                          >
-                            Test Payment (EPX Sandbox)
-                          </Button>
                         </div>
                         
                         <p className="text-xs text-gray-500 text-center mt-4">
                           <Shield className="inline-block mr-1 h-3 w-3" />
-                          This is a secure test payment form. No actual charges will be made.
+                          Payments are processed securely via EPX hosted checkout. Card details never touch MyPremierPlans servers.
                         </p>
                       </div>
                     </div>

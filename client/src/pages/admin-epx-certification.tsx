@@ -94,7 +94,6 @@ interface CertificationPaymentsResponse {
 
 const TRAN_TYPES = [
   { value: "CCE1", label: "MIT (CCE1)" },
-  { value: "CCE7", label: "Reversal (CCE7)" },
   { value: "CCE9", label: "Refund (CCE9)" },
 ] as const;
 type TranType = (typeof TRAN_TYPES)[number]["value"];
@@ -223,9 +222,11 @@ const AdminEPXCertification = () => {
         description: `Toolkit ${action} for payment ${payment.id}`,
       };
 
-      if (action !== "CCE7" && amountValue > 0) {
-        payload.amount = amountValue;
+      if (amountValue <= 0) {
+        throw new Error("Payment amount missing or invalid.");
       }
+
+      payload.amount = amountValue;
 
       return apiClient.post("/api/epx/certification/server-post", payload);
     },
@@ -264,21 +265,7 @@ const AdminEPXCertification = () => {
     }
 
     const trimmedAmount = formState.amount.trim();
-    let parsedAmount: number | undefined;
-
-    if (trimmedAmount) {
-      parsedAmount = parseFloat(trimmedAmount);
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        toast({
-          title: "Invalid amount",
-          description: "Enter a positive dollar amount.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-
-    if (tranType !== "CCE7" && !parsedAmount) {
+    if (!trimmedAmount) {
       toast({
         title: "Amount required",
         description: "Sales and refunds must include an amount.",
@@ -287,14 +274,21 @@ const AdminEPXCertification = () => {
       return;
     }
 
+    const parsedAmount = parseFloat(trimmedAmount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Enter a positive dollar amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const payload: Record<string, any> = {
       description: formState.description.trim() || undefined,
       tranType,
+      amount: parsedAmount,
     };
-
-    if (parsedAmount) {
-      payload.amount = parsedAmount;
-    }
 
     if (formState.memberId.trim()) {
       payload.memberId = Number(formState.memberId.trim());
@@ -609,22 +603,19 @@ const AdminEPXCertification = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="amount">
-                      Amount {tranType === "CCE7" ? "(optional for full reversal)" : ""}
-                    </Label>
+                    <Label htmlFor="amount">Amount</Label>
                     <Input
                       id="amount"
                       type="number"
                       step="0.01"
-                      min="0.50"
+                      min={0.5}
                       value={formState.amount}
                       onChange={handleInputChange("amount")}
-                      placeholder={tranType === "CCE7" ? "Leave blank to void entire sale" : "10.00"}
+                      placeholder="10.00"
+                      required
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      {tranType === "CCE7"
-                        ? "Clear this field to send a full reversal. Enter a smaller amount to keep that portion on a partial reversal."
-                        : "Provide the amount to charge or refund for this sample."}
+                      Provide the amount to charge or refund for this sample.
                     </p>
                   </div>
                   <div>
@@ -661,7 +652,7 @@ const AdminEPXCertification = () => {
                   />
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Provide at least a member ID or a transaction ID. If the system cannot locate the stored AUTH_GUID automatically, paste it in the field above so the Server Post MIT sample can still run. Clearing the amount while running a CCE7 reversal sends a full void; enter a smaller amount to keep part of the original sale instead.
+                  Provide at least a member ID or a transaction ID. If the system cannot locate the stored AUTH_GUID automatically, paste it in the field above so the Server Post MIT sample can still run.
                 </p>
                 <Button
                   type="submit"

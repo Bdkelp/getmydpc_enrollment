@@ -80,7 +80,6 @@ interface PendingUser {
 
 const MANUAL_TRANSACTION_TYPES = [
   { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
-  { value: "CCE7", label: "Reversal (CCE7)", description: "Auth/Sale reversal" },
   { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
 ] as const;
 
@@ -432,7 +431,17 @@ export default function Admin() {
       return;
     }
 
-    const parsedAmount = parseFloat(manualTransactionForm.amount || '0');
+    const amountInput = manualTransactionForm.amount.trim();
+    if (!amountInput) {
+      toast({
+        title: "Amount required",
+        description: "Sales and refunds must include a dollar amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const parsedAmount = parseFloat(amountInput);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       toast({
         title: "Invalid amount",
@@ -443,9 +452,9 @@ export default function Admin() {
     }
 
     const payload: Record<string, any> = {
-      amount: parsedAmount,
       tranType: manualTransactionForm.tranType,
       description: manualTransactionForm.description.trim() || undefined,
+      amount: parsedAmount,
     };
 
     if (manualTransactionForm.memberId.trim()) {
@@ -1042,12 +1051,16 @@ export default function Admin() {
                   <Input
                     id="manual-amount"
                     type="number"
-                    min="0"
+                    min={0.01}
                     step="0.01"
                     value={manualTransactionForm.amount}
                     onChange={handleManualFieldChange('amount')}
                     required
+                    placeholder="100.00"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Required for sales and refunds. Enter the dollar amount you wish to charge or return.
+                  </p>
                 </div>
                 <div>
                   <Label htmlFor="manual-tran-type">Transaction Type</Label>
@@ -1975,9 +1988,12 @@ export default function Admin() {
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm manual EPX transaction</AlertDialogTitle>
               <AlertDialogDescription>
-                You're about to send a {getManualTranLabel(manualConfirmPayload?.tranType || '')} request for{' '}
-                <span className="font-semibold">${manualConfirmPayload?.amount?.toFixed(2) ?? '0.00'}</span>
-                {manualConfirmPayload?.memberId ? ` on member #${manualConfirmPayload.memberId}` : ''}. This will post directly to EPX.
+                You're about to send a {getManualTranLabel(manualConfirmPayload?.tranType || '')} request{' '}
+                for <span className="font-semibold">$
+                  {manualConfirmPayload ? manualConfirmPayload.amount.toFixed(2) : '0.00'}
+                </span>.{' '}
+                {manualConfirmPayload?.memberId ? `on member #${manualConfirmPayload.memberId} ` : ''}
+                This will post directly to EPX.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
