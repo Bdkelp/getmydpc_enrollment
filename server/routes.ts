@@ -56,74 +56,138 @@ function parseDateInput(value?: string): Date | undefined {
 
 function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?: string) {
   const normalizedPeriod = typeof period === 'string' && PERIOD_FILTERS.has(period) ? period : undefined;
-  const now = new Date();
-  let start: Date | undefined;
-  let end: Date | undefined;
+        const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+        const customStart = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+        const customEnd = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+        const requestedAgentIdRaw = req.query.agentId;
+        const requestedAgentId = typeof requestedAgentIdRaw === 'string' ? requestedAgentIdRaw : undefined;
+        const { start, end } = getDateRangeFromQuery(period, customStart, customEnd);
 
-  switch (normalizedPeriod) {
-    case 'today':
-      start = startOfDay(now);
-      end = endOfDay(now);
-      break;
-    case 'week': {
-      const temp = startOfDay(now);
-      const weekday = temp.getDay();
-      temp.setDate(temp.getDate() - weekday);
-      start = temp;
-      end = endOfDay(now);
-      break;
-    }
-    case 'month':
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = endOfDay(now);
-      break;
-    case 'quarter': {
-      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-      start = new Date(now.getFullYear(), quarterStartMonth, 1);
-      end = endOfDay(now);
-      break;
-    }
-    case 'year':
-      start = new Date(now.getFullYear(), 0, 1);
-      end = endOfDay(now);
-      break;
-    case 'last-30': {
-      const temp = new Date(now);
-      temp.setDate(temp.getDate() - 30);
-      start = startOfDay(temp);
-      end = endOfDay(now);
-      break;
-    }
-    case 'last-90': {
-      const temp = new Date(now);
-      temp.setDate(temp.getDate() - 90);
-      start = startOfDay(temp);
-      end = endOfDay(now);
-      break;
-    }
-    case 'custom':
-      start = parseDateInput(customStart);
-      end = parseDateInput(customEnd);
-      if (start) start = startOfDay(start);
-      if (end) end = endOfDay(end);
-      break;
-    case 'all-time':
-    default:
-      start = parseDateInput(customStart);
-      end = parseDateInput(customEnd);
-      if (start) start = startOfDay(start);
-      if (end) end = endOfDay(end);
-      break;
-  }
+        let targetAgentId = req.user!.id;
+        let targetAgentNumber = req.user!.agentNumber || null;
 
-  if (start && !end) {
-    end = endOfDay(now);
-  }
+        if (requestedAgentId && requestedAgentId !== targetAgentId) {
+          if (!isAdmin(req.user!.role)) {
+            return res.status(403).json({ message: "Admin access required to view other agents" });
+          }
 
-  return { start, end };
-}
+          const targetAgent = await storage.getUser(requestedAgentId);
+          if (!targetAgent) {
+            return res.status(404).json({ message: "Requested agent not found" });
+          }
 
-function filterRecordsByDate(records: any[] = [], start?: Date, end?: Date) {
+          targetAgentId = targetAgent.id;
+          targetAgentNumber = targetAgent.agentNumber || null;
+        }
+
+        console.log('[Agent Stats] Fetching stats for user:', {
+          userId: targetAgentId,
+          email: req.user!.email,
+          role: req.user!.role,
+          agentNumber: targetAgentNumber,
+          period,
+          start,
+          end
+        });
+
+        const memberFilters: string[] = [];
+        if (targetAgentId) memberFilters.push(`enrolled_by_agent_id.eq.${targetAgentId}`);
+        if (targetAgentNumber) memberFilters.push(`agent_number.eq.${targetAgentNumber}`);
+
+        let memberQuery = supabase.from('members').select('*');
+        if (memberFilters.length > 1) {
+          memberQuery = memberQuery.or(memberFilters.join(','));
+        } else if (memberFilters.length === 1) {
+          const [column, value] = memberFilters[0].split('.eq.');
+          memberQuery = memberQuery.eq(column, value);
+        }
+
+        const { data: agentMembers, error: memberError } = await memberQuery;
+        if (memberError) {
+          console.error('[Agent Stats] Failed to fetch members:', memberError);
+          return res.status(500).json({ message: 'Failed to fetch agent members' });
+        }
+
+        const allMembers = agentMembers || [];
+        const filteredMembers = filterRecordsByDate(allMembers, start, end);
+
+        const now = new Date();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        monthStart.setHours(0, 0, 0, 0);
+        const yearStart = new Date(now.getFullYear(), 0, 1);
+
+        const membersThisMonth = allMembers.filter((member: any) => new Date(member.created_at) >= monthStart);
+        const membersThisYear = allMembers.filter((member: any) => new Date(member.created_at) >= yearStart);
+
+        const activeMembers = allMembers.filter((member: any) => 
+          member.status === 'active' || member.status === 'pending_activation'
+        ).length;
+
+        const pendingEnrollments = filteredMembers.filter((member: any) => 
+          member.status && member.status.toLowerCase().includes('pending')
+        ).length;
+
+        const { data: agentCommissions, error: commissionError } = await supabase
+          .from('agent_commissions')
+          .select('*')
+          .eq('agent_id', targetAgentId);
+
+        if (commissionError) {
+          console.error('[Agent Stats] Failed to fetch commissions:', commissionError);
+          return res.status(500).json({ message: 'Failed to fetch agent commissions' });
+        }
+
+        const allCommissions = agentCommissions || [];
+        const filteredCommissions = filterRecordsByDate(allCommissions, start, end);
+        const commissionsThisMonth = allCommissions.filter((commission: any) => new Date(commission.created_at) >= monthStart);
+        const commissionsThisYear = allCommissions.filter((commission: any) => new Date(commission.created_at) >= yearStart);
+
+        const roundCurrency = (value: number) => Number((value || 0).toFixed(2));
+
+        const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredMembers));
+        const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(allMembers));
+        const monthlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisMonth));
+        const yearlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisYear));
+        const averageRevenuePerMember = filteredMembers.length > 0
+          ? roundCurrency(totalRevenue / filteredMembers.length)
+          : 0;
+
+        const totalCommissionsAmount = roundCurrency(sumCommissionAmounts(filteredCommissions));
+        const totalCommissionsAllTime = roundCurrency(sumCommissionAmounts(allCommissions));
+        const monthlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisMonth));
+        const yearlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisYear));
+        const paidCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status === 'paid')));
+        const pendingCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status !== 'paid')));
+
+        res.json({
+          totalRevenue,
+          totalRevenueAllTime,
+          monthlyRevenue,
+          yearlyRevenue,
+          averageRevenuePerMember,
+          totalEnrollments: filteredMembers.length,
+          totalMembers: allMembers.length,
+          monthlyEnrollments: membersThisMonth.length,
+          yearlyEnrollments: membersThisYear.length,
+          pendingEnrollments,
+          activeMembers,
+          totalCommissions: totalCommissionsAmount,
+          totalCommission: totalCommissionsAllTime,
+          monthlyCommissions: monthlyCommissionsAmount,
+          monthlyCommission: monthlyCommissionsAmount,
+          yearlyCommissions: yearlyCommissionsAmount,
+          totalEarned: totalCommissionsAllTime,
+          paidCommissions: paidCommissionsAmount,
+          pendingCommissions: pendingCommissionsAmount,
+          memberGrowth: 0,
+          revenueGrowth: 0,
+          commissionGrowth: 0,
+          activeLeads: 0,
+          conversionRate: 0,
+          leads: [],
+          periodStart: start ? start.toISOString() : null,
+          periodEnd: end ? end.toISOString() : null,
+        });
   if (!start && !end) {
     return records;
   }
@@ -2989,7 +3053,12 @@ router.get(
 
     try {
       // Get all users enrolled by this agent plus users they have commissions for
-      const enrolledUsers = await storage.getAgentEnrollments(req.user!.id);
+      const enrolledUsers = await storage.getAgentEnrollments(
+        req.user!.id,
+        undefined,
+        undefined,
+        req.user!.agentNumber || null,
+      );
 
       // Get users from commissions in Supabase
       const { data: agentCommissions } = await supabase
@@ -3290,22 +3359,45 @@ router.get(
     }
 
     try {
-      const agentId = req.user!.id;
+      const { startDate, endDate, agentId: requestedAgentIdRaw } = req.query;
+      const requestedAgentId = typeof requestedAgentIdRaw === 'string' ? requestedAgentIdRaw : undefined;
+      const isAdminUser = isAdmin(req.user!.role);
+
+      if (requestedAgentId && !isAdminUser) {
+        console.warn('[Agent Enrollments] Non-admin attempted to view another agent\'s data', {
+          requester: req.user?.id,
+          requestedAgentId
+        });
+        return res.status(403).json({ message: "Admin access required" });
+      }
       
       console.log('[Agent Stats] Fetching stats for user:', {
         userId: agentId,
-        email: req.user!.email,
-        role: req.user!.role,
-        agentNumber: req.user!.agentNumber
-      });
+      if (isAdminUser && requestedAgentId) {
+        const targetAgent = await storage.getUser(requestedAgentId);
+        if (!targetAgent) {
+          return res.status(404).json({ message: "Requested agent not found" });
+        }
 
-      // Get commission stats
+        enrollments = await storage.getAgentEnrollments(
+          targetAgent.id,
+          startDate as string,
+          endDate as string,
+          targetAgent.agentNumber || null
+        );
+      } else if (isAdminUser) {
+        // Admin and super_admin can view platform-wide enrollments
+        enrollments = await storage.getAllEnrollments(
+          startDate as string, 
+          endDate as string
+        );
       const commissionStats = await storage.getCommissionStats(agentId);
 
       // Get enrollment counts from members table (NOT users table)
       // Users table should ONLY contain agents/admins, members are in the members table
       // Query by agent_number instead of enrolled_by_agent_id
-      const agentNumber = req.user!.agentNumber;
+          endDate as string,
+          req.user!.agentNumber || null
       const { data: enrollments } = await supabase
         .from('members')
         .select('*')

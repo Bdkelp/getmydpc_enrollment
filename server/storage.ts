@@ -249,7 +249,7 @@ export interface IStorage {
   getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }>;
 
   // Agent operations
-  getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]>;
+  getAgentEnrollments(agentId: string, startDate?: string, endDate?: string, agentNumber?: string | null): Promise<User[]>;
   getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]>;
 
   // Enrollment modification operations
@@ -958,14 +958,43 @@ export async function getSubscriptionStats(): Promise<{ active: number; pending:
   }
 }
 
-export async function getAgentEnrollments(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+export async function getAgentEnrollments(
+  agentId: string,
+  startDate?: string,
+  endDate?: string,
+  agentNumber?: string | null,
+): Promise<User[]> {
   try {
-    console.log('[Storage] getAgentEnrollments called with:', { agentId, startDate, endDate });
+    console.log('[Storage] getAgentEnrollments called with:', { agentId, agentNumber, startDate, endDate });
+    const normalizedAgentNumber = agentNumber?.trim() || null;
     
     // Query members table from Neon database (not users table)
+    const params: any[] = [];
+    let paramCount = 1;
+
+    let agentFilter = '';
+    if (agentId) {
+      agentFilter = `(m.enrolled_by_agent_id::uuid = $${paramCount}::uuid`;
+      params.push(agentId);
+      paramCount++;
+
+      if (normalizedAgentNumber) {
+        agentFilter += ` OR m.agent_number = $${paramCount}`;
+        params.push(normalizedAgentNumber);
+        paramCount++;
+      }
+      agentFilter += ')';
+    } else if (normalizedAgentNumber) {
+      agentFilter = `m.agent_number = $${paramCount}`;
+      params.push(normalizedAgentNumber);
+      paramCount++;
+    } else {
+      throw new Error('Agent identifier required to fetch enrollments');
+    }
+
     let sql = `
       SELECT 
-        m.*,
+        m.*, 
         p.name as plan_name,
         p.price as plan_price,
         ac.commission_amount,
@@ -973,14 +1002,13 @@ export async function getAgentEnrollments(agentId: string, startDate?: string, e
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text AND ac.agent_id = $1
-      WHERE m.enrolled_by_agent_id::uuid = $1::uuid
+      WHERE ${agentFilter}
     `;
-    const params: any[] = [agentId];
-    let paramCount = 2;
 
     if (startDate && endDate) {
-      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
+      sql += ` AND m.created_at >= $${paramCount} AND m.created_at <= $${paramCount + 1}`;
       params.push(startDate, endDate);
+      paramCount += 2;
     }
 
     sql += ' ORDER BY m.created_at DESC';
