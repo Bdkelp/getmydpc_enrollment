@@ -1,11 +1,89 @@
 import { Router } from "express";
-import { db } from "../db";
+import type { Request } from "express";
 import type { AuthRequest } from "../auth/supabaseAuth";
 import { authenticateToken } from "../auth/supabaseAuth";
 import { isAtLeastAdmin } from "../auth/roles";
-import type { Request } from "express";
+import type { DiscountCodeInput } from "../storage";
+import {
+  createDiscountCode,
+  deleteDiscountCode,
+  getAllDiscountCodes,
+  getDiscountCodeByCode,
+  getDiscountCodeUsageCount,
+  toggleDiscountCodeActive,
+  updateDiscountCode,
+} from "../storage";
 
 const router = Router();
+
+const VALID_DISCOUNT_TYPES: DiscountCodeInput['discountType'][] = ['fixed', 'percentage'];
+const VALID_DURATION_TYPES: DiscountCodeInput['durationType'][] = ['once', 'limited_months', 'indefinite'];
+
+const normalizeDateInput = (value?: string | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+};
+
+const parsePositiveNumberOrNull = (value: any): number | null => {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+};
+
+const buildDiscountInputFromBody = (body: any): DiscountCodeInput => {
+  const code = (body.code ?? '').toString().trim().toUpperCase();
+  const description = (body.description ?? '').toString().trim();
+  const discountType = (body.discountType ?? '').toString().toLowerCase();
+  const durationType = (body.durationType ?? '').toString().toLowerCase();
+  const discountValue = Number(body.discountValue);
+
+  if (!code || !description || !discountType || !durationType) {
+    throw new Error("Missing required fields");
+  }
+
+  if (!VALID_DISCOUNT_TYPES.includes(discountType as DiscountCodeInput['discountType'])) {
+    throw new Error("Invalid discount type");
+  }
+
+  if (!VALID_DURATION_TYPES.includes(durationType as DiscountCodeInput['durationType'])) {
+    throw new Error("Invalid duration type");
+  }
+
+  if (Number.isNaN(discountValue) || discountValue <= 0) {
+    throw new Error("Discount value must be a positive number");
+  }
+
+  const durationMonths = durationType === 'limited_months'
+    ? parsePositiveNumberOrNull(body.durationMonths)
+    : null;
+
+  if (durationType === 'limited_months' && !durationMonths) {
+    throw new Error("Duration months are required for limited duration discounts");
+  }
+
+  return {
+    code,
+    description,
+    discountType: discountType as DiscountCodeInput['discountType'],
+    discountValue,
+    durationType: durationType as DiscountCodeInput['durationType'],
+    durationMonths,
+    maxUses: parsePositiveNumberOrNull(body.maxUses),
+    validFrom: normalizeDateInput(body.validFrom),
+    validUntil: normalizeDateInput(body.validUntil),
+  } as DiscountCodeInput;
+};
 
 // ============================================================
 // PUBLIC ENDPOINTS (No authentication required)
@@ -24,35 +102,14 @@ router.get("/api/discount-codes/validate", async (req: Request, res) => {
     }
 
     const normalizedCode = code.trim().toUpperCase();
+    const discountCode = await getDiscountCodeByCode(normalizedCode);
 
-    // Query discount code from database
-    const result = await db.query(
-      `SELECT 
-        id, 
-        code, 
-        description,
-        discount_type as "discountType",
-        discount_value as "discountValue",
-        duration_type as "durationType",
-        duration_months as "durationMonths",
-        is_active as "isActive",
-        max_uses as "maxUses",
-        current_uses as "currentUses",
-        valid_from as "validFrom",
-        valid_until as "validUntil"
-      FROM discount_codes 
-      WHERE code = $1 AND is_active = true`,
-      [normalizedCode]
-    );
-
-    if (result.rows.length === 0) {
+    if (!discountCode || !discountCode.isActive) {
       return res.json({ 
         isValid: false, 
         message: "Invalid or inactive discount code" 
       });
     }
-
-    const discountCode = result.rows[0];
 
     // Check if code has expired
     const now = new Date();
@@ -79,11 +136,7 @@ router.get("/api/discount-codes/validate", async (req: Request, res) => {
     }
 
     // Calculate discount amount (for display purposes)
-    let discountAmount = discountCode.discountValue;
-    if (discountCode.discountType === 'percentage') {
-      // For percentage, we'll need the plan price, but for now just return the percentage
-      discountAmount = discountCode.discountValue;
-    }
+    const discountAmount = discountCode.discountValue;
 
     return res.json({
       isValid: true,
@@ -120,27 +173,9 @@ router.get("/api/admin/discount-codes", authenticateToken, async (req: AuthReque
 
     console.log('[Get Discount Codes] Request from:', req.user?.email, 'Role:', userRole);
 
-    const result = await db.query(
-      `SELECT 
-        id, 
-        code, 
-        description,
-        discount_type as "discountType",
-        discount_value as "discountValue",
-        duration_type as "durationType",
-        duration_months as "durationMonths",
-        is_active as "isActive",
-        max_uses as "maxUses",
-        current_uses as "currentUses",
-        valid_from as "validFrom",
-        valid_until as "validUntil",
-        created_at as "createdAt",
-        created_by as "createdBy"
-      FROM discount_codes 
-      ORDER BY created_at DESC`
-    );
+    const codes = await getAllDiscountCodes();
 
-    return res.json(result.rows);
+    return res.json(codes);
 
   } catch (error: any) {
     console.error("[Get Discount Codes] Error:", error);
@@ -160,79 +195,21 @@ router.post("/api/admin/discount-codes", authenticateToken, async (req: AuthRequ
       return res.status(403).json({ message: "Unauthorized: Admin access required" });
     }
 
-    const {
-      code,
-      description,
-      discountType,
-      discountValue,
-      durationType,
-      durationMonths,
-      maxUses,
-      validFrom,
-      validUntil,
-    } = req.body;
-
-    // Validate required fields
-    if (!code || !description || !discountType || !discountValue || !durationType) {
-      return res.status(400).json({ message: "Missing required fields" });
+    let payload: DiscountCodeInput;
+    try {
+      payload = buildDiscountInputFromBody(req.body);
+    } catch (validationError: any) {
+      return res.status(400).json({ message: validationError.message || "Invalid discount code payload" });
     }
 
-    const normalizedCode = code.trim().toUpperCase();
-
-    // Check if code already exists
-    const existing = await db.query(
-      "SELECT id FROM discount_codes WHERE code = $1",
-      [normalizedCode]
-    );
-
-    if (existing.rows.length > 0) {
+    const existing = await getDiscountCodeByCode(payload.code);
+    if (existing) {
       return res.status(400).json({ message: "Discount code already exists" });
     }
 
-    // Insert new discount code
-    const result = await db.query(
-      `INSERT INTO discount_codes (
-        code, 
-        description, 
-        discount_type, 
-        discount_value, 
-        duration_type, 
-        duration_months,
-        max_uses,
-        valid_from,
-        valid_until,
-        created_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING 
-        id, 
-        code, 
-        description,
-        discount_type as "discountType",
-        discount_value as "discountValue",
-        duration_type as "durationType",
-        duration_months as "durationMonths",
-        is_active as "isActive",
-        max_uses as "maxUses",
-        current_uses as "currentUses",
-        valid_from as "validFrom",
-        valid_until as "validUntil",
-        created_at as "createdAt",
-        created_by as "createdBy"`,
-      [
-        normalizedCode,
-        description,
-        discountType,
-        discountValue,
-        durationType,
-        durationMonths,
-        maxUses,
-        validFrom,
-        validUntil,
-        req.user?.id
-      ]
-    );
+    const created = await createDiscountCode(payload, { createdBy: req.user?.id ?? null });
 
-    return res.status(201).json(result.rows[0]);
+    return res.status(201).json(created);
 
   } catch (error: any) {
     console.error("[Create Discount Code] Error:", error);
@@ -253,82 +230,28 @@ router.put("/api/admin/discount-codes/:id", authenticateToken, async (req: AuthR
     }
 
     const { id } = req.params;
-    const {
-      code,
-      description,
-      discountType,
-      discountValue,
-      durationType,
-      durationMonths,
-      maxUses,
-      validFrom,
-      validUntil,
-    } = req.body;
 
-    const normalizedCode = code.trim().toUpperCase();
+    let payload: DiscountCodeInput;
+    try {
+      payload = buildDiscountInputFromBody(req.body);
+    } catch (validationError: any) {
+      return res.status(400).json({ message: validationError.message || "Invalid discount code payload" });
+    }
 
-    // Check if code exists with different ID
-    const existing = await db.query(
-      "SELECT id FROM discount_codes WHERE code = $1 AND id != $2",
-      [normalizedCode, id]
-    );
-
-    if (existing.rows.length > 0) {
+    const existing = await getDiscountCodeByCode(payload.code);
+    if (existing && existing.id !== id) {
       return res.status(400).json({ message: "Discount code already exists" });
     }
 
-    // Update discount code
-    const result = await db.query(
-      `UPDATE discount_codes SET
-        code = $1,
-        description = $2,
-        discount_type = $3,
-        discount_value = $4,
-        duration_type = $5,
-        duration_months = $6,
-        max_uses = $7,
-        valid_from = $8,
-        valid_until = $9
-      WHERE id = $10
-      RETURNING 
-        id, 
-        code, 
-        description,
-        discount_type as "discountType",
-        discount_value as "discountValue",
-        duration_type as "durationType",
-        duration_months as "durationMonths",
-        is_active as "isActive",
-        max_uses as "maxUses",
-        current_uses as "currentUses",
-        valid_from as "validFrom",
-        valid_until as "validUntil",
-        created_at as "createdAt",
-        created_by as "createdBy"`,
-      [
-        normalizedCode,
-        description,
-        discountType,
-        discountValue,
-        durationType,
-        durationMonths,
-        maxUses,
-        validFrom,
-        validUntil,
-        id
-      ]
-    );
+    const updated = await updateDiscountCode(id, payload);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Discount code not found" });
-    }
-
-    return res.json(result.rows[0]);
+    return res.json(updated);
 
   } catch (error: any) {
     console.error("[Update Discount Code] Error:", error);
-    return res.status(500).json({ 
-      message: "Failed to update discount code",
+    const status = error?.message === "Discount code not found" ? 404 : 500;
+    return res.status(status).json({ 
+      message: status === 404 ? error.message : "Failed to update discount code",
       error: error.message 
     });
   }
@@ -346,36 +269,19 @@ router.patch("/api/admin/discount-codes/:id/toggle", authenticateToken, async (r
     const { id } = req.params;
     const { isActive } = req.body;
 
-    const result = await db.query(
-      `UPDATE discount_codes SET is_active = $1 WHERE id = $2
-      RETURNING 
-        id, 
-        code, 
-        description,
-        discount_type as "discountType",
-        discount_value as "discountValue",
-        duration_type as "durationType",
-        duration_months as "durationMonths",
-        is_active as "isActive",
-        max_uses as "maxUses",
-        current_uses as "currentUses",
-        valid_from as "validFrom",
-        valid_until as "validUntil",
-        created_at as "createdAt",
-        created_by as "createdBy"`,
-      [isActive, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Discount code not found" });
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({ message: "isActive boolean is required" });
     }
 
-    return res.json(result.rows[0]);
+    const updated = await toggleDiscountCodeActive(id, isActive);
+
+    return res.json(updated);
 
   } catch (error: any) {
     console.error("[Toggle Discount Code] Error:", error);
-    return res.status(500).json({ 
-      message: "Failed to toggle discount code status",
+    const status = error?.message === "Discount code not found" ? 404 : 500;
+    return res.status(status).json({ 
+      message: status === 404 ? error.message : "Failed to toggle discount code status",
       error: error.message 
     });
   }
@@ -392,33 +298,23 @@ router.delete("/api/admin/discount-codes/:id", authenticateToken, async (req: Au
 
     const { id } = req.params;
 
-    // Check if code is in use
-    const usageCheck = await db.query(
-      "SELECT COUNT(*) as count FROM member_discount_codes WHERE discount_code_id = $1",
-      [id]
-    );
+    const usageCount = await getDiscountCodeUsageCount(id);
 
-    if (parseInt(usageCheck.rows[0].count) > 0) {
+    if (usageCount > 0) {
       return res.status(400).json({ 
         message: "Cannot delete discount code that has been used. Deactivate it instead." 
       });
     }
 
-    const result = await db.query(
-      "DELETE FROM discount_codes WHERE id = $1 RETURNING id",
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Discount code not found" });
-    }
+    await deleteDiscountCode(id);
 
     return res.json({ message: "Discount code deleted successfully" });
 
   } catch (error: any) {
     console.error("[Delete Discount Code] Error:", error);
-    return res.status(500).json({ 
-      message: "Failed to delete discount code",
+    const status = error?.message === "Discount code not found" ? 404 : 500;
+    return res.status(status).json({ 
+      message: status === 404 ? error.message : "Failed to delete discount code",
       error: error.message 
     });
   }
