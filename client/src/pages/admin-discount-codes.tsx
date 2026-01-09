@@ -273,7 +273,7 @@ export default function AdminDiscountCodes() {
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
-              onClick={() => setLocation("/admin/dashboard")}
+              onClick={() => setLocation("/admin")}
               className="flex items-center gap-2"
             >
               <ChevronLeft className="w-4 h-4" />
