@@ -38,6 +38,8 @@ interface EnrollmentDetails {
   userId: string;
   createdAt: string;
   updatedAt: string;
+  customerNumber?: string | null;
+  memberPublicId?: string | null;
   // Personal Info
   firstName: string;
   lastName: string;
@@ -165,7 +167,8 @@ export default function EnrollmentDetails() {
     const summary = `
 ENROLLMENT SUMMARY
 ==================
-Customer Number: MPP2025${enrollment.userId.padStart(6, '0')}
+Customer Number: ${enrollment.customerNumber || 'Pending'}
+Member ID: ${enrollment.memberPublicId || 'Pending'}
 Enrollment Date: ${format(new Date(enrollment.createdAt), 'MMMM d, yyyy')}
 
 MEMBER INFORMATION
@@ -306,7 +309,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   {enrollment.firstName} {enrollment.lastName}
                 </h1>
                 <p className="text-gray-600 mt-1">
-                  Customer #MPP2025{enrollment.userId.padStart(6, '0')} • Enrolled {format(new Date(enrollment.createdAt), 'MMM d, yyyy')}
+                  Member ID {enrollment.memberPublicId || 'Pending'} • Customer #{enrollment.customerNumber || 'Pending'} • Enrolled {format(new Date(enrollment.createdAt), 'MMM d, yyyy')}
                 </p>
               </div>
             </div>

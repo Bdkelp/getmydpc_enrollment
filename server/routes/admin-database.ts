@@ -17,6 +17,7 @@ const mapMemberRecord = (row: Record<string, any>) => ({
   state: row.state,
   zipCode: row.zip_code,
   customerNumber: row.customer_number,
+  memberPublicId: row.member_public_id,
   planId: row.plan_id,
   planStartDate: row.plan_start_date,
   membershipStartDate: row.membership_start_date,

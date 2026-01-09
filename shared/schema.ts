@@ -85,8 +85,9 @@ export const users = pgTable("users", {
 // Field types match fresh_start_migration.sql - using CHAR for fixed-length fields
 export const members = pgTable("members", {
   id: serial("id").primaryKey(),
-  // Customer identifier: 10-character alphanumeric (e.g., A3B7K9M2P5)
-  customerNumber: varchar("customer_number", { length: 10 }).unique().notNull(),
+  // Customer identifier: prefixed alphanumeric (e.g., CUST-2501ABCD)
+  customerNumber: varchar("customer_number", { length: 24 }).unique().notNull(),
+  memberPublicId: varchar("member_public_id", { length: 24 }).unique().notNull(),
   // Personal information
   firstName: varchar("first_name", { length: 50 }).notNull(),
   lastName: varchar("last_name", { length: 50 }).notNull(),

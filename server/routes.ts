@@ -4152,11 +4152,12 @@ export async function registerRoutes(app: any) {
         message: "Registration successful. Proceeding to payment...",
         member: {
           id: member.id,
-          customerNumber: member.customer_number, // Snake case from Supabase
+          customerNumber: member.customerNumber || member.customer_number,
+          memberPublicId: member.memberPublicId || member.member_public_id,
           email: member.email,
-          firstName: member.first_name, // Snake case from Supabase
-          lastName: member.last_name, // Snake case from Supabase
-          memberType: member.member_type // Snake case from Supabase
+          firstName: member.firstName || member.first_name,
+          lastName: member.lastName || member.last_name,
+          memberType: member.memberType || member.member_type
         },
         enrollment: {
           planId: planId,
@@ -4380,6 +4381,7 @@ export async function registerRoutes(app: any) {
         member: {
           id: member.id,
           customerNumber: member.customerNumber,
+          memberPublicId: member.memberPublicId,
           email: member.email,
           firstName: member.firstName,
           lastName: member.lastName,
@@ -5317,9 +5319,10 @@ export async function registerRoutes(app: any) {
         },
         member: member ? {
           id: member.id,
-          customerNumber: member.customerNumber,
-          firstName: member.firstName,
-          lastName: member.lastName,
+          customerNumber: member.customerNumber || member.customer_number,
+          memberPublicId: member.memberPublicId || member.member_public_id,
+          firstName: member.firstName || member.first_name,
+          lastName: member.lastName || member.last_name,
           email: member.email,
           status: member.status
         } : null

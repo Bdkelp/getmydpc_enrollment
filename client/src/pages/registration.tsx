@@ -234,6 +234,8 @@ export default function Registration() {
 
       const member = apiResponse.member;
       const formValues = form.getValues();
+      const memberPublicId = member.memberPublicId || member.member_public_id || null;
+      const memberCustomerNumber = member.customerNumber || member.customer_number || null;
 
       sessionStorage.setItem("paymentAttempts", "0");
       sessionStorage.setItem("memberId", member.id.toString());
@@ -241,7 +243,8 @@ export default function Registration() {
         "memberData",
         JSON.stringify({
           id: member.id,
-          customerNumber: member.customerNumber,
+          customerNumber: memberCustomerNumber,
+          memberPublicId,
           firstName: member.firstName || formValues.firstName,
           lastName: member.lastName || formValues.lastName,
           email: member.email || formValues.email,
@@ -275,7 +278,7 @@ export default function Registration() {
 
       toast({
         title: "✅ Registration Complete!",
-        description: `Member ID: ${member.id} | Customer #: ${member.customerNumber || member.id}\nRedirecting to payment...`,
+        description: `Member ID: ${memberPublicId || member.id} | Customer #: ${memberCustomerNumber || member.id}\nRedirecting to payment...`,
         duration: 4000
       });
       

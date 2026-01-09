@@ -63,6 +63,7 @@ export default function Confirmation() {
     const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
     const rxValet = sessionStorage.getItem("rxValet") === "yes";
     const coverageType = sessionStorage.getItem("coverageType");
+    const initialMemberPublicId = memberInfo?.memberPublicId || memberInfo?.customerNumber || "Pending";
 
     console.log("Confirmation page - Loading data from URL and session:", { 
       urlPlanId,
@@ -89,6 +90,7 @@ export default function Confirmation() {
       transactionId: epxTransaction || `TXN${Date.now()}`,
       // Use actual member data if available
       customerNumber: memberInfo?.customerNumber || "Pending",
+      memberPublicId: initialMemberPublicId,
       memberId: memberInfo?.id || "Pending",
       firstName: memberInfo?.firstName || user?.firstName || "Member",
       lastName: memberInfo?.lastName || user?.lastName || "",
@@ -156,7 +158,11 @@ export default function Confirmation() {
       const response = await apiRequest(`/api/payments/by-transaction/${epxTransaction}`);
       return response;
     },
-    enabled: !!epxTransaction && (membershipData?.memberId === 'Pending' || membershipData?.customerNumber === 'Pending'),
+    enabled: !!epxTransaction && (
+      membershipData?.memberId === 'Pending' ||
+      membershipData?.customerNumber === 'Pending' ||
+      membershipData?.memberPublicId === 'Pending'
+    ),
     retry: 2,
     retryDelay: 1000
   });
@@ -169,6 +175,7 @@ export default function Confirmation() {
         ...prev,
         memberId: paymentData.member.id,
         customerNumber: paymentData.member.customerNumber || paymentData.member.id,
+        memberPublicId: paymentData.member.memberPublicId || paymentData.member.member_public_id || prev.memberPublicId,
         firstName: paymentData.member.firstName || prev.firstName,
         lastName: paymentData.member.lastName || prev.lastName,
         email: paymentData.member.email || prev.email
@@ -297,9 +304,15 @@ export default function Confirmation() {
     }
   };
 
-  const resolvedMemberId = membershipData?.memberId && membershipData.memberId !== 'Pending'
-    ? membershipData.memberId
-    : null;
+  const resolvedMemberId = (() => {
+    if (membershipData?.memberPublicId && membershipData.memberPublicId !== 'Pending') {
+      return membershipData.memberPublicId;
+    }
+    if (membershipData?.memberId && membershipData.memberId !== 'Pending') {
+      return membershipData.memberId;
+    }
+    return null;
+  })();
   const resolvedCustomerNumber = membershipData?.customerNumber && membershipData.customerNumber !== 'Pending'
     ? membershipData.customerNumber
     : null;
