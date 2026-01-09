@@ -72,7 +72,10 @@ export default function FamilyEnrollment() {
 
   const enrollmentMutation = useMutation({
     mutationFn: async (familyMembers: FamilyMemberForm[]) => {
-      await apiRequest("POST", "/api/family-enrollment", { members: familyMembers });
+      await apiRequest("/api/family-enrollment", {
+        method: "POST",
+        body: JSON.stringify({ members: familyMembers }),
+      });
     },
     onSuccess: () => {
       // Update pricing information in session storage

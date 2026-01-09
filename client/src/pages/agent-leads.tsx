@@ -75,19 +75,18 @@ export default function AgentLeads() {
       const url = statusFilter === 'all' 
         ? '/api/agent/leads' 
         : `/api/agent/leads?status=${statusFilter}`;
-      const response = await apiRequest("GET", url);
-      if (!response.ok) {
-        throw new Error('Failed to fetch leads');
-      }
-      return response.json();
+      const response = await apiRequest(url);
+      return Array.isArray(response) ? response : [];
     }
   });
 
   // Update lead status
   const updateLeadMutation = useMutation({
     mutationFn: async ({ leadId, status }: { leadId: number; status: string }) => {
-      const response = await apiRequest("PUT", `/api/leads/${leadId}`, { status });
-      return response.json();
+      return apiRequest(`/api/leads/${leadId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/agent/leads"] });
@@ -101,8 +100,10 @@ export default function AgentLeads() {
   // Add activity
   const addActivityMutation = useMutation({
     mutationFn: async ({ leadId, activityType, notes }: { leadId: number; activityType: string; notes: string }) => {
-      const response = await apiRequest("POST", `/api/leads/${leadId}/activities`, { activityType, notes });
-      return response.json();
+      return apiRequest(`/api/leads/${leadId}/activities`, {
+        method: "POST",
+        body: JSON.stringify({ activityType, notes }),
+      });
     },
     onSuccess: () => {
       setShowActivityDialog(false);
@@ -117,8 +118,10 @@ export default function AgentLeads() {
   // Add new lead
   const addLeadMutation = useMutation({
     mutationFn: async (leadData: typeof newLead) => {
-      const response = await apiRequest("POST", "/api/leads", leadData);
-      return response.json();
+      return apiRequest("/api/leads", {
+        method: "POST",
+        body: JSON.stringify(leadData),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/agent/leads"] });

@@ -1099,7 +1099,7 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
     let paramCount = 1;
 
     if (startDate && endDate) {
-      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
+      sql += ` AND m.created_at::date BETWEEN $${paramCount++}::date AND $${paramCount++}::date`;
       params.push(startDate, endDate);
     }
 
@@ -1234,7 +1234,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
     let paramCount = 2;
 
     if (startDate && endDate) {
-      sql += ` AND m.created_at >= $${paramCount++} AND m.created_at <= $${paramCount++}`;
+      sql += ` AND m.created_at::date BETWEEN $${paramCount++}::date AND $${paramCount++}::date`;
       params.push(startDate, endDate);
     }
 

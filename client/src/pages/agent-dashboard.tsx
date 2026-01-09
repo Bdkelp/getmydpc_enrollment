@@ -97,7 +97,10 @@ export default function AgentDashboard() {
   // Get agent stats (for selected agent if admin, or current user)
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<AgentStats>({
     queryKey: ["/api/agent/stats", viewingAgentId],
-    queryFn: () => apiRequest("GET", `/api/agent/stats${viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}` : ''}`),
+    queryFn: () => {
+      const query = viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}` : "";
+      return apiRequest(`/api/agent/stats${query}`);
+    },
     enabled: !!viewingAgentId,
   });
 
@@ -109,10 +112,20 @@ export default function AgentDashboard() {
   // Get recent enrollments (for selected agent if admin, or current user)
   const { data: enrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useQuery<Enrollment[]>({
     queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter],
-    queryFn: () => apiRequest("GET", `/api/agent/enrollments?${new URLSearchParams({
-      ...(viewingAgentId && viewingAgentId !== user?.id ? { agentId: viewingAgentId } : {}),
-      ...dateFilter
-    }).toString()}`),
+    queryFn: async () => {
+      const query = new URLSearchParams({
+        ...(viewingAgentId && viewingAgentId !== user?.id ? { agentId: viewingAgentId } : {}),
+        ...dateFilter,
+      }).toString();
+      const response = await apiRequest(`/api/agent/enrollments?${query}`);
+      if (Array.isArray(response)) {
+        return response;
+      }
+      if (Array.isArray(response?.enrollments)) {
+        return response.enrollments;
+      }
+      return [];
+    },
     enabled: !!viewingAgentId,
   });
 
@@ -124,7 +137,26 @@ export default function AgentDashboard() {
   // Download enrollments spreadsheet
   const downloadMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/agent/export-enrollments", dateFilter);
+      const { API_URL } = await import("@/lib/apiClient");
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const response = await fetch(`${API_URL}/api/agent/export-enrollments`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/csv",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(dateFilter),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to export enrollments");
+      }
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -179,11 +211,14 @@ export default function AgentDashboard() {
     }
 
     try {
-      await apiRequest("PUT", `/api/enrollment/${selectedEnrollment.id}/resolve`, {
-        subscriptionId: selectedEnrollment.subscriptionId,
-        consentType,
-        consentNotes,
-        modifiedBy: user?.id,
+      await apiRequest(`/api/enrollment/${selectedEnrollment.id}/resolve`, {
+        method: "PUT",
+        body: JSON.stringify({
+          subscriptionId: selectedEnrollment.subscriptionId,
+          consentType,
+          consentNotes,
+          modifiedBy: user?.id,
+        }),
       });
 
       toast({

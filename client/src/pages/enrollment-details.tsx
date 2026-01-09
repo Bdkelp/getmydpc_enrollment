@@ -115,9 +115,10 @@ export default function EnrollmentDetails() {
   // Update contact info mutation
   const updateContactMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("PATCH", `/api/admin/enrollment/${enrollmentId}/contact`, data);
-      if (!response.ok) throw new Error("Failed to update contact information");
-      return response.json();
+      return apiRequest(`/api/admin/enrollment/${enrollmentId}/contact`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
     },
     onSuccess: () => {
       toast({
@@ -139,9 +140,10 @@ export default function EnrollmentDetails() {
   // Update address mutation
   const updateAddressMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("PATCH", `/api/admin/enrollment/${enrollmentId}/address`, data);
-      if (!response.ok) throw new Error("Failed to update address");
-      return response.json();
+      return apiRequest(`/api/admin/enrollment/${enrollmentId}/address`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
     },
     onSuccess: () => {
       toast({

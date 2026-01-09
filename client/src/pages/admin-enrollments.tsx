@@ -63,6 +63,22 @@ interface Agent {
   agentNumber?: string;
 }
 
+const toUTCISODate = (dateString: string, endOfDay = false) => {
+  if (!dateString) return "";
+  const [year, month, day] = dateString.split("-").map(Number);
+  if ([year, month, day].some((value) => Number.isNaN(value))) {
+    return "";
+  }
+  const date = new Date(Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0));
+  return date.toISOString();
+};
+
+const buildDateRangeParams = (startDate: string, endDate: string) => {
+  const startDateISO = toUTCISODate(startDate) || startDate;
+  const endDateISO = toUTCISODate(endDate, true) || endDate;
+  return { startDate: startDateISO, endDate: endDateISO };
+};
+
 export default function AdminEnrollments() {
   const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
   const [, setLocation] = useLocation();
@@ -123,9 +139,13 @@ export default function AdminEnrollments() {
     queryKey: ["/api/admin/enrollments", dateFilter, selectedAgentId],
     queryFn: async () => {
       try {
+        const { startDate, endDate } = buildDateRangeParams(
+          dateFilter.startDate,
+          dateFilter.endDate,
+        );
         const params = new URLSearchParams({
-          startDate: dateFilter.startDate,
-          endDate: dateFilter.endDate,
+          startDate,
+          endDate,
           ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
         });
 
@@ -158,9 +178,13 @@ export default function AdminEnrollments() {
   // Export enrollments mutation
   const exportMutation = useMutation({
     mutationFn: async () => {
+      const { startDate, endDate } = buildDateRangeParams(
+        dateFilter.startDate,
+        dateFilter.endDate,
+      );
       const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
+        startDate,
+        endDate,
         ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
       });
 
