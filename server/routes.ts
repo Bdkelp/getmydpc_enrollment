@@ -3295,96 +3295,135 @@ router.get(
     }
 
     try {
-      const { startDate, endDate, agentId: requestedAgentIdRaw } = req.query;
+      const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+      const customStart = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+      const customEnd = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+      const requestedAgentIdRaw = req.query.agentId;
       const requestedAgentId = typeof requestedAgentIdRaw === 'string' ? requestedAgentIdRaw : undefined;
-      const isAdminUser = isAdmin(req.user!.role);
 
-      if (requestedAgentId && !isAdminUser) {
-        console.warn('[Agent Enrollments] Non-admin attempted to view another agent\'s data', {
-          requester: req.user?.id,
-          requestedAgentId
-        });
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      
-      console.log('[Agent Stats] Fetching stats for user:', {
-        userId: agentId,
-      if (isAdminUser && requestedAgentId) {
+      const { start, end } = getDateRangeFromQuery(period, customStart, customEnd);
+
+      let targetAgentId = req.user!.id;
+      let targetAgentNumber = req.user!.agentNumber || null;
+
+      if (requestedAgentId && requestedAgentId !== targetAgentId) {
+        if (!isAdmin(req.user!.role)) {
+          return res.status(403).json({ message: "Admin access required to view other agents" });
+        }
+
         const targetAgent = await storage.getUser(requestedAgentId);
         if (!targetAgent) {
           return res.status(404).json({ message: "Requested agent not found" });
         }
 
-        enrollments = await storage.getAgentEnrollments(
-          targetAgent.id,
-          startDate as string,
-          endDate as string,
-          targetAgent.agentNumber || null
-        );
-      } else if (isAdminUser) {
-        // Admin and super_admin can view platform-wide enrollments
-        enrollments = await storage.getAllEnrollments(
-          startDate as string, 
-          endDate as string
-        );
-      const commissionStats = await storage.getCommissionStats(agentId);
+        targetAgentId = targetAgent.id;
+        targetAgentNumber = targetAgent.agentNumber || null;
+      }
 
-      // Get enrollment counts from members table (NOT users table)
-      // Users table should ONLY contain agents/admins, members are in the members table
-      // Query by agent_number instead of enrolled_by_agent_id
-          endDate as string,
-          req.user!.agentNumber || null
-      const { data: enrollments } = await supabase
-        .from('members')
-        .select('*')
-        .eq('agent_number', agentNumber);
-
-      console.log(`[Agent Stats] Found ${enrollments?.length || 0} enrollments for agent ${agentNumber} (ID: ${agentId})`);
-      console.log('[Agent Stats] Sample enrollment:', enrollments?.[0]);
-      
-      // DEBUG: Check ALL members to see distribution of agent_number
-      const { data: allMembers } = await supabase
-        .from('members')
-        .select('id, email, agent_number, status, total_monthly_price')
-        .order('created_at', { ascending: false })
-        .limit(10);
-      
-      console.log('[Agent Stats] DEBUG - Last 10 members:');
-      allMembers?.forEach((m: any) => {
-        console.log(`  ID: ${m.id}, Email: ${m.email}, AgentNum: ${m.agent_number}, Status: ${m.status}, Price: ${m.total_monthly_price}`);
+      console.log('[Agent Stats] Fetching stats for user:', {
+        userId: targetAgentId,
+        email: req.user?.email,
+        role: req.user?.role,
+        agentNumber: targetAgentNumber,
+        period,
+        start: start?.toISOString() || null,
+        end: end?.toISOString() || null,
       });
 
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
+      let memberQuery = supabase.from('members').select('*');
+      if (targetAgentId && targetAgentNumber) {
+        memberQuery = memberQuery.or(`enrolled_by_agent_id.eq.${targetAgentId},agent_number.eq.${targetAgentNumber}`);
+      } else if (targetAgentId) {
+        memberQuery = memberQuery.eq('enrolled_by_agent_id', targetAgentId);
+      } else if (targetAgentNumber) {
+        memberQuery = memberQuery.eq('agent_number', targetAgentNumber);
+      }
 
-      const monthlyEnrollments = enrollments?.filter(
-        (e: any) => new Date(e.created_at) >= thisMonth,
-      ).length || 0;
+      const { data: agentMembers, error: memberError } = await memberQuery;
+      if (memberError) {
+        console.error('[Agent Stats] Failed to fetch members:', memberError);
+        return res.status(500).json({ message: 'Failed to fetch agent members' });
+      }
 
-      // Count all enrolled members (not just is_active=true) - include pending_activation
-      const activeMembers = enrollments?.filter((e: any) => 
-        e.status === 'active' || e.status === 'pending_activation'
-      ).length || 0;
+      const allMembers = agentMembers || [];
+      const filteredMembers = filterRecordsByDate(allMembers, start, end);
 
-      // Get commission stats from Supabase
-      const { data: commissions } = await supabase
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      monthStart.setHours(0, 0, 0, 0);
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+
+      const membersThisMonth = allMembers.filter((member: any) => new Date(member.created_at) >= monthStart);
+      const membersThisYear = allMembers.filter((member: any) => new Date(member.created_at) >= yearStart);
+
+      const activeMembers = allMembers.filter((member: any) =>
+        member.status === 'active' || member.status === 'pending_activation'
+      ).length;
+
+      const pendingEnrollments = filteredMembers.filter((member: any) =>
+        member.status && member.status.toLowerCase().includes('pending')
+      ).length;
+
+      const { data: agentCommissions, error: commissionError } = await supabase
         .from('agent_commissions')
-        .select('commission_amount, payment_status')
-        .eq('agent_id', agentId);
+        .select('*')
+        .eq('agent_id', targetAgentId);
 
-      const totalCommissions = commissions?.length || 0;
-      const totalEarned = commissions?.reduce((sum: number, c: any) => sum + (c.commission_amount || 0), 0) || 0;
-      const paidCommissions = commissions?.filter((c: any) => c.payment_status === 'paid').length || 0;
+      if (commissionError) {
+        console.error('[Agent Stats] Failed to fetch commissions:', commissionError);
+        return res.status(500).json({ message: 'Failed to fetch agent commissions' });
+      }
 
-      console.log("✅ Got agent stats for", req.user!.role);
+      const allCommissions = agentCommissions || [];
+      const filteredCommissions = filterRecordsByDate(allCommissions, start, end);
+      const commissionsThisMonth = allCommissions.filter((commission: any) => new Date(commission.created_at) >= monthStart);
+      const commissionsThisYear = allCommissions.filter((commission: any) => new Date(commission.created_at) >= yearStart);
+
+      const roundCurrency = (value: number) => Number((value || 0).toFixed(2));
+
+      const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredMembers));
+      const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(allMembers));
+      const monthlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisMonth));
+      const yearlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisYear));
+      const averageRevenuePerMember = filteredMembers.length > 0
+        ? roundCurrency(totalRevenue / filteredMembers.length)
+        : 0;
+
+      const totalCommissionsAmount = roundCurrency(sumCommissionAmounts(filteredCommissions));
+      const totalCommissionsAllTime = roundCurrency(sumCommissionAmounts(allCommissions));
+      const monthlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisMonth));
+      const yearlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisYear));
+      const paidCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status === 'paid')));
+      const pendingCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status !== 'paid')));
+
       res.json({
-        totalEnrollments: enrollments?.length || 0,
-        monthlyEnrollments,
+        totalRevenue,
+        totalRevenueAllTime,
+        monthlyRevenue,
+        yearlyRevenue,
+        averageRevenuePerMember,
+        totalEnrollments: filteredMembers.length,
+        totalMembers: allMembers.length,
+        monthlyEnrollments: membersThisMonth.length,
+        yearlyEnrollments: membersThisYear.length,
+        pendingEnrollments,
         activeMembers,
-        totalCommissions,
-        totalEarned,
-        paidCommissions
+        totalCommissions: totalCommissionsAmount,
+        totalCommission: totalCommissionsAllTime,
+        monthlyCommissions: monthlyCommissionsAmount,
+        monthlyCommission: monthlyCommissionsAmount,
+        yearlyCommissions: yearlyCommissionsAmount,
+        totalEarned: totalCommissionsAllTime,
+        paidCommissions: paidCommissionsAmount,
+        pendingCommissions: pendingCommissionsAmount,
+        memberGrowth: 0,
+        revenueGrowth: 0,
+        commissionGrowth: 0,
+        activeLeads: 0,
+        conversionRate: 0,
+        leads: [],
+        periodStart: start ? start.toISOString() : null,
+        periodEnd: end ? end.toISOString() : null,
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);
