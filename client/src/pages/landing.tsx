@@ -197,17 +197,15 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="animate-[fade-in-up_0.8s_ease-out]">
-              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-4">
-                Membership Has Never Been
+              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-2">
+                Real doctors, Real access,
               </h1>
-              <div className="text-2xl text-gray-800 mb-8 leading-relaxed space-y-1 animate-[fade-in-up_0.9s_ease-out]">
-                <span className="block">Real doctors</span>
-                <span className="block">Real access</span>
-                <span className="block">Real simple</span>
-                <span className="block bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent">
-                  Welcome to the Healthcare Revolution!
-                </span>
-              </div>
+              <h3 className="text-3xl text-gray-800 font-semibold leading-tight mb-2 animate-[fade-in-up_0.9s_ease-out]">
+                Real Simple
+              </h3>
+              <p className="text-xl text-gray-700 mb-8 animate-[fade-in-up_1s_ease-out]">
+                Membership has never been so easy.
+              </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
                   isAgentOrAbove ? (
