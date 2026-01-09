@@ -201,7 +201,7 @@ export default function Landing() {
                 <span className="block">Real access</span>
                 <span className="block">Real simple</span>
                 <span className="block bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent">
-                  Welcome to the Revolution
+                  Welcome to the Healthcare Revolution!
                 </span>
               </div>
               <div className="flex flex-col sm:flex-row gap-4">
