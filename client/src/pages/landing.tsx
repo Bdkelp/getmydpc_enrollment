@@ -8,7 +8,7 @@ import { Heart, DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
-import heroImage from "@assets/enrollment-dr-image.jpg";
+import heroImage from "@assets/about-hero-compassionate-care.jpg";
 import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 
@@ -193,14 +193,17 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="animate-[fade-in-up_0.8s_ease-out]">
-              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
+              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-4">
                 Membership Has Never Been
-                <span className="bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent"> Easier.</span>
               </h1>
-              <p className="text-xl text-gray-600 mb-8 leading-relaxed animate-[fade-in-up_0.9s_ease-out]">
-                Your health. Your membership. No insurance needed.
-                Get unlimited access to your primary care physician for one low monthly fee.
-              </p>
+              <div className="text-2xl text-gray-800 mb-8 leading-relaxed space-y-1 animate-[fade-in-up_0.9s_ease-out]">
+                <span className="block">Real doctors</span>
+                <span className="block">Real access</span>
+                <span className="block">Real simple</span>
+                <span className="block bg-gradient-to-r from-medical-blue-600 to-medical-blue-500 bg-clip-text text-transparent">
+                  Welcome to the Revolution
+                </span>
+              </div>
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
                   isAgentOrAbove ? (
