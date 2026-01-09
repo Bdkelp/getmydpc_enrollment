@@ -4026,10 +4026,23 @@ export interface DiscountCodeInput {
   validUntil?: string | null;
 }
 
+interface DiscountCodeDbPayload {
+  code: string;
+  description: string;
+  discount_type: DiscountValueType;
+  discount_value: number;
+  duration_type: DiscountDurationType;
+  duration_months: number | null;
+  max_uses: number | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  created_by?: string | null;
+}
+
 function buildDiscountCodePayload(
   input: DiscountCodeInput,
   options: { includeCreatedBy?: boolean; createdBy?: string | null } = {}
-) {
+): DiscountCodeDbPayload {
   const normalizedCode = input.code.trim().toUpperCase();
   const discountValue = Number(input.discountValue);
 
@@ -4047,7 +4060,7 @@ function buildDiscountCodePayload(
 
   const maxUses = input.maxUses && input.maxUses > 0 ? input.maxUses : null;
 
-  const payload: Record<string, any> = {
+  const payload: DiscountCodeDbPayload = {
     code: normalizedCode,
     description: input.description,
     discount_type: input.discountType,
@@ -4067,17 +4080,8 @@ function buildDiscountCodePayload(
 }
 
 export async function getAllDiscountCodes(): Promise<DiscountCodeRecord[]> {
-  const { data, error } = await supabase
-    .from('discount_codes')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('[Storage] Failed to fetch discount codes:', error);
-    throw new Error('Failed to fetch discount codes');
-  }
-
-  return (data || []).map(mapDiscountCode);
+  const result = await query('SELECT * FROM discount_codes ORDER BY created_at DESC');
+  return (result.rows || []).map(mapDiscountCode);
 }
 
 export async function getDiscountCodeByCode(code: string): Promise<DiscountCodeRecord | null> {
@@ -4086,19 +4090,9 @@ export async function getDiscountCodeByCode(code: string): Promise<DiscountCodeR
     return null;
   }
 
-  const { data, error } = await supabase
-    .from('discount_codes')
-    .select('*')
-    .eq('code', normalizedCode)
-    .limit(1)
-    .maybeSingle();
-
-  if (error && error.code !== 'PGRST116') {
-    console.error('[Storage] Failed to fetch discount code by code:', error);
-    throw new Error('Failed to fetch discount code');
-  }
-
-  return data ? mapDiscountCode(data) : null;
+  const result = await query('SELECT * FROM discount_codes WHERE code = $1 LIMIT 1', [normalizedCode]);
+  const record = result.rows?.[0];
+  return record ? mapDiscountCode(record) : null;
 }
 
 export async function createDiscountCode(
@@ -4107,92 +4101,113 @@ export async function createDiscountCode(
 ): Promise<DiscountCodeRecord> {
   const payload = buildDiscountCodePayload(input, { includeCreatedBy: true, createdBy: options.createdBy ?? null });
 
-  const { data, error } = await supabase
-    .from('discount_codes')
-    .insert([payload])
-    .select('*')
-    .single();
+  const result = await query(
+    `INSERT INTO discount_codes (
+      code,
+      description,
+      discount_type,
+      discount_value,
+      duration_type,
+      duration_months,
+      max_uses,
+      valid_from,
+      valid_until,
+      created_by
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    RETURNING *`,
+    [
+      payload.code,
+      payload.description,
+      payload.discount_type,
+      payload.discount_value,
+      payload.duration_type,
+      payload.duration_months,
+      payload.max_uses,
+      payload.valid_from,
+      payload.valid_until,
+      payload.created_by ?? null,
+    ]
+  );
 
-  if (error) {
-    console.error('[Storage] Failed to create discount code:', error);
-    throw new Error(error.message || 'Failed to create discount code');
+  const record = result.rows?.[0];
+  if (!record) {
+    throw new Error('Failed to create discount code');
   }
 
-  return mapDiscountCode(data);
+  return mapDiscountCode(record);
 }
 
 export async function updateDiscountCode(id: string, input: DiscountCodeInput): Promise<DiscountCodeRecord> {
   const payload = buildDiscountCodePayload(input);
 
-  const { data, error } = await supabase
-    .from('discount_codes')
-    .update(payload)
-    .eq('id', id)
-    .select('*')
-    .maybeSingle();
+  const result = await query(
+    `UPDATE discount_codes SET
+      code = $1,
+      description = $2,
+      discount_type = $3,
+      discount_value = $4,
+      duration_type = $5,
+      duration_months = $6,
+      max_uses = $7,
+      valid_from = $8,
+      valid_until = $9,
+      updated_at = NOW()
+    WHERE id = $10
+    RETURNING *`,
+    [
+      payload.code,
+      payload.description,
+      payload.discount_type,
+      payload.discount_value,
+      payload.duration_type,
+      payload.duration_months,
+      payload.max_uses,
+      payload.valid_from,
+      payload.valid_until,
+      id,
+    ]
+  );
 
-  if (error) {
-    console.error('[Storage] Failed to update discount code:', error);
-    throw new Error(error.message || 'Failed to update discount code');
-  }
-
-  if (!data) {
+  const record = result.rows?.[0];
+  if (!record) {
     throw new Error('Discount code not found');
   }
 
-  return mapDiscountCode(data);
+  return mapDiscountCode(record);
 }
 
 export async function toggleDiscountCodeActive(id: string, isActive: boolean): Promise<DiscountCodeRecord> {
-  const { data, error } = await supabase
-    .from('discount_codes')
-    .update({ is_active: isActive })
-    .eq('id', id)
-    .select('*')
-    .maybeSingle();
+  const result = await query(
+    `UPDATE discount_codes SET is_active = $1, updated_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [isActive, id]
+  );
 
-  if (error) {
-    console.error('[Storage] Failed to toggle discount code:', error);
-    throw new Error(error.message || 'Failed to update discount code status');
-  }
-
-  if (!data) {
+  const record = result.rows?.[0];
+  if (!record) {
     throw new Error('Discount code not found');
   }
 
-  return mapDiscountCode(data);
+  return mapDiscountCode(record);
 }
 
 export async function deleteDiscountCode(id: string): Promise<void> {
-  const { error, data } = await supabase
-    .from('discount_codes')
-    .delete()
-    .eq('id', id)
-    .select('id')
-    .maybeSingle();
+  const result = await query('DELETE FROM discount_codes WHERE id = $1 RETURNING id', [id]);
 
-  if (error) {
-    console.error('[Storage] Failed to delete discount code:', error);
-    throw new Error(error.message || 'Failed to delete discount code');
-  }
-
-  if (!data) {
+  if (!result.rows?.length) {
     throw new Error('Discount code not found');
   }
 }
 
 export async function getDiscountCodeUsageCount(id: string): Promise<number> {
-  const { error, count } = await supabase
-    .from('member_discount_codes')
-    .select('id', { count: 'exact', head: true })
-    .eq('discount_code_id', id);
+  const result = await query(
+    'SELECT COUNT(*)::int AS count FROM member_discount_codes WHERE discount_code_id = $1',
+    [id]
+  );
 
-  if (error) {
-    console.error('[Storage] Failed to count discount code usage:', error);
-    throw new Error('Failed to check discount code usage');
-  }
-
-  return count ?? 0;
+  const count = result.rows?.[0]?.count ?? 0;
+  return Number(count) || 0;
 }
 
 export const storage = {
