@@ -121,76 +121,9 @@ function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?
   }
 
   return { start, end };
+}
 
-        const activeMembers = allMembers.filter((member: any) => 
-          member.status === 'active' || member.status === 'pending_activation'
-        ).length;
-
-        const pendingEnrollments = filteredMembers.filter((member: any) => 
-          member.status && member.status.toLowerCase().includes('pending')
-        ).length;
-
-        const { data: agentCommissions, error: commissionError } = await supabase
-          .from('agent_commissions')
-          .select('*')
-          .eq('agent_id', targetAgentId);
-
-        if (commissionError) {
-          console.error('[Agent Stats] Failed to fetch commissions:', commissionError);
-          return res.status(500).json({ message: 'Failed to fetch agent commissions' });
-        }
-
-        const allCommissions = agentCommissions || [];
-        const filteredCommissions = filterRecordsByDate(allCommissions, start, end);
-        const commissionsThisMonth = allCommissions.filter((commission: any) => new Date(commission.created_at) >= monthStart);
-        const commissionsThisYear = allCommissions.filter((commission: any) => new Date(commission.created_at) >= yearStart);
-
-        const roundCurrency = (value: number) => Number((value || 0).toFixed(2));
-
-        const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredMembers));
-        const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(allMembers));
-        const monthlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisMonth));
-        const yearlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisYear));
-        const averageRevenuePerMember = filteredMembers.length > 0
-          ? roundCurrency(totalRevenue / filteredMembers.length)
-          : 0;
-
-        const totalCommissionsAmount = roundCurrency(sumCommissionAmounts(filteredCommissions));
-        const totalCommissionsAllTime = roundCurrency(sumCommissionAmounts(allCommissions));
-        const monthlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisMonth));
-        const yearlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisYear));
-        const paidCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status === 'paid')));
-        const pendingCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status !== 'paid')));
-
-        res.json({
-          totalRevenue,
-          totalRevenueAllTime,
-          monthlyRevenue,
-          yearlyRevenue,
-          averageRevenuePerMember,
-          totalEnrollments: filteredMembers.length,
-          totalMembers: allMembers.length,
-          monthlyEnrollments: membersThisMonth.length,
-          yearlyEnrollments: membersThisYear.length,
-          pendingEnrollments,
-          activeMembers,
-          totalCommissions: totalCommissionsAmount,
-          totalCommission: totalCommissionsAllTime,
-          monthlyCommissions: monthlyCommissionsAmount,
-          monthlyCommission: monthlyCommissionsAmount,
-          yearlyCommissions: yearlyCommissionsAmount,
-          totalEarned: totalCommissionsAllTime,
-          paidCommissions: paidCommissionsAmount,
-          pendingCommissions: pendingCommissionsAmount,
-          memberGrowth: 0,
-          revenueGrowth: 0,
-          commissionGrowth: 0,
-          activeLeads: 0,
-          conversionRate: 0,
-          leads: [],
-          periodStart: start ? start.toISOString() : null,
-          periodEnd: end ? end.toISOString() : null,
-        });
+function filterRecordsByDate(records: any[] = [], start?: Date, end?: Date) {
   if (!start && !end) {
     return records;
   }
