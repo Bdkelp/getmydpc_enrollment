@@ -23,6 +23,7 @@ import AdminCommissions from "@/pages/admin-commissions";
 import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
 import AdminDiscountCodes from "@/pages/admin-discount-codes";
 import AdminEPXCertification from "@/pages/admin-epx-certification";
+import AdminPerformanceGoals from "@/pages/admin-performance-goals";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import PaymentSuccess from "@/pages/payment-success";
@@ -104,6 +105,7 @@ function Router() {
               <Route path="/admin/commissions" component={AdminCommissions} />
               <Route path="/admin/agent-hierarchy" component={AdminAgentHierarchy} />
               <Route path="/admin/discount-codes" component={AdminDiscountCodes} />
+              <Route path="/admin/performance-goals" component={AdminPerformanceGoals} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />

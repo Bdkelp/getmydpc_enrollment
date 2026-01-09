@@ -34,7 +34,8 @@ import {
   FileText,
   Database,
   AlertTriangle,
-  X
+  X,
+  Target
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format } from "date-fns";
@@ -895,6 +896,12 @@ export default function Admin() {
                 <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
                   <Users className="h-5 w-5 mb-1" />
                   <span className="text-sm font-medium">Agent Hierarchy</span>
+                </Button>
+              </Link>
+              <Link href="/admin/performance-goals">
+                <Button variant="outline" className="w-full border-fuchsia-500 text-fuchsia-600 hover:bg-fuchsia-50 h-20 flex flex-col items-center justify-center">
+                  <Target className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Performance Goals</span>
                 </Button>
               </Link>
             </div>

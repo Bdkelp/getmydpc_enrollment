@@ -14,6 +14,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
+import { isPlanStartDateAllowed } from "./planStartDates";
 
 // Session storage table (legacy - not actively used, Supabase handles sessions)
 export const sessions = pgTable(
@@ -448,6 +449,21 @@ export const platformSettings = pgTable("platform_settings", {
   updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
 });
 
+export const agentPerformanceGoals = pgTable(
+  "agent_performance_goals",
+  {
+    id: serial("id").primaryKey(),
+    agentId: uuid("agent_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    goals: jsonb("goals").notNull().default({}),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_agent_performance_goals_agent").on(table.agentId),
+  ],
+);
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
@@ -590,14 +606,8 @@ const isPastDate = (dateString: string) => {
   return date < today;
 };
 
-const isWithinNext30Days = (dateString: string) => {
-  const date = new Date(dateString);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const thirtyDaysFromNow = new Date(today);
-  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-  return date >= today && date <= thirtyDaysFromNow;
-};
+const allowSameDayPlanStart =
+  typeof process !== "undefined" && process.env?.ENABLE_SAME_DAY_PLAN_START === "true";
 
 // Registration schema for multi-step form
 export const registrationSchema = z.object({
@@ -627,7 +637,10 @@ export const registrationSchema = z.object({
   memberType: z.string().min(1, "Member type is required"),
   planStartDate: z.string()
     .min(1, "Plan start date is required")
-    .refine(isWithinNext30Days, "Plan start date must be today or within the next 30 days"),
+    .refine(
+      (value) => isPlanStartDateAllowed(value, { includeSameDay: allowSameDayPlanStart }),
+      "Plan start date must be the next 1st or 15th (or today when available)"
+    ),
   // Emergency contact
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string()
@@ -670,3 +683,5 @@ export type RecurringBillingLog = typeof recurringBillingLog.$inferSelect;
 export type InsertRecurringBillingLog = z.infer<typeof insertRecurringBillingLogSchema>;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type InsertPlatformSetting = typeof platformSettings.$inferInsert;
+export type AgentPerformanceGoal = typeof agentPerformanceGoals.$inferSelect;
+export type InsertAgentPerformanceGoal = typeof agentPerformanceGoals.$inferInsert;

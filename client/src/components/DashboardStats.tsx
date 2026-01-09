@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Calendar, DollarSign, TrendingUp, Users, Filter, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Calendar, DollarSign, TrendingUp, Users, Filter, RefreshCw, Target } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { hasAtLeastRole, Role } from "@/lib/roles";
+import type { PerformanceGoals } from "@shared/performanceGoals";
 
 type DashboardRole = Extract<Role, "agent" | "admin" | "super_admin">;
 
@@ -46,6 +48,10 @@ interface StatsData {
   commissionGrowth?: number;
   periodStart?: string | null;
   periodEnd?: string | null;
+  performanceGoals?: PerformanceGoals;
+  performanceGoalsMeta?: {
+    hasOverride?: boolean;
+  };
 }
 
 export default function DashboardStats({ userRole, agentId }: DashboardStatsProps) {
@@ -116,6 +122,33 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
     });
   };
 
+  const computeProgress = (current: number, goal: number) => {
+    if (!goal || goal <= 0) return 0;
+    return Math.min(100, Math.round((current / goal) * 100));
+  };
+
+  const renderProgressRow = (
+    label: string,
+    current: number,
+    goal: number,
+    formatter: (value: number) => string,
+  ) => (
+    <div key={label} className="space-y-1">
+      <div className="flex items-center justify-between text-sm font-medium">
+        <span>{label}</span>
+        <span>
+          {formatter(current)} / {goal ? formatter(goal) : '—'}
+        </span>
+      </div>
+      <div className="h-2 bg-white rounded-full overflow-hidden">
+        <div
+          className="h-full bg-green-500"
+          style={{ width: `${computeProgress(current, goal)}%` }}
+        />
+      </div>
+    </div>
+  );
+
   const resolvedPeriodLabel = (() => {
     if (filterPeriod === 'custom' && customStartDate && customEndDate) {
       return 'Custom Range';
@@ -142,6 +175,10 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
     if (end) return `Through ${end}`;
     return null;
   })();
+
+  const performanceGoals = stats?.performanceGoals;
+  const performanceGoalsMeta = stats?.performanceGoalsMeta;
+  const monthlyCommissionActual = stats?.monthlyCommissions ?? stats?.monthlyCommission ?? 0;
 
   const getGrowthColor = (growth: number) => {
     if (growth > 0) return 'text-green-600';
@@ -256,6 +293,45 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
           </CardContent>
         )}
       </Card>
+
+      {performanceGoals && (
+        <Card className="border border-green-200 bg-green-50/70">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-green-900">
+              <Target className="h-4 w-4" />
+              Goal Progress
+              {performanceGoalsMeta?.hasOverride && (
+                <Badge variant="outline" className="text-green-800 border-green-400 bg-white/70">
+                  Agent Override
+                </Badge>
+              )}
+            </CardTitle>
+            <p className="text-xs text-green-700">
+              Tracking current month against target metrics
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {renderProgressRow(
+              'Enrollments',
+              stats?.monthlyEnrollments || 0,
+              performanceGoals.monthly.enrollments || 0,
+              formatNumber,
+            )}
+            {renderProgressRow(
+              'Revenue',
+              stats?.monthlyRevenue || 0,
+              performanceGoals.monthly.revenue || 0,
+              formatCurrency,
+            )}
+            {renderProgressRow(
+              'Commissions',
+              monthlyCommissionActual,
+              performanceGoals.monthly.commissions || 0,
+              formatCurrency,
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Revenue Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

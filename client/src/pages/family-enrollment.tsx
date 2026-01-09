@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +13,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Users, UserPlus, Trash2 } from "lucide-react";
+import {
+  getPlanStartDateSelectOptions,
+  PLAN_START_SAME_DAY_ENABLED,
+  type PlanStartDateOption,
+} from "@/lib/planStartDates";
+import { isPlanStartDateAllowed } from "@shared/planStartDates";
 
 const familyMemberSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -30,7 +36,12 @@ const familyMemberSchema = z.object({
   city: z.string().optional(),
   state: z.string().optional(),
   zipCode: z.string().optional(),
-  planStartDate: z.string().min(1, "Plan start date is required"),
+  planStartDate: z.string()
+    .min(1, "Plan start date is required")
+    .refine(
+      (value) => isPlanStartDateAllowed(value, { includeSameDay: PLAN_START_SAME_DAY_ENABLED }),
+      "Choose the next 1st or 15th (or today when available)"
+    ),
 });
 
 type FamilyMemberForm = z.infer<typeof familyMemberSchema>;
@@ -47,6 +58,12 @@ export default function FamilyEnrollment() {
   
   const maxMembers = coverageType === "Member/Spouse" ? 1 : 
                      coverageType === "Member/Child" ? 1 : 5;
+
+  const planStartDateOptions = useMemo<PlanStartDateOption[]>(
+    () => getPlanStartDateSelectOptions(),
+    []
+  );
+  const defaultPlanStartDate = planStartDateOptions[0]?.value ?? "";
 
   const form = useForm<FamilyMemberForm>({
     resolver: zodResolver(familyMemberSchema),
@@ -66,7 +83,7 @@ export default function FamilyEnrollment() {
       city: "",
       state: "",
       zipCode: "",
-      planStartDate: "",
+      planStartDate: defaultPlanStartDate,
     },
   });
 
@@ -479,10 +496,33 @@ export default function FamilyEnrollment() {
                     name="planStartDate"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Plan Start Date *</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
+                        <FormLabel>Plan Start Date * (Upcoming 1st or 15th)</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select plan start date" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {planStartDateOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-sm text-gray-600 mt-2">
+                          Family coverage begins on the next available 1st or 15th to match the primary member.
+                        </p>
+                        {PLAN_START_SAME_DAY_ENABLED ? (
+                          <p className="text-sm text-gray-600 mt-1">
+                            If immediate coverage is enabled, choose Start Today to align everyone.
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-600 mt-1">
+                            Select the upcoming date that matches the member enrollment.
+                          </p>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}

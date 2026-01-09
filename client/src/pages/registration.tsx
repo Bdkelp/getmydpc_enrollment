@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,6 +21,46 @@ import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 import { Plus, ChevronLeft } from "lucide-react";
 import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode } from "@/lib/formatters";
 import { hasAtLeastRole } from "@/lib/roles";
+import {
+  getPlanStartDateSelectOptions,
+  PLAN_START_SAME_DAY_ENABLED,
+  type PlanStartDateOption,
+} from "@/lib/planStartDates";
+import { isPlanStartDateAllowed } from "@shared/planStartDates";
+
+const PROGRESS_STEP_TITLES: Record<number, string> = {
+  1: "Personal Info",
+  2: "Employment Info",
+  3: "Plan Timing",
+  4: "Address Info",
+  5: "Spouse Info",
+  6: "Children Info",
+  7: "Plan Selection",
+  8: "Review & Terms",
+};
+
+const includesSpouseStep = (coverageType: string) =>
+  coverageType === "Member/Spouse" || coverageType === "Family";
+
+const includesChildrenStep = (coverageType: string) =>
+  coverageType === "Member/Child" || coverageType === "Family";
+
+const getIncludedStepsForCoverage = (coverageType: string) => {
+  const steps = [1, 2, 3, 4];
+  if (includesSpouseStep(coverageType)) steps.push(5);
+  if (includesChildrenStep(coverageType)) steps.push(6);
+  steps.push(7, 8);
+  return steps;
+};
+
+const getDisplayStepNumber = (currentStep: number, coverageType: string) => {
+  const includedSteps = getIncludedStepsForCoverage(coverageType);
+  const completedSteps = includedSteps.filter((step) => step <= currentStep).length;
+  return Math.max(1, completedSteps || 1);
+};
+
+const getProgressStepTitle = (currentStep: number) =>
+  PROGRESS_STEP_TITLES[currentStep] || "Enrollment Progress";
 
 const registrationSchema = z.object({
   // Personal information
@@ -43,7 +83,12 @@ const registrationSchema = z.object({
   divisionName: z.string().optional(),
   dateOfHire: z.string().optional(),
   memberType: z.string().min(1, "Member type is required"),
-  planStartDate: z.string().min(1, "Plan start date is required"),
+  planStartDate: z.string()
+    .min(1, "Plan start date is required")
+    .refine(
+      (value) => isPlanStartDateAllowed(value, { includeSameDay: PLAN_START_SAME_DAY_ENABLED }),
+      "Choose the next 1st or 15th (or today when available)"
+    ),
   // Emergency contact
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
@@ -82,6 +127,12 @@ export default function Registration() {
   const [isValidatingDiscount, setIsValidatingDiscount] = useState(false);
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+
+  const planStartDateOptions = useMemo<PlanStartDateOption[]>(
+    () => getPlanStartDateSelectOptions(),
+    []
+  );
+  const defaultPlanStartDate = planStartDateOptions[0]?.value ?? "";
 
   // Query to get current user data
   const { data: currentUser } = useQuery<{ 
@@ -147,7 +198,7 @@ export default function Registration() {
       divisionName: "",
       dateOfHire: "",
       memberType: "",
-      planStartDate: "",
+      planStartDate: defaultPlanStartDate,
       discountCode: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
@@ -472,12 +523,14 @@ export default function Registration() {
   }
 
   const selectedPlan = Array.isArray(plans) ? plans.find((plan: any) => plan.id === selectedPlanId) : null;
-  const steps = [
-    { number: 1, title: "Personal Info" },
-    { number: 2, title: "Address" },
-    { number: 3, title: "Plan Selection" },
-    { number: 4, title: "Review & Terms" },
-  ];
+  const currentPlanStartDateValue = form.watch("planStartDate");
+  const planStartDateDisplay =
+    planStartDateOptions.find((option) => option.value === currentPlanStartDateValue)?.label ||
+    currentPlanStartDateValue;
+  const includedSteps = getIncludedStepsForCoverage(coverageType);
+  const displayStep = getDisplayStepNumber(currentStep, coverageType);
+  const displayTotal = includedSteps.length;
+  const progressStepTitle = getProgressStepTitle(currentStep);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -506,7 +559,11 @@ export default function Registration() {
           <Card className="p-8">
             <CardContent className="p-0">
               {/* Progress Indicator */}
-              <ProgressIndicator currentStep={currentStep} totalSteps={8} />
+              <ProgressIndicator 
+                displayStep={displayStep} 
+                displayTotal={displayTotal} 
+                stepTitle={progressStepTitle}
+              />
 
               <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">
@@ -791,15 +848,33 @@ export default function Registration() {
                       name="planStartDate"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Plan Start Date * (Today or up to 30 days from now)</FormLabel>
-                          <FormControl>
-                            <Input 
-                              type="date" 
-                              {...field}
-                              min={new Date().toISOString().split('T')[0]} // No backdating
-                              max={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]} // Max 30 days
-                            />
-                          </FormControl>
+                          <FormLabel>Plan Start Date * (Upcoming 1st or 15th)</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select plan start date" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {planStartDateOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-sm text-gray-600 mt-2">
+                            Coverage starts on the next available 1st or 15th to keep billing aligned.
+                          </p>
+                          {PLAN_START_SAME_DAY_ENABLED ? (
+                            <p className="text-sm text-gray-600 mt-1">
+                              Need immediate coverage? Pick the Start Today option above.
+                            </p>
+                          ) : (
+                            <p className="text-sm text-gray-600 mt-1">
+                              Pick whichever upcoming date works best for your first payment.
+                            </p>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -1517,7 +1592,7 @@ export default function Registration() {
                           <span className="font-medium">Date of Hire:</span> {form.watch("dateOfHire")}
                         </div>
                         <div>
-                          <span className="font-medium">Plan Start Date:</span> {form.watch("planStartDate")}
+                          <span className="font-medium">Plan Start Date:</span> {planStartDateDisplay}
                         </div>
                         <div>
                           <span className="font-medium">Coverage Type:</span> {coverageType}

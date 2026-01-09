@@ -93,6 +93,19 @@ export interface PlatformSettingRecord<T = any> {
   updatedBy?: string;
 }
 
+export interface AgentPerformanceGoalOverrideRecord {
+  agentId: string;
+  goals: PerformanceGoals;
+  updatedAt?: string;
+  updatedBy?: string | null;
+}
+
+export interface ResolvedPerformanceGoals {
+  defaults: PerformanceGoals;
+  override: PerformanceGoals | null;
+  resolved: PerformanceGoals;
+}
+
 export async function getPlatformSetting<T = any>(key: string): Promise<PlatformSettingRecord<T> | null> {
   try {
     const { data, error } = await supabase
@@ -143,6 +156,129 @@ export async function upsertPlatformSetting<T = any>(key: string, value: T, upda
     console.error(`[Storage] Failed to upsert platform setting ${key}:`, error.message);
     throw new Error(`Failed to update platform setting ${key}`);
   }
+}
+
+const ensurePerformanceGoals = (input?: Partial<PerformanceGoals> | null): PerformanceGoals =>
+  input ? normalizePerformanceGoals(input) : defaultPerformanceGoals;
+
+const mapGoalRow = (row: any): AgentPerformanceGoalOverrideRecord => ({
+  agentId: row.agent_id,
+  goals: ensurePerformanceGoals(row.goals),
+  updatedAt: row.updated_at || row.updatedAt,
+  updatedBy: row.updated_by || row.updatedBy,
+});
+
+export async function getPerformanceGoalDefaults(): Promise<PerformanceGoals> {
+  const record = await getPlatformSetting<PerformanceGoals>(PERFORMANCE_GOALS_SETTING_KEY);
+  return ensurePerformanceGoals(record?.value);
+}
+
+export async function updatePerformanceGoalDefaults(
+  goals: PerformanceGoals,
+  updatedBy?: string,
+): Promise<PerformanceGoals> {
+  const normalized = ensurePerformanceGoals(goals);
+  await upsertPlatformSetting(PERFORMANCE_GOALS_SETTING_KEY, normalized, updatedBy);
+  return normalized;
+}
+
+export async function getAgentPerformanceGoalOverride(agentId: string): Promise<PerformanceGoals | null> {
+  if (!agentId) return null;
+
+  const { data, error } = await supabase
+    .from('agent_performance_goals')
+    .select('goals')
+    .eq('agent_id', agentId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return null;
+    }
+    console.error(`[Storage] Failed to read agent performance goals for ${agentId}:`, error.message);
+    throw new Error('Failed to read agent performance goals');
+  }
+
+  return data?.goals ? ensurePerformanceGoals(data.goals) : null;
+}
+
+export async function upsertAgentPerformanceGoalOverride(
+  agentId: string,
+  goals: PerformanceGoals,
+  updatedBy?: string,
+): Promise<PerformanceGoals> {
+  if (!agentId) {
+    throw new Error('Agent ID is required for goal overrides');
+  }
+
+  const normalized = ensurePerformanceGoals(goals);
+
+  const payload: Record<string, any> = {
+    agent_id: agentId,
+    goals: normalized,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updatedBy) {
+    payload.updated_by = updatedBy;
+  }
+
+  const { error } = await supabase
+    .from('agent_performance_goals')
+    .upsert(payload, { onConflict: 'agent_id' });
+
+  if (error) {
+    console.error(`[Storage] Failed to upsert agent performance goals for ${agentId}:`, error.message);
+    throw new Error('Failed to save agent performance goals');
+  }
+
+  return normalized;
+}
+
+export async function deleteAgentPerformanceGoalOverride(agentId: string): Promise<void> {
+  if (!agentId) return;
+  const { error } = await supabase
+    .from('agent_performance_goals')
+    .delete()
+    .eq('agent_id', agentId);
+
+  if (error) {
+    console.error(`[Storage] Failed to delete agent performance goals for ${agentId}:`, error.message);
+    throw new Error('Failed to delete agent performance goals');
+  }
+}
+
+export async function listAgentPerformanceGoalOverrides(): Promise<AgentPerformanceGoalOverrideRecord[]> {
+  const { data, error } = await supabase
+    .from('agent_performance_goals')
+    .select('agent_id, goals, updated_at, updated_by')
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    console.error('[Storage] Failed to list agent performance goals:', error.message);
+    throw new Error('Failed to list agent performance goals');
+  }
+
+  return (data || []).map(mapGoalRow);
+}
+
+export async function resolvePerformanceGoalsForAgent(agentId?: string | null): Promise<ResolvedPerformanceGoals> {
+  const defaults = await getPerformanceGoalDefaults();
+  if (!agentId) {
+    return {
+      defaults,
+      override: null,
+      resolved: defaults,
+    };
+  }
+
+  const override = await getAgentPerformanceGoalOverride(agentId);
+  return {
+    defaults,
+    override,
+    resolved: override ? mergePerformanceGoals(defaults, override) : defaults,
+  };
 }
 
 function normalizeStartDate(startDate?: string): string | undefined {
@@ -200,6 +336,13 @@ import type {
   InsertLeadActivity,
   InsertCommission,
 } from "@shared/schema";
+import {
+  defaultPerformanceGoals,
+  mergePerformanceGoals,
+  normalizePerformanceGoals,
+  PERFORMANCE_GOALS_SETTING_KEY,
+} from "@shared/performanceGoals";
+import type { PerformanceGoals } from "@shared/performanceGoals";
 
 export interface IStorage {
   // User operations (Supabase-authenticated agents/admins)
@@ -310,6 +453,15 @@ export interface IStorage {
   getAnalyticsOverview(days: number): Promise<any>;
   getAdminDashboardStats(): Promise<any>;
   getComprehensiveAnalytics(days?: number): Promise<any>;
+
+  // Performance goals
+  getPerformanceGoalDefaults(): Promise<PerformanceGoals>;
+  updatePerformanceGoalDefaults(goals: PerformanceGoals, updatedBy?: string): Promise<PerformanceGoals>;
+  getAgentPerformanceGoalOverride(agentId: string): Promise<PerformanceGoals | null>;
+  upsertAgentPerformanceGoalOverride(agentId: string, goals: PerformanceGoals, updatedBy?: string): Promise<PerformanceGoals>;
+  deleteAgentPerformanceGoalOverride(agentId: string): Promise<void>;
+  listAgentPerformanceGoalOverrides(): Promise<AgentPerformanceGoalOverrideRecord[]>;
+  resolvePerformanceGoalsForAgent(agentId?: string | null): Promise<ResolvedPerformanceGoals>;
 
   // Login session tracking
   createLoginSession(sessionData: {
@@ -4238,6 +4390,14 @@ export const storage = {
   recordEnrollmentModification,
   recordBankingInfoChange,
   getBankingChangeHistory,
+
+  getPerformanceGoalDefaults,
+  updatePerformanceGoalDefaults,
+  getAgentPerformanceGoalOverride,
+  upsertAgentPerformanceGoalOverride,
+  deleteAgentPerformanceGoalOverride,
+  listAgentPerformanceGoalOverrides,
+  resolvePerformanceGoalsForAgent,
 
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},

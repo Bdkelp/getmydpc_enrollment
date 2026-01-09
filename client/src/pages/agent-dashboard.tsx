@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
+import type { PerformanceGoals } from "@shared/performanceGoals";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
@@ -34,6 +35,13 @@ interface AgentStats {
   activeLeads: number;
   conversionRate: number;
   leads: any[];
+  monthlyRevenue?: number;
+  yearlyRevenue?: number;
+  totalRevenue?: number;
+  performanceGoals?: PerformanceGoals;
+  performanceGoalsMeta?: {
+    hasOverride?: boolean;
+  };
 }
 
 interface Enrollment {
@@ -242,6 +250,13 @@ export default function AgentDashboard() {
     }
   };
 
+  const formatCurrency = (value?: number | null) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+    }).format(value || 0);
+
   if (statsLoading || enrollmentsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -283,6 +298,27 @@ export default function AgentDashboard() {
       </div>
     );
   }
+
+  const performanceGoals = stats?.performanceGoals;
+  const monthlyGoalEnrollments = performanceGoals?.monthly?.enrollments ?? 0;
+  const monthlyGoalRevenue = performanceGoals?.monthly?.revenue ?? 0;
+  const monthlyGoalCommissions = performanceGoals?.monthly?.commissions ?? 0;
+
+  const currentMonthlyEnrollments = stats?.monthlyEnrollments || 0;
+  const currentMonthlyRevenue = stats?.monthlyRevenue || 0;
+  const currentMonthlyCommission = stats?.monthlyCommission || 0;
+
+  const computeProgress = (current: number, goal: number) => {
+    if (!goal || goal <= 0) return 0;
+    return Math.min(100, Math.round((current / goal) * 100));
+  };
+
+  const enrollmentProgress = computeProgress(currentMonthlyEnrollments, monthlyGoalEnrollments);
+  const revenueProgress = computeProgress(currentMonthlyRevenue, monthlyGoalRevenue);
+  const commissionProgress = computeProgress(currentMonthlyCommission, monthlyGoalCommissions);
+  const goalSourceLabel = performanceGoals
+    ? (stats?.performanceGoalsMeta?.hasOverride ? "Custom goal active" : "Default platform goal")
+    : "Goal targets not configured yet";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -394,25 +430,38 @@ export default function AgentDashboard() {
                 <p className="text-green-100">
                   Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
                 </p>
-                <div className="mt-4 flex items-center space-x-6">
-                  <div>
-                    <p className="text-sm text-green-200">This Month's Goal</p>
-                    <p className="text-lg font-semibold">
-                      {stats?.monthlyEnrollments || 0} / 10 enrollments
-                    </p>
+                <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <p className="text-sm text-green-100">Monthly Enrollment Goal</p>
+                    <p className="text-lg font-semibold">{currentMonthlyEnrollments} / {monthlyGoalEnrollments || "—"}</p>
+                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${enrollmentProgress}%` }} />
+                    </div>
+                    <p className="text-xs text-green-100 mt-1">{goalSourceLabel}</p>
                   </div>
-                  <div className="border-l border-green-300 pl-6">
-                    <p className="text-sm text-green-200">Commission Earned</p>
-                    <p className="text-lg font-semibold">
-                      ${stats?.monthlyCommission?.toFixed(2) || "0.00"}
-                    </p>
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <p className="text-sm text-green-100">Monthly Revenue</p>
+                    <p className="text-lg font-semibold">{formatCurrency(currentMonthlyRevenue)}</p>
+                    <p className="text-xs text-green-100">Goal: {monthlyGoalRevenue ? formatCurrency(monthlyGoalRevenue) : "No goal"} ({revenueProgress}%)</p>
+                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${revenueProgress}%` }} />
+                    </div>
                   </div>
-                  <div className="border-l border-green-300 pl-6">
-                    <p className="text-sm text-green-200">Leads to Follow Up</p>
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <p className="text-sm text-green-100">Monthly Commission</p>
+                    <p className="text-lg font-semibold">{formatCurrency(currentMonthlyCommission)}</p>
+                    <p className="text-xs text-green-100">Goal: {monthlyGoalCommissions ? formatCurrency(monthlyGoalCommissions) : "No goal"} ({commissionProgress}%)</p>
+                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${commissionProgress}%` }} />
+                    </div>
+                  </div>
+                  <div className="bg-white/10 rounded-lg p-4">
+                    <p className="text-sm text-green-100">Leads to Follow Up</p>
                     <p className="text-lg font-semibold flex items-center">
-                      <Phone className="h-5 w-5 mr-1" />
-                      {stats?.activeLeads || 0} active
+                      <Phone className="h-5 w-5 mr-2" />
+                      {stats?.activeLeads || 0}
                     </p>
+                    <p className="text-xs text-green-100 mt-1">Conversion Rate: {(stats?.conversionRate || 0).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>

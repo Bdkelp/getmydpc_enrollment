@@ -4540,6 +4540,7 @@ export async function registerRoutes(app: any) {
 
       const monthlyCommissionTotal = parseFloat(sumCommissionAmounts(monthlyCommissions).toFixed(2));
       const yearlyCommissionTotal = parseFloat(sumCommissionAmounts(yearlyCommissions).toFixed(2));
+      const performanceGoalData = await storage.resolvePerformanceGoalsForAgent(agentId);
 
       const responsePayload = {
         success: true,
@@ -4568,6 +4569,10 @@ export async function registerRoutes(app: any) {
         leads: [],
         periodStart: periodStart ? periodStart.toISOString() : null,
         periodEnd: periodEnd ? periodEnd.toISOString() : null,
+        performanceGoals: performanceGoalData.resolved,
+        performanceGoalsMeta: {
+          hasOverride: Boolean(performanceGoalData.override),
+        },
         ...commissionStats
       };
 
@@ -4671,6 +4676,103 @@ export async function registerRoutes(app: any) {
     } catch (error: any) {
       console.error('Error fetching admin commission totals:', error);
       res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/performance-goals', authMiddleware, async (req: any, res: any) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    try {
+      const [defaults, overrides, plans, agents] = await Promise.all([
+        storage.getPerformanceGoalDefaults(),
+        storage.listAgentPerformanceGoalOverrides(),
+        storage.getPlans(),
+        storage.getAgents(),
+      ]);
+
+      const agentIndex = new Map(
+        (Array.isArray(agents) ? agents : []).map((agent: any) => [agent.id, agent])
+      );
+
+      const enrichedOverrides = overrides.map((record) => ({
+        ...record,
+        agent: agentIndex.get(record.agentId) || null,
+      }));
+
+      res.json({
+        defaults,
+        overrides: enrichedOverrides,
+        plans,
+      });
+    } catch (error: any) {
+      console.error('[Admin Performance Goals] Failed to load:', error);
+      res.status(500).json({ error: 'Failed to load performance goals', message: error.message });
+    }
+  });
+
+  app.put('/api/admin/performance-goals/defaults', authMiddleware, async (req: any, res: any) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    try {
+      const goalsPayload = req.body?.goals ?? req.body;
+      if (!goalsPayload) {
+        return res.status(400).json({ error: 'Goals payload is required' });
+      }
+
+      const goals = await storage.updatePerformanceGoalDefaults(goalsPayload, req.user?.id);
+      res.json({ success: true, goals });
+    } catch (error: any) {
+      console.error('[Admin Performance Goals] Failed to update defaults:', error);
+      res.status(500).json({ error: 'Failed to update default goals', message: error.message });
+    }
+  });
+
+  app.put('/api/admin/performance-goals/agent/:agentId', authMiddleware, async (req: any, res: any) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { agentId } = req.params;
+
+    try {
+      if (!agentId) {
+        return res.status(400).json({ error: 'Agent ID is required' });
+      }
+
+      const goalsPayload = req.body?.goals ?? req.body;
+      if (!goalsPayload) {
+        return res.status(400).json({ error: 'Goals payload is required' });
+      }
+
+      const goals = await storage.upsertAgentPerformanceGoalOverride(agentId, goalsPayload, req.user?.id);
+      res.json({ success: true, agentId, goals });
+    } catch (error: any) {
+      console.error('[Admin Performance Goals] Failed to update override:', error);
+      res.status(500).json({ error: 'Failed to update agent goals', message: error.message });
+    }
+  });
+
+  app.delete('/api/admin/performance-goals/agent/:agentId', authMiddleware, async (req: any, res: any) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { agentId } = req.params;
+
+    try {
+      if (!agentId) {
+        return res.status(400).json({ error: 'Agent ID is required' });
+      }
+
+      await storage.deleteAgentPerformanceGoalOverride(agentId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Admin Performance Goals] Failed to delete override:', error);
+      res.status(500).json({ error: 'Failed to delete agent goals', message: error.message });
     }
   });
 
