@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Heart, DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
+import { DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
 import type { Plan } from "@shared/schema";
@@ -121,8 +121,12 @@ export default function Landing() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <div className="flex-shrink-0 flex items-center">
-                <Heart className="text-medical-blue-600 h-8 w-8 mr-3" />
+              <div className="flex-shrink-0 flex items-center space-x-3">
+                <img
+                  src="/mypremierplans-logo.png"
+                  alt="MyPremierPlans logo"
+                  className="h-8 w-auto"
+                />
                 <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
               </div>
               <div className="hidden md:block ml-10">
