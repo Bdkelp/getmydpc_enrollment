@@ -56,68 +56,71 @@ function parseDateInput(value?: string): Date | undefined {
 
 function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?: string) {
   const normalizedPeriod = typeof period === 'string' && PERIOD_FILTERS.has(period) ? period : undefined;
-        const period = typeof req.query.period === 'string' ? req.query.period : undefined;
-        const customStart = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
-        const customEnd = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
-        const requestedAgentIdRaw = req.query.agentId;
-        const requestedAgentId = typeof requestedAgentIdRaw === 'string' ? requestedAgentIdRaw : undefined;
-        const { start, end } = getDateRangeFromQuery(period, customStart, customEnd);
+  const now = new Date();
+  let start: Date | undefined;
+  let end: Date | undefined;
 
-        let targetAgentId = req.user!.id;
-        let targetAgentNumber = req.user!.agentNumber || null;
+  switch (normalizedPeriod) {
+    case 'today':
+      start = startOfDay(now);
+      end = endOfDay(now);
+      break;
+    case 'week': {
+      const temp = startOfDay(now);
+      const weekday = temp.getDay();
+      temp.setDate(temp.getDate() - weekday);
+      start = temp;
+      end = endOfDay(now);
+      break;
+    }
+    case 'month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = endOfDay(now);
+      break;
+    case 'quarter': {
+      const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+      start = new Date(now.getFullYear(), quarterStartMonth, 1);
+      end = endOfDay(now);
+      break;
+    }
+    case 'year':
+      start = new Date(now.getFullYear(), 0, 1);
+      end = endOfDay(now);
+      break;
+    case 'last-30': {
+      const temp = new Date(now);
+      temp.setDate(temp.getDate() - 30);
+      start = startOfDay(temp);
+      end = endOfDay(now);
+      break;
+    }
+    case 'last-90': {
+      const temp = new Date(now);
+      temp.setDate(temp.getDate() - 90);
+      start = startOfDay(temp);
+      end = endOfDay(now);
+      break;
+    }
+    case 'custom':
+      start = parseDateInput(customStart);
+      end = parseDateInput(customEnd);
+      if (start) start = startOfDay(start);
+      if (end) end = endOfDay(end);
+      break;
+    case 'all-time':
+    default:
+      start = parseDateInput(customStart);
+      end = parseDateInput(customEnd);
+      if (start) start = startOfDay(start);
+      if (end) end = endOfDay(end);
+      break;
+  }
 
-        if (requestedAgentId && requestedAgentId !== targetAgentId) {
-          if (!isAdmin(req.user!.role)) {
-            return res.status(403).json({ message: "Admin access required to view other agents" });
-          }
+  if (start && !end) {
+    end = endOfDay(now);
+  }
 
-          const targetAgent = await storage.getUser(requestedAgentId);
-          if (!targetAgent) {
-            return res.status(404).json({ message: "Requested agent not found" });
-          }
-
-          targetAgentId = targetAgent.id;
-          targetAgentNumber = targetAgent.agentNumber || null;
-        }
-
-        console.log('[Agent Stats] Fetching stats for user:', {
-          userId: targetAgentId,
-          email: req.user!.email,
-          role: req.user!.role,
-          agentNumber: targetAgentNumber,
-          period,
-          start,
-          end
-        });
-
-        const memberFilters: string[] = [];
-        if (targetAgentId) memberFilters.push(`enrolled_by_agent_id.eq.${targetAgentId}`);
-        if (targetAgentNumber) memberFilters.push(`agent_number.eq.${targetAgentNumber}`);
-
-        let memberQuery = supabase.from('members').select('*');
-        if (memberFilters.length > 1) {
-          memberQuery = memberQuery.or(memberFilters.join(','));
-        } else if (memberFilters.length === 1) {
-          const [column, value] = memberFilters[0].split('.eq.');
-          memberQuery = memberQuery.eq(column, value);
-        }
-
-        const { data: agentMembers, error: memberError } = await memberQuery;
-        if (memberError) {
-          console.error('[Agent Stats] Failed to fetch members:', memberError);
-          return res.status(500).json({ message: 'Failed to fetch agent members' });
-        }
-
-        const allMembers = agentMembers || [];
-        const filteredMembers = filterRecordsByDate(allMembers, start, end);
-
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        monthStart.setHours(0, 0, 0, 0);
-        const yearStart = new Date(now.getFullYear(), 0, 1);
-
-        const membersThisMonth = allMembers.filter((member: any) => new Date(member.created_at) >= monthStart);
-        const membersThisYear = allMembers.filter((member: any) => new Date(member.created_at) >= yearStart);
+  return { start, end };
 
         const activeMembers = allMembers.filter((member: any) => 
           member.status === 'active' || member.status === 'pending_activation'
