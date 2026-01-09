@@ -10,46 +10,14 @@ import { apiRequest } from "@/lib/queryClient";
 import { ProgressIndicator } from "@/components/progress-indicator";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
-import { FaCcVisa, FaCcMastercard, FaCcAmex, FaCcDiscover, FaCreditCard } from "react-icons/fa";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 // import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
-
-// Function to detect card type based on card number
-const detectCardType = (cardNumber: string) => {
-  const cleanNumber = cardNumber.replace(/\s/g, '');
-  
-  if (/^4/.test(cleanNumber)) return 'visa';
-  if (/^5[1-5]/.test(cleanNumber)) return 'mastercard';
-  if (/^3[47]/.test(cleanNumber)) return 'amex';
-  if (/^6(?:011|5)/.test(cleanNumber)) return 'discover';
-  return 'unknown';
-};
-
-// Function to format card number with spaces
-const formatCardNumber = (value: string) => {
-  const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-  const matches = v.match(/\d{4,16}/g);
-  const match = (matches && matches[0]) || '';
-  const parts = [];
-
-  for (let i = 0, len = match.length; i < len; i += 4) {
-    parts.push(match.substring(i, i + 4));
-  }
-
-  if (parts.length) {
-    return parts.join(' ');
-  } else {
-    return value;
-  }
-};
 
 export default function Payment() {
   const [, setLocation] = useLocation();
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardType, setCardType] = useState('unknown');
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showEPXPayment, setShowEPXPayment] = useState(false);
   const [memberData, setMemberData] = useState<any>(null);
@@ -335,114 +303,56 @@ export default function Payment() {
                     )}
                   </div>
                   
-                  {/* Mock Payment Form */}
+                  {/* Hosted Checkout Prompt */}
                   {selectedPlan && (
-                    <div className="bg-white border border-gray-200 rounded-lg p-6">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                        <CreditCard className="mr-2 h-5 w-5" />
-                        Payment Information
-                      </h3>
-                      <p className="text-sm text-gray-600 mb-6">
-                        Enter your payment details below. Your subscription will begin immediately after payment.
-                      </p>
-                      
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Card Number</label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              placeholder="4242 4242 4242 4242"
-                              value={cardNumber}
-                              onChange={(e) => {
-                                const formatted = formatCardNumber(e.target.value);
-                                setCardNumber(formatted);
-                                setCardType(detectCardType(formatted));
-                              }}
-                              maxLength={19}
-                              className="w-full px-3 py-2 pr-12 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
-                            />
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                              {cardType === 'visa' && <FaCcVisa className="h-8 w-8 text-blue-600" />}
-                              {cardType === 'mastercard' && <FaCcMastercard className="h-8 w-8 text-red-500" />}
-                              {cardType === 'amex' && <FaCcAmex className="h-8 w-8 text-blue-700" />}
-                              {cardType === 'discover' && <FaCcDiscover className="h-8 w-8 text-orange-500" />}
-                              {cardType === 'unknown' && <FaCreditCard className="h-6 w-6 text-gray-400" />}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 mt-2">
-                            <span className="text-xs text-gray-500">We accept:</span>
-                            <FaCcVisa className="h-6 w-6 text-gray-400" />
-                            <FaCcMastercard className="h-6 w-6 text-gray-400" />
-                            <FaCcAmex className="h-6 w-6 text-gray-400" />
-                            <FaCcDiscover className="h-6 w-6 text-gray-400" />
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Expiry Date</label>
-                            <input
-                              type="text"
-                              placeholder="MM/YY"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">CVC</label>
-                            <input
-                              type="text"
-                              placeholder="123"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
-                            />
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Name on Card</label>
-                          <input
-                            type="text"
-                            placeholder="John Doe"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-medical-blue-500"
-                          />
-                        </div>
-                        
-                        <div className="space-y-3">
-                          <Button
-                            type="button"
-                            className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
-                            onClick={() => {
-                              if (!user?.id || !user?.email) {
-                                toast({
-                                  title: "User data not loaded",
-                                  description: "Please wait for your user information to load before proceeding.",
-                                  variant: "destructive"
-                                });
-                                return;
-                              }
-                              if (!memberId) {
-                                toast({
-                                  title: "Member record missing",
-                                  description: "Please restart registration before completing payment.",
-                                  variant: "destructive"
-                                });
-                                setLocation("/registration");
-                                return;
-                              }
-                              setPaymentError(null);
-                              setShowEPXPayment(true);
-                            }}
-                            disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email || !memberId}
-                          >
-                            {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
-                          </Button>
-                        </div>
-                        
-                        <p className="text-xs text-gray-500 text-center mt-4">
-                          <Shield className="inline-block mr-1 h-3 w-3" />
-                          Payments are processed securely via EPX hosted checkout. Card details never touch MyPremierPlans servers.
-                        </p>
+                    <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-5">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="h-5 w-5 text-medical-blue-600" />
+                        <h3 className="text-lg font-semibold text-gray-900">Complete Payment</h3>
                       </div>
+                      <p className="text-sm text-gray-600">
+                        We use EPX Hosted Checkout for all payments. Click the button below to launch the secure window and
+                        finish enrollment. MyPremierPlans never collects or stores your card number on this page.
+                      </p>
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                        <p className="font-semibold text-slate-900 mb-2">What to expect:</p>
+                        <ul className="list-disc space-y-1 pl-5">
+                          <li>A secure EPX modal opens after you click <span className="font-semibold">Pay with Card</span>.</li>
+                          <li>Enter your card details there and submit; we’ll redirect you to confirmation automatically.</li>
+                        </ul>
+                      </div>
+                      <Button
+                        type="button"
+                        className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
+                        onClick={() => {
+                          if (!user?.id || !user?.email) {
+                            toast({
+                              title: "User data not loaded",
+                              description: "Please wait for your user information to load before proceeding.",
+                              variant: "destructive"
+                            });
+                            return;
+                          }
+                          if (!memberId) {
+                            toast({
+                              title: "Member record missing",
+                              description: "Please restart registration before completing payment.",
+                              variant: "destructive"
+                            });
+                            setLocation("/registration");
+                            return;
+                          }
+                          setPaymentError(null);
+                          setShowEPXPayment(true);
+                        }}
+                        disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email || !memberId}
+                      >
+                        {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
+                      </Button>
+                      <p className="text-xs text-gray-500 text-center">
+                        <Shield className="inline-block mr-1 h-3 w-3" />
+                        Payments are processed securely via EPX hosted checkout. Card details never touch MyPremierPlans servers.
+                      </p>
                     </div>
                   )}
                 </div>
