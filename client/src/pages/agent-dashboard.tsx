@@ -8,7 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User } from "lucide-react";
+import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User, Target } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import type { PerformanceGoals } from "@shared/performanceGoals";
 import { format } from "date-fns";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -58,6 +59,9 @@ interface Enrollment {
   pendingDetails?: string;
   subscriptionId?: number;
 }
+
+type GoalPeriodKey = "weekly" | "monthly" | "quarterly";
+type PlanGoalField = "weeklyEnrollments" | "monthlyEnrollments" | "quarterlyEnrollments";
 
 export default function AgentDashboard() {
   const [, setLocation] = useLocation();
@@ -255,7 +259,24 @@ export default function AgentDashboard() {
       style: "currency",
       currency: "USD",
       minimumFractionDigits: 2,
-    }).format(value || 0);
+    }).format(value ?? 0);
+
+  const formatInteger = (value?: number | null) =>
+    new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 0,
+    }).format(value ?? 0);
+
+  const goalPeriodSummaries: Array<{ key: GoalPeriodKey; label: string; helper: string }> = [
+    { key: "weekly", label: "Weekly Targets", helper: "Track your weekly pace" },
+    { key: "monthly", label: "Monthly Targets", helper: "Primary scorecard" },
+    { key: "quarterly", label: "Quarterly Targets", helper: "Longer-term focus" },
+  ];
+
+  const planGoalFields: Array<{ key: PlanGoalField; label: string }> = [
+    { key: "weeklyEnrollments", label: "Weekly" },
+    { key: "monthlyEnrollments", label: "Monthly" },
+    { key: "quarterlyEnrollments", label: "Quarterly" },
+  ];
 
   if (statsLoading || enrollmentsLoading) {
     return (
@@ -472,6 +493,110 @@ export default function AgentDashboard() {
           </CardContent>
         </Card>
         
+        {performanceGoals && (
+          <Card className="mb-8 border border-emerald-200 bg-white">
+            <CardHeader className="pb-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 uppercase tracking-wide">Performance Goals</p>
+                  <h3 className="text-2xl font-semibold text-gray-900 mt-1">
+                    {stats?.performanceGoalsMeta?.hasOverride ? 'Custom targets for your desk' : 'Platform targets applied to you'}
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Weekly, monthly, and quarterly goals are pulled directly from the admin console.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                    {stats?.performanceGoalsMeta?.hasOverride ? 'Agent Override Active' : 'Default Platform Goal'}
+                  </Badge>
+                  {isAdminUser && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLocation('/admin/performance-goals')}
+                    >
+                      Manage Goals
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                {goalPeriodSummaries.map(({ key, label, helper }) => (
+                  <div key={key} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs uppercase text-emerald-600 tracking-wide">{helper}</p>
+                        <p className="text-lg font-semibold text-emerald-900">{label}</p>
+                      </div>
+                      <Target className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-500">Enrollments</p>
+                        <p className="font-semibold text-gray-900">{formatInteger(performanceGoals[key].enrollments)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Revenue</p>
+                        <p className="font-semibold text-gray-900">{formatCurrency(performanceGoals[key].revenue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Commissions</p>
+                        <p className="font-semibold text-gray-900">{formatCurrency(performanceGoals[key].commissions)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Leads</p>
+                        <p className="font-semibold text-gray-900">{formatInteger(performanceGoals[key].leads)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-emerald-600" />
+                  <p className="text-sm font-semibold text-gray-800">Plan Enrollment Targets</p>
+                </div>
+                {performanceGoals.productGoals?.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-gray-500 uppercase text-xs tracking-wide">
+                          <th className="py-2">Plan</th>
+                          {planGoalFields.map((field) => (
+                            <th key={field.key} className="py-2">{field.label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {performanceGoals.productGoals.map((planGoal) => (
+                          <tr key={`${planGoal.planId}-${planGoal.planName || 'plan'}`} className="border-t">
+                            <td className="py-2 font-medium text-gray-900">
+                              {planGoal.planName || `Plan #${planGoal.planId}`}
+                            </td>
+                            {planGoalFields.map((field) => (
+                              <td key={field.key} className="py-2 text-gray-800">
+                                {planGoal[field.key] ?? '—'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No plan-specific enrollment targets yet. You can add them from the admin Performance Goals page.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Enhanced Dashboard Stats */}
         <DashboardStats userRole="agent" agentId={viewingAgentId} />
 
