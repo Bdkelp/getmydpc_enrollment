@@ -38,7 +38,7 @@ import {
   Target
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
@@ -77,6 +77,17 @@ interface PendingUser {
   email: string;
   created_at: string;
   [key: string]: any;
+}
+
+type PaymentEnvironmentValue = 'sandbox' | 'production';
+
+interface PaymentEnvironmentResponse {
+  success: boolean;
+  environment: PaymentEnvironmentValue;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  allowed?: PaymentEnvironmentValue[];
+  previousEnvironment?: PaymentEnvironmentValue;
 }
 
 const MANUAL_TRANSACTION_TYPES = [
@@ -299,6 +310,54 @@ export default function Admin() {
     enabled: isAuthenticated && isAdminUser,
   });
 
+  const { data: paymentEnvironmentDetails, isLoading: paymentEnvironmentLoading } = useQuery<PaymentEnvironmentResponse>({
+    queryKey: ["/api/admin/payments/environment"],
+    enabled: isAuthenticated && isAdminUser,
+  });
+
+  const paymentEnvironment = paymentEnvironmentDetails?.environment;
+  const isPaymentEnvironmentProduction = paymentEnvironment === 'production';
+  const paymentEnvironmentBadgeLabel = paymentEnvironmentLoading
+    ? 'Checking...'
+    : paymentEnvironmentDetails
+      ? (isPaymentEnvironmentProduction ? 'Live Production' : 'Sandbox / Test')
+      : 'Unavailable';
+  const paymentEnvironmentBadgeClasses = isPaymentEnvironmentProduction
+    ? 'bg-emerald-600 text-white hover:bg-emerald-600'
+    : 'bg-amber-500 text-white hover:bg-amber-500';
+  const paymentEnvironmentButtonTarget: PaymentEnvironmentValue = isPaymentEnvironmentProduction ? 'sandbox' : 'production';
+  const paymentEnvironmentButtonLabel = paymentEnvironmentButtonTarget === 'production'
+    ? 'Switch to Production'
+    : 'Switch to Sandbox';
+  let paymentEnvironmentUpdatedText: string | null = null;
+  if (paymentEnvironmentDetails?.updatedAt) {
+    try {
+      paymentEnvironmentUpdatedText = `Updated ${formatDistanceToNow(new Date(paymentEnvironmentDetails.updatedAt), { addSuffix: true })}`;
+    } catch {
+      paymentEnvironmentUpdatedText = `Updated ${format(new Date(paymentEnvironmentDetails.updatedAt), 'MMM d, h:mm a')}`;
+    }
+
+    if (paymentEnvironmentDetails?.updatedBy) {
+      paymentEnvironmentUpdatedText += ` by ${paymentEnvironmentDetails.updatedBy}`;
+    }
+  }
+  const environmentAlertTitle = paymentEnvironmentLoading
+    ? 'Confirming EPX environment'
+    : isPaymentEnvironmentProduction
+      ? 'Live EPX controls'
+      : 'Sandbox mode active';
+  const environmentAlertDescription = paymentEnvironmentLoading
+    ? 'Retrieving your current EPX environment before enabling manual controls.'
+    : isPaymentEnvironmentProduction
+      ? 'Charges, refunds, and voids are transmitted to EPX immediately. Double-check every identifier before continuing.'
+      : 'Transactions currently route to the EPX sandbox. Switch to production before running live dollars.';
+  const environmentAlertClasses = isPaymentEnvironmentProduction
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+    : 'border-amber-300 bg-amber-50 text-amber-900';
+  const EnvironmentAlertIcon = paymentEnvironmentLoading
+    ? Clock
+    : (isPaymentEnvironmentProduction ? CheckCircle : AlertTriangle);
+
   // Approve user mutation
   const approveUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -400,6 +459,36 @@ export default function Admin() {
       });
     },
   });
+
+  const updatePaymentEnvironmentMutation = useMutation({
+    mutationFn: async (nextEnvironment: PaymentEnvironmentValue) => {
+      return apiRequest('/api/admin/payments/environment', {
+        method: 'POST',
+        body: JSON.stringify({ environment: nextEnvironment }),
+      });
+    },
+    onSuccess: (data: PaymentEnvironmentResponse) => {
+      toast({
+        title: 'Payment environment updated',
+        description: `Environment now set to ${(data?.environment || 'production').toUpperCase()}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payments/environment"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Unable to update environment',
+        description: error?.message || 'Check console for additional details.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handlePaymentEnvironmentChange = (nextEnvironment: PaymentEnvironmentValue) => {
+    if (!ensureSuperAdminAccess('Update payment environment')) {
+      return;
+    }
+    updatePaymentEnvironmentMutation.mutate(nextEnvironment);
+  };
 
   const handleManualFieldChange = (field: keyof typeof manualTransactionForm) => (
     event: ChangeEvent<HTMLInputElement>
@@ -966,41 +1055,64 @@ export default function Admin() {
         {/* Manual EPX Transactions */}
         <Card className="mb-8 border border-blue-200 bg-white">
           <CardContent className="p-6 space-y-6">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Manual EPX Transactions</h2>
                 <p className="text-sm text-gray-600">
                   Run SALE, refund, or void events directly from the admin dashboard without opening the certification toolkit.
                 </p>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setManualTransactionResult(null)}
-                  disabled={!manualTransactionResult}
-                >
-                  Clear Result
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={resetManualTransactionForm}
-                  disabled={manualTransactionMutation.isPending}
-                >
-                  Reset Form
-                </Button>
+              <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment Environment</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={`${paymentEnvironmentBadgeClasses} text-xs font-semibold uppercase tracking-wide`}>
+                      {paymentEnvironmentBadgeLabel}
+                    </Badge>
+                    {isSuperAdmin && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={paymentEnvironmentButtonTarget === 'production' ? 'default' : 'outline'}
+                        onClick={() => handlePaymentEnvironmentChange(paymentEnvironmentButtonTarget)}
+                        disabled={paymentEnvironmentLoading || updatePaymentEnvironmentMutation.isPending}
+                      >
+                        {updatePaymentEnvironmentMutation.isPending ? 'Updating...' : paymentEnvironmentButtonLabel}
+                      </Button>
+                    )}
+                  </div>
+                  {paymentEnvironmentUpdatedText && (
+                    <span className="text-xs text-gray-500">{paymentEnvironmentUpdatedText}</span>
+                  )}
+                </div>
+                <div className="flex w-full gap-2 md:w-auto">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setManualTransactionResult(null)}
+                    disabled={!manualTransactionResult}
+                  >
+                    Clear Result
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetManualTransactionForm}
+                    disabled={manualTransactionMutation.isPending}
+                  >
+                    Reset Form
+                  </Button>
+                </div>
               </div>
             </div>
 
-            <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+            <Alert className={environmentAlertClasses}>
               <div className="flex gap-3">
-                <AlertTriangle className="h-5 w-5 mt-0.5" />
+                <EnvironmentAlertIcon className="h-5 w-5 mt-0.5" />
                 <div>
-                  <AlertTitle>Live EPX controls</AlertTitle>
+                  <AlertTitle>{environmentAlertTitle}</AlertTitle>
                   <AlertDescription>
-                    Charges, refunds, and voids are transmitted to EPX immediately. Double-check the member identifiers,
-                    dollar amount, and transaction type before continuing.
+                    {environmentAlertDescription}
                   </AlertDescription>
                 </div>
               </div>

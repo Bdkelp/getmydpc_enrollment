@@ -39,6 +39,8 @@ const planFields = [
 type GoalPeriod = "weekly" | "monthly" | "quarterly";
 type PlanFrequencyField = typeof planFields[number]["key"];
 
+const NO_AGENT_SELECT_VALUE = "__no_agent__";
+
 interface PlanSummary {
   id: number;
   name: string;
@@ -115,7 +117,7 @@ function AdminPerformanceGoals() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [defaultGoals, setDefaultGoals] = useState<PerformanceGoals>(defaultPerformanceGoals);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [overrideGoals, setOverrideGoals] = useState<PerformanceGoals | null>(null);
 
   const { data: goalsResponse, isLoading: goalsLoading } = useQuery<PerformanceGoalsResponse>({
@@ -241,6 +243,14 @@ function AdminPerformanceGoals() {
   });
 
   const overridesForTable = useMemo(() => goalsResponse?.overrides || [], [goalsResponse?.overrides]);
+
+  const handleAgentSelectChange = (value: string) => {
+    if (value === NO_AGENT_SELECT_VALUE) {
+      setSelectedAgentId(null);
+      return;
+    }
+    setSelectedAgentId(value);
+  };
 
   if (authLoading || goalsLoading) {
     return (
@@ -385,12 +395,12 @@ function AdminPerformanceGoals() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Select Agent</label>
-                <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <Select value={selectedAgentId ?? NO_AGENT_SELECT_VALUE} onValueChange={handleAgentSelectChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose an agent" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">-- None --</SelectItem>
+                    <SelectItem value={NO_AGENT_SELECT_VALUE}>No override (inherit defaults)</SelectItem>
                     {agents.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {formatAgentLabel(agent)}

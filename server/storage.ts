@@ -196,6 +196,9 @@ export async function getAgentPerformanceGoalOverride(agentId: string): Promise<
     if (error.code === 'PGRST116') {
       return null;
     }
+    if (handleAgentPerformanceGoalsError(error, `read agent performance goals for ${agentId}`)) {
+      return null;
+    }
     console.error(`[Storage] Failed to read agent performance goals for ${agentId}:`, error.message);
     throw new Error('Failed to read agent performance goals');
   }
@@ -229,6 +232,9 @@ export async function upsertAgentPerformanceGoalOverride(
     .upsert(payload, { onConflict: 'agent_id' });
 
   if (error) {
+    if (handleAgentPerformanceGoalsError(error, `save agent performance goals for ${agentId}`)) {
+      throw new Error('Agent performance goals table is missing. Run the latest migrations to enable overrides.');
+    }
     console.error(`[Storage] Failed to upsert agent performance goals for ${agentId}:`, error.message);
     throw new Error('Failed to save agent performance goals');
   }
@@ -244,6 +250,9 @@ export async function deleteAgentPerformanceGoalOverride(agentId: string): Promi
     .eq('agent_id', agentId);
 
   if (error) {
+    if (handleAgentPerformanceGoalsError(error, `delete agent performance goals for ${agentId}`)) {
+      return;
+    }
     console.error(`[Storage] Failed to delete agent performance goals for ${agentId}:`, error.message);
     throw new Error('Failed to delete agent performance goals');
   }
@@ -256,6 +265,9 @@ export async function listAgentPerformanceGoalOverrides(): Promise<AgentPerforma
     .order('updated_at', { ascending: false });
 
   if (error) {
+    if (handleAgentPerformanceGoalsError(error, 'list agent performance goals')) {
+      return [];
+    }
     console.error('[Storage] Failed to list agent performance goals:', error.message);
     throw new Error('Failed to list agent performance goals');
   }
@@ -313,6 +325,30 @@ const warnMissingLoginSessionTable = (operation: string) => {
 const handleLoginSessionError = (error: any, operation: string) => {
   if (isLoginSessionTableMissing(error)) {
     warnMissingLoginSessionTable(operation);
+    return true;
+  }
+  return false;
+};
+
+const isAgentPerformanceGoalsTableMissing = (error: any) => {
+  if (!error) return false;
+  const fingerprint = [error.code, error.message, error.details, error.hint]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return fingerprint.includes('agent_performance_goals') &&
+    (fingerprint.includes('does not exist') || fingerprint.includes('relation'));
+};
+
+const warnMissingAgentPerformanceGoalsTable = (operation: string) => {
+  console.warn(
+    `[Storage] agent_performance_goals table not found; skipping ${operation}. Run migrations/20250120_add_agent_performance_goals_table.sql to enable performance goal overrides.`
+  );
+};
+
+const handleAgentPerformanceGoalsError = (error: any, operation: string) => {
+  if (isAgentPerformanceGoalsTableMissing(error)) {
+    warnMissingAgentPerformanceGoalsTable(operation);
     return true;
   }
   return false;

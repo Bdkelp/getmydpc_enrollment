@@ -1,7 +1,17 @@
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS agent_performance_goals (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     agent_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    goals JSONB NOT NULL DEFAULT '{}'::jsonb,
+    goals jsonb NOT NULL DEFAULT '{}',
     updated_by UUID REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
