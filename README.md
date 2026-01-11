@@ -34,6 +34,8 @@
 - **Payment Processing**: EPX Hosted Checkout (Google reCAPTCHA v3)
 - **Email**: SendGrid
 - **File Storage**: Local filesystem (logs)
+- **Runtime Settings**: Supabase `platform_settings` table for feature toggles (manual EPX sandbox/live switch and future platform flags)
+- **Performance Goals**: Supabase `agent_performance_goals` table storing per-agent and per-plan targets with RLS protection
 
 ## 🏗️ Architecture Overview
 
@@ -142,6 +144,8 @@ VITE_RECAPTCHA_SITE_KEY=6LflwiQgAAAAAC8yO38mzv-g9a9QiR91Bw4y62ww
 ```
 
 `FULL_ACCESS_EMAILS` lets you keep a user's stored role as `admin` while still granting full super-admin permissions at runtime. List the emails that should always have unrestricted access, separated by commas. The backend elevates those accounts automatically during authentication.
+
+EPX environment defaults come from `EPX_ENVIRONMENT`, but the Manual Payment card in the admin dashboard persists the live/sandbox toggle to `platform_settings.payment_environment`, so production can switch modes without redeploying.
 
 ### Running Locally
 
@@ -314,6 +318,11 @@ npm run start
 │ │  ├─ See payout dates                                     │
 │ │  └─ Total earnings summary                               │
 │ │                                                           │
+│ ├─ Performance Goals                                        │
+│ │  ├─ Weekly, monthly, and quarterly targets (default vs. agent override) │
+│ │  ├─ Plan-level enrollment grid for product-specific pacing │
+│ │  └─ Badging that surfaces whether custom goals are active │
+│ │                                                           │
 │ └─ Profile                                                  │
 │    ├─ Agent information (agent_number, upline)             │
 │    └─ Edit profile settings                                │
@@ -350,6 +359,16 @@ npm run start
 │ │  ├─ Agent performance metrics                            │
 │ │  ├─ Lead conversion funnel                               │
 │ │  └─ Custom report builder (future)                       │
+│ │                                                           │
+│ ├─ Performance Goals                                        │
+│ │  ├─ Configure platform default targets                   │
+│ │  ├─ Apply per-agent overrides and plan-level goals       │
+│ │  └─ Syncs with `agent_performance_goals` via storage.ts  │
+│ │                                                           │
+│ ├─ Platform Settings & Payments                             │
+│ │  ├─ Manual EPX live/sandbox toggle writes to `platform_settings` │
+│ │  ├─ Surface current payment environment to admins        │
+│ │  └─ Future runtime feature flags                         │
 │ │                                                           │
 │ └─ EPX Logs                                                 │
 │    ├─ View recent payment logs (GET /api/epx/logs/recent)  │
