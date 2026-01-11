@@ -281,6 +281,101 @@ Payment Date: ${formattedDate}
   }
 }
 
+export interface ManualConfirmationEmailPayload {
+  recipientEmail: string;
+  memberName: string;
+  customerNumber?: string;
+  planName?: string;
+  transactionId?: string;
+  amount?: number;
+}
+
+/**
+ * Send an on-demand confirmation email from the dashboard actions.
+ */
+export async function sendManualConfirmationEmail(data: ManualConfirmationEmailPayload): Promise<void> {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log('[Notification] Manual confirmation email skipped - SendGrid not configured');
+    return;
+  }
+
+  const memberName = data.memberName?.trim() || 'My Premier Plans Member';
+  const planName = data.planName?.trim() || 'My Premier Plans Membership';
+  const amountDisplay = typeof data.amount === 'number' && Number.isFinite(data.amount)
+    ? `$${data.amount.toFixed(2)}`
+    : 'Pending';
+
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0;">
+        <h1 style="margin: 0;">Enrollment Confirmation</h1>
+      </div>
+      <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none;">
+        <p style="color: #374151; line-height: 1.6;">Hi ${memberName},</p>
+        <p style="color: #374151; line-height: 1.6;">
+          Here is a copy of your enrollment confirmation${planName ? ` for <strong>${planName}</strong>` : ''}.
+        </p>
+        <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
+          ${data.customerNumber ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; width: 40%;"><strong>Customer Number</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.customerNumber}</td>
+          </tr>` : ''}
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Plan</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${planName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Monthly Amount</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${amountDisplay}</td>
+          </tr>
+          ${data.transactionId ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Transaction ID</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.transactionId}</td>
+          </tr>` : ''}
+        </table>
+        <p style="color: #374151; line-height: 1.6;">
+          Save this email for your records. If you need help or have questions about your membership, reply to this email or contact us at ${SUPPORT_EMAIL}.
+        </p>
+        <p style="color: #374151;">
+          — The My Premier Plans Team
+        </p>
+      </div>
+      <div style="background: #111827; color: #e5e7eb; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
+        Need support? Email ${SUPPORT_EMAIL}
+      </div>
+    </div>
+  `;
+
+  const textContent = `Hi ${memberName},
+
+Here is your My Premier Plans enrollment confirmation.
+
+Plan: ${planName}
+Monthly Amount: ${amountDisplay}
+${data.customerNumber ? `Customer Number: ${data.customerNumber}
+` : ''}${data.transactionId ? `Transaction ID: ${data.transactionId}
+` : ''}
+Save this email for your records. For help, contact ${SUPPORT_EMAIL}.
+`;
+
+  try {
+    await sgMail.send({
+      to: data.recipientEmail,
+      from: SUPPORT_EMAIL,
+      replyTo: SUPPORT_EMAIL,
+      subject: 'Your My Premier Plans enrollment confirmation',
+      text: textContent,
+      html: htmlContent
+    });
+    console.log('[Notification] Manual confirmation email sent to', data.recipientEmail);
+  } catch (error) {
+    console.error('[Notification] Failed to send manual confirmation email:', error);
+    throw error;
+  }
+}
+
 /**
  * Send welcome email to new member
  */

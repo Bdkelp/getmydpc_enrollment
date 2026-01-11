@@ -10,7 +10,7 @@ import {
   getPlanTypeFromMemberType,
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { sendLeadSubmissionEmails } from "./utils/notifications";
+import { sendLeadSubmissionEmails, sendManualConfirmationEmail } from "./utils/notifications";
 import { sendEmailVerification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
@@ -5365,13 +5365,32 @@ export async function registerRoutes(app: any) {
   // Send confirmation email endpoint
   app.post('/api/send-confirmation-email', async (req: any, res: any) => {
     try {
-      const { email, customerNumber, memberName, planName, transactionId, amount } = req.body;
-      
-      console.log('[Email] Sending confirmation email to:', email);
-      
-      // TODO: Implement actual email sending with nodemailer
-      // For now, return success to indicate the feature is ready
-      
+      const { email, customerNumber, memberName, planName, transactionId, amount } = req.body || {};
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const normalizedAmount = (() => {
+        if (typeof amount === 'number') {
+          return Number.isFinite(amount) ? amount : undefined;
+        }
+        if (typeof amount === 'string') {
+          const parsed = parseFloat(amount);
+          return Number.isFinite(parsed) ? parsed : undefined;
+        }
+        return undefined;
+      })();
+
+      await sendManualConfirmationEmail({
+        recipientEmail: email,
+        memberName: memberName || 'My Premier Plans Member',
+        customerNumber,
+        planName,
+        transactionId,
+        amount: normalizedAmount
+      });
+
       res.json({
         success: true,
         message: 'Confirmation email sent successfully'
