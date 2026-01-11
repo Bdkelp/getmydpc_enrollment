@@ -4,14 +4,14 @@ import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { hasAtLeastRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
-import { sendEnrollmentNotification } from "./utils/notifications";
 import {
   calculateCommission,
   getPlanTierFromName,
   getPlanTypeFromMemberType,
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { sendLeadNotification, sendEmailVerification } from "./email";
+import { sendLeadSubmissionEmails } from "./utils/notifications";
+import { sendEmailVerification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
@@ -1791,7 +1791,7 @@ router.post("/api/public/leads", async (req: any, res) => {
 
       // Send email notification (don't fail if email fails)
       try {
-        await sendLeadNotification({
+        await sendLeadSubmissionEmails({
           firstName: leadData.firstName,
           lastName: leadData.lastName,
           email: leadData.email,

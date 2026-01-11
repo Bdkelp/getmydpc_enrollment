@@ -8,15 +8,29 @@ if (process.env.SENDGRID_API_KEY) {
   console.log('[Notifications] SendGrid API key not configured - email notifications disabled');
 }
 
-// Admin emails that should receive notifications
-const ADMIN_NOTIFICATION_EMAILS = [
+const parseEmailList = (value?: string, fallback: string[] = []): string[] => {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return parsed.length > 0 ? parsed : fallback;
+};
+
+const DEFAULT_ADMIN_EMAILS = [
   'michael@mypremierplans.com',
   'travis@mypremierplans.com',
   'info@mypremierplans.com'
 ];
 
-// Default company email for all correspondence
-const COMPANY_EMAIL = 'info@mypremierplans.com';
+const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'support@mypremierplans.com').trim();
+const COMPANY_EMAIL = (process.env.COMPANY_EMAIL || SUPPORT_EMAIL).trim();
+const DEFAULT_FROM_EMAIL = (process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL).trim();
+const ADMIN_NOTIFICATION_EMAILS = parseEmailList(process.env.ADMIN_NOTIFICATION_EMAILS, DEFAULT_ADMIN_EMAILS);
+const LEAD_NOTIFICATION_EMAILS = parseEmailList(process.env.LEAD_NOTIFICATION_EMAILS, ADMIN_NOTIFICATION_EMAILS.length ? ADMIN_NOTIFICATION_EMAILS : [COMPANY_EMAIL]);
+const SALES_EMAIL = (process.env.SALES_EMAIL || COMPANY_EMAIL).trim();
 
 interface EnrollmentNotification {
   memberName: string;
@@ -26,6 +40,8 @@ interface EnrollmentNotification {
   amount: number;
   agentName?: string;
   agentNumber?: string;
+  agentEmail?: string | null;
+  agentUserId?: string | null;
   commission?: number;
   enrollmentDate: Date;
 }
@@ -136,7 +152,7 @@ Enrollment Date: ${formattedDate}
     // Send to admins
     await sgMail.sendMultiple({
       to: ADMIN_NOTIFICATION_EMAILS,
-      from: COMPANY_EMAIL,
+      from: DEFAULT_FROM_EMAIL,
       subject: `New Enrollment: ${data.memberName} - ${data.planName}`,
       text: textContent,
       html: htmlContent
@@ -146,7 +162,7 @@ Enrollment Date: ${formattedDate}
     await sendMemberWelcomeEmail(data);
 
     // Send notification to agent if applicable
-    if (data.agentName) {
+    if (data.agentName || data.agentEmail) {
       await sendAgentEnrollmentNotification(data);
     }
 
@@ -254,7 +270,7 @@ Payment Date: ${formattedDate}
   try {
     await sgMail.sendMultiple({
       to: ADMIN_NOTIFICATION_EMAILS,
-      from: process.env.SENDGRID_FROM_EMAIL || 'noreply@mypremierplans.com',
+      from: DEFAULT_FROM_EMAIL,
       subject: `Payment ${statusText}: ${data.memberName} - $${data.amount.toFixed(2)}`,
       text: textContent,
       html: htmlContent
@@ -369,7 +385,7 @@ For questions or support, contact us at ${COMPANY_EMAIL}
   try {
     await sgMail.send({
       to: data.memberEmail,
-      from: COMPANY_EMAIL,
+      from: SUPPORT_EMAIL,
       subject: `Welcome to My Premier Plans - Your ${data.planName} Enrollment Confirmed`,
       text: textContent,
       html: htmlContent
@@ -436,14 +452,17 @@ async function sendAgentEnrollmentNotification(data: EnrollmentNotification): Pr
     </div>
   `;
 
-  // Note: In production, you'd need to get the agent's email from the database
-  // For now, we'll send to the admin emails as a placeholder
+  const agentRecipients = data.agentEmail
+    ? [data.agentEmail]
+    : ADMIN_NOTIFICATION_EMAILS;
+
   try {
-    await sgMail.sendMultiple({
-      to: ADMIN_NOTIFICATION_EMAILS,
-      from: COMPANY_EMAIL,
-      subject: `New Enrollment by Agent ${data.agentName}: ${data.memberName}`,
-      html: htmlContent
+    await sgMail.send({
+      to: agentRecipients,
+      from: DEFAULT_FROM_EMAIL,
+      subject: `New Enrollment${data.agentName ? ` for ${data.agentName}` : ''}: ${data.memberName}`,
+      html: htmlContent,
+      bcc: data.agentEmail ? ADMIN_NOTIFICATION_EMAILS : undefined
     });
     console.log('[Notification] Agent enrollment notification sent');
   } catch (error) {
@@ -472,6 +491,130 @@ interface WeeklyRecapData {
     enrollments: number;
     revenue: number;
   }>;
+}
+
+export interface LeadSubmissionDetails {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  message?: string;
+  source?: string;
+}
+
+function formatLeadSource(source?: string) {
+  if (!source) return 'contact_form';
+  return source.replace(/_/g, ' ');
+}
+
+function buildLeadAdminHtml(data: LeadSubmissionDetails) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%); color: white; padding: 18px; border-radius: 10px 10px 0 0;">
+        <h2 style="margin: 0;">New Lead Submission</h2>
+      </div>
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; padding: 20px;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; width: 35%;"><strong>Name</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.firstName} ${data.lastName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Email</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.email}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Phone</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.phone}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Source</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${formatLeadSource(data.source)}</td>
+          </tr>
+        </table>
+        ${data.message ? `
+          <div style="margin-top: 20px;">
+            <p style="color: #6b7280; margin: 0 0 6px 0;"><strong>Message</strong></p>
+            <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; color: #111827;">
+              ${data.message}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+      <div style="background: #111827; color: #e5e7eb; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
+        Lead submitted on ${new Date().toLocaleString()}
+      </div>
+    </div>
+  `;
+}
+
+function buildLeadFollowUpHtml(data: LeadSubmissionDetails) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 18px; border-radius: 10px 10px 0 0;">
+        <h2 style="margin: 0;">Thanks for reaching out, ${data.firstName}!</h2>
+      </div>
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; padding: 20px;">
+        <p style="color: #374151; line-height: 1.6;">
+          We received your inquiry and a member of the My Premier Plans team will contact you shortly.
+          If you need immediate assistance, reply to this email or call us at ${SUPPORT_EMAIL}.
+        </p>
+        <div style="background: #ecfccb; border: 1px solid #bef264; border-radius: 8px; padding: 16px; margin: 20px 0;">
+          <p style="margin: 0; color: #365314;">
+            <strong>What happens next?</strong><br>
+            - We review your submission within one business day.<br>
+            - A licensed representative will reach out using the contact information you provided.<br>
+            - Together we'll confirm your plan options and next steps for enrollment.
+          </p>
+        </div>
+        <p style="color: #374151; line-height: 1.6;">
+          Looking forward to helping you enjoy direct primary care with My Premier Plans.
+        </p>
+        <p style="color: #374151;">
+          — The My Premier Plans Support Team
+        </p>
+      </div>
+      <div style="background: #111827; color: #e5e7eb; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
+        Need help now? Email ${SUPPORT_EMAIL}
+      </div>
+    </div>
+  `;
+}
+
+export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Promise<void> {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log('[Notification] Lead submission emails disabled - SendGrid not configured');
+    return;
+  }
+
+  const adminHtml = buildLeadAdminHtml(data);
+  const adminText = `New lead submission\nName: ${data.firstName} ${data.lastName}\nEmail: ${data.email}\nPhone: ${data.phone}\nSource: ${formatLeadSource(data.source)}\n${data.message ? `Message: ${data.message}` : ''}`;
+
+  try {
+    await sgMail.sendMultiple({
+      to: LEAD_NOTIFICATION_EMAILS,
+      from: SALES_EMAIL,
+      subject: `New Lead: ${data.firstName} ${data.lastName}`,
+      text: adminText,
+      html: adminHtml
+    });
+    console.log('[Notification] Lead admin notification sent');
+  } catch (error) {
+    console.error('[Notification] Failed to send lead admin notification:', error);
+  }
+
+  try {
+    await sgMail.send({
+      to: data.email,
+      from: SUPPORT_EMAIL,
+      replyTo: SUPPORT_EMAIL,
+      subject: 'We received your My Premier Plans inquiry',
+      html: buildLeadFollowUpHtml(data)
+    });
+    console.log('[Notification] Lead follow-up email sent to prospect');
+  } catch (error) {
+    console.error('[Notification] Failed to send lead follow-up email:', error);
+  }
 }
 
 /**

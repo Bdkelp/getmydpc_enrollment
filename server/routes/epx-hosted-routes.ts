@@ -17,6 +17,7 @@ import { submitServerPostRecurringPayment } from '../services/epx-payment-servic
 import { certificationLogger } from '../services/certification-logger';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 import { paymentEnvironment } from '../services/payment-environment-service';
+import { sendEnrollmentNotification, sendPaymentNotification } from '../utils/notifications';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -794,6 +795,157 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               error: memberError?.message,
               memberId: paymentRecordForLogging?.member_id
             }
+          });
+        }
+      }
+
+      if (paymentRecordForLogging) {
+        try {
+          const paymentMetadata = parsePaymentMetadata(paymentRecordForLogging.metadata);
+          const notificationMeta = {
+            ...(typeof paymentMetadata.notifications === 'object' && paymentMetadata.notifications ? paymentMetadata.notifications : {})
+          } as Record<string, any>;
+          const shouldSendPaymentEmail = !notificationMeta.paymentReceiptSentAt;
+          const shouldSendEnrollmentEmail = !notificationMeta.enrollmentEmailSentAt;
+
+          if ((shouldSendPaymentEmail || shouldSendEnrollmentEmail) && paymentRecordForLogging.member_id) {
+            const memberId = Number(paymentRecordForLogging.member_id);
+            const memberRecord = await storage.getMember(memberId);
+
+            if (memberRecord?.email) {
+              const resolvedAmount = typeof result.amount === 'number'
+                ? result.amount
+                : result.amount
+                  ? parseFloat(String(result.amount))
+                  : paymentRecordForLogging.amount
+                    ? parseFloat(String(paymentRecordForLogging.amount))
+                    : 0;
+
+              const planIdFromMember = memberRecord.planId
+                ?? memberRecord.plan_id
+                ?? paymentMetadata.planId
+                ?? paymentMetadata.plan_id;
+
+              let planName: string | null = paymentMetadata.planName
+                || paymentMetadata.planLabel
+                || memberRecord.planName
+                || memberRecord.plan_name
+                || null;
+
+              if (!planName && planIdFromMember) {
+                try {
+                  const planRecord = await storage.getPlan(String(planIdFromMember));
+                  planName = planRecord?.name || planName;
+                } catch (planLookupError: any) {
+                  logEPX({
+                    level: 'warn',
+                    phase: 'callback',
+                    message: 'Unable to resolve plan name for notifications',
+                    data: { error: planLookupError?.message, planId: planIdFromMember }
+                  });
+                }
+              }
+
+              const memberFirstName = memberRecord.firstName || memberRecord.first_name || '';
+              const memberLastName = memberRecord.lastName || memberRecord.last_name || '';
+              const memberFullName = `${memberFirstName} ${memberLastName}`.trim() || memberRecord.email;
+              const coverageType = memberRecord.coverageType
+                || memberRecord.coverage_type
+                || paymentMetadata.coverageType
+                || paymentMetadata.memberType
+                || 'Member Only';
+
+              let agentRecord: any = null;
+              const agentId = memberRecord.enrolledByAgentId || memberRecord.enrolled_by_agent_id;
+              if (agentId) {
+                try {
+                  agentRecord = await storage.getUser(agentId);
+                } catch (agentError: any) {
+                  logEPX({
+                    level: 'warn',
+                    phase: 'callback',
+                    message: 'Unable to load agent for enrollment notification',
+                    data: { error: agentError?.message, agentId }
+                  });
+                }
+              }
+
+              const agentName = agentRecord
+                ? `${agentRecord.firstName || agentRecord.first_name || ''} ${agentRecord.lastName || agentRecord.last_name || ''}`.trim()
+                : undefined;
+              const agentNumber = memberRecord.agentNumber
+                || memberRecord.agent_number
+                || agentRecord?.agentNumber
+                || agentRecord?.agent_number;
+
+              if (shouldSendPaymentEmail) {
+                try {
+                  await sendPaymentNotification({
+                    memberName: memberFullName,
+                    memberEmail: memberRecord.email,
+                    amount: resolvedAmount,
+                    paymentMethod: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'Hosted Checkout',
+                    paymentStatus: 'succeeded',
+                    transactionId: result.transactionId || paymentRecordForLogging.transaction_id,
+                    paymentDate: new Date()
+                  });
+                  notificationMeta.paymentReceiptSentAt = new Date().toISOString();
+                } catch (notificationError: any) {
+                  logEPX({
+                    level: 'error',
+                    phase: 'callback',
+                    message: 'Failed to send payment notification',
+                    data: { error: notificationError?.message }
+                  });
+                }
+              }
+
+              if (shouldSendEnrollmentEmail) {
+                try {
+                  await sendEnrollmentNotification({
+                    memberName: memberFullName,
+                    memberEmail: memberRecord.email,
+                    planName: planName || 'My Premier Plans Membership',
+                    memberType: coverageType,
+                    amount: resolvedAmount,
+                    agentName,
+                    agentNumber,
+                    agentEmail: agentRecord?.email || null,
+                    agentUserId: agentId || null,
+                    enrollmentDate: new Date()
+                  });
+                  notificationMeta.enrollmentEmailSentAt = new Date().toISOString();
+                } catch (notificationError: any) {
+                  logEPX({
+                    level: 'error',
+                    phase: 'callback',
+                    message: 'Failed to send enrollment notification',
+                    data: { error: notificationError?.message }
+                  });
+                }
+              }
+
+              if (notificationMeta.paymentReceiptSentAt || notificationMeta.enrollmentEmailSentAt) {
+                paymentMetadata.notifications = notificationMeta;
+                try {
+                  await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
+                } catch (metaError: any) {
+                  logEPX({
+                    level: 'warn',
+                    phase: 'callback',
+                    message: 'Failed to persist notification metadata updates',
+                    data: { error: metaError?.message, paymentId: paymentRecordForLogging.id }
+                  });
+                }
+              }
+            }
+          }
+        } catch (notificationSetupError: any) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Notification dispatch failed',
+            data: { error: notificationSetupError?.message }
           });
         }
       }

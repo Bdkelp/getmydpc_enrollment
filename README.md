@@ -121,7 +121,12 @@ EPX_LOG_DIR=./logs/epx
 
 # Email (SendGrid)
 SENDGRID_API_KEY=[from SendGrid]
-FROM_EMAIL=noreply@getmydpc.com
+SENDGRID_FROM_EMAIL=noreply@getmydpc.com
+SUPPORT_EMAIL=support@getmydpc.com
+COMPANY_EMAIL=info@getmydpc.com
+ADMIN_NOTIFICATION_EMAILS=michael@mypremierplans.com,travis@mypremierplans.com
+LEAD_NOTIFICATION_EMAILS=info@mypremierplans.com
+SALES_EMAIL=sales@getmydpc.com
 
 # Application
 FRONTEND_URL=http://localhost:5173
@@ -199,6 +204,7 @@ npm run start
 │ ├─ Hero section with DPC benefits                          │
 │ ├─ Plan comparison table                                   │
 │ ├─ Lead capture form (optional - for interested visitors)  │
+│ │  └─ Auto-sends SendGrid notifications (admin + prospect follow-up)
 │ └─ "Enroll Now" CTA button                                 │
 └─────────────────────────────────────────────────────────────┘
                             ↓ Click "Enroll Now"
