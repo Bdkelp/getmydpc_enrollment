@@ -10,7 +10,7 @@ import {
   getPlanTypeFromMemberType,
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { sendLeadSubmissionEmails, sendManualConfirmationEmail } from "./utils/notifications";
+import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
 import { sendEmailVerification } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
@@ -1855,6 +1855,151 @@ router.post("/api/public/leads", async (req: any, res) => {
   }
 });
 
+router.post("/api/public/partner-leads", async (req: any, res) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] [Partner Leads] === ENDPOINT HIT ===`);
+
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
+    'https://enrollment.getmydpc.com',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5000'
+  ];
+  const regexPatterns = [/\.ondigitalocean\.app$/];
+  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+
+  if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+
+  try {
+    if (!req.body) {
+      return res.status(400).json({ error: 'No data received', timestamp });
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      agencyName,
+      agencyWebsite,
+      statesServed,
+      experienceLevel,
+      volumeEstimate,
+      message
+    } = req.body;
+
+    const missingFields = [] as string[];
+    if (!firstName) missingFields.push('firstName');
+    if (!lastName) missingFields.push('lastName');
+    if (!email) missingFields.push('email');
+    if (!phone) missingFields.push('phone');
+    if (!agencyName) missingFields.push('agencyName');
+    if (!statesServed) missingFields.push('statesServed');
+
+    if (missingFields.length) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        missingFields,
+        timestamp
+      });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format', timestamp });
+    }
+
+    if (typeof phone !== 'string' || phone.replace(/[^0-9]/g, '').length < 10) {
+      return res.status(400).json({ error: 'Invalid phone number format', timestamp });
+    }
+
+    const normalized = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      agencyName: agencyName.trim(),
+      agencyWebsite: agencyWebsite?.trim(),
+      statesServed: statesServed.trim(),
+      experienceLevel: experienceLevel?.trim(),
+      volumeEstimate: volumeEstimate?.trim(),
+      message: (message || '').trim()
+    };
+
+    const metadata = {
+      agencyName: normalized.agencyName,
+      agencyWebsite: normalized.agencyWebsite,
+      statesServed: normalized.statesServed,
+      experienceLevel: normalized.experienceLevel,
+      volumeEstimate: normalized.volumeEstimate
+    };
+
+    const notesPayload = {
+      metadata,
+      adminNotes: [] as any[],
+    };
+
+    const { data: newLead, error: leadError } = await supabase
+      .from('leads')
+      .insert({
+        first_name: normalized.firstName,
+        last_name: normalized.lastName,
+        email: normalized.email,
+        phone: normalized.phone,
+        message: normalized.message,
+        source: 'partner_lead',
+        status: 'new',
+        notes: JSON.stringify(notesPayload)
+      })
+      .select()
+      .single();
+
+    if (leadError) {
+      throw new Error(`Failed to create partner lead: ${leadError.message}`);
+    }
+
+    try {
+      await sendPartnerInquiryEmails({
+        firstName: normalized.firstName,
+        lastName: normalized.lastName,
+        email: normalized.email,
+        phone: normalized.phone,
+        agencyName: normalized.agencyName,
+        agencyWebsite: normalized.agencyWebsite,
+        statesServed: normalized.statesServed,
+        experienceLevel: normalized.experienceLevel,
+        volumeEstimate: normalized.volumeEstimate,
+        message: normalized.message
+      });
+    } catch (emailError) {
+      console.error(`[${timestamp}] [Partner Leads] Email notification failed:`, emailError);
+    }
+
+    res.json({
+      success: true,
+      leadId: newLead?.id,
+      message: 'Partner inquiry submitted successfully',
+      timestamp
+    });
+  } catch (error: any) {
+    console.error(`[${timestamp}] [Partner Leads] Error:`, error);
+    res.status(500).json({
+      error: 'Failed to submit partner inquiry',
+      details: error.message,
+      timestamp
+    });
+  }
+});
+
 // Admin routes
 router.get(
   "/api/admin/stats",
@@ -1966,6 +2111,71 @@ router.get(
       });
     }
   },
+);
+
+router.get(
+  "/api/admin/partner-leads",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+      const leads = await storage.getPartnerLeads(status);
+      res.json({
+        leads,
+        total: leads.length,
+        filter: status || 'all',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('[Admin Partner Leads] Failed to fetch leads:', error);
+      res.status(500).json({ message: 'Failed to fetch partner leads', error: error.message });
+    }
+  }
+);
+
+router.put(
+  "/api/admin/partner-leads/:leadId",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const leadId = Number(req.params.leadId);
+    if (!Number.isFinite(leadId)) {
+      return res.status(400).json({ message: 'Invalid lead ID' });
+    }
+
+    const { status, adminNote, assignedAgentId } = req.body || {};
+    if (
+      !status &&
+      !adminNote &&
+      typeof assignedAgentId === 'undefined'
+    ) {
+      return res.status(400).json({ message: 'No updates provided' });
+    }
+
+    try {
+      const updatedLead = await storage.updatePartnerLeadStatus(leadId, {
+        status,
+        adminNote,
+        assignedAgentId: assignedAgentId ?? undefined,
+        updatedBy: req.user?.id,
+      });
+
+      res.json({
+        success: true,
+        lead: updatedLead,
+      });
+    } catch (error: any) {
+      console.error('[Admin Partner Leads] Failed to update lead:', error);
+      res.status(500).json({ message: 'Failed to update partner lead', error: error.message });
+    }
+  }
 );
 
 // Admin endpoint to view all user banking information

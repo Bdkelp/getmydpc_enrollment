@@ -90,6 +90,71 @@ interface PaymentEnvironmentResponse {
   previousEnvironment?: PaymentEnvironmentValue;
 }
 
+type PartnerLeadStatus = 'new' | 'contacted' | 'qualified' | 'enrolled' | 'closed_lost';
+type PartnerLeadStatusFilter = PartnerLeadStatus | 'all';
+
+interface PartnerLeadAdminNote {
+  id: string;
+  message: string;
+  createdAt: string;
+  createdBy?: string | null;
+}
+
+interface PartnerLeadRecord {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  message?: string | null;
+  status: string;
+  agencyName: string;
+  agencyWebsite?: string | null;
+  statesServed?: string | null;
+  experienceLevel?: string | null;
+  volumeEstimate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  adminNotes?: PartnerLeadAdminNote[];
+}
+
+interface PartnerLeadResponse {
+  leads: PartnerLeadRecord[];
+  total: number;
+  filter: string;
+  timestamp: string;
+}
+
+const PARTNER_LEAD_STATUS_VALUES: PartnerLeadStatus[] = ['new', 'contacted', 'qualified', 'enrolled', 'closed_lost'];
+
+const PARTNER_LEAD_STATUS_OPTIONS: { value: PartnerLeadStatusFilter; label: string }[] = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'new', label: 'New' },
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'qualified', label: 'Qualified' },
+  { value: 'enrolled', label: 'Enrolled' },
+  { value: 'closed_lost', label: 'Closed - Lost' },
+];
+
+const PARTNER_LEAD_STATUS_LABELS: Record<PartnerLeadStatus, string> = {
+  new: 'New',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  enrolled: 'Enrolled',
+  closed_lost: 'Closed - Lost',
+};
+
+const PARTNER_LEAD_STATUS_BADGE_CLASSES: Record<PartnerLeadStatus, string> = {
+  new: 'bg-blue-100 text-blue-700',
+  contacted: 'bg-amber-100 text-amber-700',
+  qualified: 'bg-sky-100 text-sky-700',
+  enrolled: 'bg-emerald-100 text-emerald-700',
+  closed_lost: 'bg-gray-200 text-gray-700',
+};
+
+const isPartnerLeadStatus = (value: string): value is PartnerLeadStatus =>
+  PARTNER_LEAD_STATUS_VALUES.includes(value as PartnerLeadStatus);
+
 const MANUAL_TRANSACTION_TYPES = [
   { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
   { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
@@ -131,6 +196,10 @@ export default function Admin() {
   const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
   const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string } | null>(null);
   const [hostedModalData, setHostedModalData] = useState<{ member: any; subscription: any; amount: number; description?: string } | null>(null);
+  const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
+  const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
+  const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
+  const [partnerLeadNote, setPartnerLeadNote] = useState('');
 
   const ensureSuperAdminAccess = (actionLabel: string): boolean => {
     if (isSuperAdmin) {
@@ -315,6 +384,19 @@ export default function Admin() {
     enabled: isAuthenticated && isAdminUser,
   });
 
+  const { data: partnerLeadResponse, isLoading: partnerLeadsLoading } = useQuery<PartnerLeadResponse>({
+    queryKey: ["/api/admin/partner-leads", partnerLeadFilter],
+    enabled: isAuthenticated && isAdminUser,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (partnerLeadFilter !== 'all') {
+        params.set('status', partnerLeadFilter);
+      }
+      const path = params.size ? `/api/admin/partner-leads?${params.toString()}` : '/api/admin/partner-leads';
+      return apiRequest(path);
+    },
+  });
+
   const paymentEnvironment = paymentEnvironmentDetails?.environment;
   const isPaymentEnvironmentProduction = paymentEnvironment === 'production';
   const paymentEnvironmentBadgeLabel = paymentEnvironmentLoading
@@ -404,6 +486,31 @@ export default function Admin() {
         variant: "destructive",
       });
     },
+  });
+
+  const updatePartnerLeadMutation = useMutation({
+    mutationFn: async ({ id, status, adminNote }: { id: number; status: string; adminNote?: string }) => {
+      return apiRequest(`/api/admin/partner-leads/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status, adminNote }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Partner lead updated',
+        description: 'Status and notes saved successfully.',
+      });
+      setSelectedPartnerLead(null);
+      setPartnerLeadNote('');
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/partner-leads"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update lead',
+        description: error?.message || 'Please try again or refresh the page.',
+        variant: 'destructive',
+      });
+    }
   });
 
   const manualTransactionMutation = useMutation({
@@ -844,6 +951,69 @@ export default function Admin() {
       iconColor: "text-red-600",
     },
   ];
+
+  const partnerLeads = partnerLeadResponse?.leads ?? [];
+  const partnerLeadCount = partnerLeadResponse?.total ?? partnerLeads.length;
+  const partnerLeadEmptyCopy = partnerLeadFilter !== 'all'
+    ? `No partner leads with status ${isPartnerLeadStatus(partnerLeadFilter) ? PARTNER_LEAD_STATUS_LABELS[partnerLeadFilter] : partnerLeadFilter}.`
+    : 'No partner leads have been submitted yet.';
+
+  const getPartnerLeadStatusMeta = (status: string) => {
+    if (isPartnerLeadStatus(status)) {
+      return {
+        label: PARTNER_LEAD_STATUS_LABELS[status],
+        badgeClass: PARTNER_LEAD_STATUS_BADGE_CLASSES[status],
+      };
+    }
+    return {
+      label: status || 'Unknown',
+      badgeClass: 'bg-gray-200 text-gray-700',
+    };
+  };
+
+  const formatExperienceLabel = (value?: string | null) => {
+    if (!value) return '—';
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const formatVolumeEstimate = (value?: string | null) => {
+    if (!value) return '—';
+    switch (value) {
+      case 'under-50':
+        return 'Under 50 members';
+      case '50-150':
+        return '50 – 150 members';
+      case '150-400':
+        return '150 – 400 members';
+      case '400-plus':
+        return '400+ members';
+      default:
+        return value.replace(/-/g, ' ');
+    }
+  };
+
+  const openPartnerLeadDialog = (lead: PartnerLeadRecord) => {
+    setSelectedPartnerLead(lead);
+    setPartnerLeadStatusSelection(
+      isPartnerLeadStatus(lead.status) ? lead.status : 'new'
+    );
+    setPartnerLeadNote('');
+  };
+
+  const handlePartnerLeadUpdate = async () => {
+    if (!selectedPartnerLead) return;
+    try {
+      await updatePartnerLeadMutation.mutateAsync({
+        id: selectedPartnerLead.id,
+        status: partnerLeadStatusSelection,
+        adminNote: partnerLeadNote.trim() || undefined,
+      });
+    } catch (error) {
+      // Error handling managed inside mutation onError
+    }
+  };
 
 
 
@@ -2091,6 +2261,107 @@ export default function Admin() {
           </DialogContent>
         </Dialog>
 
+        <Dialog
+          open={!!selectedPartnerLead}
+          onOpenChange={(open) => {
+            if (!open && !updatePartnerLeadMutation.isPending) {
+              setSelectedPartnerLead(null);
+              setPartnerLeadNote('');
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Update partner lead</DialogTitle>
+              <DialogDescription>
+                Set the follow-up status and leave a note for your admin teammates.
+              </DialogDescription>
+            </DialogHeader>
+            {selectedPartnerLead && (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+                  <p className="font-semibold text-gray-900">{selectedPartnerLead.agencyName}</p>
+                  <p className="text-gray-600">
+                    {selectedPartnerLead.firstName} {selectedPartnerLead.lastName} · {selectedPartnerLead.email}
+                  </p>
+                  <p className="text-xs text-gray-500">{selectedPartnerLead.phone || 'No phone provided'}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium text-gray-700">Status</Label>
+                  <Select value={partnerLeadStatusSelection} onValueChange={(value) => setPartnerLeadStatusSelection(value as PartnerLeadStatus)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PARTNER_LEAD_STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium text-gray-700">Add note</Label>
+                  <Textarea
+                    rows={4}
+                    value={partnerLeadNote}
+                    onChange={(event) => setPartnerLeadNote(event.target.value)}
+                    placeholder="Document your call, next steps, or reminders."
+                  />
+                  <p className="text-xs text-gray-500">Notes are shared with all admins tracking this partner.</p>
+                </div>
+
+                {selectedPartnerLead.adminNotes && selectedPartnerLead.adminNotes.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recent notes</Label>
+                    <div className="max-h-40 space-y-3 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-700">
+                      {[...selectedPartnerLead.adminNotes].reverse().map((note) => {
+                        const timestampLabel = note.createdAt
+                          ? formatDistanceToNow(new Date(note.createdAt), { addSuffix: true })
+                          : 'Recently';
+                        return (
+                          <div key={note.id} className="rounded bg-gray-50 p-2">
+                            <p>{note.message}</p>
+                            <p className="mt-1 text-[11px] uppercase tracking-wide text-gray-500">
+                              {timestampLabel}
+                              {note.createdBy ? ` · ${note.createdBy}` : ''}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (!updatePartnerLeadMutation.isPending) {
+                    setSelectedPartnerLead(null);
+                    setPartnerLeadNote('');
+                  }
+                }}
+                disabled={updatePartnerLeadMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePartnerLeadUpdate}
+                disabled={updatePartnerLeadMutation.isPending}
+                className="bg-cyan-600 text-white hover:bg-cyan-700"
+              >
+                {updatePartnerLeadMutation.isPending ? 'Saving...' : 'Save changes'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Admin Create User Dialog */}
         <AdminCreateUserDialog 
           isOpen={createUserDialogOpen}
@@ -2250,4 +2521,128 @@ export default function Admin() {
       </div>
     </div>
   );
+
+        {/* Partner Leads */}
+        <Card className="mb-8 border border-cyan-200 bg-white">
+          <CardContent className="p-6 space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Partner Leads</h2>
+                <p className="text-sm text-gray-600">
+                  Review inbound agency partners from the public "Partner with us" form and leave follow-up notes.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge className="bg-cyan-100 text-cyan-800 border-none font-semibold">
+                  {partnerLeadCount} lead{partnerLeadCount === 1 ? '' : 's'}
+                </Badge>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status filter</span>
+                  <Select value={partnerLeadFilter} onValueChange={(value) => setPartnerLeadFilter(value as PartnerLeadStatusFilter)}>
+                    <SelectTrigger className="w-48">
+                      <SelectValue placeholder="Filter status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PARTNER_LEAD_STATUS_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+
+            {partnerLeadsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <LoadingSpinner />
+              </div>
+            ) : partnerLeads.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50 p-8 text-center text-sm text-cyan-900">
+                {partnerLeadEmptyCopy}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Agency</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Contact</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Markets & Experience</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Last touch</th>
+                      <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {partnerLeads.map((lead) => {
+                      const statusMeta = getPartnerLeadStatusMeta(lead.status);
+                      const createdLabel = lead.createdAt
+                        ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })
+                        : '—';
+                      const latestNote = lead.adminNotes && lead.adminNotes.length > 0
+                        ? lead.adminNotes[lead.adminNotes.length - 1]
+                        : null;
+
+                      return (
+                        <tr key={lead.id} className="bg-white">
+                          <td className="px-4 py-3 align-top">
+                            <div className="font-semibold text-gray-900">{lead.agencyName}</div>
+                            {lead.agencyWebsite ? (
+                              <a
+                                href={lead.agencyWebsite}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-cyan-700 hover:underline"
+                              >
+                                {lead.agencyWebsite}
+                              </a>
+                            ) : (
+                              <p className="text-xs text-gray-500">Website not provided</p>
+                            )}
+                            {lead.message && (
+                              <p className="mt-1 text-xs text-gray-600 max-w-xs truncate">{lead.message}</p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <div className="font-medium text-gray-900">
+                              {lead.firstName} {lead.lastName}
+                            </div>
+                            <p className="text-xs text-gray-600">{lead.email}</p>
+                            <p className="text-xs text-gray-600">{lead.phone || '—'}</p>
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <div className="text-sm text-gray-900">
+                              {lead.statesServed || '—'}
+                            </div>
+                            <p className="text-xs text-gray-600">
+                              {formatExperienceLabel(lead.experienceLevel)} · {formatVolumeEstimate(lead.volumeEstimate)}
+                            </p>
+                            {latestNote && (
+                              <p className="mt-1 text-xs text-gray-500 max-w-xs truncate">
+                                Last note: {latestNote.message}
+                              </p>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 align-top">
+                            <Badge className={`${statusMeta.badgeClass} border-none text-xs font-semibold`}>{statusMeta.label}</Badge>
+                          </td>
+                          <td className="px-4 py-3 align-top text-sm text-gray-600">
+                            {createdLabel}
+                          </td>
+                          <td className="px-4 py-3 align-top text-right">
+                            <Button variant="outline" size="sm" onClick={() => openPartnerLeadDialog(lead)}>
+                              Update
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 }

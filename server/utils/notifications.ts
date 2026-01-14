@@ -31,6 +31,7 @@ const DEFAULT_FROM_EMAIL = (process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL).tr
 const ADMIN_NOTIFICATION_EMAILS = parseEmailList(process.env.ADMIN_NOTIFICATION_EMAILS, DEFAULT_ADMIN_EMAILS);
 const LEAD_NOTIFICATION_EMAILS = parseEmailList(process.env.LEAD_NOTIFICATION_EMAILS, ADMIN_NOTIFICATION_EMAILS.length ? ADMIN_NOTIFICATION_EMAILS : [COMPANY_EMAIL]);
 const SALES_EMAIL = (process.env.SALES_EMAIL || COMPANY_EMAIL).trim();
+const PARTNER_TEAM_EMAIL = (process.env.PARTNER_TEAM_EMAIL || 'info@mypremierplans.com').trim();
 
 interface EnrollmentNotification {
   memberName: string;
@@ -676,6 +677,116 @@ function buildLeadFollowUpHtml(data: LeadSubmissionDetails) {
   `;
 }
 
+export interface PartnerLeadSubmissionDetails {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  agencyName: string;
+  agencyWebsite?: string;
+  statesServed?: string;
+  experienceLevel?: string;
+  volumeEstimate?: string;
+  message?: string;
+}
+
+function buildPartnerAdminHtml(data: PartnerLeadSubmissionDetails) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%); color: white; padding: 18px; border-radius: 10px 10px 0 0;">
+        <h2 style="margin: 0;">New Partner Inquiry</h2>
+      </div>
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-top: none; padding: 20px;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; width: 40%;"><strong>Contact</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.firstName} ${data.lastName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Email</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.email}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Phone</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.phone}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Agency</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.agencyName}</td>
+          </tr>
+          ${data.agencyWebsite ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Website</strong></td>
+            <td style="padding: 8px 0; color: #2563eb;"><a href="${data.agencyWebsite}" target="_blank" rel="noopener" style="color: #2563eb; text-decoration: none;">${data.agencyWebsite}</a></td>
+          </tr>
+          ` : ''}
+          ${data.statesServed ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>States</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.statesServed}</td>
+          </tr>
+          ` : ''}
+          ${data.experienceLevel ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Experience</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.experienceLevel}</td>
+          </tr>
+          ` : ''}
+          ${data.volumeEstimate ? `
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280;"><strong>Member Volume</strong></td>
+            <td style="padding: 8px 0; color: #111827;">${data.volumeEstimate}</td>
+          </tr>
+          ` : ''}
+        </table>
+        ${data.message ? `
+          <div style="margin-top: 20px;">
+            <p style="color: #6b7280; margin: 0 0 6px 0;"><strong>Notes</strong></p>
+            <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; color: #111827; line-height: 1.5;">
+              ${data.message}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+      <div style="background: #0f172a; color: #e2e8f0; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
+        Submitted on ${new Date().toLocaleString()}
+      </div>
+    </div>
+  `;
+}
+
+function buildPartnerFollowUpHtml(data: PartnerLeadSubmissionDetails) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+      <div style="background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%); color: white; padding: 18px; border-radius: 10px 10px 0 0;">
+        <h2 style="margin: 0;">Thanks for your interest, ${data.firstName}!</h2>
+      </div>
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-top: none; padding: 20px;">
+        <p style="color: #0f172a; line-height: 1.6;">
+          We received your partner inquiry for <strong>${data.agencyName}</strong>. Our team will review your details and reach out shortly to discuss onboarding, commission structures, and co-marketing support.
+        </p>
+        <div style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; margin: 20px 0; color: #0c4a6e;">
+          <strong>Typical next steps</strong>
+          <ul style="margin: 12px 0 0 18px; padding: 0;">
+            <li>Schedule a 20-minute discovery call</li>
+            <li>Share our onboarding toolkit and marketing assets</li>
+            <li>Provide dedicated support for your first enrollments</li>
+          </ul>
+        </div>
+        <p style="color: #0f172a; line-height: 1.6;">
+          Need immediate assistance? Reply to this email or call us at ${SUPPORT_EMAIL} and mention your partner request.
+        </p>
+        <p style="color: #0f172a;">
+          — The My Premier Plans Partnerships Team
+        </p>
+      </div>
+      <div style="background: #0f172a; color: #e2e8f0; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
+        We appreciate your partnership interest
+      </div>
+    </div>
+  `;
+}
+
 export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
     console.log('[Notification] Lead submission emails disabled - SendGrid not configured');
@@ -844,5 +955,46 @@ This automated weekly report was generated on ${new Date().toLocaleDateString()}
     console.log('[Notification] Weekly recap sent to:', COMPANY_EMAIL);
   } catch (error) {
     console.error('[Notification] Failed to send weekly recap:', error);
+  }
+}
+
+export async function sendPartnerInquiryEmails(data: PartnerLeadSubmissionDetails): Promise<void> {
+  if (!process.env.SENDGRID_API_KEY) {
+    console.log('[Notification] Partner inquiry emails disabled - SendGrid not configured');
+    return;
+  }
+
+  const adminHtml = buildPartnerAdminHtml(data);
+  const adminText = `New partner inquiry from ${data.firstName} ${data.lastName} (${data.agencyName})\n` +
+    `Email: ${data.email}\nPhone: ${data.phone}\n` +
+    `${data.statesServed ? `States: ${data.statesServed}\n` : ''}` +
+    `${data.experienceLevel ? `Experience: ${data.experienceLevel}\n` : ''}` +
+    `${data.volumeEstimate ? `Member volume: ${data.volumeEstimate}\n` : ''}` +
+    `${data.message ? `Notes: ${data.message}` : ''}`;
+
+  try {
+    await sgMail.send({
+      to: PARTNER_TEAM_EMAIL || COMPANY_EMAIL,
+      from: SALES_EMAIL,
+      subject: `New Partner Inquiry: ${data.agencyName}`,
+      text: adminText,
+      html: adminHtml
+    });
+    console.log('[Notification] Partner inquiry sent to partnerships team');
+  } catch (error) {
+    console.error('[Notification] Failed to send partner inquiry email:', error);
+  }
+
+  try {
+    await sgMail.send({
+      to: data.email,
+      from: SUPPORT_EMAIL,
+      replyTo: SUPPORT_EMAIL,
+      subject: 'Thanks for your interest in partnering with My Premier Plans',
+      html: buildPartnerFollowUpHtml(data)
+    });
+    console.log('[Notification] Partner inquiry follow-up sent to prospect');
+  } catch (error) {
+    console.error('[Notification] Failed to send partner follow-up email:', error);
   }
 }

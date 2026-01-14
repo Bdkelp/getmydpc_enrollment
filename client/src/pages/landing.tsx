@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { ContactFormModal } from "@/components/contact-form-modal";
+import { PartnerFormModal } from "@/components/partner-form-modal";
 import type { Plan } from "@shared/schema";
 import heroImage from "@assets/about-hero-compassionate-care.jpg";
 import apiClient from "@/lib/apiClient";
@@ -18,6 +19,28 @@ export default function Landing() {
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const [, setLocation] = useLocation();
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
+  const [heroVisible, setHeroVisible] = useState(false);
+  const heroRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const target = heroRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setHeroVisible(true);
+          }
+        });
+      },
+      { threshold: 0.4 }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
   
   console.log('[Landing] Auth state:', { isAuthenticated, user: user?.email, role: user?.role });
   
@@ -137,7 +160,13 @@ export default function Landing() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-3">
+              <Button
+                className="bg-medical-blue-600 text-white hover:bg-medical-blue-700"
+                onClick={() => setIsPartnerModalOpen(true)}
+              >
+                Partner with us
+              </Button>
               {isAuthenticated ? (
                 <>
                   <span className="text-sm text-gray-600">
@@ -195,17 +224,40 @@ export default function Landing() {
       <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="animate-[fade-in-up_0.8s_ease-out] space-y-2">
-              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight">
-                Real doctors
+            <div
+              ref={heroRef}
+              className="space-y-2"
+            >
+              <h1
+                className={`text-4xl lg:text-6xl font-bold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
+                  heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+                }`}
+                style={{ transitionDelay: "0ms" }}
+              >
+                Real Doctors
               </h1>
-              <h2 className="text-4xl lg:text-5xl font-semibold text-gray-900 leading-tight animate-[fade-in-up_0.85s_ease-out]">
-                Real access
+              <h2
+                className={`text-4xl lg:text-5xl font-semibold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
+                  heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+                }`}
+                style={{ transitionDelay: "120ms" }}
+              >
+                Real Access
               </h2>
-              <h2 className="text-3xl lg:text-4xl font-semibold text-gray-800 leading-tight animate-[fade-in-up_0.9s_ease-out]">
-                Real simple
+              <h2
+                className={`text-3xl lg:text-4xl font-semibold text-gray-800 leading-tight transform transition-all duration-700 ease-out ${
+                  heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+                }`}
+                style={{ transitionDelay: "240ms" }}
+              >
+                Real Simple
               </h2>
-              <h3 className="text-2xl text-gray-700 font-medium mb-6 animate-[fade-in-up_1s_ease-out]">
+              <h3
+                className={`text-2xl text-gray-700 font-medium mb-6 transform transition-all duration-700 ease-out ${
+                  heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+                }`}
+                style={{ transitionDelay: "360ms" }}
+              >
                 Membership has never been so easy.
               </h3>
               <div className="flex flex-col sm:flex-row gap-4">
@@ -487,6 +539,10 @@ export default function Landing() {
       <ContactFormModal 
         isOpen={isContactModalOpen} 
         onClose={() => setIsContactModalOpen(false)} 
+      />
+      <PartnerFormModal 
+        isOpen={isPartnerModalOpen}
+        onClose={() => setIsPartnerModalOpen(false)}
       />
     </div>
   );

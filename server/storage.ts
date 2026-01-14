@@ -2164,6 +2164,103 @@ function mapLeadFromDB(dbLead: any): Lead | null {
   };
 }
 
+export interface PartnerLeadMetadata {
+  agencyName: string;
+  agencyWebsite?: string | null;
+  statesServed?: string | null;
+  experienceLevel?: string | null;
+  volumeEstimate?: string | null;
+}
+
+export interface PartnerLeadAdminNote {
+  id: string;
+  message: string;
+  createdAt: string;
+  createdBy?: string | null;
+}
+
+export interface PartnerLeadRecord extends Lead {
+  agencyName: string;
+  agencyWebsite?: string | null;
+  statesServed?: string | null;
+  experienceLevel?: string | null;
+  volumeEstimate?: string | null;
+  metadata?: PartnerLeadMetadata;
+  adminNotes: PartnerLeadAdminNote[];
+}
+
+interface PartnerLeadNotesPayload {
+  metadata?: PartnerLeadMetadata | null;
+  adminNotes?: PartnerLeadAdminNote[] | null;
+}
+
+const parsePartnerLeadNotes = (raw: any): PartnerLeadNotesPayload => {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed) {
+      return {};
+    }
+
+    if (parsed.metadata || parsed.adminNotes) {
+      return {
+        metadata: parsed.metadata || undefined,
+        adminNotes: Array.isArray(parsed.adminNotes) ? parsed.adminNotes : [],
+      };
+    }
+
+    if (parsed.agencyName || parsed.agencyWebsite || parsed.statesServed) {
+      return {
+        metadata: parsed,
+        adminNotes: [],
+      };
+    }
+
+    return {};
+  } catch (error) {
+    console.warn('[Storage] Unable to parse partner lead notes payload:', error);
+    return {};
+  }
+};
+
+const buildPartnerLeadRecord = (row: any): PartnerLeadRecord => {
+  const { metadata, adminNotes } = parsePartnerLeadNotes(row.notes);
+  const normalizedMetadata = metadata || {
+    agencyName: row.agencyName || row.agency_name || '',
+    agencyWebsite: row.agencyWebsite || row.agency_website || null,
+    statesServed: row.statesServed || row.states_served || null,
+    experienceLevel: row.experienceLevel || row.experience_level || null,
+    volumeEstimate: row.volumeEstimate || row.volume_estimate || null,
+  };
+
+  const agencyName = normalizedMetadata?.agencyName || `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Prospective partner';
+
+  return {
+    id: row.id,
+    firstName: row.first_name || row.firstName,
+    lastName: row.last_name || row.lastName,
+    email: row.email,
+    phone: row.phone,
+    message: row.message,
+    source: row.source,
+    status: row.status,
+    assignedAgentId: row.assigned_agent_id || row.assignedAgentId,
+    createdAt: row.created_at || row.createdAt,
+    updatedAt: row.updated_at || row.updatedAt,
+    notes: row.notes,
+    agencyName,
+    agencyWebsite: normalizedMetadata?.agencyWebsite || null,
+    statesServed: normalizedMetadata?.statesServed || null,
+    experienceLevel: normalizedMetadata?.experienceLevel || null,
+    volumeEstimate: normalizedMetadata?.volumeEstimate || null,
+    metadata: normalizedMetadata || undefined,
+    adminNotes: adminNotes || [],
+  };
+};
+
 export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: string): Promise<Lead[]> {
   try {
     console.log('[Storage] Getting all leads with filters:', { statusFilter, assignedAgentFilter });
@@ -2267,6 +2364,111 @@ export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: s
     console.error('[Storage] Error fetching leads:', error);
     throw error;
   }
+}
+
+export async function getPartnerLeads(statusFilter?: string): Promise<PartnerLeadRecord[]> {
+  try {
+    let supabaseQuery = supabase
+      .from('leads')
+      .select('*')
+      .eq('source', 'partner_lead')
+      .order('created_at', { ascending: false });
+
+    if (statusFilter && statusFilter !== 'all') {
+      supabaseQuery = supabaseQuery.eq('status', statusFilter);
+    }
+
+    const { data, error } = await supabaseQuery;
+
+    if (error) {
+      console.error('[Storage] Failed to fetch partner leads:', error);
+      throw new Error('Failed to fetch partner leads');
+    }
+
+    return (data || []).map(buildPartnerLeadRecord);
+  } catch (error) {
+    console.error('[Storage] Unexpected error fetching partner leads:', error);
+    throw error instanceof Error ? error : new Error('Failed to fetch partner leads');
+  }
+}
+
+export interface PartnerLeadUpdateInput {
+  status?: string;
+  adminNote?: string;
+  assignedAgentId?: string | null;
+  updatedBy?: string;
+}
+
+export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLeadUpdateInput): Promise<PartnerLeadRecord> {
+  if (!leadId || Number.isNaN(leadId)) {
+    throw new Error('Valid lead ID is required');
+  }
+
+  const { data: existingLead, error: fetchError } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('id', leadId)
+    .eq('source', 'partner_lead')
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error('[Storage] Failed to load partner lead for update:', fetchError);
+    throw new Error('Unable to load partner lead');
+  }
+
+  if (!existingLead) {
+    throw new Error('Partner lead not found');
+  }
+
+  const currentNotes = parsePartnerLeadNotes(existingLead.notes);
+  const updatedNotes: PartnerLeadNotesPayload = {
+    metadata: currentNotes.metadata || undefined,
+    adminNotes: currentNotes.adminNotes ? [...currentNotes.adminNotes] : [],
+  };
+
+  if (updates.adminNote && updates.adminNote.trim().length > 0) {
+    updatedNotes.adminNotes = updatedNotes.adminNotes || [];
+    updatedNotes.adminNotes.push({
+      id: (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)),
+      message: updates.adminNote.trim(),
+      createdAt: new Date().toISOString(),
+      createdBy: updates.updatedBy || null,
+    });
+  }
+
+  const payload: Record<string, any> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.status) {
+    payload.status = updates.status;
+  }
+
+  if (updates.assignedAgentId !== undefined) {
+    payload.assigned_agent_id = updates.assignedAgentId;
+  }
+
+  payload.notes = JSON.stringify({
+    metadata: updatedNotes.metadata || null,
+    adminNotes: updatedNotes.adminNotes || [],
+    updatedAt: new Date().toISOString(),
+    updatedBy: updates.updatedBy || null,
+  });
+
+  const { data: updatedLead, error: updateError } = await supabase
+    .from('leads')
+    .update(payload)
+    .eq('id', leadId)
+    .eq('source', 'partner_lead')
+    .select('*')
+    .single();
+
+  if (updateError) {
+    console.error('[Storage] Failed to update partner lead:', updateError);
+    throw new Error(updateError.message || 'Failed to update partner lead');
+  }
+
+  return buildPartnerLeadRecord(updatedLead);
 }
 
 // Agent operations
@@ -4978,6 +5180,8 @@ export const storage = {
   },
   getAgentLeads,
   getAllLeads,
+  getPartnerLeads,
+  updatePartnerLeadStatus,
   getLeadByEmail,
   addLeadActivity,  // Use real function defined above
   getLeadActivities,  // Use real function defined above
