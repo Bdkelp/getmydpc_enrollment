@@ -148,7 +148,7 @@ export default function Landing() {
                 <img
                   src="/mypremierplans-logo.png"
                   alt="MyPremierPlans logo"
-                  className="h-12 w-auto"
+                  className="h-14 sm:h-16 md:h-20 w-auto drop-shadow-md"
                 />
               </div>
               <div className="hidden md:block ml-10">
@@ -162,7 +162,7 @@ export default function Landing() {
             </div>
             <div className="flex items-center space-x-3">
               <Button
-                className="bg-medical-blue-600 text-white hover:bg-medical-blue-700"
+                className="bg-blue-600 text-white hover:bg-blue-700 shadow-md"
                 onClick={() => setIsPartnerModalOpen(true)}
               >
                 Partner with us
@@ -208,7 +208,7 @@ export default function Landing() {
                     Sign In
                   </Button>
                   <Button 
-                    className="bg-white hover:bg-gray-100 text-black border border-gray-300"
+                    className="bg-blue-600 text-white hover:bg-blue-700 shadow-md"
                     onClick={() => setIsContactModalOpen(true)}
                   >
                     Get Started
