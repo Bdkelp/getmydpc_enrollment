@@ -195,16 +195,19 @@ export default function Landing() {
       <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="animate-[fade-in-up_0.8s_ease-out]">
-              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-2">
-                Real doctors, Real access,
+            <div className="animate-[fade-in-up_0.8s_ease-out] space-y-2">
+              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight">
+                Real doctors
               </h1>
-              <h3 className="text-3xl text-gray-800 font-semibold leading-tight mb-2 animate-[fade-in-up_0.9s_ease-out]">
-                Real Simple
-              </h3>
-              <p className="text-xl text-gray-700 mb-8 animate-[fade-in-up_1s_ease-out]">
+              <h2 className="text-4xl lg:text-5xl font-semibold text-gray-900 leading-tight animate-[fade-in-up_0.85s_ease-out]">
+                Real access
+              </h2>
+              <h2 className="text-3xl lg:text-4xl font-semibold text-gray-800 leading-tight animate-[fade-in-up_0.9s_ease-out]">
+                Real simple
+              </h2>
+              <h3 className="text-2xl text-gray-700 font-medium mb-6 animate-[fade-in-up_1s_ease-out]">
                 Membership has never been so easy.
-              </p>
+              </h3>
               <div className="flex flex-col sm:flex-row gap-4">
                 {isAuthenticated ? (
                   isAgentOrAbove ? (
