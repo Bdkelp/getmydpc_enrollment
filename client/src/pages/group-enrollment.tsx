@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Plus, Users, Layers, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Plus, Users, Layers, CheckCircle2, ArrowLeft } from "lucide-react";
 
 const payorOptions = [
   { value: "full", label: "Full Payor (Employer pays all)" },
@@ -171,7 +171,17 @@ export default function GroupEnrollment() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
+          <div className="space-y-2">
+            {canAccessAdminViews && (
+              <Button
+                variant="ghost"
+                onClick={() => setLocation("/admin")}
+                className="w-fit px-0 text-sm text-gray-600 hover:text-gray-900"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Admin View
+              </Button>
+            )}
             <p className="text-sm text-gray-500 uppercase tracking-wide">Stage 1 Manual Workflow</p>
             <h1 className="text-3xl font-bold text-gray-900">Group Enrollment</h1>
             <p className="text-gray-600 mt-1">Create employer groups, review payor types, and track hosted checkout readiness.</p>
