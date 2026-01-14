@@ -242,7 +242,7 @@ export const groups = pgTable("groups", {
   groupType: varchar("group_type", { length: 64 }),
   payorType: varchar("payor_type", { length: 32 }).notNull(),
   discountCode: varchar("discount_code", { length: 64 }),
-  discountCodeId: integer("discount_code_id"),
+  discountCodeId: uuid("discount_code_id"),
   status: varchar("status", { length: 32 }).default("draft").notNull(),
   metadata: jsonb("metadata"),
   createdBy: uuid("created_by").references(() => users.id),

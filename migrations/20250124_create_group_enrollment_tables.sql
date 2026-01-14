@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
     group_type text,
     payor_type text NOT NULL,
     discount_code text,
-    discount_code_id integer REFERENCES public.discount_codes(id),
+    discount_code_id uuid REFERENCES public.discount_codes(id),
     status text NOT NULL DEFAULT 'draft',
     metadata jsonb,
     created_by uuid REFERENCES public.users(id),
