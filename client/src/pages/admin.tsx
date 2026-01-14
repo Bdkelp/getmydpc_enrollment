@@ -993,6 +993,12 @@ export default function Admin() {
                   <span className="text-sm font-medium">Performance Goals</span>
                 </Button>
               </Link>
+              <Link href="/admin/groups">
+                <Button variant="outline" className="w-full border-cyan-500 text-cyan-600 hover:bg-cyan-50 h-20 flex flex-col items-center justify-center">
+                  <Users className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Group Enrollment</span>
+                </Button>
+              </Link>
             </div>
           </div>
         </div>

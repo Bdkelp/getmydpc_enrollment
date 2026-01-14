@@ -378,6 +378,13 @@ export default function AgentDashboard() {
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => setLocation('/agent/groups')}
+              >
+                <Users className="mr-2 h-4 w-4" />
+                Enroll a Group
+              </Button>
               <Button variant="outline" onClick={() => setLocation('/profile')}>
                 <User className="mr-2 h-4 w-4" />
                 Profile
