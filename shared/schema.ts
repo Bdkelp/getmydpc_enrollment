@@ -235,6 +235,53 @@ export const leads = pgTable("leads", {
   email: varchar("email", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 50 }).notNull(),
   message: text("message"),
+
+export const groups = pgTable("groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 120 }).notNull(),
+  groupType: varchar("group_type", { length: 64 }),
+  payorType: varchar("payor_type", { length: 32 }).notNull(),
+  discountCode: varchar("discount_code", { length: 64 }),
+  discountCodeId: integer("discount_code_id"),
+  status: varchar("status", { length: 32 }).default("draft").notNull(),
+  metadata: jsonb("metadata"),
+  createdBy: uuid("created_by").references(() => users.id),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  registrationCompletedAt: timestamp("registration_completed_at"),
+  hostedCheckoutLink: text("hosted_checkout_link"),
+  hostedCheckoutStatus: varchar("hosted_checkout_status", { length: 32 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const groupMembers = pgTable("group_members", {
+  id: serial("id").primaryKey(),
+  groupId: uuid("group_id").references(() => groups.id).notNull(),
+  memberId: integer("member_id").references(() => members.id),
+  tier: varchar("tier", { length: 48 }).notNull(),
+  payorType: varchar("payor_type", { length: 32 }).notNull(),
+  employerAmount: decimal("employer_amount", { precision: 10, scale: 2 }).default("0"),
+  memberAmount: decimal("member_amount", { precision: 10, scale: 2 }).default("0"),
+  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }).default("0"),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).default("0"),
+  paymentStatus: varchar("payment_status", { length: 32 }).default("pending"),
+  status: varchar("status", { length: 32 }).default("draft"),
+  firstName: varchar("first_name", { length: 50 }).notNull(),
+  lastName: varchar("last_name", { length: 50 }).notNull(),
+  email: varchar("email", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  dateOfBirth: varchar("date_of_birth", { length: 8 }),
+  metadata: jsonb("metadata"),
+  registrationPayload: jsonb("registration_payload"),
+  registeredAt: timestamp("registered_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  enrollmentCompletedAt: timestamp("enrollment_completed_at"),
+  notes: text("notes"),
+}, (table) => [
+  index("idx_group_members_group_id").on(table.groupId),
+  index("idx_group_members_member_id").on(table.memberId),
+  index("idx_group_members_status").on(table.status),
+]);
   source: varchar("source", { length: 50 }).default("contact_form"),
   status: varchar("status", { length: 50 }).default("new"),
   assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
@@ -657,6 +704,10 @@ export const registrationSchema = z.object({
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type Member = typeof members.$inferSelect;
+export type Group = typeof groups.$inferSelect;
+export type InsertGroup = typeof groups.$inferInsert;
+export type GroupMember = typeof groupMembers.$inferSelect;
+export type InsertGroupMember = typeof groupMembers.$inferInsert;
 export type InsertMember = z.infer<typeof insertMemberSchema>;
 export type Plan = typeof plans.$inferSelect;
 export type InsertPlan = z.infer<typeof insertPlanSchema>;

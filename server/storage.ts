@@ -356,6 +356,10 @@ const handleAgentPerformanceGoalsError = (error: any, operation: string) => {
 import type {
   User,
   Member,
+  Group,
+  InsertGroup,
+  GroupMember,
+  InsertGroupMember,
   Plan,
   Subscription,
   Lead,
@@ -4398,6 +4402,327 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
   return Number(count) || 0;
 }
 
+// ============================================================
+// Group Enrollment helpers
+// ============================================================
+
+const GROUP_TABLE = 'groups';
+const GROUP_MEMBER_TABLE = 'group_members';
+
+const mapGroupFromDB = (record: any): Group => ({
+  id: record.id,
+  name: record.name,
+  groupType: record.group_type ?? record.groupType ?? null,
+  payorType: record.payor_type ?? record.payorType,
+  discountCode: record.discount_code ?? record.discountCode ?? null,
+  discountCodeId: record.discount_code_id ?? record.discountCodeId ?? null,
+  status: record.status,
+  metadata: record.metadata ?? null,
+  createdBy: record.created_by ?? record.createdBy ?? null,
+  updatedBy: record.updated_by ?? record.updatedBy ?? null,
+  registrationCompletedAt: record.registration_completed_at ?? record.registrationCompletedAt ?? null,
+  hostedCheckoutLink: record.hosted_checkout_link ?? record.hostedCheckoutLink ?? null,
+  hostedCheckoutStatus: record.hosted_checkout_status ?? record.hostedCheckoutStatus ?? null,
+  createdAt: record.created_at ?? record.createdAt ?? null,
+  updatedAt: record.updated_at ?? record.updatedAt ?? null,
+});
+
+const mapGroupMemberFromDB = (record: any): GroupMember => ({
+  id: record.id,
+  groupId: record.group_id ?? record.groupId,
+  memberId: record.member_id ?? record.memberId ?? null,
+  tier: record.tier,
+  payorType: record.payor_type ?? record.payorType,
+  employerAmount: record.employer_amount ?? record.employerAmount ?? null,
+  memberAmount: record.member_amount ?? record.memberAmount ?? null,
+  discountAmount: record.discount_amount ?? record.discountAmount ?? null,
+  totalAmount: record.total_amount ?? record.totalAmount ?? null,
+  paymentStatus: record.payment_status ?? record.paymentStatus ?? null,
+  status: record.status ?? null,
+  firstName: record.first_name ?? record.firstName,
+  lastName: record.last_name ?? record.lastName,
+  email: record.email,
+  phone: record.phone ?? null,
+  dateOfBirth: record.date_of_birth ?? record.dateOfBirth ?? null,
+  metadata: record.metadata ?? null,
+  registrationPayload: record.registration_payload ?? record.registrationPayload ?? null,
+  registeredAt: record.registered_at ?? record.registeredAt ?? null,
+  updatedAt: record.updated_at ?? record.updatedAt ?? null,
+  enrollmentCompletedAt: record.enrollment_completed_at ?? record.enrollmentCompletedAt ?? null,
+  notes: record.notes ?? null,
+});
+
+const mapGroupToDBPayload = (group: Partial<Group> | Partial<InsertGroup>): Record<string, any> => {
+  const payload: Record<string, any> = {};
+
+  if (group.name !== undefined) payload.name = group.name;
+  if (group.groupType !== undefined) payload.group_type = group.groupType;
+  if (group.payorType !== undefined) payload.payor_type = group.payorType;
+  if (group.discountCode !== undefined) payload.discount_code = group.discountCode;
+  if (group.discountCodeId !== undefined) payload.discount_code_id = group.discountCodeId;
+  if (group.status !== undefined) payload.status = group.status;
+  if (group.metadata !== undefined) payload.metadata = group.metadata;
+  if (group.createdBy !== undefined) payload.created_by = group.createdBy;
+  if (group.updatedBy !== undefined) payload.updated_by = group.updatedBy;
+  if (group.registrationCompletedAt !== undefined) payload.registration_completed_at = group.registrationCompletedAt;
+  if (group.hostedCheckoutLink !== undefined) payload.hosted_checkout_link = group.hostedCheckoutLink;
+  if (group.hostedCheckoutStatus !== undefined) payload.hosted_checkout_status = group.hostedCheckoutStatus;
+  if (group.createdAt !== undefined) payload.created_at = group.createdAt;
+  if (group.updatedAt !== undefined) payload.updated_at = group.updatedAt;
+
+  return payload;
+};
+
+const mapGroupMemberToDBPayload = (
+  member: Partial<GroupMember> | Partial<InsertGroupMember>,
+): Record<string, any> => {
+  const payload: Record<string, any> = {};
+
+  if (member.groupId !== undefined) payload.group_id = member.groupId;
+  if (member.memberId !== undefined) payload.member_id = member.memberId;
+  if (member.tier !== undefined) payload.tier = member.tier;
+  if (member.payorType !== undefined) payload.payor_type = member.payorType;
+  if (member.employerAmount !== undefined) payload.employer_amount = member.employerAmount;
+  if (member.memberAmount !== undefined) payload.member_amount = member.memberAmount;
+  if (member.discountAmount !== undefined) payload.discount_amount = member.discountAmount;
+  if (member.totalAmount !== undefined) payload.total_amount = member.totalAmount;
+  if (member.paymentStatus !== undefined) payload.payment_status = member.paymentStatus;
+  if (member.status !== undefined) payload.status = member.status;
+  if (member.firstName !== undefined) payload.first_name = member.firstName;
+  if (member.lastName !== undefined) payload.last_name = member.lastName;
+  if (member.email !== undefined) payload.email = member.email;
+  if (member.phone !== undefined) payload.phone = member.phone;
+  if (member.dateOfBirth !== undefined) payload.date_of_birth = member.dateOfBirth;
+  if (member.metadata !== undefined) payload.metadata = member.metadata;
+  if (member.registrationPayload !== undefined) payload.registration_payload = member.registrationPayload;
+  if (member.registeredAt !== undefined) payload.registered_at = member.registeredAt;
+  if (member.updatedAt !== undefined) payload.updated_at = member.updatedAt;
+  if (member.enrollmentCompletedAt !== undefined) payload.enrollment_completed_at = member.enrollmentCompletedAt;
+  if (member.notes !== undefined) payload.notes = member.notes;
+
+  return payload;
+};
+
+export interface ListGroupsOptions {
+  status?: string;
+  payorType?: string;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListGroupMembersOptions {
+  groupId: string;
+  status?: string;
+}
+
+export async function createGroup(group: InsertGroup): Promise<Group> {
+  const payload = mapGroupToDBPayload(group);
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from(GROUP_TABLE)
+    .insert([payload])
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to create group:', error);
+    throw new Error(`Failed to create group: ${error.message}`);
+  }
+
+  return mapGroupFromDB(data);
+}
+
+export async function updateGroup(id: string, updates: Partial<Group>): Promise<Group> {
+  const payload = mapGroupToDBPayload({ ...updates, updatedAt: new Date().toISOString() });
+
+  const { data, error } = await supabase
+    .from(GROUP_TABLE)
+    .update(payload)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to update group:', error);
+    throw new Error(`Failed to update group: ${error.message}`);
+  }
+
+  return mapGroupFromDB(data);
+}
+
+export async function getGroupById(id: string): Promise<Group | null> {
+  const { data, error } = await supabase
+    .from(GROUP_TABLE)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[Storage] Failed to fetch group:', error);
+    throw new Error(`Failed to fetch group: ${error.message}`);
+  }
+
+  return data ? mapGroupFromDB(data) : null;
+}
+
+export async function listGroups(options: ListGroupsOptions = {}): Promise<{ groups: Group[]; count: number | null }> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const offset = Math.max(options.offset ?? 0, 0);
+
+  let request = supabase
+    .from(GROUP_TABLE)
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false });
+
+  if (options.status) {
+    request = request.eq('status', options.status);
+  }
+
+  if (options.payorType) {
+    request = request.eq('payor_type', options.payorType);
+  }
+
+  if (options.search) {
+    request = request.ilike('name', `%${options.search}%`);
+  }
+
+  const to = offset + limit - 1;
+  const { data, error, count } = await request.range(offset, to);
+
+  if (error) {
+    console.error('[Storage] Failed to list groups:', error);
+    throw new Error(`Failed to list groups: ${error.message}`);
+  }
+
+  return {
+    groups: (data || []).map(mapGroupFromDB),
+    count: count ?? null,
+  };
+}
+
+export async function addGroupMember(groupId: string, member: InsertGroupMember): Promise<GroupMember> {
+  const payload = mapGroupMemberToDBPayload({ ...member, groupId });
+  payload.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from(GROUP_MEMBER_TABLE)
+    .insert([payload])
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to add group member:', error);
+    throw new Error(`Failed to add group member: ${error.message}`);
+  }
+
+  return mapGroupMemberFromDB(data);
+}
+
+export async function updateGroupMember(id: number, updates: Partial<GroupMember>): Promise<GroupMember> {
+  const payload = mapGroupMemberToDBPayload({ ...updates, updatedAt: new Date().toISOString() });
+
+  const { data, error } = await supabase
+    .from(GROUP_MEMBER_TABLE)
+    .update(payload)
+    .eq('id', id)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to update group member:', error);
+    throw new Error(`Failed to update group member: ${error.message}`);
+  }
+
+  return mapGroupMemberFromDB(data);
+}
+
+export async function getGroupMemberById(id: number): Promise<GroupMember | null> {
+  const { data, error } = await supabase
+    .from(GROUP_MEMBER_TABLE)
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[Storage] Failed to fetch group member:', error);
+    throw new Error(`Failed to fetch group member: ${error.message}`);
+  }
+
+  return data ? mapGroupMemberFromDB(data) : null;
+}
+
+export async function listGroupMembers(options: ListGroupMembersOptions): Promise<GroupMember[]> {
+  let request = supabase
+    .from(GROUP_MEMBER_TABLE)
+    .select('*')
+    .eq('group_id', options.groupId)
+    .order('registered_at', { ascending: true });
+
+  if (options.status) {
+    request = request.eq('status', options.status);
+  }
+
+  const { data, error } = await request;
+
+  if (error) {
+    console.error('[Storage] Failed to list group members:', error);
+    throw new Error(`Failed to list group members: ${error.message}`);
+  }
+
+  return (data || []).map(mapGroupMemberFromDB);
+}
+
+export async function setGroupMemberPaymentStatus(
+  memberId: number,
+  paymentStatus: string,
+  updates: Partial<GroupMember> = {},
+): Promise<GroupMember> {
+  const payload = mapGroupMemberToDBPayload({ ...updates, paymentStatus, updatedAt: new Date().toISOString() });
+
+  const { data, error } = await supabase
+    .from(GROUP_MEMBER_TABLE)
+    .update(payload)
+    .eq('id', memberId)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to update payment status for group member:', error);
+    throw new Error(`Failed to update payment status: ${error.message}`);
+  }
+
+  return mapGroupMemberFromDB(data);
+}
+
+export async function completeGroupRegistration(
+  groupId: string,
+  options: { hostedCheckoutLink?: string; hostedCheckoutStatus?: string; status?: string } = {}
+): Promise<Group> {
+  const payload = mapGroupToDBPayload({
+    status: options.status ?? 'registered',
+    hostedCheckoutLink: options.hostedCheckoutLink,
+    hostedCheckoutStatus: options.hostedCheckoutStatus,
+    registrationCompletedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const { data, error } = await supabase
+    .from(GROUP_TABLE)
+    .update(payload)
+    .eq('id', groupId)
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('[Storage] Failed to complete group registration:', error);
+    throw new Error(`Failed to complete group registration: ${error.message}`);
+  }
+
+  return mapGroupFromDB(data);
+}
+
 export const storage = {
   // Core user functions that exist
   getUser,
@@ -4426,6 +4751,16 @@ export const storage = {
   recordEnrollmentModification,
   recordBankingInfoChange,
   getBankingChangeHistory,
+  createGroup,
+  updateGroup,
+  getGroupById,
+  listGroups,
+  addGroupMember,
+  updateGroupMember,
+  getGroupMemberById,
+  listGroupMembers,
+  setGroupMemberPaymentStatus,
+  completeGroupRegistration,
 
   getPerformanceGoalDefaults,
   updatePerformanceGoalDefaults,
