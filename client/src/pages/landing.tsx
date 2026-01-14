@@ -13,6 +13,8 @@ import heroImage from "@assets/about-hero-compassionate-care.jpg";
 import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 
+const CTA_BUTTON_CLASS = "bg-medical-blue-600 text-white hover:bg-medical-blue-700 shadow-md";
+
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
@@ -162,7 +164,7 @@ export default function Landing() {
             </div>
             <div className="flex items-center space-x-3">
               <Button
-                className="bg-blue-600 text-white hover:bg-blue-700 shadow-md"
+                className={CTA_BUTTON_CLASS}
                 onClick={() => setIsPartnerModalOpen(true)}
               >
                 Partner with us
@@ -208,7 +210,7 @@ export default function Landing() {
                     Sign In
                   </Button>
                   <Button 
-                    className="bg-blue-600 text-white hover:bg-blue-700 shadow-md"
+                    className={CTA_BUTTON_CLASS}
                     onClick={() => setIsContactModalOpen(true)}
                   >
                     Get Started
@@ -265,7 +267,7 @@ export default function Landing() {
                   isAgentOrAbove ? (
                     <div className="flex flex-col sm:flex-row gap-4">
                       <Link href="/registration">
-                        <Button size="lg" className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4">
+                        <Button size="lg" className={`${CTA_BUTTON_CLASS} px-8 py-4`}>
                           Enroll New Member
                         </Button>
                       </Link>
@@ -294,15 +296,14 @@ export default function Landing() {
                   <div className="flex flex-col sm:flex-row gap-4">
                     <Button 
                       size="lg" 
-                      className="bg-white hover:bg-gray-100 text-black border border-gray-300 px-8 py-4"
+                      className={`${CTA_BUTTON_CLASS} px-8 py-4`}
                       onClick={() => setLocation('/quiz')}
                     >
                       Find My Perfect Plan
                     </Button>
                     <Button 
-                      variant="outline"
                       size="lg" 
-                      className="px-8 py-4"
+                      className={`${CTA_BUTTON_CLASS} px-8 py-4`}
                       onClick={() => setIsContactModalOpen(true)}
                     >
                       Contact an Agent
@@ -418,13 +419,7 @@ export default function Landing() {
                     {isAuthenticated ? (
                       isAgentOrAbove ? (
                         <Link href="/registration">
-                          <Button 
-                            className={`w-full ${
-                              plan.name.toLowerCase().includes("group") 
-                                ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                                : "bg-white hover:bg-gray-100 text-black border border-gray-300"
-                            }`}
-                          >
+                          <Button className={`w-full ${CTA_BUTTON_CLASS}`}>
                             {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Membership"}
                           </Button>
                         </Link>
@@ -436,11 +431,7 @@ export default function Landing() {
                       )
                     ) : (
                       <Button 
-                        className={`w-full ${
-                          plan.name.toLowerCase().includes("group") 
-                            ? "bg-white hover:bg-gray-50 text-medical-blue-600 border border-blue-600" 
-                            : "bg-white hover:bg-gray-100 text-black border border-gray-300"
-                        }`}
+                        className={`w-full ${CTA_BUTTON_CLASS}`}
                         onClick={() => setIsContactModalOpen(true)}
                       >
                         {plan.name.toLowerCase().includes("group") ? "Contact Sales" : "Select Membership"}

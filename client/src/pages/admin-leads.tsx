@@ -274,10 +274,29 @@ export default function AdminLeads() {
     );
   };
 
+  const getLeadTypeMeta = (source?: string | null) => {
+    switch (source) {
+      case 'partner_lead':
+        return {
+          label: 'Prospective Agent',
+          badgeClass: 'bg-purple-100 text-purple-800 border border-purple-200',
+          hint: 'Partner inquiry',
+        };
+      case 'contact_form':
+      default:
+        return {
+          label: 'Prospective Member',
+          badgeClass: 'bg-blue-100 text-blue-800 border border-blue-200',
+          hint: 'Member inquiry',
+        };
+    }
+  };
+
   const unassignedCount = safeLeads.filter(lead => !lead.assignedAgentId).length;
   const newLeadsCount = safeLeads.filter(lead => lead.status === 'new').length;
   const contactedCount = safeLeads.filter(lead => lead.status === 'contacted').length;
   const qualifiedCount = safeLeads.filter(lead => lead.status === 'qualified').length;
+  const selectedLeadTypeMeta = selectedLead ? getLeadTypeMeta(selectedLead.source) : null;
 
   // Consolidated single check for loading and auth states
   if (authLoading || leadsLoading) {
@@ -447,6 +466,7 @@ export default function AdminLeads() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
+                    <TableHead>Lead Type</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Assigned To</TableHead>
@@ -457,10 +477,15 @@ export default function AdminLeads() {
                 <TableBody>
                   {filteredLeads.map((lead) => {
                     const assignedAgent = safeAgents.find(a => a.id === lead.assignedAgentId);
+                    const leadTypeMeta = getLeadTypeMeta(lead.source);
                     return (
                       <TableRow key={lead.id}>
                         <TableCell className="font-medium">
                           {lead.firstName} {lead.lastName}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`${leadTypeMeta.badgeClass} text-xs font-semibold`}>{leadTypeMeta.label}</Badge>
+                          <div className="text-xs text-gray-500 mt-1 capitalize">{leadTypeMeta.hint}</div>
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">
@@ -547,6 +572,9 @@ export default function AdminLeads() {
             <div className="space-y-4">
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h4 className="font-semibold mb-2">Lead Information</h4>
+                {selectedLeadTypeMeta && (
+                  <Badge className={`${selectedLeadTypeMeta.badgeClass} text-xs font-semibold mb-2`}>{selectedLeadTypeMeta.label}</Badge>
+                )}
                 <p className="text-sm">{selectedLead.firstName} {selectedLead.lastName}</p>
                 <p className="text-sm text-gray-600">{selectedLead.email}</p>
                 <p className="text-sm text-gray-600">{selectedLead.phone}</p>
