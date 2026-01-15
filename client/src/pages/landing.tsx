@@ -10,10 +10,23 @@ import { ContactFormModal } from "@/components/contact-form-modal";
 import { PartnerFormModal } from "@/components/partner-form-modal";
 import type { Plan } from "@shared/schema";
 import heroImage from "@assets/about-hero-compassionate-care.jpg";
+import logoSvg from "@assets/My Premier Plans Logo-01.svg";
+import logoPng from "@assets/My Premier Plans Logo-01.png";
 import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 
 const CTA_BUTTON_CLASS = "bg-medical-blue-600 text-white hover:bg-medical-blue-700 shadow-md";
+
+type LogoImageProps = {
+  className?: string;
+};
+
+const LogoImage = ({ className = "h-14 sm:h-16 md:h-20 w-auto drop-shadow-md" }: LogoImageProps) => (
+  <picture className="block">
+    <source srcSet={logoSvg} type="image/svg+xml" />
+    <img src={logoPng} alt="My Premier Plans logo" className={className} loading="lazy" />
+  </picture>
+);
 
 export default function Landing() {
   const { isAuthenticated, user } = useAuth();
@@ -147,11 +160,7 @@ export default function Landing() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
               <div className="flex-shrink-0 flex items-center">
-                <img
-                  src="/mypremierplans-logo.png"
-                  alt="MyPremierPlans logo"
-                  className="h-14 sm:h-16 md:h-20 w-auto drop-shadow-md"
-                />
+                <LogoImage />
               </div>
               <div className="hidden md:block ml-10">
                 <div className="flex items-baseline space-x-4">
@@ -230,6 +239,11 @@ export default function Landing() {
               ref={heroRef}
               className="space-y-2"
             >
+              <div className={`mb-6 transform transition-all duration-700 ease-out ${
+                heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+              }`} style={{ transitionDelay: "0ms" }}>
+                <LogoImage className="h-12 sm:h-16 md:h-20 w-auto drop-shadow-lg" />
+              </div>
               <h1
                 className={`text-4xl lg:text-6xl font-bold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
                   heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
