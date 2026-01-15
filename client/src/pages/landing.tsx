@@ -237,10 +237,16 @@ export default function Landing() {
               ref={heroRef}
               className="space-y-2"
             >
-              <div className={`mb-8 transform transition-all duration-700 ease-out ${
-                heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
-              }`} style={{ transitionDelay: "0ms" }}>
-                <LogoImage className="h-24 sm:h-32 md:h-40 lg:h-44 w-auto drop-shadow-2xl" />
+              <div
+                className={`mb-10 md:mb-12 transform transition-all duration-700 ease-out ${
+                  heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
+                } flex flex-col items-center md:items-start gap-3 md:gap-4`}
+                style={{ transitionDelay: "0ms" }}
+              >
+                <LogoImage className="h-32 sm:h-40 md:h-56 lg:h-64 w-auto drop-shadow-2xl" />
+                <span className="text-xs tracking-[0.4em] uppercase text-medical-blue-500 font-semibold hidden md:block">
+                  Membership Made Local. Nationwide Care.
+                </span>
               </div>
               <h1
                 className={`text-4xl lg:text-6xl font-bold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
