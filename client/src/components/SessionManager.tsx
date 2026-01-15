@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
-import { signOut } from '@/lib/supabase';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -58,7 +57,7 @@ const WARNING_TIME = 30 * 1000; // 30 seconds before timeout
 
 export function SessionManager({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   const { toast } = useToast();
   const [showWarning, setShowWarning] = useState(false);
   const [countdown, setCountdown] = useState(30);
@@ -83,9 +82,9 @@ export function SessionManager({ children }: { children: React.ReactNode }) {
       description: "You have been logged out due to inactivity.",
       variant: "destructive",
     });
-    await signOut();
+    await logout({ suppressRedirect: true });
     setLocation('/login');
-  }, [setLocation, toast]);
+  }, [logout, setLocation, toast]);
 
   // Reset the idle timer
   const resetIdleTimer = useCallback(() => {

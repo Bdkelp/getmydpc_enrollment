@@ -20,7 +20,7 @@ import {
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, logout } = useAuth();
 
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
@@ -143,9 +143,7 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center space-x-4">
               <Button variant="ghost" onClick={async () => {
-                const { signOut } = await import("@/lib/supabase");
-                await signOut();
-                window.location.href = "/";
+                await logout({ redirectTo: "/", redirectMode: "assign" });
               }}>
                 Sign Out
               </Button>

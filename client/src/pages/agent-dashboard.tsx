@@ -66,7 +66,7 @@ type PlanGoalField = "weeklyEnrollments" | "monthlyEnrollments" | "quarterlyEnro
 export default function AgentDashboard() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const isAgentOrAbove = hasAtLeastRole(user?.role, 'agent');
   
@@ -390,9 +390,7 @@ export default function AgentDashboard() {
                 Profile
               </Button>
               <Button variant="outline" onClick={async () => {
-                const { signOut } = await import("@/lib/supabase");
-                await signOut();
-                window.location.href = "/";
+                await logout({ redirectTo: "/", redirectMode: "assign" });
               }}>
                 Logout
               </Button>

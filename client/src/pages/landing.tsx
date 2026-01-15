@@ -29,7 +29,7 @@ const LogoImage = ({ className = "h-14 sm:h-16 md:h-20 w-auto drop-shadow-md" }:
 );
 
 export default function Landing() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, logout } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const [, setLocation] = useLocation();
@@ -202,9 +202,7 @@ export default function Landing() {
                   <Button 
                     variant="outline" 
                     onClick={async () => {
-                      const { signOut } = await import("@/lib/supabase");
-                      await signOut();
-                      window.location.reload();
+                      await logout({ redirectTo: "/", redirectMode: "assign" });
                     }}
                   >
                     Log Out
@@ -239,10 +237,10 @@ export default function Landing() {
               ref={heroRef}
               className="space-y-2"
             >
-              <div className={`mb-6 transform transition-all duration-700 ease-out ${
+              <div className={`mb-8 transform transition-all duration-700 ease-out ${
                 heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
               }`} style={{ transitionDelay: "0ms" }}>
-                <LogoImage className="h-12 sm:h-16 md:h-20 w-auto drop-shadow-lg" />
+                <LogoImage className="h-24 sm:h-32 md:h-40 lg:h-44 w-auto drop-shadow-2xl" />
               </div>
               <h1
                 className={`text-4xl lg:text-6xl font-bold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${

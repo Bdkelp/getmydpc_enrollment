@@ -167,7 +167,7 @@ const getManualTranLabel = (value: string) => {
 
 export default function Admin() {
   const { toast } = useToast();
-  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, logout } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const isSuperAdmin = isSuperAdminRole(user?.role);
   const [, setLocation] = useLocation();
@@ -1073,9 +1073,7 @@ export default function Admin() {
                 </div>
               </div>
               <Button variant="ghost" onClick={async () => {
-                const { signOut } = await import("@/lib/supabase");
-                await signOut();
-                window.location.href = "/";
+                await logout({ redirectTo: "/", redirectMode: "assign" });
               }}>
                 Sign Out
               </Button>

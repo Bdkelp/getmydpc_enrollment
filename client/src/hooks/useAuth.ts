@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { User } from "@supabase/supabase-js";
 import { API_BASE_URL } from "@/lib/apiClient";
@@ -16,10 +16,72 @@ export interface AuthUser {
   lastLoginAt?: string;
 }
 
+export type LogoutOptions = {
+  redirectTo?: string;
+  redirectMode?: "assign" | "replace" | "reload";
+  suppressRedirect?: boolean;
+};
+
+const DEFAULT_LOGOUT_OPTIONS: Required<Pick<LogoutOptions, "redirectTo" | "redirectMode" | "suppressRedirect">> = {
+  redirectTo: "/login",
+  redirectMode: "replace",
+  suppressRedirect: false,
+};
+
+const navigateAfterLogout = (
+  target?: string,
+  mode: LogoutOptions["redirectMode"] = "assign"
+) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (mode === "reload") {
+    if (target) {
+      window.location.assign(target);
+    } else {
+      window.location.reload();
+    }
+    return;
+  }
+
+  if (!target) {
+    return;
+  }
+
+  if (mode === "replace") {
+    window.location.replace(target);
+  } else {
+    window.location.assign(target);
+  }
+};
+
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const logoutIntentRef = useRef<LogoutOptions | null>(null);
+
+  const finalizeSignOut = useCallback((fallback?: LogoutOptions) => {
+    const intent = logoutIntentRef.current;
+    logoutIntentRef.current = null;
+
+    setUser(null);
+    setIsAuthenticated(false);
+    setIsLoading(false);
+
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+    }
+
+    const suppressRedirect = intent?.suppressRedirect ?? fallback?.suppressRedirect ?? false;
+    const redirectTo = intent?.redirectTo ?? fallback?.redirectTo;
+    const redirectMode = intent?.redirectMode ?? fallback?.redirectMode;
+
+    if (!suppressRedirect && (redirectTo || redirectMode === 'reload')) {
+      navigateAfterLogout(redirectTo, redirectMode ?? 'assign');
+    }
+  }, []);
 
   useEffect(() => {
     console.log('[useAuth] Initializing authentication...');
@@ -62,13 +124,7 @@ export function useAuth() {
 
         case 'SIGNED_OUT':
           console.log('[useAuth] User signed out');
-          setUser(null);
-          setIsAuthenticated(false);
-          setIsLoading(false);
-          // Clear any stored tokens
-          localStorage.removeItem('auth_token');
-          // Redirect to login
-          window.location.href = '/login';
+          finalizeSignOut(DEFAULT_LOGOUT_OPTIONS);
           break;
 
         case 'PASSWORD_RECOVERY':
@@ -146,9 +202,27 @@ export function useAuth() {
     }
   };
 
+  const logout = useCallback(async (options?: LogoutOptions) => {
+    const desiredOptions: LogoutOptions = {
+      redirectTo: options?.redirectTo ?? DEFAULT_LOGOUT_OPTIONS.redirectTo,
+      redirectMode: options?.redirectMode ?? DEFAULT_LOGOUT_OPTIONS.redirectMode,
+      suppressRedirect: options?.suppressRedirect ?? DEFAULT_LOGOUT_OPTIONS.suppressRedirect,
+    };
+
+    logoutIntentRef.current = desiredOptions;
+
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('[useAuth] Error during logout:', error);
+      finalizeSignOut(desiredOptions);
+    }
+  }, [finalizeSignOut]);
+
   return {
     user,
     isLoading,
-    isAuthenticated
+    isAuthenticated,
+    logout
   };
 }

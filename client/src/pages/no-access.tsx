@@ -5,7 +5,7 @@ import { Phone, Mail, ShieldX } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function NoAccess() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -53,9 +53,7 @@ export default function NoAccess() {
               variant="outline" 
               className="w-full"
               onClick={async () => {
-                const { signOut } = await import("@/lib/supabase");
-                await signOut();
-                window.location.href = "/";
+                await logout({ redirectTo: "/", redirectMode: "assign" });
               }}
             >
               Log Out
