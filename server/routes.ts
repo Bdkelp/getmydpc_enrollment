@@ -11,7 +11,7 @@ import {
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
-import { sendEmailVerification } from "./email";
+import { sendEmailVerification, sendUserCredentialsEmail } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
@@ -1156,6 +1156,30 @@ router.get("/api/auth/verify-email", async (req, res) => {
     }
 
     console.log(`[Email Verification] Email verified successfully for: ${email}`);
+
+    // Generate password setup link and send credentials email
+    try {
+      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+        type: 'recovery',
+        email: user.email,
+        options: {
+          redirectTo: `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/reset-password?source=welcome`
+        }
+      });
+
+      if (linkError) {
+        console.error('[Email Verification] Failed to generate password setup link:', linkError);
+      } else if (linkData?.action_link) {
+        await sendUserCredentialsEmail({
+          email: user.email,
+          firstName: user.firstName,
+          loginUrl: `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login`,
+          setPasswordUrl: linkData.action_link
+        });
+      }
+    } catch (linkErr) {
+      console.error('[Email Verification] Error while sending credential email:', linkErr);
+    }
     
     // Redirect to login page with success message
     res.redirect(`${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login?verified=success`);
