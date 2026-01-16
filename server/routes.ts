@@ -1132,8 +1132,8 @@ router.get("/api/auth/verify-email", async (req, res) => {
     const { error } = await supabase
       .from("users")
       .update({
-        emailVerified: true,
-        emailVerifiedAt: new Date().toISOString()
+        email_verified: true,
+        email_verified_at: new Date().toISOString(),
       })
       .eq("id", user.id);
 
