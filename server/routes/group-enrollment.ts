@@ -5,6 +5,7 @@ import {
   addGroupMember,
   completeGroupRegistration,
   createGroup,
+  deleteGroupMember,
   getGroupById,
   getGroupMemberById,
   listGroupMembers,
@@ -232,6 +233,33 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to update group member';
+    return res.status(500).json({ message });
+  }
+});
+
+router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId, memberId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const numericMemberId = Number(memberId);
+    if (Number.isNaN(numericMemberId)) {
+      return res.status(400).json({ message: 'Invalid member id' });
+    }
+
+    const existingMember = await getGroupMemberById(numericMemberId);
+    if (!existingMember || existingMember.groupId !== groupId) {
+      return res.status(404).json({ message: 'Group member not found' });
+    }
+
+    await deleteGroupMember(numericMemberId);
+    return res.status(204).send();
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to delete group member:', error);
+    const message = error instanceof Error ? error.message : 'Failed to delete group member';
     return res.status(500).json({ message });
   }
 });

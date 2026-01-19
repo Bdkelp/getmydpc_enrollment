@@ -4840,6 +4840,18 @@ export async function updateGroupMember(id: number, updates: Partial<GroupMember
   return mapGroupMemberFromDB(data);
 }
 
+export async function deleteGroupMember(id: number): Promise<void> {
+  const { error } = await supabase
+    .from(GROUP_MEMBER_TABLE)
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[Storage] Failed to delete group member:', error);
+    throw new Error(`Failed to delete group member: ${error.message}`);
+  }
+}
+
 export async function getGroupMemberById(id: number): Promise<GroupMember | null> {
   const { data, error } = await supabase
     .from(GROUP_MEMBER_TABLE)
@@ -4959,6 +4971,7 @@ export const storage = {
   listGroups,
   addGroupMember,
   updateGroupMember,
+  deleteGroupMember,
   getGroupMemberById,
   listGroupMembers,
   setGroupMemberPaymentStatus,
