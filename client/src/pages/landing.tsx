@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,6 +14,7 @@ import logoSvg from "@assets/My Premier Plans Logo-01.svg";
 import logoPng from "@assets/My Premier Plans Logo-01.png";
 import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
+import { Helmet } from "react-helmet-async";
 
 const CTA_BUTTON_CLASS = "bg-medical-blue-600 text-white hover:bg-medical-blue-700 shadow-md";
 
@@ -32,7 +33,6 @@ export default function Landing() {
   const { isAuthenticated, user, logout } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
-  const [, setLocation] = useLocation();
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
   const [heroVisible, setHeroVisible] = useState(false);
@@ -152,8 +152,88 @@ export default function Landing() {
     ];
   };
 
+  const planOffers = useMemo(() => {
+    if (!plans?.length) {
+      return [] as Record<string, unknown>[];
+    }
+
+    return plans.map((plan) => {
+      const parsedPrice = plan.price ? Number(plan.price) : undefined;
+      const normalizedPrice =
+        typeof parsedPrice === "number" && Number.isFinite(parsedPrice)
+          ? parsedPrice.toFixed(2)
+          : undefined;
+
+      return {
+        "@type": "Service",
+        name: plan.name,
+        description:
+          plan.description ||
+          "Direct Primary Care membership with transparent pricing and nationwide access.",
+        provider: {
+          "@type": "MedicalOrganization",
+          name: "My Premier Plans",
+          url: "https://enrollment.getmydpc.com/",
+        },
+        offers: {
+          "@type": "Offer",
+          priceCurrency: "USD",
+          price: normalizedPrice ?? plan.price ?? "0.00",
+          availability: "https://schema.org/InStock",
+        },
+      };
+    });
+  }, [plans]);
+
+  const structuredData = useMemo(() => {
+    const organization = {
+      "@context": "https://schema.org",
+      "@type": "MedicalOrganization",
+      name: "My Premier Plans",
+      url: "https://enrollment.getmydpc.com/",
+      logo: "https://enrollment.getmydpc.com/favicon.svg",
+      sameAs: [
+        "https://www.mypremierplans.com",
+        "https://www.facebook.com/mypremierplans",
+        "https://www.linkedin.com/company/my-premier-plans"
+      ],
+      contactPoint: {
+        "@type": "ContactPoint",
+        telephone: "+1-210-512-4318",
+        contactType: "customer service",
+        areaServed: "US",
+        availableLanguage: ["English"],
+      },
+    };
+
+    const payload = planOffers.length ? [organization, ...planOffers] : [organization];
+    return JSON.stringify(payload);
+  }, [planOffers]);
+
+  const canonicalUrl = "https://enrollment.getmydpc.com/";
+  const pageDescription = "Direct Primary Care memberships with concierge support, nationwide access, and transparent monthly pricing.";
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-medical-blue-50/10 to-white">
+    <>
+      <Helmet>
+        <title>Direct Primary Care Enrollment | My Premier Plans</title>
+        <meta name="description" content={pageDescription} />
+        <link rel="canonical" href={canonicalUrl} />
+        <meta property="og:title" content="Direct Primary Care Enrollment | My Premier Plans" />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://enrollment.getmydpc.com/og-cover.jpg" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Direct Primary Care Enrollment" />
+        <meta name="twitter:description" content={pageDescription} />
+        <meta name="twitter:image" content="https://enrollment.getmydpc.com/og-cover.jpg" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: structuredData }}
+        />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-white via-medical-blue-50/10 to-white">
       {/* Navigation Header */}
       <nav className="bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/50 sticky top-0 z-50 animate-[fade-in-up_0.5s_ease-out]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -184,19 +264,13 @@ export default function Landing() {
                     Welcome, {user?.firstName || user?.email}
                   </span>
                   {isAdminUser && (
-                    <Button 
-                      variant="default"
-                      onClick={() => setLocation("/admin")}
-                    >
-                      Admin Dashboard
+                    <Button variant="default" asChild>
+                      <Link href="/admin">Admin Dashboard</Link>
                     </Button>
                   )}
                   {isAgentOrAbove && (
-                    <Button 
-                      variant="default"
-                      onClick={() => setLocation("/agent")}
-                    >
-                      Agent Dashboard
+                    <Button variant="default" asChild>
+                      <Link href="/agent">Agent Dashboard</Link>
                     </Button>
                   )}
                   <Button 
@@ -210,11 +284,8 @@ export default function Landing() {
                 </>
               ) : (
                 <>
-                  <Button 
-                    variant="ghost" 
-                    onClick={() => setLocation("/login")}
-                  >
-                    Sign In
+                  <Button variant="ghost" asChild>
+                    <Link href="/login">Sign In</Link>
                   </Button>
                   <Button 
                     className={CTA_BUTTON_CLASS}
@@ -312,12 +383,8 @@ export default function Landing() {
                   )
                 ) : (
                   <div className="flex flex-col sm:flex-row gap-4">
-                    <Button 
-                      size="lg" 
-                      className={`${CTA_BUTTON_CLASS} px-8 py-4`}
-                      onClick={() => setLocation('/quiz')}
-                    >
-                      Find My Perfect Plan
+                    <Button size="lg" className={`${CTA_BUTTON_CLASS} px-8 py-4`} asChild>
+                      <Link href="/quiz">Find My Perfect Plan</Link>
                     </Button>
                     <Button 
                       size="lg" 
@@ -487,8 +554,8 @@ export default function Landing() {
                 </p>
                 <div className="flex items-center">
                   <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
-                  <div>
-                    <p className="font-semibold text-gray-900">Sarah Johnson</p>
+                  </div>
+                </>
                     <p className="text-sm text-gray-600">Member since 2023</p>
                   </div>
                 </div>

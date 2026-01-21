@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /agent
+Disallow: /admin
+Disallow: /registration
+Sitemap: https://enrollment.getmydpc.com/sitemap.xml
