@@ -328,10 +328,14 @@ export default function Dashboard() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Care Team</h3>
                 <div className="space-y-4">
                   <div className="flex items-center space-x-3">
-                    <img 
-                      src="https://images.unsplash.com/photo-1582750433449-648ed127bb54?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100" 
-                      alt="Dr. Sarah Johnson - Primary Care Physician" 
+                    <img
+                      src="https://images.unsplash.com/photo-1582750433449-648ed127bb54?ixlib=rb-4.0.3&auto=format&fit=crop&w=100&h=100"
+                      alt="Dr. Sarah Johnson - Primary Care Physician"
                       className="w-12 h-12 rounded-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      width={48}
+                      height={48}
                     />
                     <div>
                       <div className="font-medium text-gray-900">Dr. Sarah Johnson</div>

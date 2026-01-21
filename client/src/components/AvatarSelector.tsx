@@ -27,6 +27,10 @@ export function AvatarSelector({ selectedAvatar, onSelect }: AvatarSelectorProps
               src={avatarUrl} 
               alt={`Default avatar ${index + 1}`}
               className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
+              width={64}
+              height={64}
             />
           </button>
         ))}

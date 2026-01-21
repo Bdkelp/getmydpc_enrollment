@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,17 +6,43 @@ import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { DollarSign, Clock, UserCheck, Check, Star } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { ContactFormModal } from "@/components/contact-form-modal";
-import { PartnerFormModal } from "@/components/partner-form-modal";
 import type { Plan } from "@shared/schema";
-import heroImage from "@assets/about-hero-compassionate-care.jpg";
+import heroImagePicture from "@assets/about-hero-compassionate-care.jpg?as=picture&width=640;960;1280&format=avif;webp;jpg&quality=80";
+import heroImageFallback from "@assets/about-hero-compassionate-care.jpg?width=1280&format=jpeg&quality=80&as=src";
 import logoSvg from "@assets/My Premier Plans Logo-01.svg";
 import logoPng from "@assets/My Premier Plans Logo-01.png";
-import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 import { Helmet } from "react-helmet-async";
 
 const CTA_BUTTON_CLASS = "bg-medical-blue-600 text-white hover:bg-medical-blue-700 shadow-md";
+
+const ContactFormModal = lazy(() =>
+  import("@/components/contact-form-modal").then((module) => ({
+    default: module.ContactFormModal,
+  }))
+);
+
+const PartnerFormModal = lazy(() =>
+  import("@/components/partner-form-modal").then((module) => ({
+    default: module.PartnerFormModal,
+  }))
+);
+
+type PictureSource = { type?: string; srcset?: string };
+type PictureAsset = {
+  sources?: PictureSource[];
+  img?: { src?: string; width?: number; height?: number };
+};
+
+const heroMedia = heroImagePicture as PictureAsset;
+const HERO_IMAGE_WIDTH = 1280;
+const HERO_IMAGE_HEIGHT = 720;
+const heroSources = (heroMedia.sources ?? []).filter((source) => Boolean(source?.srcset));
+const heroImageAttrs = {
+  src: heroMedia.img?.src ?? heroImageFallback,
+  width: heroMedia.img?.width ?? HERO_IMAGE_WIDTH,
+  height: heroMedia.img?.height ?? HERO_IMAGE_HEIGHT,
+};
 
 type LogoImageProps = {
   className?: string;
@@ -25,7 +51,15 @@ type LogoImageProps = {
 const LogoImage = ({ className = "h-14 sm:h-16 md:h-20 w-auto drop-shadow-md" }: LogoImageProps) => (
   <picture className="block">
     <source srcSet={logoSvg} type="image/svg+xml" />
-    <img src={logoPng} alt="My Premier Plans logo" className={className} loading="lazy" />
+    <img
+      src={logoPng}
+      alt="My Premier Plans logo"
+      className={className}
+      loading="lazy"
+      decoding="async"
+      width={256}
+      height={96}
+    />
   </picture>
 );
 
@@ -56,8 +90,6 @@ export default function Landing() {
     observer.observe(target);
     return () => observer.disconnect();
   }, []);
-  
-  console.log('[Landing] Auth state:', { isAuthenticated, user: user?.email, role: user?.role });
   
   const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ["/api/plans"],
@@ -235,7 +267,10 @@ export default function Landing() {
       </Helmet>
       <div className="min-h-screen bg-gradient-to-b from-white via-medical-blue-50/10 to-white">
       {/* Navigation Header */}
-      <nav className="bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/50 sticky top-0 z-50 animate-[fade-in-up_0.5s_ease-out]">
+      <nav
+        role="banner"
+        className="bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/50 sticky top-0 z-50 animate-[fade-in-up_0.5s_ease-out]"
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -301,7 +336,7 @@ export default function Landing() {
       </nav>
 
       {/* Hero Section */}
-      <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden">
+      <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden hero-shell">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div
@@ -405,12 +440,25 @@ export default function Landing() {
             <div className="lg:pl-8 animate-[scale-in_1s_ease-out]">
               <div className="relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-medical-blue-500/10 to-medical-blue-600/10 rounded-2xl blur-3xl" />
-                <img 
-                  src={heroImage} 
-                  alt="Doctor consultation with patient" 
-                  className="relative rounded-2xl shadow-2xl w-full h-auto object-cover transform hover:scale-[1.02] transition-transform duration-500"
-                  style={{ maxHeight: "600px" }}
-                />
+                <picture>
+                  {heroSources.map((source) => (
+                    <source
+                      key={`${source.type ?? "fallback"}-${source.srcset}`}
+                      type={source.type}
+                      srcSet={source.srcset!}
+                    />
+                  ))}
+                  <img
+                    src={heroImageAttrs.src}
+                    width={heroImageAttrs.width}
+                    height={heroImageAttrs.height}
+                    alt="Doctor consultation with patient"
+                    className="relative rounded-2xl shadow-2xl w-full h-auto object-cover transform hover:scale-[1.02] transition-transform duration-500"
+                    style={{ maxHeight: "600px" }}
+                    loading="eager"
+                    decoding="sync"
+                  />
+                </picture>
               </div>
             </div>
           </div>
@@ -554,8 +602,8 @@ export default function Landing() {
                 </p>
                 <div className="flex items-center">
                   <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
-                  </div>
-                </>
+                  <div>
+                    <p className="font-semibold text-gray-900">Lauren Patel</p>
                     <p className="text-sm text-gray-600">Member since 2023</p>
                   </div>
                 </div>
@@ -611,15 +659,21 @@ export default function Landing() {
         </div>
       </div>
       
-      {/* Contact Form Modal */}
-      <ContactFormModal 
-        isOpen={isContactModalOpen} 
-        onClose={() => setIsContactModalOpen(false)} 
-      />
-      <PartnerFormModal 
-        isOpen={isPartnerModalOpen}
-        onClose={() => setIsPartnerModalOpen(false)}
-      />
+      <Suspense fallback={null}>
+        {isContactModalOpen && (
+          <ContactFormModal
+            isOpen={isContactModalOpen}
+            onClose={() => setIsContactModalOpen(false)}
+          />
+        )}
+        {isPartnerModalOpen && (
+          <PartnerFormModal
+            isOpen={isPartnerModalOpen}
+            onClose={() => setIsPartnerModalOpen(false)}
+          />
+        )}
+      </Suspense>
     </div>
-  );
+  </>
+);
 }

@@ -114,7 +114,13 @@ export function FileUpload({
       >
         {preview ? (
           <div className="relative">
-            <img src={preview} alt="Preview" className="max-h-32 mx-auto rounded" />
+            <img
+              src={preview}
+              alt="Preview"
+              className="max-h-32 mx-auto rounded"
+              loading="lazy"
+              decoding="async"
+            />
             {onFileRemove && (
               <Button
                 size="sm"
