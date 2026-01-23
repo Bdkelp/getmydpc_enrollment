@@ -29,15 +29,33 @@ const PartnerFormModal = lazy(() =>
 );
 
 type PictureSource = { type?: string; srcset?: string };
+type PictureSourcesCollection =
+  | PictureSource[]
+  | Record<string, PictureSource | PictureSource[] | undefined>;
 type PictureAsset = {
-  sources?: PictureSource[];
+  sources?: PictureSourcesCollection;
   img?: { src?: string; width?: number; height?: number };
+};
+
+const normalizePictureSources = (sources: PictureAsset["sources"]): PictureSource[] => {
+  if (!sources) {
+    return [];
+  }
+  if (Array.isArray(sources)) {
+    return sources;
+  }
+  if (typeof sources === "object") {
+    return Object.values(sources)
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .filter((value): value is PictureSource => Boolean(value));
+  }
+  return [];
 };
 
 const heroMedia = heroImagePicture as PictureAsset;
 const HERO_IMAGE_WIDTH = 1280;
 const HERO_IMAGE_HEIGHT = 720;
-const heroSources = (heroMedia.sources ?? []).filter((source) => Boolean(source?.srcset));
+const heroSources = normalizePictureSources(heroMedia.sources).filter((source) => Boolean(source?.srcset));
 const heroImageAttrs = {
   src: heroMedia.img?.src ?? heroImageFallback,
   width: heroMedia.img?.width ?? HERO_IMAGE_WIDTH,
