@@ -113,6 +113,27 @@ export default function Landing() {
     },
   ];
 
+  const testimonials = [
+    {
+      quote:
+        "Finally, healthcare that works for me! No more waiting weeks for appointments. My doctor actually knows my name and takes time to listen. The virtual visits have been a game-changer for my busy schedule.",
+      name: "Lauren Patel",
+      since: "Member since 2023",
+    },
+    {
+      quote:
+        "The $10 office visits and $25 urgent care visits have saved me hundreds compared to my old insurance copays. I am able to be seen same day or next day when I need care. It's healthcare membership how it should be!",
+      name: "Michael Chen",
+      since: "Member since 2022",
+    },
+    {
+      quote:
+        "Having the Elite plan with no visit fees and Quest diagnostics included has been incredible. My whole family is covered, and we actually use our healthcare now instead of avoiding it due to cost.",
+      name: "Jennifer Martinez",
+      since: "Member since 2024",
+    },
+  ];
+
   const getPlanBadge = (planName: string) => {
     if (planName.toLowerCase().includes("elite")) {
       return (
@@ -587,74 +608,29 @@ export default function Landing() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Testimonial 1 */}
-            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
-              <CardContent className="p-0">
-                <div className="flex items-center mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
-                  ))}
-                </div>
-                <p className="text-gray-700 mb-6 italic">
-                  "Finally, healthcare that works for me! No more waiting weeks for appointments. 
-                  My doctor actually knows my name and takes time to listen. The virtual visits 
-                  have been a game-changer for my busy schedule."
-                </p>
-                <div className="flex items-center">
-                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
-                  <div>
-                    <p className="font-semibold text-gray-900">Lauren Patel</p>
-                    <p className="text-sm text-gray-600">Member since 2023</p>
+            {testimonials.map((testimonial, idx) => (
+              <Card
+                key={testimonial.name}
+                className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+                style={{ animationDelay: `${idx * 100}ms` }}
+              >
+                <CardContent className="p-0">
+                  <div className="flex items-center mb-4">
+                    {[...Array(5)].map((_, starIndex) => (
+                      <Star key={`${testimonial.name}-star-${starIndex}`} className="h-5 w-5 text-yellow-400 fill-current" />
+                    ))}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 2 */}
-            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
-              <CardContent className="p-0">
-                <div className="flex items-center mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
-                  ))}
-                </div>
-                <p className="text-gray-700 mb-6 italic">
-                  "The $10 office visits and $25 urgent care visits have saved me hundreds compared 
-                  to my old insurance copays. I am able to be seen same day or next day when I need care. 
-                  It's healthcare membership how it should be!"
-                </p>
-                <div className="flex items-center">
-                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
-                  <div>
-                    <p className="font-semibold text-gray-900">Michael Chen</p>
-                    <p className="text-sm text-gray-600">Member since 2022</p>
+                  <p className="text-gray-700 mb-6 italic">{testimonial.quote}</p>
+                  <div className="flex items-center">
+                    <div className="h-12 w-12 bg-gray-300 rounded-full mr-4" aria-hidden />
+                    <div>
+                      <p className="font-semibold text-gray-900">{testimonial.name}</p>
+                      <p className="text-sm text-gray-600">{testimonial.since}</p>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Testimonial 3 */}
-            <Card className="p-8 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
-              <CardContent className="p-0">
-                <div className="flex items-center mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
-                  ))}
-                </div>
-                <p className="text-gray-700 mb-6 italic">
-                  "Having the Elite plan with no visit fees and Quest diagnostics included has been 
-                  incredible. My whole family is covered, and we actually use our healthcare now 
-                  instead of avoiding it due to cost."
-                </p>
-                <div className="flex items-center">
-                  <div className="h-12 w-12 bg-gray-300 rounded-full mr-4"></div>
-                  <div>
-                    <p className="font-semibold text-gray-900">Jennifer Martinez</p>
-                    <p className="text-sm text-gray-600">Member since 2024</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </div>
