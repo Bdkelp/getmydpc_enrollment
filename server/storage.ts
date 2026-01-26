@@ -605,20 +605,28 @@ export async function createUser(userData: Partial<User>): Promise<User> {
 
 export async function getUser(id: string): Promise<User | null> {
   try {
-    console.log('[Storage] getUser called with UUID:', id);
-    
-    // Look up user by UUID (Supabase Auth ID)
+    const identifier = resolveUserIdentifier(id);
+
+    if (!identifier) {
+      console.warn('[Storage] getUser: Unsupported identifier format, cannot fetch user');
+      return null;
+    }
+
+    if (identifier.column === 'email') {
+      console.warn('[Storage] getUser: Using email-based lookup for legacy user record');
+    }
+
     const { data, error } = await supabase
       .from('users')
       .select('*')
-      .eq('id', id)
+      .eq(identifier.column, identifier.value)
       .single();
-    
+
     if (error || !data) {
-      console.log('[Storage] getUser: User not found for UUID:', id);
+      console.log('[Storage] getUser: User not found for identifier column', identifier.column);
       return null;
     }
-    
+
     console.log('[Storage] getUser: Found user:', data.email);
     console.log('[Storage] getUser: Raw role from DB:', {
       role: data.role,
@@ -626,7 +634,7 @@ export async function getUser(id: string): Promise<User | null> {
       roleLength: data.role?.length,
       roleBytes: data.role ? Buffer.from(data.role).toString('hex') : 'null'
     });
-    
+
     const mappedUser = mapUserFromDB(data);
     console.log('[Storage] getUser: Mapped user role:', mappedUser?.role);
     return mappedUser;
@@ -634,6 +642,28 @@ export async function getUser(id: string): Promise<User | null> {
     console.error('[Storage] Error in getUser:', error);
     return null;
   }
+}
+
+function isValidUuid(value: string | null | undefined): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
+}
+
+function looksLikeEmail(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.includes('@');
+}
+
+function resolveUserIdentifier(identifier: string): { column: 'id' | 'email'; value: string } | null {
+  if (isValidUuid(identifier)) {
+    return { column: 'id', value: identifier };
+  }
+
+  if (looksLikeEmail(identifier)) {
+    return { column: 'email', value: identifier };
+  }
+
+  return null;
 }
 
 // Helper function to map database snake_case to camelCase
@@ -708,7 +738,6 @@ export async function getUserByEmail(email: string): Promise<User | null> {
       .select('*')
       .eq('email', email)
       .single();
-    console.log('[Storage] getUserByEmail Supabase response:', { data: data ? 'found' : 'null', error: error ? error.message : 'none' });
     
     // DEBUG: Log the actual data structure
     if (data) {
@@ -791,25 +820,27 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     // - googleId, facebookId, twitterId, emailVerified, etc.
     
     if (Object.keys(updateData).length === 0) {
-      // No valid updates, just return the existing user
       console.log('[Storage] updateUser: No valid fields to update, returning existing user');
-      const currentUser = await getUser(id); // Get user by UUID
+      const currentUser = await getUser(id);
       if (currentUser) return currentUser;
       throw new Error('User not found');
     }
 
-    console.log('[Storage] updateUser: Updating user', id, 'with data:', updateData);
+    const identifier = resolveUserIdentifier(id);
+    if (!identifier) {
+      throw new Error('Unable to determine identifier for user update');
+    }
+
+    console.log('[Storage] updateUser: Updating user', identifier.value, 'using column', identifier.column, 'with data:', updateData);
     console.log('[Storage] updateUser: Update data keys:', Object.keys(updateData));
     console.log('[Storage] updateUser: profileImageUrl in updates?', 'profile_image_url' in updateData);
-    
-    // Check if banking information is being updated for audit logging
+
     const bankingFields = ['bank_name', 'routing_number', 'account_number', 'account_type', 'account_holder_name'];
     const hasBankingUpdates = bankingFields.some(field => updateData[field] !== undefined);
-    
+
     let oldBankingInfo = null;
     if (hasBankingUpdates) {
-      // Get current banking info before update for audit trail
-      const currentUser = await getUser(id);
+      const currentUser = await getUser(identifier.value);
       if (currentUser) {
         oldBankingInfo = {
           bankName: currentUser.bankName,
@@ -820,12 +851,18 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
         };
       }
     }
-    
-    // Use Supabase update - id is the UUID from Supabase Auth
-    const { data, error } = await supabase
+
+    let query = supabase
       .from('users')
-      .update(updateData)
-      .eq('id', id) // Use UUID as identifier (primary key in users table)
+      .update(updateData);
+
+    if (identifier.column === 'id') {
+      query = query.eq('id', identifier.value);
+    } else {
+      query = query.eq('email', identifier.value);
+    }
+
+    const { data, error } = await query
       .select()
       .single();
     
