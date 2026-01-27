@@ -643,6 +643,11 @@ export async function getUser(id: string, options?: UserLookupOptions): Promise<
           continue;
         }
 
+        if (isRecoverableIdentifierError(error)) {
+          console.warn(`[Storage] getUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`);
+          continue;
+        }
+
         console.error(`[Storage] getUser: Supabase error via ${target.column} (${target.reason})`, error);
         throw error;
       }
@@ -677,6 +682,16 @@ function normalizeIdentifierInput(identifier: unknown): string | null {
 
   const stringValue = String(identifier).trim();
   return stringValue.length > 0 ? stringValue : null;
+}
+
+function isRecoverableIdentifierError(error: any): boolean {
+  if (!error) return false;
+  const code = (error.code || error.details || '').toString();
+  const message = (error.message || '').toString().toLowerCase();
+  if (code === '22P02') {
+    return true;
+  }
+  return message.includes('invalid input syntax for type uuid');
 }
 
 function isValidUuid(value: string | null | undefined): boolean {
@@ -926,6 +941,10 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
       if (error) {
         if ((error as any)?.code === 'PGRST116') {
           console.warn(`[Storage] updateUser: No rows matched via ${target.column} (${target.reason})`);
+          continue;
+        }
+        if (isRecoverableIdentifierError(error)) {
+          console.warn(`[Storage] updateUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`);
           continue;
         }
         console.error(`[Storage] updateUser error via ${target.column} (${target.reason})`, error);
