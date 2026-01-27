@@ -384,14 +384,18 @@ import {
 } from "@shared/performanceGoals";
 import type { PerformanceGoals } from "@shared/performanceGoals";
 
+type UserLookupOptions = {
+  fallbackEmail?: string | null;
+};
+
 export interface IStorage {
   // User operations (Supabase-authenticated agents/admins)
-  getUser(id: string): Promise<User | undefined>;
+  getUser(id: string, options?: UserLookupOptions): Promise<User | null>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserProfile(id: string, data: Partial<User>): Promise<User>;
+  updateUserProfile(id: string, data: Partial<User>, options?: UserLookupOptions): Promise<User>;
   // Authentication operations
   createUser(user: Partial<User>): Promise<User>;
-  updateUser(id: string, data: Partial<User>): Promise<User>;
+  updateUser(id: string, data: Partial<User>, options?: UserLookupOptions): Promise<User>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByAgentNumber(agentNumber: string): Promise<User | undefined>;
 
@@ -603,41 +607,63 @@ export async function createUser(userData: Partial<User>): Promise<User> {
   }
 }
 
-export async function getUser(id: string): Promise<User | null> {
+export async function getUser(id: string, options?: UserLookupOptions): Promise<User | null> {
   try {
-    const identifier = resolveUserIdentifier(id);
+    const fallbackEmail = normalizeEmailInput(options?.fallbackEmail);
+    const primaryIdentifier = resolveUserIdentifier(id);
 
-    if (!identifier) {
-      console.warn('[Storage] getUser: Unsupported identifier format, cannot fetch user');
+    const lookupQueue: Array<{ column: 'id' | 'email'; value: string; reason: string }> = [];
+
+    if (primaryIdentifier) {
+      lookupQueue.push({ ...primaryIdentifier, reason: 'primary' });
+    }
+
+    if (fallbackEmail) {
+      const alreadyUsingFallback = primaryIdentifier?.column === 'email' && primaryIdentifier.value === fallbackEmail;
+      if (!alreadyUsingFallback) {
+        lookupQueue.push({ column: 'email', value: fallbackEmail, reason: 'fallbackEmail' });
+      }
+    }
+
+    if (lookupQueue.length === 0) {
+      console.warn('[Storage] getUser: No valid identifier or fallback email provided');
       return null;
     }
 
-    if (identifier.column === 'email') {
-      console.warn('[Storage] getUser: Using email-based lookup for legacy user record');
+    for (const target of lookupQueue) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq(target.column, target.value)
+        .single();
+
+      if (error) {
+        if ((error as any)?.code === 'PGRST116') {
+          console.warn(`[Storage] getUser: No record found via ${target.column} (${target.reason})`);
+          continue;
+        }
+
+        console.error(`[Storage] getUser: Supabase error via ${target.column} (${target.reason})`, error);
+        throw error;
+      }
+
+      if (data) {
+        console.log(`[Storage] getUser: Found user via ${target.column} (${target.reason}):`, data.email);
+        console.log('[Storage] getUser: Raw role from DB:', {
+          role: data.role,
+          roleType: typeof data.role,
+          roleLength: data.role?.length,
+          roleBytes: data.role ? Buffer.from(data.role).toString('hex') : 'null'
+        });
+
+        const mappedUser = mapUserFromDB(data);
+        console.log('[Storage] getUser: Mapped user role:', mappedUser?.role);
+        return mappedUser;
+      }
     }
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq(identifier.column, identifier.value)
-      .single();
-
-    if (error || !data) {
-      console.log('[Storage] getUser: User not found for identifier column', identifier.column);
-      return null;
-    }
-
-    console.log('[Storage] getUser: Found user:', data.email);
-    console.log('[Storage] getUser: Raw role from DB:', {
-      role: data.role,
-      roleType: typeof data.role,
-      roleLength: data.role?.length,
-      roleBytes: data.role ? Buffer.from(data.role).toString('hex') : 'null'
-    });
-
-    const mappedUser = mapUserFromDB(data);
-    console.log('[Storage] getUser: Mapped user role:', mappedUser?.role);
-    return mappedUser;
+    console.warn('[Storage] getUser: Exhausted all lookup strategies without finding a user');
+    return null;
   } catch (error: any) {
     console.error('[Storage] Error in getUser:', error);
     return null;
@@ -661,6 +687,14 @@ function isValidUuid(value: string | null | undefined): boolean {
 
 function looksLikeEmail(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.includes('@');
+}
+
+function normalizeEmailInput(value: unknown): string | null {
+  const normalized = normalizeIdentifierInput(value);
+  if (!normalized) {
+    return null;
+  }
+  return looksLikeEmail(normalized) ? normalized : null;
 }
 
 function resolveUserIdentifier(identifier: unknown): { column: 'id' | 'email'; value: string } | null {
@@ -794,7 +828,7 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   }
 }
 
-export async function updateUser(id: string, updates: Partial<User>): Promise<User> {
+export async function updateUser(id: string, updates: Partial<User>, options?: UserLookupOptions): Promise<User> {
   try {
     // Build update object with only columns that exist in Supabase
     // Supabase users table columns: email, username, first_name, last_name, phone, role, agent_number, is_active, created_at
@@ -834,19 +868,21 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     // - lastLoginAt, approvalStatus, approvedAt, approvedBy
     // - googleId, facebookId, twitterId, emailVerified, etc.
     
+    const fallbackEmail = normalizeEmailInput(options?.fallbackEmail);
+
     if (Object.keys(updateData).length === 0) {
       console.log('[Storage] updateUser: No valid fields to update, returning existing user');
-      const currentUser = await getUser(id);
+      const currentUser = await getUser(id, { fallbackEmail });
       if (currentUser) return currentUser;
       throw new Error('User not found');
     }
 
-    const identifier = resolveUserIdentifier(id);
-    if (!identifier) {
+    const primaryIdentifier = resolveUserIdentifier(id) || (fallbackEmail ? { column: 'email' as const, value: fallbackEmail } : null);
+    if (!primaryIdentifier) {
       throw new Error('Unable to determine identifier for user update');
     }
 
-    console.log('[Storage] updateUser: Updating user', identifier.value, 'using column', identifier.column, 'with data:', updateData);
+    console.log('[Storage] updateUser: Updating user', primaryIdentifier.value, 'using column', primaryIdentifier.column, 'with data:', updateData);
     console.log('[Storage] updateUser: Update data keys:', Object.keys(updateData));
     console.log('[Storage] updateUser: profileImageUrl in updates?', 'profile_image_url' in updateData);
 
@@ -855,7 +891,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
 
     let oldBankingInfo = null;
     if (hasBankingUpdates) {
-      const currentUser = await getUser(identifier.value);
+      const currentUser = await getUser(id, { fallbackEmail });
       if (currentUser) {
         oldBankingInfo = {
           bankName: currentUser.bankName,
@@ -867,19 +903,44 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
       }
     }
 
-    let query = supabase
-      .from('users')
-      .update(updateData);
+    const updateQueue: Array<{ column: 'id' | 'email'; value: string; reason: string }> = [
+      { ...primaryIdentifier, reason: 'primary' }
+    ];
 
-    if (identifier.column === 'id') {
-      query = query.eq('id', identifier.value);
-    } else {
-      query = query.eq('email', identifier.value);
+    if (fallbackEmail) {
+      const alreadyQueued = primaryIdentifier.column === 'email' && primaryIdentifier.value === fallbackEmail;
+      if (!alreadyQueued) {
+        updateQueue.push({ column: 'email', value: fallbackEmail, reason: 'fallbackEmail' });
+      }
     }
 
-    const { data, error } = await query
-      .select()
-      .single();
+    let updatedRecord: any = null;
+    for (const target of updateQueue) {
+      const { data, error } = await supabase
+        .from('users')
+        .update(updateData)
+        .eq(target.column, target.value)
+        .select()
+        .single();
+
+      if (error) {
+        if ((error as any)?.code === 'PGRST116') {
+          console.warn(`[Storage] updateUser: No rows matched via ${target.column} (${target.reason})`);
+          continue;
+        }
+        console.error(`[Storage] updateUser error via ${target.column} (${target.reason})`, error);
+        throw new Error(`Failed to update user: ${error.message}`);
+      }
+
+      if (data) {
+        updatedRecord = data;
+        break;
+      }
+    }
+
+    if (!updatedRecord) {
+      throw new Error('User not found');
+    }
     
     // If banking info was updated and update was successful, log the change
     if (hasBankingUpdates && data && oldBankingInfo) {
@@ -903,16 +964,12 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
       });
     }
 
-    if (error) {
-      console.error('[Storage] updateUser error:', error);
-      throw new Error(`Failed to update user: ${error.message}`);
+    const mapped = mapUserFromDB(updatedRecord);
+    if (!mapped) {
+      throw new Error('Failed to map updated user record');
     }
 
-    if (!data) {
-      throw new Error('User not found');
-    }
-
-    return mapUserFromDB(data);
+    return mapped;
   } catch (error: any) {
     console.error('Error updating user:', error);
 
@@ -920,7 +977,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
     const isNonCriticalUpdate = Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
     if (isNonCriticalUpdate) {
       console.warn(`Non-critical user update failed for ${id}, continuing anyway:`, error.message);
-      const currentUser = await getUser(id);
+      const currentUser = await getUser(id, { fallbackEmail: options?.fallbackEmail });
       if (currentUser) {
         return currentUser;
       }
@@ -930,8 +987,8 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   }
 }
 
-export async function updateUserProfile(id: string, profileData: Partial<User>): Promise<User> {
-  return updateUser(id, profileData);
+export async function updateUserProfile(id: string, profileData: Partial<User>, options?: UserLookupOptions): Promise<User> {
+  return updateUser(id, profileData, options);
 }
 
 export async function getUserByUsername(username: string): Promise<User | null> {

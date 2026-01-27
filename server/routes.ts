@@ -1337,7 +1337,9 @@ router.get(
       console.log('[Profile GET] Fetching profile for user:', req.user.email);
       
       // Get the full user profile including banking information
-      const userProfile = await storage.getUser(req.user.id);
+      const userProfile = await storage.getUser(req.user.id, {
+        fallbackEmail: req.user.email,
+      });
       
       if (!userProfile) {
         return res.status(404).json({ message: "Profile not found" });
@@ -1396,10 +1398,16 @@ router.put(
       }
 
       console.log('[Profile Update] Calling storage.updateUser with user ID:', req.user!.id);
-      const updatedUser = await storage.updateUser(req.user!.id, {
-        ...updateData,
-        updatedAt: new Date(),
-      });
+      const updatedUser = await storage.updateUser(
+        req.user!.id,
+        {
+          ...updateData,
+          updatedAt: new Date(),
+        },
+        {
+          fallbackEmail: req.user!.email,
+        },
+      );
 
       console.log('[Profile Update] Update successful, returning user:', updatedUser ? 'found' : 'null');
       console.log('[Profile Update] Updated user data:', JSON.stringify(updatedUser, null, 2));

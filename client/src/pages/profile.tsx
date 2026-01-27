@@ -586,7 +586,7 @@ export default function Profile() {
                         name="address2"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Apartment, suite, etc.</FormLabel>
+                              <FormLabel>Apartment, suite, etc. (Optional)</FormLabel>
                             <FormControl>
                               <Input {...field} />
                             </FormControl>
