@@ -941,21 +941,23 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     if (!updatedRecord) {
       throw new Error('User not found');
     }
+
+    const auditUserId = updatedRecord.id || id;
     
     // If banking info was updated and update was successful, log the change
-    if (hasBankingUpdates && data && oldBankingInfo) {
+    if (hasBankingUpdates && oldBankingInfo) {
       const newBankingInfo = {
-        bankName: updateData.bank_name,
-        routingNumber: updateData.routing_number,
-        accountNumber: updateData.account_number,
-        accountType: updateData.account_type,
-        accountHolderName: updateData.account_holder_name
+        bankName: updatedRecord.bank_name ?? updateData.bank_name,
+        routingNumber: updatedRecord.routing_number ?? updateData.routing_number,
+        accountNumber: updatedRecord.account_number ?? updateData.account_number,
+        accountType: updatedRecord.account_type ?? updateData.account_type,
+        accountHolderName: updatedRecord.account_holder_name ?? updateData.account_holder_name
       };
       
       // Log the banking change (don't await to avoid blocking the response)
       recordBankingInfoChange({
-        userId: id,
-        modifiedBy: id, // User is modifying their own info
+        userId: auditUserId,
+        modifiedBy: auditUserId,
         oldBankingInfo,
         newBankingInfo,
         changeType: 'self_update'
