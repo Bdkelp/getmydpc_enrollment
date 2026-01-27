@@ -644,8 +644,17 @@ export async function getUser(id: string): Promise<User | null> {
   }
 }
 
+function normalizeIdentifierInput(identifier: unknown): string | null {
+  if (identifier === null || identifier === undefined) {
+    return null;
+  }
+
+  const stringValue = String(identifier).trim();
+  return stringValue.length > 0 ? stringValue : null;
+}
+
 function isValidUuid(value: string | null | undefined): boolean {
-  if (!value || typeof value !== 'string') return false;
+  if (!value) return false;
   const trimmed = value.trim();
   return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
 }
@@ -654,16 +663,22 @@ function looksLikeEmail(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.includes('@');
 }
 
-function resolveUserIdentifier(identifier: string): { column: 'id' | 'email'; value: string } | null {
-  if (isValidUuid(identifier)) {
-    return { column: 'id', value: identifier };
+function resolveUserIdentifier(identifier: unknown): { column: 'id' | 'email'; value: string } | null {
+  const normalized = normalizeIdentifierInput(identifier);
+  if (!normalized) {
+    return null;
   }
 
-  if (looksLikeEmail(identifier)) {
-    return { column: 'email', value: identifier };
+  if (looksLikeEmail(normalized)) {
+    return { column: 'email', value: normalized };
   }
 
-  return null;
+  if (isValidUuid(normalized)) {
+    return { column: 'id', value: normalized };
+  }
+
+  // Default to using the id column to preserve legacy behavior for non-email identifiers
+  return { column: 'id', value: normalized };
 }
 
 // Helper function to map database snake_case to camelCase
