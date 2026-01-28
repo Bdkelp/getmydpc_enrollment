@@ -67,8 +67,26 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
       });
     }
 
-    // Check if email is verified
-    if (!dbUser.emailVerified) {
+    let isEmailVerified = dbUser.emailVerified;
+
+    if (isEmailVerified === false && user.email_confirmed_at) {
+      try {
+        await supabase
+          .from('users')
+          .update({
+            email_verified: true,
+            email_verified_at: user.email_confirmed_at
+          })
+          .eq('id', dbUser.id);
+
+        isEmailVerified = true;
+        dbUser.emailVerified = true;
+      } catch (syncError) {
+        console.warn('[Auth] Failed to sync email verification status:', syncError);
+      }
+    }
+
+    if (isEmailVerified === false) {
       return res.status(403).json({ 
         message: 'Email verification required. Please check your email for a verification link.',
         requiresEmailVerification: true,

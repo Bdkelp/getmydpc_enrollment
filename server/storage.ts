@@ -768,7 +768,7 @@ function mapUserFromDB(data: any): User | null {
     approvedAt: data.approved_at || data.approvedAt,
     approvedBy: data.approved_by || data.approvedBy,
     rejectionReason: data.rejection_reason || data.rejectionReason,
-    emailVerified: data.email_verified !== undefined ? data.email_verified : (data.emailVerified !== undefined ? data.emailVerified : false),
+    emailVerified: (data.email_verified ?? data.emailVerified ?? true) === true,
     emailVerifiedAt: data.email_verified_at || data.emailVerifiedAt,
     registrationIp: data.registration_ip || data.registrationIp,
     registrationUserAgent: data.registration_user_agent || data.registrationUserAgent,
@@ -930,6 +930,7 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     }
 
     let updatedRecord: any = null;
+    let schemaCacheError: any = null;
     for (const target of updateQueue) {
       const { data, error } = await supabase
         .from('users')
@@ -939,9 +940,15 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
         .single();
 
       if (error) {
-        if ((error as any)?.code === 'PGRST116') {
+        const errorCode = (error as any)?.code;
+        if (errorCode === 'PGRST116') {
           console.warn(`[Storage] updateUser: No rows matched via ${target.column} (${target.reason})`);
           continue;
+        }
+        if (errorCode === 'PGRST204') {
+          schemaCacheError = error;
+          console.warn('[Storage] updateUser: Supabase schema cache miss detected, preparing direct SQL fallback');
+          break;
         }
         if (isRecoverableIdentifierError(error)) {
           console.warn(`[Storage] updateUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`);
@@ -957,7 +964,18 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
       }
     }
 
+    if (!updatedRecord && schemaCacheError) {
+      console.warn('[Storage] updateUser: Attempting direct SQL fallback due to schema cache error');
+      updatedRecord = await updateUserViaDirectQuery(updateQueue, updateData);
+      if (updatedRecord) {
+        console.log('[Storage] updateUser: Direct SQL fallback succeeded');
+      }
+    }
+
     if (!updatedRecord) {
+      if (schemaCacheError) {
+        throw new Error(`Failed to update user via Supabase client: ${schemaCacheError.message}`);
+      }
       throw new Error('User not found');
     }
 
@@ -993,6 +1011,13 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     return mapped;
   } catch (error: any) {
     console.error('Error updating user:', error);
+    console.error('[Storage] updateUser error details:', {
+      message: error?.message,
+      code: error?.code,
+      details: error?.details,
+      hint: error?.hint,
+      stack: error?.stack,
+    });
 
     // For non-critical updates like last_login_at, don't throw - just return the existing user
     const isNonCriticalUpdate = Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
