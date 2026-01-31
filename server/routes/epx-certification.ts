@@ -20,7 +20,7 @@ const router = Router();
 const requireSuperAdmin = requireRole('super_admin');
 const requireAdmin = requireRole('admin');
 
-const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE9'] as const;
+const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE9', 'TEST'] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
 const isSupportedTranType = (value: string): value is SupportedTranType =>
   SUPPORTED_TRAN_TYPES.includes(value as SupportedTranType);
@@ -603,7 +603,68 @@ router.post('/api/admin/payments/cancel-subscription', authenticateToken, requir
 });
 
 router.post('/api/admin/payments/manual-transaction', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+  const { tranType } = req.body || {};
 
+  // Handle test payments differently - create a hosted checkout session
+  if (tranType === 'TEST') {
+    try {
+      const { amount, description } = req.body;
+      
+      if (!amount || amount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Amount required for test payment'
+        });
+      }
+
+      const epxService = getEPXService();
+      const testOrderNumber = `TEST-${Date.now()}`;
+      
+      const session = epxService.createCheckoutSession(
+        amount,
+        testOrderNumber,
+        req.user?.email || 'admin@test.com',
+        'Test Payment',
+        undefined
+      );
+
+      // Create a test payment record
+      const testPayment = await storage.createPayment({
+        transaction_id: testOrderNumber,
+        member_id: null,
+        plan_name: 'Test Payment',
+        amount: amount,
+        status: 'pending',
+        environment: 'production',
+        metadata: {
+          isTest: true,
+          description: description || 'Admin test payment',
+          initiatedBy: req.user?.email || 'unknown',
+          testType: 'manual-admin-test'
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        testPayment: {
+          id: testPayment.id,
+          transactionId: testOrderNumber,
+          amount: amount,
+          status: 'pending'
+        },
+        checkoutSession: session,
+        message: 'Test payment session created. Complete payment in EPX hosted checkout to verify.'
+      });
+    } catch (error: any) {
+      console.error('[Admin Test Payment] Failed to create test payment', error);
+      return res.status(500).json({
+        success: false,
+        error: error?.message || 'Failed to create test payment'
+      });
+    }
+  }
+
+  // Regular manual transactions (refunds, captures, etc.)
   const result = await executeServerPostAction(req.body || {}, req.user?.email, 'admin-dashboard');
   return res.status(result.status).json(result.body);
 });

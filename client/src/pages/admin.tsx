@@ -158,6 +158,7 @@ const isPartnerLeadStatus = (value: string): value is PartnerLeadStatus =>
 const MANUAL_TRANSACTION_TYPES = [
   { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
   { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
+  { value: "TEST", label: "Test Payment (No Member)", description: "Standalone test payment for verification" },
 ] as const;
 
 const getManualTranLabel = (value: string) => {
@@ -615,7 +616,11 @@ export default function Admin() {
       return;
     }
 
+    const isTestPayment = manualTransactionForm.tranType === 'TEST';
+
+    // Test payments don't require member info
     if (
+      !isTestPayment &&
       !manualTransactionForm.memberId.trim() &&
       !manualTransactionForm.transactionId.trim() &&
       !manualTransactionForm.authGuid.trim()
@@ -1414,23 +1419,41 @@ export default function Admin() {
 
             {manualTransactionResult && (
               <div className="grid gap-4 md:grid-cols-2">
+                {manualTransactionResult.testPayment && (
+                  <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                    <p className="font-semibold mb-2">Test Payment Created</p>
+                    <p>Transaction ID: <span className="font-mono">{manualTransactionResult.testPayment.transactionId}</span></p>
+                    <p>Amount: ${manualTransactionResult.testPayment.amount}</p>
+                    <p className="mt-2 text-xs">{manualTransactionResult.message}</p>
+                    {manualTransactionResult.checkoutSession && (
+                      <div className="mt-3 p-2 bg-white rounded border border-blue-300">
+                        <p className="text-xs font-medium mb-1">Checkout Session Details:</p>
+                        <pre className="text-xs overflow-x-auto">{JSON.stringify(manualTransactionResult.checkoutSession, null, 2)}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {manualTransactionResult.transactionReference && (
                   <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
                     Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>
                   </div>
                 )}
-                <div>
-                  <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
-                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
-                  </pre>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
-                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(manualTransactionResult.response || {}, null, 2)}
-                  </pre>
-                </div>
+                {manualTransactionResult.request && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
+                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                      {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {manualTransactionResult.response && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
+                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                      {JSON.stringify(manualTransactionResult.response || {}, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
