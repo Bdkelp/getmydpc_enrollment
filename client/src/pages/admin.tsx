@@ -1419,16 +1419,23 @@ export default function Admin() {
 
             {manualTransactionResult && (
               <div className="grid gap-4 md:grid-cols-2">
-                {manualTransactionResult.testPayment && (
+                {manualTransactionResult.redirectToCheckout && (
                   <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                    <p className="font-semibold mb-2">Test Payment Created</p>
-                    <p>Transaction ID: <span className="font-mono">{manualTransactionResult.testPayment.transactionId}</span></p>
-                    <p>Amount: ${manualTransactionResult.testPayment.amount}</p>
-                    <p className="mt-2 text-xs">{manualTransactionResult.message}</p>
-                    {manualTransactionResult.checkoutSession && (
-                      <div className="mt-3 p-2 bg-white rounded border border-blue-300">
-                        <p className="text-xs font-medium mb-1">Checkout Session Details:</p>
-                        <pre className="text-xs overflow-x-auto">{JSON.stringify(manualTransactionResult.checkoutSession, null, 2)}</pre>
+                    <p className="font-semibold mb-2">✓ Test Payment Created</p>
+                    <p>Transaction ID: <span className="font-mono">{manualTransactionResult.testPayment?.transactionId}</span></p>
+                    <p>Member ID: <span className="font-mono">{manualTransactionResult.testPayment?.memberId}</span></p>
+                    <p>Amount: ${manualTransactionResult.testPayment?.amount}</p>
+                    <p className="mt-3 text-xs">{manualTransactionResult.message}</p>
+                    {manualTransactionResult.checkoutUrl && (
+                      <div className="mt-4">
+                        <a 
+                          href={manualTransactionResult.checkoutUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+                        >
+                          Launch Hosted Checkout →
+                        </a>
                       </div>
                     )}
                   </div>

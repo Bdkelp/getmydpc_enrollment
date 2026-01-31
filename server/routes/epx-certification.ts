@@ -605,7 +605,7 @@ router.post('/api/admin/payments/cancel-subscription', authenticateToken, requir
 router.post('/api/admin/payments/manual-transaction', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
   const { tranType } = req.body || {};
 
-  // Handle test payments differently - create a hosted checkout session
+  // Handle test payments differently - redirect to hosted checkout
   if (tranType === 'TEST') {
     try {
       const { amount, description } = req.body;
@@ -617,21 +617,34 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
         });
       }
 
-      const epxService = getEPXService();
-      const testOrderNumber = `TEST-${Date.now()}`;
+      // Get or create test member
+      let testMember = await storage.getMemberByEmail('test@getmydpc.com');
       
-      const session = epxService.createCheckoutSession(
-        amount,
-        testOrderNumber,
-        req.user?.email || 'admin@test.com',
-        'Test Payment',
-        undefined
-      );
+      if (!testMember) {
+        // Create a generic test member for admin test payments
+        testMember = await storage.createMember({
+          first_name: 'Test',
+          last_name: 'Payment',
+          email: 'test@getmydpc.com',
+          phone: '+1-000-000-0000',
+          date_of_birth: '2000-01-01',
+          gender: 'other',
+          plan_name: 'Test Plan',
+          member_type: 'individual',
+          status: 'pending',
+          metadata: {
+            isTestAccount: true,
+            purpose: 'Admin payment testing'
+          }
+        });
+      }
 
-      // Create a test payment record
+      const testOrderNumber = `TEST-${Date.now()}`;
+
+      // Create payment record linked to test member
       const testPayment = await storage.createPayment({
         transaction_id: testOrderNumber,
-        member_id: null,
+        member_id: testMember.id,
         plan_name: 'Test Payment',
         amount: amount,
         status: 'pending',
@@ -646,14 +659,16 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
 
       return res.status(200).json({
         success: true,
+        redirectToCheckout: true,
         testPayment: {
           id: testPayment.id,
           transactionId: testOrderNumber,
+          memberId: testMember.id,
           amount: amount,
           status: 'pending'
         },
-        checkoutSession: session,
-        message: 'Test payment session created. Complete payment in EPX hosted checkout to verify.'
+        message: `Test payment created with transaction ID: ${testOrderNumber}. Use the "Launch Hosted Checkout" button to complete payment.`,
+        checkoutUrl: `/payment?amount=${amount}&orderId=${testOrderNumber}&memberId=${testMember.id}&email=${encodeURIComponent('test@getmydpc.com')}&name=${encodeURIComponent('Test Payment')}`
       });
     } catch (error: any) {
       console.error('[Admin Test Payment] Failed to create test payment', error);
