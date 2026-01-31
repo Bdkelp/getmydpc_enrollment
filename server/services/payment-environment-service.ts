@@ -1,9 +1,9 @@
 import { getPlatformSetting, upsertPlatformSetting } from '../storage';
 
-export type PaymentEnvironment = 'sandbox' | 'production';
+export type PaymentEnvironment = 'production';
 
 const normalizePaymentEnvironmentValue = (value?: string | null): PaymentEnvironment =>
-  value === 'production' ? 'production' : 'sandbox';
+  'production';
 
 class PaymentEnvironmentService {
   private cachedEnvironment: PaymentEnvironment;
@@ -12,7 +12,7 @@ class PaymentEnvironmentService {
   private readonly cacheTtlMs = 5_000; // keep in sync every 5 seconds
 
   constructor() {
-    this.cachedEnvironment = normalizePaymentEnvironmentValue(process.env.EPX_ENVIRONMENT);
+    this.cachedEnvironment = 'production';
   }
 
   private async loadFromStore(): Promise<PaymentEnvironment> {

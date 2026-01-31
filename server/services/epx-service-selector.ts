@@ -9,7 +9,7 @@ export function getEPXService() {
   const config = {
     publicKey: process.env.EPX_PUBLIC_KEY || '',
     terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || '',
-    environment: (process.env.EPX_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+    environment: 'production' as const,
     successCallback: 'epxSuccessCallback',
     failureCallback: 'epxFailureCallback'
   };

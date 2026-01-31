@@ -27,12 +27,12 @@ let hostedCheckoutService: EPXHostedCheckoutService | null = null;
 let serviceInitialized = false;
 let initError: string | null = null;
 
-// Lazy initialization function
+// Lazy initialization function - always use production config
 const hostedConfigPaths = [
   process.env.EPX_HOSTED_CONFIG_FILE,
-  path.join(process.cwd(), 'server', 'config', 'epx-hosted-config.json'),
-  path.join(process.cwd(), 'config', 'epx-hosted-config.json'),
-  path.join(process.cwd(), 'epx-hosted-config.json')
+  path.join(process.cwd(), 'server', 'config', 'epx-hosted-config.production.json'),
+  path.join(process.cwd(), 'config', 'epx-hosted-config.production.json'),
+  path.join(process.cwd(), 'epx-hosted-config.production.json')
 ].filter((entry): entry is string => Boolean(entry));
 
 type BillingAddress = {
