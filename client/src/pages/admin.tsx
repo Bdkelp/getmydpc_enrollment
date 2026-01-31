@@ -681,6 +681,14 @@ export default function Admin() {
     }
 
     setManualTransactionResult(null);
+
+    // For test payments, submit directly without confirmation
+    if (isTestPayment) {
+      manualTransactionMutation.mutate(payload);
+      return;
+    }
+
+    // For regular transactions, show confirmation dialog
     setManualConfirmPayload({
       payload,
       amount: parsedAmount,
