@@ -1323,30 +1323,39 @@ export default function Admin() {
               <fieldset disabled={superAdminRestricted} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
-                  <Label htmlFor="manual-member-id">Member ID</Label>
+                  <Label htmlFor="manual-member-id">
+                    Member ID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
+                  </Label>
                   <Input
                     id="manual-member-id"
                     placeholder="1234"
                     value={manualTransactionForm.memberId}
                     onChange={handleManualFieldChange('memberId')}
+                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="manual-transaction-id">Transaction ID</Label>
+                  <Label htmlFor="manual-transaction-id">
+                    Transaction ID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
+                  </Label>
                   <Input
                     id="manual-transaction-id"
                     placeholder="Existing EPX transaction"
                     value={manualTransactionForm.transactionId}
                     onChange={handleManualFieldChange('transactionId')}
+                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="manual-auth-guid">EPX AUTH GUID</Label>
+                  <Label htmlFor="manual-auth-guid">
+                    EPX AUTH GUID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
+                  </Label>
                   <Input
                     id="manual-auth-guid"
                     placeholder="Paste AUTH GUID"
                     value={manualTransactionForm.authGuid}
                     onChange={handleManualFieldChange('authGuid')}
+                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
               </div>
@@ -1401,7 +1410,9 @@ export default function Admin() {
 
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <p className="text-sm text-gray-600">
-                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.
+                  {manualTransactionForm.tranType === 'TEST' 
+                    ? 'Test payments create a generic test member automatically. Just enter an amount.'
+                    : 'Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.'}
                 </p>
                 <div className="flex flex-col gap-2 w-full md:w-auto md:flex-row">
                   <Button
