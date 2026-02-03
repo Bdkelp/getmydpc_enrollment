@@ -8,21 +8,21 @@
     "node": ">=22 <23",
     "npm": "11.8.0"
   },
-  "scripts":  {
-          "dev":  "tsx server/index.ts",
-          "build":  "npm run build:clean && npm run build:client && npm run build:server",
-          "build:clean":  "cross-env NODE_ENV=production npm --prefix client ci",
-          "build:client":  "cross-env NODE_ENV=production npm --prefix client run build",
-          "build:server":  "cross-env NODE_ENV=production esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-          "start":  "node dist/index.js",
-          "build:all":  "npm --prefix client ci \u0026\u0026 npm --prefix client run build \u0026\u0026 npm run build",
-          "check":  "tsc",
-          "db:push":  "drizzle-kit push",
-          "cert:generate-test-logs":  "tsx server/scripts/generate-cert-logs.ts",
-          "cert:export-logs":  "tsx server/scripts/export-cert-logs.ts",
-          "check:users":  "tsx server/scripts/check-users.ts",
-          "seed:users":  "tsx server/scripts/seed-users.ts"
-        },
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "build": "npm run build:clean && npm run build:client && npm run build:server",
+    "build:clean": "npm --prefix client ci",
+    "build:client": "npm --prefix client run build",
+    "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --define:process.env.NODE_ENV=\"production\"",
+    "start": "node dist/index.js",
+    "build:all": "npm --prefix client ci && npm --prefix client run build && npm run build",
+    "check": "tsc",
+    "db:push": "drizzle-kit push",
+    "cert:generate-test-logs": "tsx server/scripts/generate-cert-logs.ts",
+    "cert:export-logs": "tsx server/scripts/export-cert-logs.ts",
+    "check:users": "tsx server/scripts/check-users.ts",
+    "seed:users": "tsx server/scripts/seed-users.ts"
+  },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
