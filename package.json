@@ -11,11 +11,11 @@
   "scripts": {
     "dev": "tsx server/index.ts",
     "build": "npm run build:clean && npm run build:client && npm run build:server",
-    "build:clean": "npm --prefix client ci",
+    "build:clean": "node ./scripts/install-client-deps.mjs",
     "build:client": "npm --prefix client run build",
     "build:server": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist --define:process.env.NODE_ENV=\"production\"",
     "start": "node dist/index.js",
-    "build:all": "npm --prefix client ci && npm --prefix client run build && npm run build",
+    "build:all": "npm run build:clean && npm --prefix client run build && npm run build",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "cert:generate-test-logs": "tsx server/scripts/generate-cert-logs.ts",

@@ -627,7 +627,7 @@ export default function Admin() {
     ) {
       toast({
         title: "Provide member info",
-        description: "Enter a member ID, transaction ID, or AUTH GUID.",
+        description: "Enter a member ID, transaction ID, or AUTH GUID, or change the Transaction Type to 'Test Payment (No Member)'.",
         variant: "destructive",
       });
       return;
