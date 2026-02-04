@@ -466,7 +466,7 @@ const SERVER_POST_ENDPOINTS = {
   production: 'https://secure.epx.com/'
 } as const;
 
-type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9';
+type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9' | 'TEST';
 
 interface ServerPostRecurringOptions {
   amount?: number;
@@ -606,6 +606,7 @@ export async function submitServerPostRecurringPayment(
   let responseFields: Record<string, string> = {};
   let rawResponse = '';
   const resolvedTranType: ServerPostTranType = options.tranType || 'CCE1';
+  const networkTranType = resolvedTranType === 'TEST' ? 'CCE1' : resolvedTranType;
   const certificationPurpose =
     resolvedTranType === 'CCE7'
       ? 'server-post-reversal'
@@ -656,7 +657,8 @@ export async function submitServerPostRecurringPayment(
       MERCH_NBR: resolvedCredentials.merchNbr,
       DBA_NBR: resolvedCredentials.dbaNbr,
       TERMINAL_NBR: resolvedCredentials.terminalNbr,
-      TRAN_TYPE: resolvedTranType,
+      // EPX does not understand TEST, treat it as a standard MIT (CCE1) on the wire
+      TRAN_TYPE: networkTranType,
       AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
