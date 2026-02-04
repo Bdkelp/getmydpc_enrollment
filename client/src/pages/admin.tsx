@@ -805,6 +805,41 @@ export default function Admin() {
     });
   };
 
+  const openHostedCheckoutForMember = async (
+    memberId: number,
+    amount: number,
+    description?: string
+  ) => {
+    if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
+      return;
+    }
+
+    try {
+      const response = await hostedMemberLookup.mutateAsync(memberId);
+      if (!response?.success || !response?.member) {
+        throw new Error(response?.error || 'Member lookup failed');
+      }
+
+      if (!response.member.email) {
+        throw new Error('Member record is missing an email address required by hosted checkout.');
+      }
+
+      setHostedModalData({
+        member: response.member,
+        subscription: response.subscription,
+        amount,
+        description,
+      });
+    } catch (error: any) {
+      console.error('[Admin] Hosted checkout launch failed', error);
+      toast({
+        title: 'Unable to load member',
+        description: error?.message || 'Verify the member ID and try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleHostedCheckoutRequest = async () => {
     if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
       return;
@@ -840,9 +875,37 @@ export default function Admin() {
       try {
         setManualTransactionResult(null);
         const response = await manualTransactionMutation.mutateAsync(testPayload);
-        if (response?.checkoutUrl) {
-          window.open(response.checkoutUrl, '_blank', 'noopener,noreferrer');
+
+        const checkoutUrl = typeof response?.checkoutUrl === 'string' ? response.checkoutUrl : null;
+        if (checkoutUrl) {
+          const hostedWindow = window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+          if (hostedWindow) {
+            hostedWindow.focus();
+            toast({
+              title: 'Hosted checkout opened',
+              description: 'A new tab is ready for the EPX test payment.',
+            });
+          } else {
+            toast({
+              title: 'Allow pop-ups to continue',
+              description: `Open this URL manually if no new tab appeared: ${checkoutUrl}`,
+              variant: 'destructive',
+            });
+          }
+          return;
         }
+
+        const testMemberId = response?.testPayment?.memberId;
+        if (testMemberId) {
+          await openHostedCheckoutForMember(testMemberId, parsedAmount, testPayload.description);
+          return;
+        }
+
+        toast({
+          title: 'Unable to launch checkout',
+          description: 'EPX did not return a checkout link. Review the response payload below.',
+          variant: 'destructive',
+        });
       } catch (error) {
         // Error toast handled inside the mutation onError callback
       }
@@ -906,28 +969,11 @@ export default function Admin() {
     }
 
     try {
-      const response = await hostedMemberLookup.mutateAsync(hostedConfirmPayload.memberId);
-      if (!response?.success || !response?.member) {
-        throw new Error(response?.error || 'Member lookup failed');
-      }
-
-      if (!response.member.email) {
-        throw new Error('Member record is missing an email address required by hosted checkout.');
-      }
-
-      setHostedModalData({
-        member: response.member,
-        subscription: response.subscription,
-        amount: hostedConfirmPayload.amount,
-        description: hostedConfirmPayload.description,
-      });
-    } catch (error: any) {
-      console.error('[Admin] Hosted checkout launch failed', error);
-      toast({
-        title: 'Unable to load member',
-        description: error?.message || 'Verify the member ID and try again.',
-        variant: 'destructive',
-      });
+      await openHostedCheckoutForMember(
+        hostedConfirmPayload.memberId,
+        hostedConfirmPayload.amount,
+        hostedConfirmPayload.description
+      );
     } finally {
       setHostedConfirmPayload(null);
     }
