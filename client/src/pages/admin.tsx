@@ -34,7 +34,6 @@ import {
   FileText,
   Database,
   AlertTriangle,
-  X,
   Target
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -195,8 +194,7 @@ export default function Admin() {
   const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<any | null>(null);
   const [manualConfirmPayload, setManualConfirmPayload] = useState<{ payload: Record<string, any>; amount: number; tranType: string; memberId?: number } | null>(null);
   const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
-  const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string } | null>(null);
-  const [hostedModalData, setHostedModalData] = useState<{ member: any; subscription: any; amount: number; description?: string } | null>(null);
+  const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string; transactionId?: string } | null>(null);
   const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
   const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
   const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
@@ -213,6 +211,46 @@ export default function Admin() {
       variant: 'destructive'
     });
     return false;
+  };
+
+  const openHostedCheckoutTab = (url: string) => {
+    const hostedWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (hostedWindow) {
+      hostedWindow.focus();
+      toast({
+        title: 'Hosted checkout opened',
+        description: 'Complete the payment in the new tab.'
+      });
+    } else {
+      toast({
+        title: 'Allow pop-ups to continue',
+        description: `Open this link manually if no tab appeared: ${url}`,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const buildAdminCheckoutUrl = (params: { memberId: number; amount: number; description?: string; transactionId?: string; isTest?: boolean }) => {
+    const search = new URLSearchParams({
+      memberId: String(params.memberId),
+      amount: params.amount.toFixed(2),
+      autoLaunch: '1'
+    });
+    if (params.description) {
+      search.set('description', params.description);
+    }
+    if (params.transactionId) {
+      search.set('transactionId', params.transactionId);
+    }
+    if (params.isTest) {
+      search.set('isTest', '1');
+    }
+    return `/admin/payments/checkout?${search.toString()}`;
+  };
+
+  const launchAdminHostedCheckout = (params: { memberId: number; amount: number; description?: string; transactionId?: string; isTest?: boolean }) => {
+    const url = buildAdminCheckoutUrl(params);
+    openHostedCheckoutTab(url);
   };
 
   // Test authentication
@@ -560,14 +598,6 @@ export default function Admin() {
     },
   });
 
-  const hostedMemberLookup = useMutation({
-    mutationFn: async (memberId: number) => {
-      return apiRequest(`/api/admin/members/${memberId}`, {
-        method: 'GET',
-      });
-    },
-  });
-
   const updatePaymentEnvironmentMutation = useMutation({
     mutationFn: async (nextEnvironment: PaymentEnvironmentValue) => {
       return apiRequest('/api/admin/payments/environment', {
@@ -805,41 +835,6 @@ export default function Admin() {
     });
   };
 
-  const openHostedCheckoutForMember = async (
-    memberId: number,
-    amount: number,
-    description?: string
-  ) => {
-    if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
-      return;
-    }
-
-    try {
-      const response = await hostedMemberLookup.mutateAsync(memberId);
-      if (!response?.success || !response?.member) {
-        throw new Error(response?.error || 'Member lookup failed');
-      }
-
-      if (!response.member.email) {
-        throw new Error('Member record is missing an email address required by hosted checkout.');
-      }
-
-      setHostedModalData({
-        member: response.member,
-        subscription: response.subscription,
-        amount,
-        description,
-      });
-    } catch (error: any) {
-      console.error('[Admin] Hosted checkout launch failed', error);
-      toast({
-        title: 'Unable to load member',
-        description: error?.message || 'Verify the member ID and try again.',
-        variant: 'destructive',
-      });
-    }
-  };
-
   const handleHostedCheckoutRequest = async () => {
     if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
       return;
@@ -878,26 +873,19 @@ export default function Admin() {
 
         const checkoutUrl = typeof response?.checkoutUrl === 'string' ? response.checkoutUrl : null;
         if (checkoutUrl) {
-          const hostedWindow = window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
-          if (hostedWindow) {
-            hostedWindow.focus();
-            toast({
-              title: 'Hosted checkout opened',
-              description: 'A new tab is ready for the EPX test payment.',
-            });
-          } else {
-            toast({
-              title: 'Allow pop-ups to continue',
-              description: `Open this URL manually if no new tab appeared: ${checkoutUrl}`,
-              variant: 'destructive',
-            });
-          }
+          openHostedCheckoutTab(checkoutUrl);
           return;
         }
 
         const testMemberId = response?.testPayment?.memberId;
         if (testMemberId) {
-          await openHostedCheckoutForMember(testMemberId, parsedAmount, testPayload.description);
+          launchAdminHostedCheckout({
+            memberId: testMemberId,
+            amount: parsedAmount,
+            description: testPayload.description,
+            transactionId: response?.testPayment?.transactionId,
+            isTest: true,
+          });
           return;
         }
 
@@ -955,10 +943,11 @@ export default function Admin() {
       memberId: memberIdNumber,
       amount: parsedAmount,
       description: manualTransactionForm.description.trim() || undefined,
+      transactionId: manualTransactionForm.transactionId.trim() || undefined,
     });
   };
 
-  const finalizeHostedCheckoutLaunch = async () => {
+  const finalizeHostedCheckoutLaunch = () => {
     if (!hostedConfirmPayload) {
       return;
     }
@@ -968,19 +957,13 @@ export default function Admin() {
       return;
     }
 
-    try {
-      await openHostedCheckoutForMember(
-        hostedConfirmPayload.memberId,
-        hostedConfirmPayload.amount,
-        hostedConfirmPayload.description
-      );
-    } finally {
-      setHostedConfirmPayload(null);
-    }
-  };
-
-  const closeHostedModal = () => {
-    setHostedModalData(null);
+    launchAdminHostedCheckout({
+      memberId: hostedConfirmPayload.memberId,
+      amount: hostedConfirmPayload.amount,
+      description: hostedConfirmPayload.description,
+      transactionId: hostedConfirmPayload.transactionId,
+    });
+    setHostedConfirmPayload(null);
   };
 
   if (authLoading || statsLoading) {
@@ -1512,9 +1495,9 @@ export default function Admin() {
                     variant="secondary"
                     className="w-full md:w-auto"
                     onClick={handleHostedCheckoutRequest}
-                    disabled={hostedMemberLookup.isPending || manualTransactionMutation.isPending}
+                    disabled={manualTransactionMutation.isPending}
                   >
-                    {hostedMemberLookup.isPending ? 'Preparing Hosted Checkout...' : 'Launch Hosted Checkout'}
+                    Launch Hosted Checkout
                   </Button>
                 </div>
               </div>
@@ -2567,7 +2550,7 @@ export default function Admin() {
         </AlertDialog>
 
         <AlertDialog open={!!hostedConfirmPayload} onOpenChange={(open) => {
-          if (!open && !hostedMemberLookup.isPending) {
+          if (!open) {
             setHostedConfirmPayload(null);
           }
         }}>
@@ -2581,75 +2564,18 @@ export default function Admin() {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={hostedMemberLookup.isPending}>
+              <AlertDialogCancel>
                 Not yet
               </AlertDialogCancel>
               <AlertDialogAction
                 onClick={finalizeHostedCheckoutLaunch}
-                disabled={hostedMemberLookup.isPending}
               >
-                {hostedMemberLookup.isPending ? 'Preparing...' : 'Open Hosted Checkout'}
+                Open Hosted Checkout
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
-        {hostedModalData && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 py-8">
-            <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl">
-              <button
-                type="button"
-                aria-label="Close hosted checkout"
-                className="absolute right-4 top-4 text-gray-500 hover:text-gray-800"
-                onClick={closeHostedModal}
-              >
-                <X className="h-5 w-5" />
-              </button>
-              <div className="px-6 pt-6 pb-4 border-b border-gray-200">
-                <h3 className="text-xl font-semibold text-gray-900">EPX Hosted Checkout</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Collecting ${hostedModalData.amount.toFixed(2)} for {hostedModalData.member.firstName || hostedModalData.member.lastName ? `${hostedModalData.member.firstName || ''} ${hostedModalData.member.lastName || ''}`.trim() : `member #${hostedModalData.member.id}`}.
-                </p>
-                {hostedModalData.subscription?.planName && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Active plan: {hostedModalData.subscription.planName}
-                  </p>
-                )}
-              </div>
-              <div className="p-6">
-                <EPXHostedPayment
-                  amount={hostedModalData.amount}
-                  customerId={String(hostedModalData.member.id)}
-                  customerEmail={hostedModalData.member.email}
-                  customerName={`${hostedModalData.member.firstName || ''} ${hostedModalData.member.lastName || ''}`.trim() || hostedModalData.member.email}
-                  subscriptionId={hostedModalData.subscription?.id ? String(hostedModalData.subscription.id) : undefined}
-                  description={hostedModalData.description || 'Manual EPX payment from admin dashboard'}
-                  billingAddress={{
-                    streetAddress: hostedModalData.member.address || '',
-                    city: hostedModalData.member.city || '',
-                    state: hostedModalData.member.state || '',
-                    postalCode: hostedModalData.member.zipCode || '',
-                  }}
-                  redirectOnSuccess={false}
-                  onSuccess={(transactionId) => {
-                    toast({
-                      title: 'Hosted payment complete',
-                      description: `EPX accepted transaction ${transactionId}. Hosted window can be closed.`,
-                    });
-                    closeHostedModal();
-                  }}
-                  onError={(message) => {
-                    toast({
-                      title: 'Hosted payment error',
-                      description: message || 'See console for additional details.',
-                      variant: 'destructive',
-                    });
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

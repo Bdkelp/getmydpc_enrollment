@@ -27,6 +27,7 @@ import AdminPerformanceGoals from "@/pages/admin-performance-goals";
 import GroupEnrollment from "@/pages/group-enrollment";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
+import AdminPaymentCheckout from "@/pages/admin-payment-checkout";
 import PaymentSuccess from "@/pages/payment-success";
 import PaymentFailed from "@/pages/payment-failed";
 import PaymentCancel from "@/pages/payment-cancel";
@@ -107,6 +108,7 @@ function Router() {
               <Route path="/admin/agent-hierarchy" component={AdminAgentHierarchy} />
               <Route path="/admin/discount-codes" component={AdminDiscountCodes} />
               <Route path="/admin/performance-goals" component={AdminPerformanceGoals} />
+              <Route path="/admin/payments/checkout" component={AdminPaymentCheckout} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />

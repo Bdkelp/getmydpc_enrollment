@@ -714,6 +714,15 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
         }
       });
 
+      const checkoutParams = new URLSearchParams({
+        memberId: String(testMember.id),
+        amount: normalizedAmount.toFixed(2),
+        transactionId: testOrderNumber,
+        description: description || 'Admin test payment',
+        isTest: '1',
+        autoLaunch: '1'
+      });
+
       return res.status(200).json({
         success: true,
         redirectToCheckout: true,
@@ -725,7 +734,7 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
           status: 'pending'
         },
         message: `Test payment created with transaction ID: ${testOrderNumber}. Use the "Launch Hosted Checkout" button to complete payment.`,
-        checkoutUrl: `/payment?amount=${normalizedAmount}&orderId=${testOrderNumber}&memberId=${testMember.id}&email=${encodeURIComponent('test@getmydpc.com')}&name=${encodeURIComponent('Test Payment')}`
+        checkoutUrl: `/admin/payments/checkout?${checkoutParams.toString()}`
       });
     } catch (error: any) {
       console.error('[Admin Test Payment] Failed to create test payment', error);
