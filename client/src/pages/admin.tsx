@@ -157,7 +157,6 @@ const isPartnerLeadStatus = (value: string): value is PartnerLeadStatus =>
 const MANUAL_TRANSACTION_TYPES = [
   { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
   { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
-  { value: "TEST", label: "Test Payment (No Member)", description: "Standalone test payment for verification" },
 ] as const;
 
 const getManualTranLabel = (value: string) => {
@@ -179,60 +178,39 @@ export default function Admin() {
   const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
   const [manualTransactionForm, setManualTransactionForm] = useState({
     memberId: '',
-    transactionId: '',
-    authGuid: '',
-    amount: '',
-    description: 'Manual EPX action from dashboard',
-    tranType: MANUAL_TRANSACTION_TYPES[0].value,
-  });
-  const [manualTransactionResult, setManualTransactionResult] = useState<any | null>(null);
-  const [cancelSubscriptionForm, setCancelSubscriptionForm] = useState({
-    subscriptionId: '',
-    transactionId: '',
-    reason: 'Subscription cancellation via admin dashboard',
-  });
-  const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<any | null>(null);
-  const [manualConfirmPayload, setManualConfirmPayload] = useState<{ payload: Record<string, any>; amount: number; tranType: string; memberId?: number } | null>(null);
-  const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
-  const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string; transactionId?: string } | null>(null);
-  const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
-  const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
-  const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
-  const [partnerLeadNote, setPartnerLeadNote] = useState('');
-
-  const ensureSuperAdminAccess = (actionLabel: string): boolean => {
-    if (isSuperAdmin) {
-      return true;
-    }
-
-    toast({
-      title: 'Super admin access required',
-      description: `${actionLabel} is limited to super admins.`,
-      variant: 'destructive'
-    });
-    return false;
-  };
-
-  const openHostedCheckoutTab = (url: string) => {
-    const hostedWindow = window.open(url, '_blank', 'noopener,noreferrer');
-    if (hostedWindow) {
-      hostedWindow.focus();
-      toast({
-        title: 'Hosted checkout opened',
-        description: 'Complete the payment in the new tab.'
-      });
-    } else {
-      toast({
-        title: 'Allow pop-ups to continue',
-        description: `Open this link manually if no tab appeared: ${url}`,
-        variant: 'destructive'
-      });
-    }
-  };
-
-  const buildAdminCheckoutUrl = (params: { memberId: number; amount: number; description?: string; transactionId?: string; isTest?: boolean }) => {
-    const search = new URLSearchParams({
-      memberId: String(params.memberId),
+            {manualTransactionResult && (
+              <div className="grid gap-4 md:grid-cols-2">
+                {manualTransactionResult.transactionReference && (
+                  <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
+                    Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>
+                  </div>
+                )}
+                {manualTransactionResult.request && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
+                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                      {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {manualTransactionResult.response && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 mb-2">Response</p>
+                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
+                      {JSON.stringify(manualTransactionResult.response || manualTransactionResult || {}, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {manualTransactionResult.error && (
+                  <div className="md:col-span-2">
+                    <Alert variant="destructive">
+                      <AlertTitle>EPX Error</AlertTitle>
+                      <AlertDescription>{manualTransactionResult.error}</AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+              </div>
+            )}
       amount: params.amount.toFixed(2),
       autoLaunch: '1'
     });
@@ -242,13 +220,10 @@ export default function Admin() {
     if (params.transactionId) {
       search.set('transactionId', params.transactionId);
     }
-    if (params.isTest) {
-      search.set('isTest', '1');
-    }
     return `/admin/payments/checkout?${search.toString()}`;
   };
 
-  const launchAdminHostedCheckout = (params: { memberId: number; amount: number; description?: string; transactionId?: string; isTest?: boolean }) => {
+  const launchAdminHostedCheckout = (params: { memberId: number; amount: number; description?: string; transactionId?: string }) => {
     const url = buildAdminCheckoutUrl(params);
     openHostedCheckoutTab(url);
   };
@@ -646,18 +621,14 @@ export default function Admin() {
       return;
     }
 
-    const isTestPayment = manualTransactionForm.tranType === 'TEST';
-
-    // Test payments don't require member info
     if (
-      !isTestPayment &&
       !manualTransactionForm.memberId.trim() &&
       !manualTransactionForm.transactionId.trim() &&
       !manualTransactionForm.authGuid.trim()
     ) {
       toast({
         title: "Provide member info",
-        description: "Enter a member ID, transaction ID, or AUTH GUID, or change the Transaction Type to 'Test Payment (No Member)'.",
+        description: "Enter a member ID, transaction ID, or AUTH GUID before submitting.",
         variant: "destructive",
       });
       return;
@@ -711,12 +682,6 @@ export default function Admin() {
     }
 
     setManualTransactionResult(null);
-
-    // For test payments, submit directly without confirmation
-    if (isTestPayment) {
-      manualTransactionMutation.mutate(payload);
-      return;
-    }
 
     // For regular transactions, show confirmation dialog
     setManualConfirmPayload({
@@ -835,68 +800,8 @@ export default function Admin() {
     });
   };
 
-  const handleHostedCheckoutRequest = async () => {
+  const handleHostedCheckoutRequest = () => {
     if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
-      return;
-    }
-
-    if (manualTransactionForm.tranType === 'TEST') {
-      const amountInput = manualTransactionForm.amount.trim();
-      if (!amountInput) {
-        toast({
-          title: 'Amount required',
-          description: 'Enter a dollar amount before launching a test payment.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      const parsedAmount = parseFloat(amountInput);
-      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        toast({
-          title: 'Invalid amount',
-          description: 'Test payments require a positive USD amount.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      const testPayload: Record<string, any> = {
-        tranType: 'TEST',
-        amount: parsedAmount,
-        description: manualTransactionForm.description.trim() || undefined,
-      };
-
-      try {
-        setManualTransactionResult(null);
-        const response = await manualTransactionMutation.mutateAsync(testPayload);
-
-        const checkoutUrl = typeof response?.checkoutUrl === 'string' ? response.checkoutUrl : null;
-        if (checkoutUrl) {
-          openHostedCheckoutTab(checkoutUrl);
-          return;
-        }
-
-        const testMemberId = response?.testPayment?.memberId;
-        if (testMemberId) {
-          launchAdminHostedCheckout({
-            memberId: testMemberId,
-            amount: parsedAmount,
-            description: testPayload.description,
-            transactionId: response?.testPayment?.transactionId,
-            isTest: true,
-          });
-          return;
-        }
-
-        toast({
-          title: 'Unable to launch checkout',
-          description: 'EPX did not return a checkout link. Review the response payload below.',
-          variant: 'destructive',
-        });
-      } catch (error) {
-        // Error toast handled inside the mutation onError callback
-      }
       return;
     }
 
@@ -1391,39 +1296,30 @@ export default function Admin() {
               <fieldset disabled={superAdminRestricted} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div>
-                  <Label htmlFor="manual-member-id">
-                    Member ID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
-                  </Label>
+                  <Label htmlFor="manual-member-id">Member ID</Label>
                   <Input
                     id="manual-member-id"
                     placeholder="1234"
                     value={manualTransactionForm.memberId}
                     onChange={handleManualFieldChange('memberId')}
-                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="manual-transaction-id">
-                    Transaction ID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
-                  </Label>
+                  <Label htmlFor="manual-transaction-id">Transaction ID</Label>
                   <Input
                     id="manual-transaction-id"
                     placeholder="Existing EPX transaction"
                     value={manualTransactionForm.transactionId}
                     onChange={handleManualFieldChange('transactionId')}
-                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="manual-auth-guid">
-                    EPX AUTH GUID {manualTransactionForm.tranType === 'TEST' && <span className="text-gray-400 text-xs">(not required for test)</span>}
-                  </Label>
+                  <Label htmlFor="manual-auth-guid">EPX AUTH GUID</Label>
                   <Input
                     id="manual-auth-guid"
                     placeholder="Paste AUTH GUID"
                     value={manualTransactionForm.authGuid}
                     onChange={handleManualFieldChange('authGuid')}
-                    disabled={manualTransactionForm.tranType === 'TEST'}
                   />
                 </div>
               </div>
@@ -1478,9 +1374,7 @@ export default function Admin() {
 
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <p className="text-sm text-gray-600">
-                  {manualTransactionForm.tranType === 'TEST' 
-                    ? 'Test payments create a generic test member automatically. Just enter an amount.'
-                    : 'Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.'}
+                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.
                 </p>
                 <div className="flex flex-col gap-2 w-full md:w-auto md:flex-row">
                   <Button
@@ -1506,27 +1400,6 @@ export default function Admin() {
 
             {manualTransactionResult && (
               <div className="grid gap-4 md:grid-cols-2">
-                {manualTransactionResult.redirectToCheckout && (
-                  <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                    <p className="font-semibold mb-2">✓ Test Payment Created</p>
-                    <p>Transaction ID: <span className="font-mono">{manualTransactionResult.testPayment?.transactionId}</span></p>
-                    <p>Member ID: <span className="font-mono">{manualTransactionResult.testPayment?.memberId}</span></p>
-                    <p>Amount: ${manualTransactionResult.testPayment?.amount}</p>
-                    <p className="mt-3 text-xs">{manualTransactionResult.message}</p>
-                    {manualTransactionResult.checkoutUrl && (
-                      <div className="mt-4">
-                        <a 
-                          href={manualTransactionResult.checkoutUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
-                        >
-                          Launch Hosted Checkout →
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
                 {manualTransactionResult.transactionReference && (
                   <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
                     Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>

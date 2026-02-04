@@ -8,7 +8,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
 import { CreditCard, AlertTriangle, Shield, ExternalLink } from "lucide-react";
@@ -62,7 +61,6 @@ export default function AdminPaymentCheckoutPage() {
   const descriptionParam = searchParams.get("description") || undefined;
   const transactionIdParam = searchParams.get("transactionId") || searchParams.get("orderId") || undefined;
   const autoLaunch = parseBooleanParam(searchParams.get("autoLaunch"));
-  const isTestPayment = parseBooleanParam(searchParams.get("isTest"));
 
   const memberId = memberIdParam ? Number(memberIdParam) : NaN;
   const amount = amountParam ? Number(amountParam) : NaN;
@@ -164,9 +162,6 @@ export default function AdminPaymentCheckoutPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {isTestPayment && (
-              <Badge className="bg-amber-100 text-amber-800 border-0">Test Payment</Badge>
-            )}
             <Button variant="outline" onClick={() => setLocation("/admin")}>Back to Admin</Button>
           </div>
         </div>
