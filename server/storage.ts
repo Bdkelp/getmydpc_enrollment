@@ -138,17 +138,35 @@ export async function getPlatformSetting<T = any>(key: string): Promise<Platform
 
 export async function upsertPlatformSetting<T = any>(key: string, value: T, updatedBy?: string): Promise<T> {
   try {
-    const payload: Record<string, any> = { key, value };
+    const basePayload: Record<string, any> = { key, value };
+    const attemptUpsert = async (payload: Record<string, any>) => {
+      const { error } = await supabase
+        .from('platform_settings')
+        .upsert(payload, { onConflict: 'key' });
+      if (error) {
+        throw error;
+      }
+    };
+
     if (updatedBy) {
-      payload.updated_by = updatedBy;
+      basePayload.updated_by = updatedBy;
     }
 
-    const { error } = await supabase
-      .from('platform_settings')
-      .upsert(payload, { onConflict: 'key' });
-
-    if (error) {
-      throw error;
+    try {
+      await attemptUpsert(basePayload);
+    } catch (error: any) {
+      const fkViolation = typeof error?.message === 'string'
+        && error.message.includes('platform_settings_updated_by_fkey');
+      if (fkViolation && basePayload.updated_by) {
+        console.warn(
+          `[Storage] platform_settings updated_by reference failed for key ${key}. Falling back without updated_by (user ${basePayload.updated_by}).`,
+        );
+        const fallbackPayload = { ...basePayload };
+        delete fallbackPayload.updated_by;
+        await attemptUpsert(fallbackPayload);
+      } else {
+        throw error;
+      }
     }
 
     return value;
@@ -167,6 +185,104 @@ const mapGoalRow = (row: any): AgentPerformanceGoalOverrideRecord => ({
   updatedAt: row.updated_at || row.updatedAt,
   updatedBy: row.updated_by || row.updatedBy,
 });
+
+type FamilyMemberRow = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  middle_name?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  ssn?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  relationship?: string | null;
+  member_type: string;
+  is_active?: boolean | null;
+  created_at?: string | null;
+};
+
+const mapFamilyMemberRowToRecord = (row: FamilyMemberRow) => ({
+  id: row.id?.toString(),
+  firstName: row.first_name,
+  lastName: row.last_name,
+  middleName: row.middle_name || undefined,
+  dateOfBirth: row.date_of_birth || undefined,
+  gender: row.gender || undefined,
+  ssn: row.ssn || undefined,
+  email: row.email || undefined,
+  phone: row.phone || undefined,
+  relationship: row.relationship || undefined,
+  memberType: row.member_type,
+  isActive: Boolean(row.is_active ?? true),
+});
+
+type EnrollmentRow = Record<string, any> & {
+  plan_name?: string | null;
+};
+
+const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberRow[]) => ({
+  id: row.id?.toString(),
+  userId: row.enrolled_by_agent_id || null,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  customerNumber: row.customer_number,
+  memberPublicId: row.member_public_id,
+  firstName: row.first_name,
+  lastName: row.last_name,
+  middleName: row.middle_name,
+  email: row.email,
+  phone: row.phone,
+  dateOfBirth: row.date_of_birth,
+  gender: row.gender,
+  ssn: row.ssn,
+  address: row.address,
+  address2: row.address2,
+  city: row.city,
+  state: row.state,
+  zipCode: row.zip_code,
+  employerName: row.employer_name,
+  divisionName: row.division_name,
+  dateOfHire: row.date_of_hire,
+  planId: row.plan_id,
+  planName: row.plan_name || null,
+  memberType: row.coverage_type || row.member_type,
+  planStartDate: row.plan_start_date,
+  totalMonthlyPrice: row.total_monthly_price,
+  status: row.status,
+  emergencyContactName: row.emergency_contact_name,
+  emergencyContactPhone: row.emergency_contact_phone,
+  enrolledBy: row.agent_number || null,
+  enrolledByAgentId: row.enrolled_by_agent_id,
+  subscriptionId: row.subscription_id || null,
+  familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
+});
+
+export async function getEnrollmentDetails(enrollmentId: number) {
+  if (!Number.isFinite(enrollmentId)) {
+    return null;
+  }
+
+  const memberResult = await query(
+    `SELECT m.*, p.name AS plan_name
+     FROM members m
+     LEFT JOIN plans p ON p.id = m.plan_id
+     WHERE m.id = $1
+     LIMIT 1`,
+    [enrollmentId],
+  );
+
+  if (!memberResult.rows?.length) {
+    return null;
+  }
+
+  const familyResult = await query(
+    `SELECT * FROM family_members WHERE primary_member_id = $1 ORDER BY created_at ASC`,
+    [enrollmentId],
+  );
+
+  return mapEnrollmentRowToDetails(memberResult.rows[0], familyResult.rows || []);
+}
 
 export async function getPerformanceGoalDefaults(): Promise<PerformanceGoals> {
   const record = await getPlatformSetting<PerformanceGoals>(PERFORMANCE_GOALS_SETTING_KEY);
@@ -5114,6 +5230,7 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   getEnrollmentsByAgent,
+  getEnrollmentDetails,
   updateMemberStatus,
   activateMembershipNow,
   getMembersOnly,

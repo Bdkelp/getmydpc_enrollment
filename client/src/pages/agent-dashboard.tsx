@@ -103,7 +103,9 @@ export default function AgentDashboard() {
   // For admin/super_admin: fetch all agents for selector
   const { data: allAgents } = useQuery({
     queryKey: ["/api/agents"],
+    queryFn: () => apiRequest("/api/agents"),
     enabled: isAdminUser,
+    staleTime: 1000 * 60, // agent roster updates infrequently, cache for a minute
   });
 
   // Get agent stats (for selected agent if admin, or current user)

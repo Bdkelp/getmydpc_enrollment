@@ -2920,6 +2920,123 @@ router.get(
   },
 );
 
+router.get(
+  "/api/admin/enrollment/:enrollmentId",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    try {
+      const enrollment = await storage.getEnrollmentDetails(enrollmentId);
+      if (!enrollment) {
+        return res.status(404).json({ message: "Enrollment not found" });
+      }
+      res.json(enrollment);
+    } catch (error: any) {
+      console.error("Error fetching enrollment details:", error);
+      res.status(500).json({ message: "Failed to load enrollment", error: error.message });
+    }
+  },
+);
+
+router.patch(
+  "/api/admin/enrollment/:enrollmentId/contact",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    const { email, phone, emergencyContactName, emergencyContactPhone } = req.body || {};
+    const updates: Record<string, any> = {};
+
+    if (typeof email === "string") {
+      updates.email = email.trim();
+    }
+    if (typeof phone === "string") {
+      updates.phone = phone;
+    }
+    if (typeof emergencyContactName === "string") {
+      updates.emergencyContactName = emergencyContactName.trim();
+    }
+    if (typeof emergencyContactPhone === "string") {
+      updates.emergencyContactPhone = emergencyContactPhone;
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: "No contact fields provided" });
+    }
+
+    try {
+      await storage.updateMember(enrollmentId, updates);
+      const enrollment = await storage.getEnrollmentDetails(enrollmentId);
+      res.json({ success: true, enrollment });
+    } catch (error: any) {
+      console.error("Error updating enrollment contact:", error);
+      res.status(500).json({ message: "Failed to update contact", error: error.message });
+    }
+  },
+);
+
+router.patch(
+  "/api/admin/enrollment/:enrollmentId/address",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    const { address, address2, city, state, zipCode } = req.body || {};
+    const updates: Record<string, any> = {};
+
+    if (typeof address === "string") {
+      updates.address = address.trim();
+    }
+    if (typeof address2 === "string") {
+      updates.address2 = address2.trim();
+    }
+    if (typeof city === "string") {
+      updates.city = city.trim();
+    }
+    if (typeof state === "string") {
+      updates.state = state.trim();
+    }
+    if (typeof zipCode === "string") {
+      updates.zipCode = zipCode.trim();
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: "No address fields provided" });
+    }
+
+    try {
+      await storage.updateMember(enrollmentId, updates);
+      const enrollment = await storage.getEnrollmentDetails(enrollmentId);
+      res.json({ success: true, enrollment });
+    } catch (error: any) {
+      console.error("Error updating enrollment address:", error);
+      res.status(500).json({ message: "Failed to update address", error: error.message });
+    }
+  },
+);
+
 router.patch(
   "/api/admin/members/:memberId/status",
   authenticateToken,

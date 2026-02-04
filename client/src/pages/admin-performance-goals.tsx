@@ -127,7 +127,9 @@ function AdminPerformanceGoals() {
 
   const { data: agents = [] } = useQuery<AgentSummary[]>({
     queryKey: ["/api/agents"],
+    queryFn: () => apiRequest("/api/agents"),
     enabled: isAdminUser,
+    staleTime: 1000 * 60,
   });
 
   useEffect(() => {
