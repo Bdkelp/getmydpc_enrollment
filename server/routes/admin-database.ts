@@ -182,7 +182,7 @@ router.get('/api/admin/members/:memberId', authenticateToken, async (req: AuthRe
 
     const subscriptionResult = await neonPool.query(
       `SELECT s.id, s.plan_id, p.name AS plan_name, s.status, s.start_date, s.next_billing_date,
-              s.cancellation_date, s.created_at
+              s.end_date AS cancellation_date, s.created_at
        FROM subscriptions s
        LEFT JOIN plans p ON s.plan_id = p.id
        WHERE s.member_id = $1
