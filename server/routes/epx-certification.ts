@@ -623,14 +623,14 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
       if (!testMember) {
         // Create a generic test member for admin test payments
         testMember = await storage.createMember({
-          first_name: 'Test',
-          last_name: 'Payment',
+          firstName: 'Test',
+          lastName: 'Payment',
           email: 'test@getmydpc.com',
           phone: '+1-000-000-0000',
-          date_of_birth: '2000-01-01',
+          dateOfBirth: '2000-01-01',
           gender: 'other',
-          plan_name: 'Test Plan',
-          member_type: 'individual',
+          planName: 'Test Plan',
+          memberType: 'individual',
           status: 'pending',
           metadata: {
             isTestAccount: true,
