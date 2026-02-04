@@ -178,39 +178,60 @@ export default function Admin() {
   const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
   const [manualTransactionForm, setManualTransactionForm] = useState({
     memberId: '',
-            {manualTransactionResult && (
-              <div className="grid gap-4 md:grid-cols-2">
-                {manualTransactionResult.transactionReference && (
-                  <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
-                    Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>
-                  </div>
-                )}
-                {manualTransactionResult.request && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
-                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                      {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {manualTransactionResult.response && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 mb-2">Response</p>
-                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                      {JSON.stringify(manualTransactionResult.response || manualTransactionResult || {}, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {manualTransactionResult.error && (
-                  <div className="md:col-span-2">
-                    <Alert variant="destructive">
-                      <AlertTitle>EPX Error</AlertTitle>
-                      <AlertDescription>{manualTransactionResult.error}</AlertDescription>
-                    </Alert>
-                  </div>
-                )}
-              </div>
-            )}
+    transactionId: '',
+    authGuid: '',
+    amount: '',
+    description: 'Manual EPX action from dashboard',
+    tranType: MANUAL_TRANSACTION_TYPES[0].value,
+  });
+  const [manualTransactionResult, setManualTransactionResult] = useState<any | null>(null);
+  const [cancelSubscriptionForm, setCancelSubscriptionForm] = useState({
+    subscriptionId: '',
+    transactionId: '',
+    reason: 'Subscription cancellation via admin dashboard',
+  });
+  const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<any | null>(null);
+  const [manualConfirmPayload, setManualConfirmPayload] = useState<{ payload: Record<string, any>; amount: number; tranType: string; memberId?: number } | null>(null);
+  const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
+  const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string; transactionId?: string } | null>(null);
+  const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
+  const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
+  const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
+  const [partnerLeadNote, setPartnerLeadNote] = useState('');
+
+  const ensureSuperAdminAccess = (actionLabel: string): boolean => {
+    if (isSuperAdmin) {
+      return true;
+    }
+
+    toast({
+      title: 'Super admin access required',
+      description: `${actionLabel} is limited to super admins.`,
+      variant: 'destructive'
+    });
+    return false;
+  };
+
+  const openHostedCheckoutTab = (url: string) => {
+    const hostedWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (hostedWindow) {
+      hostedWindow.focus();
+      toast({
+        title: 'Hosted checkout opened',
+        description: 'Complete the payment in the new tab.'
+      });
+    } else {
+      toast({
+        title: 'Allow pop-ups to continue',
+        description: `Open this link manually if no tab appeared: ${url}`,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const buildAdminCheckoutUrl = (params: { memberId: number; amount: number; description?: string; transactionId?: string }) => {
+    const search = new URLSearchParams({
+      memberId: String(params.memberId),
       amount: params.amount.toFixed(2),
       autoLaunch: '1'
     });
