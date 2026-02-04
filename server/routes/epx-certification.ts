@@ -10,12 +10,52 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { requireRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed } from '../storage';
+import type { Plan, InsertPlan } from '@shared/schema';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
 import { getPaymentEnvironmentDetails, paymentEnvironment, type PaymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
+
+const TEST_PLAN_CONFIG = {
+  name: 'Admin Test Plan',
+  price: 1,
+  description: 'Auto-generated plan used for admin hosted checkout and payment testing.'
+} as const;
+
+let cachedTestPlan: Plan | null = null;
+
+const ensureAdminTestPlan = async (): Promise<Plan> => {
+  if (cachedTestPlan) {
+    return cachedTestPlan;
+  }
+
+  try {
+    const plans = await storage.getPlans();
+    const existing = plans.find((plan) => plan.name === TEST_PLAN_CONFIG.name);
+    if (existing) {
+      cachedTestPlan = existing;
+      return existing;
+    }
+  } catch (error) {
+    console.error('[EPX Admin] Failed to fetch plans when ensuring test plan', error);
+  }
+
+  const insertPayload: InsertPlan = {
+    name: TEST_PLAN_CONFIG.name,
+    description: TEST_PLAN_CONFIG.description,
+    price: TEST_PLAN_CONFIG.price.toFixed(2),
+    billingPeriod: 'monthly',
+    features: { isTestPlan: true },
+    maxMembers: 1,
+    isActive: true
+  };
+
+  const created = await storage.createPlan(insertPayload);
+  cachedTestPlan = created;
+  return created;
+};
 
 const requireSuperAdmin = requireRole('super_admin');
 const requireAdmin = requireRole('admin');
@@ -610,12 +650,23 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
     try {
       const { amount, description } = req.body;
       
-      if (!amount || amount <= 0) {
+      const normalizedAmount = typeof amount === 'number'
+        ? amount
+        : typeof amount === 'string'
+          ? parseFloat(amount)
+          : NaN;
+
+      if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
         return res.status(400).json({
           success: false,
           error: 'Amount required for test payment'
         });
       }
+
+      const testPlan = await ensureAdminTestPlan();
+      const planAmount = typeof testPlan.price === 'number'
+        ? testPlan.price
+        : parseFloat(String(testPlan.price || TEST_PLAN_CONFIG.price)) || TEST_PLAN_CONFIG.price;
 
       // Get or create test member
       let testMember = await storage.getMemberByEmail('test@getmydpc.com');
@@ -629,12 +680,17 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
           phone: '+1-000-000-0000',
           dateOfBirth: '2000-01-01',
           gender: 'other',
-          planName: 'Test Plan',
+          planId: testPlan.id,
           memberType: 'individual',
           status: 'pending',
+          totalMonthlyPrice: planAmount,
+          planStartDate: new Date().toISOString().slice(0, 10),
+          membershipStartDate: new Date().toISOString(),
           metadata: {
             isTestAccount: true,
-            purpose: 'Admin payment testing'
+            purpose: 'Admin payment testing',
+            planId: testPlan.id,
+            planName: testPlan.name
           }
         });
       }
@@ -643,17 +699,18 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
 
       // Create payment record linked to test member
       const testPayment = await storage.createPayment({
-        transaction_id: testOrderNumber,
-        member_id: testMember.id,
-        plan_name: 'Test Payment',
-        amount: amount,
+        transactionId: testOrderNumber,
+        memberId: testMember.id,
+        amount: normalizedAmount.toFixed(2),
         status: 'pending',
-        environment: 'production',
+        paymentMethod: 'card',
         metadata: {
           isTest: true,
           description: description || 'Admin test payment',
           initiatedBy: req.user?.email || 'unknown',
-          testType: 'manual-admin-test'
+          testType: 'manual-admin-test',
+          planId: testPlan.id,
+          planName: testPlan.name
         }
       });
 
@@ -664,11 +721,11 @@ router.post('/api/admin/payments/manual-transaction', authenticateToken, require
           id: testPayment.id,
           transactionId: testOrderNumber,
           memberId: testMember.id,
-          amount: amount,
+          amount: normalizedAmount,
           status: 'pending'
         },
         message: `Test payment created with transaction ID: ${testOrderNumber}. Use the "Launch Hosted Checkout" button to complete payment.`,
-        checkoutUrl: `/payment?amount=${amount}&orderId=${testOrderNumber}&memberId=${testMember.id}&email=${encodeURIComponent('test@getmydpc.com')}&name=${encodeURIComponent('Test Payment')}`
+        checkoutUrl: `/payment?amount=${normalizedAmount}&orderId=${testOrderNumber}&memberId=${testMember.id}&email=${encodeURIComponent('test@getmydpc.com')}&name=${encodeURIComponent('Test Payment')}`
       });
     } catch (error: any) {
       console.error('[Admin Test Payment] Failed to create test payment', error);
