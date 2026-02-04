@@ -1,13 +1,13 @@
 import { spawnSync } from 'node:child_process';
 
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const env = {
   ...process.env,
   NODE_ENV: 'development',
-  npm_config_production: 'false',
-  npm_config_include: 'prod,dev'
 };
 
-const result = spawnSync('npm', ['--prefix', 'client', 'ci'], {
+const args = ['--prefix', 'client', 'ci', '--include=dev'];
+const result = spawnSync(npmCommand, args, {
   stdio: 'inherit',
   env,
   shell: process.platform === 'win32'

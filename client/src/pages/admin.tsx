@@ -805,8 +805,47 @@ export default function Admin() {
     });
   };
 
-  const handleHostedCheckoutRequest = () => {
+  const handleHostedCheckoutRequest = async () => {
     if (!ensureSuperAdminAccess('Hosted checkout launcher')) {
+      return;
+    }
+
+    if (manualTransactionForm.tranType === 'TEST') {
+      const amountInput = manualTransactionForm.amount.trim();
+      if (!amountInput) {
+        toast({
+          title: 'Amount required',
+          description: 'Enter a dollar amount before launching a test payment.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const parsedAmount = parseFloat(amountInput);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        toast({
+          title: 'Invalid amount',
+          description: 'Test payments require a positive USD amount.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const testPayload: Record<string, any> = {
+        tranType: 'TEST',
+        amount: parsedAmount,
+        description: manualTransactionForm.description.trim() || undefined,
+      };
+
+      try {
+        setManualTransactionResult(null);
+        const response = await manualTransactionMutation.mutateAsync(testPayload);
+        if (response?.checkoutUrl) {
+          window.open(response.checkoutUrl, '_blank', 'noopener,noreferrer');
+        }
+      } catch (error) {
+        // Error toast handled inside the mutation onError callback
+      }
       return;
     }
 
