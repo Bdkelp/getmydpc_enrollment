@@ -2747,7 +2747,7 @@ export async function getAgents(): Promise<User[]> {
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .eq('role', 'agent')
+    .ilike('role', 'agent%')
     .order('first_name', { ascending: true, nullsFirst: false })
     .order('last_name', { ascending: true, nullsFirst: false })
     .order('agent_number', { ascending: true, nullsFirst: false });
@@ -3917,6 +3917,7 @@ export async function getAgentHierarchy(): Promise<any[]> {
       .select(`
         id,
         email,
+        role,
         first_name,
         last_name,
         agent_number,
@@ -3926,7 +3927,7 @@ export async function getAgentHierarchy(): Promise<any[]> {
         can_receive_overrides,
         upline:upline_agent_id(email)
       `)
-      .eq('role', 'agent')
+      .ilike('role', 'agent%')
       .order('hierarchy_level', { ascending: true })
       .order('agent_number', { ascending: true });
 
@@ -3939,7 +3940,8 @@ export async function getAgentHierarchy(): Promise<any[]> {
       const { count } = await supabase
         .from('users')
         .select('id', { count: 'exact', head: true })
-        .eq('upline_agent_id', agent.id);
+        .eq('upline_agent_id', agent.id)
+        .ilike('role', 'agent%');
 
       return {
         id: agent.id,
