@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { hasAtLeastRole } from "@/lib/roles";
+import { hasAtLeastRole, normalizeRole } from "@/lib/roles";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -423,9 +423,9 @@ export default function AgentDashboard() {
                       <SelectItem value={user?.id || ''}>
                         {user?.firstName} {user?.lastName} (Your Dashboard)
                       </SelectItem>
-                      {Array.isArray(allAgents) && allAgents.filter((agent: any) => 
-                        agent.role === 'agent' && agent.id !== user?.id
-                      ).map((agent: any) => (
+                      {Array.isArray(allAgents) && allAgents
+                        .filter((agent: any) => normalizeRole(agent.role) === 'agent' && agent.id !== user?.id)
+                        .map((agent: any) => (
                         <SelectItem key={agent.id} value={agent.id}>
                           {agent.agentNumber} - {agent.firstName} {agent.lastName} ({agent.email})
                         </SelectItem>
