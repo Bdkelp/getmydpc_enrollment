@@ -19,7 +19,7 @@ This document tracks the current status of EPX certification requirements for th
 - `EPX_CUST_NBR=9001` ✅ (Set)
 - `EPX_MERCH_NBR=900300` ✅ (Set)
 - `EPX_DBA_NBR=2` ✅ (Set)
-- `EPX_TERMINAL_NBR=72` ✅ (Set)
+- `EPX_TERMINAL_NBR=3` ✅ (Set)
 - `EPX_MAC` ✅ (Required for HMAC signing - verify it's set in DO)
 - `EPX_LOG_DIR=/var/log/epx` ⚠️ (Optional - defaults to ./logs/epx)
 
