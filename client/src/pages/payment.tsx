@@ -3,6 +3,9 @@ import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -13,6 +16,7 @@ import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 // import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
+import { isAdminOrAbove } from "@/lib/roles";
 
 export default function Payment() {
   const [, setLocation] = useLocation();
@@ -24,6 +28,9 @@ export default function Payment() {
   const [memberId, setMemberId] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [epxRetryKey, setEpxRetryKey] = useState(0);
+  const [isOverrideEnabled, setIsOverrideEnabled] = useState(false);
+  const [overrideAmountInput, setOverrideAmountInput] = useState("");
+  const [overrideReasonInput, setOverrideReasonInput] = useState("");
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -111,6 +118,11 @@ export default function Payment() {
   }
 
   const selectedPlan = plans?.find((plan: any) => plan.id === selectedPlanId);
+  const canOverrideAmount = isAdminOrAbove(user?.role);
+  const parsedOverrideAmount = isOverrideEnabled ? parseFloat(overrideAmountInput) : NaN;
+  const hasValidOverrideAmount = isOverrideEnabled && Number.isFinite(parsedOverrideAmount) && parsedOverrideAmount > 0;
+  const overrideAmountValue = hasValidOverrideAmount ? parsedOverrideAmount : undefined;
+  const overrideReasonValue = overrideReasonInput.trim() ? overrideReasonInput.trim() : undefined;
 
   const parseAmount = (value: unknown): number | undefined => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -147,6 +159,14 @@ export default function Payment() {
     },
     availablePlans: plans?.map((p: any) => ({ id: p.id, name: p.name }))
   });
+
+  useEffect(() => {
+    if (!canOverrideAmount && isOverrideEnabled) {
+      setIsOverrideEnabled(false);
+      setOverrideAmountInput('');
+      setOverrideReasonInput('');
+    }
+  }, [canOverrideAmount, isOverrideEnabled]);
 
   const handlePolicyAccept = () => {
     setShowPolicyModal(false);
@@ -225,6 +245,18 @@ export default function Payment() {
   const handleRetryPayment = () => {
     setPaymentError(null);
     setEpxRetryKey((prev) => prev + 1);
+  };
+
+  const handleOverrideToggle = (checked: boolean) => {
+    setIsOverrideEnabled(checked);
+    if (!checked) {
+      setOverrideAmountInput('');
+      setOverrideReasonInput('');
+      return;
+    }
+    if (!overrideAmountInput) {
+      setOverrideAmountInput('1.00');
+    }
   };
 
   return (
@@ -321,6 +353,49 @@ export default function Payment() {
                           <li>Enter your card details there and submit; we’ll redirect you to confirmation automatically.</li>
                         </ul>
                       </div>
+                      {canOverrideAmount && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold">Admin test payment override</p>
+                              <p className="text-xs text-amber-800">Charge a manual amount for sandbox validations. Members never see this control.</p>
+                            </div>
+                            <Switch checked={isOverrideEnabled} onCheckedChange={handleOverrideToggle} aria-label="Toggle amount override" />
+                          </div>
+                          {isOverrideEnabled && (
+                            <div className="mt-4 space-y-3">
+                              <div>
+                                <Label htmlFor="override-amount" className="text-xs font-semibold uppercase tracking-wide text-amber-900">Override Amount (USD)</Label>
+                                <Input
+                                  id="override-amount"
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  value={overrideAmountInput}
+                                  onChange={(e) => setOverrideAmountInput(e.target.value)}
+                                  placeholder="1.00"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="override-reason" className="text-xs font-semibold uppercase tracking-wide text-amber-900">Internal note</Label>
+                                <Input
+                                  id="override-reason"
+                                  type="text"
+                                  value={overrideReasonInput}
+                                  onChange={(e) => setOverrideReasonInput(e.target.value)}
+                                  placeholder="Ex: $1.00 sandbox verification"
+                                />
+                              </div>
+                              {!hasValidOverrideAmount && (
+                                <p className="text-xs text-red-700">Enter a positive amount before launching hosted checkout.</p>
+                              )}
+                              <p className="text-xs text-amber-800">
+                                Every override attempt is logged with your user ID. Use only for EPX sandbox or penny-test transactions.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <Button
                         type="button"
                         className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
@@ -341,6 +416,25 @@ export default function Payment() {
                             });
                             setLocation("/registration");
                             return;
+                          }
+                          if (isOverrideEnabled) {
+                            if (!canOverrideAmount) {
+                              toast({
+                                title: "Insufficient permissions",
+                                description: "Only admins can override the payment amount.",
+                                variant: "destructive"
+                              });
+                              setIsOverrideEnabled(false);
+                              return;
+                            }
+                            if (!hasValidOverrideAmount) {
+                              toast({
+                                title: "Enter a valid override",
+                                description: "Provide a positive dollar amount before launching the test payment.",
+                                variant: "destructive"
+                              });
+                              return;
+                            }
                           }
                           setPaymentError(null);
                           setShowEPXPayment(true);
@@ -554,6 +648,8 @@ export default function Payment() {
                 <EPXHostedPayment
                   key={epxRetryKey}
                   amount={epxPaymentAmount}
+                  amountOverride={overrideAmountValue}
+                  amountOverrideReason={overrideReasonValue}
                   customerId={memberId.toString()}
                   customerEmail={finalCustomerEmail}
                   customerName={finalCustomerName}

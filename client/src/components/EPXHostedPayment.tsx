@@ -20,6 +20,8 @@ const RECAPTCHA_SITE_KEY = ((import.meta as any)?.env?.VITE_RECAPTCHA_SITE_KEY |
 
 interface EPXHostedPaymentProps {
   amount: number;
+  amountOverride?: number | null;
+  amountOverrideReason?: string | null;
   customerId: string;
   customerEmail: string;
   customerName?: string;
@@ -48,6 +50,8 @@ declare global {
 
 export default function EPXHostedPayment({
   amount,
+  amountOverride,
+  amountOverrideReason,
   customerId,
   customerEmail,
   customerName = 'Customer',
@@ -73,6 +77,18 @@ export default function EPXHostedPayment({
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { toast } = useToast();
+  const overrideAmountValue = typeof amountOverride === 'number' && Number.isFinite(amountOverride)
+    ? amountOverride
+    : null;
+  const overrideReasonValue = amountOverrideReason && amountOverrideReason.trim()
+    ? amountOverrideReason.trim()
+    : null;
+
+  useEffect(() => {
+    setSessionData(null);
+    setError(null);
+    setIsLoading(true);
+  }, [amount, overrideAmountValue]);
   
   const refreshCaptchaToken = useCallback(async (): Promise<string | null> => {
     if (!RECAPTCHA_SITE_KEY) {
@@ -181,7 +197,7 @@ export default function EPXHostedPayment({
         console.log('[EPX Hosted] Sending reCAPTCHA token to backend');
         
         // Get session data from backend
-        const response = await apiClient.post('/api/epx/hosted/create-payment', {
+        const payload: Record<string, any> = {
           amount,
           customerId,
           customerEmail,
@@ -191,7 +207,16 @@ export default function EPXHostedPayment({
           description: description || 'DPC Subscription Payment',
           billingAddress: populatedBillingAddress,
           captchaToken: captchaToken
-        });
+        };
+
+        if (overrideAmountValue) {
+          payload.amountOverride = overrideAmountValue;
+          if (overrideReasonValue) {
+            payload.amountOverrideReason = overrideReasonValue;
+          }
+        }
+
+        const response = await apiClient.post('/api/epx/hosted/create-payment', payload);
 
         if (!response.success) {
           throw new Error(response.error || 'Failed to create payment session');
@@ -227,7 +252,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {
@@ -290,11 +315,12 @@ export default function EPXHostedPayment({
         : amountFromPayloadRaw
           ? parseFloat(String(amountFromPayloadRaw))
           : undefined;
+      const overrideFallbackAmount = Number.isFinite(overrideAmountValue ?? NaN)
+        ? (overrideAmountValue as number)
+        : undefined;
       const normalizedAmount = Number.isFinite(amountFromPayload as number)
         ? (amountFromPayload as number)
-        : Number.isFinite(amount)
-          ? amount
-          : undefined;
+        : overrideFallbackAmount ?? (Number.isFinite(amount) ? amount : undefined);
 
       if (!tokenFromPayload) {
         console.error('[EPX Hosted] Missing BRIC token in success payload. Parsed message:', parsedMessage);
@@ -322,7 +348,7 @@ export default function EPXHostedPayment({
           paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
           authGuid: extractAuthGuid(parsedMessage),
           authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
-          amount: parsedMessage.amount || amount
+          amount: parsedMessage.amount || overrideAmountValue || amount
         });
 
         toast({
@@ -340,8 +366,11 @@ export default function EPXHostedPayment({
             const params = new URLSearchParams({ transaction: transactionId });
             if (typeof normalizedAmount === 'number' && Number.isFinite(normalizedAmount)) {
               params.append('amount', normalizedAmount.toFixed(2));
-            } else if (typeof amount === 'number' && Number.isFinite(amount)) {
-              params.append('amount', amount.toFixed(2));
+            } else if (typeof (overrideAmountValue || amount) === 'number' && Number.isFinite((overrideAmountValue || amount) as number)) {
+              const fallback = Number.isFinite(overrideAmountValue ?? NaN)
+                ? (overrideAmountValue as number)
+                : amount;
+              params.append('amount', fallback.toFixed(2));
             }
             if (planId) {
               params.append('planId', planId);
@@ -434,6 +463,12 @@ export default function EPXHostedPayment({
     );
   }
 
+  const sessionOverrideAmount = typeof sessionData?.overrideAmount === 'number' && Number.isFinite(sessionData.overrideAmount)
+    ? sessionData.overrideAmount
+    : null;
+  const liveDisplayAmount = sessionOverrideAmount ?? overrideAmountValue ?? amount;
+  const overrideBannerActive = Boolean(sessionOverrideAmount || overrideAmountValue);
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -444,11 +479,20 @@ export default function EPXHostedPayment({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="text-center">
-          <p className="text-2xl font-bold">${amount.toFixed(2)}</p>
+          <p className="text-2xl font-bold">${liveDisplayAmount.toFixed(2)}</p>
           <p className="text-sm text-muted-foreground mt-1">
             {description || 'DPC Subscription Payment'}
           </p>
         </div>
+
+        {overrideBannerActive && (
+          <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Processing a manual test amount of ${liveDisplayAmount.toFixed(2)}. Only admins and super admins can trigger this override.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {error && (
           <Alert variant="destructive">

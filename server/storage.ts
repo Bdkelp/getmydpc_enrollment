@@ -4481,6 +4481,19 @@ export async function getUserPayments(userId: string): Promise<Payment[]> {
   }
 }
 
+export async function getPaymentById(id: number): Promise<Payment | undefined> {
+  try {
+    const result = await query(
+      'SELECT * FROM payments WHERE id = $1 LIMIT 1',
+      [id]
+    );
+    return result.rows[0] || undefined;
+  } catch (error: any) {
+    console.error('Error fetching payment by ID:', error);
+    return undefined;
+  }
+}
+
 export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
   try {
     // Use direct Neon query instead of Supabase. Match either the stored transaction_id
@@ -5427,6 +5440,7 @@ export const storage = {
   createPayment,
 
   getUserPayments,
+  getPaymentById,
   getPaymentByTransactionId,
   getLatestPaymentWithAuthGuid,
   updatePayment,

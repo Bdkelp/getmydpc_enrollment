@@ -344,14 +344,52 @@ function normalizeBillingAddress(address: any): BillingAddress | undefined {
   return hasValue ? normalized : undefined;
 }
 
+async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
+  if (req.user) {
+    return req.user;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user?.email) {
+      return null;
+    }
+
+    const dbUser = await storage.getUserByEmail(user.email);
+    if (!dbUser || dbUser.approvalStatus === 'pending' || dbUser.approvalStatus === 'rejected' || dbUser.isActive === false) {
+      return null;
+    }
+
+    const resolvedUser = { ...dbUser, supabaseUserId: user.id };
+    req.user = resolvedUser;
+    req.token = token;
+    return resolvedUser;
+  } catch (error: any) {
+    console.warn('[EPX Hosted Checkout] Optional auth resolution failed', error?.message || error);
+    return null;
+  }
+}
+
 /**
  * Create payment session for Hosted Checkout
  */
 router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
   const requestStartTime = Date.now();
 
   try {
     const currentEnvironment = await paymentEnvironment.getEnvironment();
+    const authenticatedUser = await resolveRequestUser(authReq);
     initializeService();
 
     if (hostedCheckoutService) {
@@ -372,6 +410,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     const {
       amount,
+      amountOverride,
+      amountOverrideReason,
       customerId,
       customerEmail,
       customerName,
@@ -379,21 +419,206 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       subscriptionId,
       description,
       billingAddress,
-      captchaToken
+      captchaToken,
+      retryPaymentId,
+      retryMemberId,
+      retryReason,
+      retryInitiatedBy
     } = req.body;
 
-    const numericAmount = typeof amount === 'number' ? amount : parseFloat(String(amount));
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      return res.status(400).json({ success: false, error: 'A valid amount is required' });
+    const numericAmount = typeof amount === 'number'
+      ? amount
+      : amount !== undefined && amount !== null
+        ? parseFloat(String(amount))
+        : NaN;
+
+    const parsedAmountOverride = typeof amountOverride === 'number'
+      ? amountOverride
+      : amountOverride !== undefined && amountOverride !== null
+        ? parseFloat(String(amountOverride))
+        : NaN;
+
+    const hasAmountOverride = Number.isFinite(parsedAmountOverride) && parsedAmountOverride > 0;
+    const normalizedAmountOverrideReason = typeof amountOverrideReason === 'string'
+      ? amountOverrideReason.trim() || null
+      : null;
+
+    if (!Number.isNaN(parsedAmountOverride) && !hasAmountOverride) {
+      return res.status(400).json({ success: false, error: 'Amount override must be a positive number' });
     }
 
     const normalizedBillingAddress = normalizeBillingAddress(billingAddress);
+
+    const parsedRetryPaymentId = typeof retryPaymentId === 'string'
+      ? parseInt(retryPaymentId, 10)
+      : retryPaymentId;
+
+    const parsedRetryMemberId = typeof retryMemberId === 'string'
+      ? parseInt(retryMemberId, 10)
+      : retryMemberId;
+
+    const isRetryRequest = Number.isFinite(parsedRetryPaymentId);
+    const requestUserId = authenticatedUser?.id || null;
+
+    let effectiveAmount = Number.isFinite(numericAmount) ? numericAmount : NaN;
+    let effectiveCustomerEmail: string | undefined = customerEmail;
+    let effectiveCustomerName: string | undefined = customerName || 'Customer';
+    let effectivePlanId: string | undefined = planId;
+    let effectiveDescription: string | undefined = description;
+    let effectiveBillingAddress = normalizedBillingAddress;
+    let derivedMemberId: number | null = null;
+    let derivedUserId: string | null = null;
+    let overrideApprovedBy: any = null;
+    let retryContext: {
+      originalPaymentId: number;
+      attemptNumber: number;
+      triggeredByUserId?: string | null;
+      timestamp: string;
+      reason?: string | null;
+    } | null = null;
+    let retrySourceMetadata: Record<string, any> | null = null;
+
+    if (hasAmountOverride) {
+      overrideApprovedBy = authenticatedUser;
+      if (!overrideApprovedBy) {
+        overrideApprovedBy = await resolveRequestUser(authReq);
+      }
+
+      if (!overrideApprovedBy || !isAtLeastAdmin(overrideApprovedBy.role)) {
+        return res.status(403).json({ success: false, error: 'Amount override requires admin access' });
+      }
+
+      effectiveAmount = parsedAmountOverride!;
+      if (!derivedUserId && typeof overrideApprovedBy.id === 'string') {
+        derivedUserId = overrideApprovedBy.id;
+      }
+    }
+
+    if (isRetryRequest) {
+      const originalPayment = await storage.getPaymentById(parsedRetryPaymentId!);
+      if (!originalPayment) {
+        return res.status(404).json({ success: false, error: 'Original payment not found' });
+      }
+
+      retrySourceMetadata = parsePaymentMetadata(originalPayment.metadata);
+      const retryHistory = Array.isArray(retrySourceMetadata.retryHistory)
+        ? [...retrySourceMetadata.retryHistory]
+        : [];
+      const attemptNumber = retryHistory.length + 1;
+      const authUserId = requestUserId || undefined;
+
+      const paymentAmount = originalPayment.amount ? parseFloat(originalPayment.amount) : NaN;
+      const metadataAmount = retrySourceMetadata.amount ? parseFloat(String(retrySourceMetadata.amount)) : NaN;
+      if (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0) {
+        const derivedAmount = Number.isFinite(paymentAmount) && paymentAmount > 0
+          ? paymentAmount
+          : (Number.isFinite(metadataAmount) && metadataAmount > 0 ? metadataAmount : NaN);
+        effectiveAmount = derivedAmount;
+      }
+
+      const resolvedMemberId = parsedRetryMemberId
+        || (typeof originalPayment.member_id === 'number' ? originalPayment.member_id
+          : originalPayment.member_id ? parseInt(String(originalPayment.member_id), 10) : undefined)
+        || (typeof retrySourceMetadata.memberId === 'number' ? retrySourceMetadata.memberId : undefined);
+
+      if (Number.isFinite(resolvedMemberId as number)) {
+        derivedMemberId = Number(resolvedMemberId);
+      }
+
+      const memberRecord = derivedMemberId ? await storage.getMember(derivedMemberId) : null;
+      const memberRecordData = memberRecord ? (memberRecord as Record<string, any>) : null;
+
+      const metadataEmail = retrySourceMetadata.customerEmail || retrySourceMetadata.customer_email;
+      if (!effectiveCustomerEmail) {
+        effectiveCustomerEmail = metadataEmail || memberRecordData?.email || undefined;
+      }
+
+      const metadataName = retrySourceMetadata.customerName || retrySourceMetadata.customer_name;
+      if ((!customerName || !customerName.trim()) && metadataName) {
+        effectiveCustomerName = metadataName;
+      } else if ((!customerName || !customerName.trim()) && memberRecordData) {
+        const combinedName = [memberRecordData.first_name || memberRecordData.firstName, memberRecordData.last_name || memberRecordData.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        if (combinedName) {
+          effectiveCustomerName = combinedName;
+        }
+      }
+
+      if (!effectivePlanId && memberRecordData?.plan_id) {
+        effectivePlanId = String(memberRecordData.plan_id);
+      } else if (!effectivePlanId && retrySourceMetadata.planId) {
+        effectivePlanId = String(retrySourceMetadata.planId);
+      }
+
+      if (!effectiveDescription) {
+        effectiveDescription = retrySourceMetadata.description || `Retry of payment ${originalPayment.id}`;
+      }
+
+      if (!effectiveBillingAddress) {
+        const metadataAddress = normalizeBillingAddress(retrySourceMetadata.billingAddress);
+        if (metadataAddress) {
+          effectiveBillingAddress = metadataAddress;
+        } else if (memberRecordData) {
+          effectiveBillingAddress = normalizeBillingAddress({
+            streetAddress: memberRecordData.address,
+            city: memberRecordData.city,
+            state: memberRecordData.state,
+            postalCode: memberRecordData.zip_code
+          });
+        }
+      }
+
+      retryContext = {
+        originalPaymentId: originalPayment.id,
+        attemptNumber,
+        triggeredByUserId: retryInitiatedBy || authUserId || null,
+        timestamp: new Date().toISOString(),
+        reason: retryReason || null
+      };
+
+      logEPX({
+        level: 'info',
+        phase: 'retry-payment',
+        message: 'Retry hosted checkout session requested',
+        data: {
+          originalPaymentId: originalPayment.id,
+          attemptNumber,
+          memberId: derivedMemberId,
+          triggeredBy: retryContext.triggeredByUserId || 'unknown'
+        }
+      });
+    }
+
+    if (!isRetryRequest && (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)) {
+      return res.status(400).json({ success: false, error: 'A valid amount is required' });
+    }
+
+    if (isRetryRequest && (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)) {
+      return res.status(400).json({ success: false, error: 'Unable to resolve amount for retry payment' });
+    }
+
+    if (!effectiveCustomerEmail) {
+      return res.status(400).json({ success: false, error: 'Unable to resolve customer email for payment' });
+    }
 
     logEPX({
       level: 'info',
       phase: 'create-payment',
       message: 'Create payment request received',
-      data: { amount: numericAmount, customerId, customerEmail, planId, hasBillingAddress: !!normalizedBillingAddress }
+      data: {
+        requestedAmount: numericAmount,
+        effectiveAmount,
+        customerId,
+        customerEmail: effectiveCustomerEmail,
+        planId: effectivePlanId,
+        hasBillingAddress: !!effectiveBillingAddress,
+        isRetryRequest,
+        retryPaymentId: parsedRetryPaymentId || null,
+        amountOverride: hasAmountOverride ? parsedAmountOverride : null,
+        overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null
+      }
     });
 
     // Server-side reCAPTCHA verification (production only or when enabled)
@@ -410,11 +635,11 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     // Create checkout session
     const sessionResponse = hostedCheckoutService.createCheckoutSession(
-      numericAmount,
+      effectiveAmount,
       orderNumber,
-      customerEmail,
-      customerName || 'Customer',
-      normalizedBillingAddress
+      effectiveCustomerEmail,
+      effectiveCustomerName || 'Customer',
+      effectiveBillingAddress
     );
 
     if (!sessionResponse.success) {
@@ -423,40 +648,70 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     }
 
     // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
-    let memberId: number | null = null;
-    let userId: string | null = null;
+    let memberId: number | null = derivedMemberId;
+    let userId: string | null = derivedUserId;
 
-    if (typeof customerId === 'number') {
-      memberId = customerId;
-    } else if (typeof customerId === 'string') {
-      if (/^\d+$/.test(customerId)) {
-        memberId = parseInt(customerId, 10);
-      } else if (customerId.includes('-')) {
-        userId = customerId;
+    if (!memberId) {
+      if (typeof customerId === 'number') {
+        memberId = customerId;
+      } else if (typeof customerId === 'string') {
+        if (/^\d+$/.test(customerId)) {
+          memberId = parseInt(customerId, 10);
+        } else if (customerId.includes('-')) {
+          userId = customerId;
+        }
       }
     }
 
     // Store payment record in pending state
     try {
+      const paymentMetadata: Record<string, any> = {
+        planId: effectivePlanId,
+        paymentType: 'hosted-checkout',
+        environment: currentEnvironment,
+        customerEmail: effectiveCustomerEmail,
+        customerName: effectiveCustomerName,
+        description: effectiveDescription,
+        orderNumber,
+        originalCustomerId: customerId,
+        billingAddress: effectiveBillingAddress || null,
+        requestedAmount: Number.isFinite(numericAmount) ? numericAmount : null
+      };
+
+      if (hasAmountOverride) {
+        paymentMetadata.amountOverride = {
+          amount: parsedAmountOverride,
+          approvedByUserId: overrideApprovedBy?.id || null,
+          approvedByEmail: overrideApprovedBy?.email || null,
+          approvedByRole: overrideApprovedBy?.role || null,
+          reason: normalizedAmountOverrideReason,
+          requestedAt: new Date().toISOString()
+        };
+        paymentMetadata.testPayment = true;
+      }
+
+      if (retryContext) {
+        paymentMetadata.retryContext = retryContext;
+        paymentMetadata.retrySourcePaymentId = retryContext.originalPaymentId;
+        paymentMetadata.retryAttemptNumber = retryContext.attemptNumber;
+        paymentMetadata.retryReason = retryContext.reason;
+        paymentMetadata.retryInitiatedBy = retryContext.triggeredByUserId || null;
+      }
+
+      if (retrySourceMetadata) {
+        paymentMetadata.retrySourceMetadata = retrySourceMetadata;
+      }
+
       const paymentData = {
         memberId,
         userId,
         subscriptionId: subscriptionId || null,
-        amount: numericAmount.toString(),
+        amount: effectiveAmount.toString(),
         currency: 'USD',
         status: 'pending' as const,
         paymentMethod: 'card' as const,
         transactionId: orderNumber,
-        metadata: {
-          planId,
-          paymentType: 'hosted-checkout',
-          environment: currentEnvironment,
-          customerEmail,
-          description,
-          orderNumber,
-          originalCustomerId: customerId,
-          billingAddress: normalizedBillingAddress || null
-        }
+        metadata: paymentMetadata
       };
 
       logEPX({
@@ -513,13 +768,18 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       environment: config.environment,
       captchaMode: config.captchaMode,
       paymentMethod: 'hosted-checkout',
+      retryContext: retryContext || undefined,
+      overrideApplied: hasAmountOverride || undefined,
+      overrideAmount: hasAmountOverride ? effectiveAmount : undefined,
+      requestedAmount: Number.isFinite(numericAmount) ? numericAmount : undefined,
+      testPayment: hasAmountOverride || undefined,
       formData: {
-        amount: numericAmount.toFixed(2),
+        amount: effectiveAmount.toFixed(2),
         orderNumber,
         invoiceNumber: orderNumber,
-        email: customerEmail,
-        billingName: customerName || 'Customer',
-        ...(normalizedBillingAddress || {})
+        email: effectiveCustomerEmail,
+        billingName: effectiveCustomerName || 'Customer',
+        ...(effectiveBillingAddress || {})
       }
     };
 
@@ -528,23 +788,23 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       '[EPX Hosted Checkout - REQUEST TO FRONTEND]',
       JSON.stringify({
         transactionId: orderNumber,
-        amount: numericAmount.toFixed(2),
-        email: customerEmail,
-        billingName: customerName || 'Customer',
+        amount: effectiveAmount.toFixed(2),
+        email: effectiveCustomerEmail,
+        billingName: effectiveCustomerName || 'Customer',
         publicKey: sessionResponse.publicKey,
         environment: config.environment,
-        billingAddress: normalizedBillingAddress
+        billingAddress: effectiveBillingAddress
       }, null, 2)
     );
 
-    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber, hasBillingAddress: !!normalizedBillingAddress } });
+    logEPX({ level: 'info', phase: 'create-payment', message: 'Create payment response ready', data: { transactionId: orderNumber, hasBillingAddress: !!effectiveBillingAddress, retry: !!retryContext, testPayment: hasAmountOverride } });
 
     if (certificationLoggingEnabled) {
       try {
         certificationLogger.logCertificationEntry({
           transactionId: orderNumber,
           customerId: (memberId && String(memberId)) || userId || (customerId ? String(customerId) : undefined),
-          amount: numericAmount,
+          amount: effectiveAmount,
           environment: currentEnvironment,
           purpose: 'hosted-checkout-create-payment',
           request: {
@@ -558,14 +818,26 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
             },
             body: {
               amount: numericAmount,
+              effectiveAmount,
               customerId,
               customerEmail,
+              effectiveCustomerEmail,
               customerName,
+              effectiveCustomerName,
               planId,
               subscriptionId,
               description,
+              effectiveDescription,
               billingAddress: normalizedBillingAddress,
-              captchaToken: captchaToken || null
+              effectiveBillingAddress,
+              captchaToken: captchaToken || null,
+              retryPaymentId: parsedRetryPaymentId || null,
+              retryMemberId: parsedRetryMemberId || null,
+              retryContext,
+              retryReason: retryContext?.reason || retryReason || null,
+              amountOverride: hasAmountOverride ? parsedAmountOverride : null,
+              amountOverrideReason: normalizedAmountOverrideReason,
+              overrideApprovedBy: overrideApprovedBy?.id || null
             },
             ipAddress: req.ip,
             userAgent: req.get('user-agent') || undefined
@@ -579,8 +851,10 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
             processingTimeMs: Date.now() - requestStartTime
           },
           metadata: {
-            billingAddressPresent: !!normalizedBillingAddress,
-            paymentMethod: 'hosted-checkout'
+            billingAddressPresent: !!effectiveBillingAddress,
+            paymentMethod: 'hosted-checkout',
+            retryAttemptNumber: retryContext?.attemptNumber || null,
+            testPayment: hasAmountOverride || null
           }
         });
       } catch (certError: any) {
