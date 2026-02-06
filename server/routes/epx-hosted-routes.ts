@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import { EPXHostedCheckoutService, type EPXHostedCheckoutConfig } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
@@ -26,6 +27,7 @@ const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !==
 let hostedCheckoutService: EPXHostedCheckoutService | null = null;
 let serviceInitialized = false;
 let initError: string | null = null;
+let hostedConfigSource = 'uninitialized';
 
 // Lazy initialization function - always use production config
 const hostedConfigPaths = [
@@ -34,6 +36,47 @@ const hostedConfigPaths = [
   path.join(process.cwd(), 'config', 'epx-hosted-config.production.json'),
   path.join(process.cwd(), 'epx-hosted-config.production.json')
 ].filter((entry): entry is string => Boolean(entry));
+
+const fingerprintPublicKey = (publicKey?: string | null): string | null => {
+  if (!publicKey) {
+    return null;
+  }
+
+  try {
+    return createHash('sha256').update(publicKey).digest('hex').slice(0, 12);
+  } catch (error) {
+    console.warn('[EPX Hosted Checkout] Failed to fingerprint public key:', (error as Error)?.message);
+    return null;
+  }
+};
+
+const deriveTerminalProfileId = (publicKey?: string | null): string | undefined => {
+  if (!publicKey) {
+    return undefined;
+  }
+
+  try {
+    const decoded = Buffer.from(publicKey, 'base64').toString('utf8').trim();
+    const parsed = JSON.parse(decoded);
+
+    if (parsed && typeof parsed === 'object') {
+      if (typeof (parsed as Record<string, any>).terminalProfileId === 'string') {
+        return (parsed as Record<string, any>).terminalProfileId.trim() || undefined;
+      }
+
+      for (const [key, value] of Object.entries(parsed as Record<string, any>)) {
+        if (typeof value === 'string' && key.replace(/\s+/g, '') === 'terminalProfileId') {
+          return value.trim() || undefined;
+        }
+      }
+    }
+
+    return undefined;
+  } catch (error) {
+    console.warn('[EPX Hosted Checkout] Unable to derive terminalProfileId from public key:', (error as Error)?.message);
+    return undefined;
+  }
+};
 
 type BillingAddress = {
   streetAddress?: string;
@@ -194,7 +237,7 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   return { paymentRecord, maskedAuthGuid };
 }
 
-function loadHostedConfig(): EPXHostedCheckoutConfig {
+function loadHostedConfig(): { config: EPXHostedCheckoutConfig; source: string } {
   const cachedEnvironment = paymentEnvironment.getCachedEnvironment();
   const envConfig: Partial<EPXHostedCheckoutConfig> = {
     publicKey: process.env.EPX_PUBLIC_KEY || undefined,
@@ -202,28 +245,55 @@ function loadHostedConfig(): EPXHostedCheckoutConfig {
     environment: cachedEnvironment
   };
 
+  if (envConfig.publicKey && !envConfig.terminalProfileId) {
+    const derivedTerminalProfileId = deriveTerminalProfileId(envConfig.publicKey);
+    if (derivedTerminalProfileId) {
+      envConfig.terminalProfileId = derivedTerminalProfileId;
+      console.log('[EPX Hosted Checkout] Derived terminalProfileId from environment public key');
+    } else {
+      console.warn('[EPX Hosted Checkout] EPX_TERMINAL_PROFILE_ID missing and unable to derive from public key');
+    }
+  }
+
   if (envConfig.publicKey && envConfig.terminalProfileId) {
-    return {
+    const config: EPXHostedCheckoutConfig = {
       publicKey: envConfig.publicKey,
       terminalProfileId: envConfig.terminalProfileId,
       environment: envConfig.environment || cachedEnvironment,
       successCallback: process.env.EPX_HOSTED_SUCCESS_CALLBACK || 'epxSuccessCallback',
       failureCallback: process.env.EPX_HOSTED_FAILURE_CALLBACK || 'epxFailureCallback'
     };
+
+    return { config, source: 'environment variables' };
   }
 
   for (const filePath of hostedConfigPaths) {
     try {
       if (!fs.existsSync(filePath)) continue;
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<EPXHostedCheckoutConfig>;
-      if (parsed.publicKey && parsed.terminalProfileId) {
-        return {
-          publicKey: parsed.publicKey,
-          terminalProfileId: parsed.terminalProfileId,
+      const filePublicKey = parsed.publicKey;
+      let fileTerminalProfileId = parsed.terminalProfileId;
+
+      if (filePublicKey && !fileTerminalProfileId) {
+        const derivedTerminalProfileId = deriveTerminalProfileId(filePublicKey);
+        if (derivedTerminalProfileId) {
+          fileTerminalProfileId = derivedTerminalProfileId;
+          console.log('[EPX Hosted Checkout] Derived terminalProfileId from file public key:', filePath);
+        } else {
+          console.warn('[EPX Hosted Checkout] terminalProfileId missing in file and unable to derive:', filePath);
+        }
+      }
+
+      if (filePublicKey && fileTerminalProfileId) {
+        const config: EPXHostedCheckoutConfig = {
+          publicKey: filePublicKey,
+          terminalProfileId: fileTerminalProfileId,
           environment: cachedEnvironment,
           successCallback: parsed.successCallback || 'epxSuccessCallback',
           failureCallback: parsed.failureCallback || 'epxFailureCallback'
         };
+
+        return { config, source: `file:${filePath}` };
       }
     } catch (error) {
       console.warn('[EPX Hosted Checkout] Failed to read config file', filePath, error);
@@ -239,11 +309,16 @@ function initializeService(force = false) {
   }
 
   try {
-    const config = loadHostedConfig();
+    const { config, source } = loadHostedConfig();
     hostedCheckoutService = new EPXHostedCheckoutService(config);
     serviceInitialized = true;
     initError = null;
-    console.log('[EPX Hosted Checkout] Service ready in', config.environment, 'mode');
+    hostedConfigSource = source;
+    console.log('[EPX Hosted Checkout] Service ready in', config.environment, 'mode', {
+      configSource: source,
+      terminalProfileId: config.terminalProfileId,
+      publicKeyFingerprint: fingerprintPublicKey(config.publicKey)
+    });
   } catch (error: any) {
     serviceInitialized = false;
     hostedCheckoutService = null;
@@ -290,7 +365,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     if (!serviceInitialized || !hostedCheckoutService) {
       return res.status(503).json({
         success: false,
-        error: initError || 'Hosted Checkout service not initialized'
+        error: initError || 'Hosted Checkout service not initialized',
+        configSource: hostedConfigSource
       });
     }
 
