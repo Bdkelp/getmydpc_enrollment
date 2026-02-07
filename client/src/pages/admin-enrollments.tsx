@@ -53,6 +53,8 @@ interface Enrollment {
   enrolledBy: string;
   enrolledByAgentId: string;
   subscriptionId?: number;
+  memberPublicId?: string | null;
+  customerNumber?: string | null;
 }
 
 interface Agent {
@@ -406,7 +408,14 @@ export default function AdminEnrollments() {
           ?.toLowerCase()
           .includes(searchTerm.toLowerCase()) ||
         enrollment.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase());
+        enrollment.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        enrollment.id?.toString().includes(searchTerm) ||
+        enrollment.memberPublicId
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
+        enrollment.customerNumber
+          ?.toLowerCase()
+          .includes(searchTerm.toLowerCase());
 
       const matchesStatus =
         statusFilter === "all" || enrollment.status === statusFilter;
@@ -716,6 +725,7 @@ export default function AdminEnrollments() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Member Name</TableHead>
                     <TableHead>Email</TableHead>
                     <TableHead>Plan</TableHead>
@@ -731,6 +741,19 @@ export default function AdminEnrollments() {
                     <TableRow key={enrollment.id}>
                       <TableCell>
                         {format(new Date(enrollment.createdAt), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        #{enrollment.id}
+                        {enrollment.memberPublicId && (
+                          <div className="text-[11px] text-gray-500">
+                            Public: {enrollment.memberPublicId}
+                          </div>
+                        )}
+                        {enrollment.customerNumber && (
+                          <div className="text-[11px] text-gray-500">
+                            Customer: {enrollment.customerNumber}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="font-medium">
                         {enrollment.firstName} {enrollment.lastName}

@@ -28,6 +28,7 @@ interface Commission {
   id: string;
   agentId: string;
   memberId: string;
+  membershipId?: string;
   commissionAmount: number;
   coverageType: string;
   status: string;
@@ -355,6 +356,7 @@ export default function AdminCommissions() {
                         <TableHead>Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                         <TableHead>Status</TableHead>
@@ -376,6 +378,12 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            #{commission.memberId}
+                            {commission.membershipId && (
+                              <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
                           </TableCell>
@@ -420,6 +428,7 @@ export default function AdminCommissions() {
                         <TableHead>Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                       </TableRow>
@@ -438,6 +447,12 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            #{commission.memberId}
+                            {commission.membershipId && (
+                              <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
                           </TableCell>
@@ -464,6 +479,7 @@ export default function AdminCommissions() {
                         <TableHead>Scheduled Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                       </TableRow>
@@ -481,6 +497,12 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            #{commission.memberId}
+                            {commission.membershipId && (
+                              <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
                           </TableCell>
@@ -507,6 +529,7 @@ export default function AdminCommissions() {
                         <TableHead>Payment Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead>Amount</TableHead>
                       </TableRow>
@@ -524,6 +547,12 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            #{commission.memberId}
+                            {commission.membershipId && (
+                              <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
                           </TableCell>

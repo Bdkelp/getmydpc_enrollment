@@ -49,6 +49,9 @@ interface AnalyticsData {
   }>;
   recentEnrollments: Array<{
     id: string;
+    memberId: string;
+    memberPublicId: string;
+    customerNumber: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -78,6 +81,9 @@ interface AnalyticsData {
   }>;
   memberReports: Array<{
     id: string;
+    memberId: string;
+    memberPublicId: string;
+    customerNumber: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -91,6 +97,9 @@ interface AnalyticsData {
   }>;
   commissionReports: Array<{
     id: string;
+    memberId: string;
+    memberPublicId?: string;
+    membershipId?: string;
     agentName: string;
     agentNumber: string;
     memberName: string;
@@ -486,7 +495,8 @@ export default function AdminAnalytics() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Member Name</TableHead>
+                          <TableHead>Member</TableHead>
+                          <TableHead>Member ID</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Plan</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
@@ -499,6 +509,19 @@ export default function AdminAnalytics() {
                           <TableRow key={enrollment.id}>
                             <TableCell className="font-medium">
                               {enrollment.firstName} {enrollment.lastName}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              #{enrollment.memberId || enrollment.id}
+                              {enrollment.memberPublicId && (
+                                <div className="text-[11px] text-gray-500">
+                                  Public: {enrollment.memberPublicId}
+                                </div>
+                              )}
+                              {enrollment.customerNumber && (
+                                <div className="text-[11px] text-gray-500">
+                                  Customer: {enrollment.customerNumber}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>{enrollment.email}</TableCell>
                             <TableCell>{enrollment.planName}</TableCell>
@@ -522,6 +545,7 @@ export default function AdminAnalytics() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Name</TableHead>
+                          <TableHead>Member ID</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Plan</TableHead>
@@ -536,6 +560,19 @@ export default function AdminAnalytics() {
                           <TableRow key={member.id}>
                             <TableCell className="font-medium">
                               {member.firstName} {member.lastName}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              #{member.memberId || member.id}
+                              {member.memberPublicId && (
+                                <div className="text-[11px] text-gray-500">
+                                  Public: {member.memberPublicId}
+                                </div>
+                              )}
+                              {member.customerNumber && (
+                                <div className="text-[11px] text-gray-500">
+                                  Customer: {member.customerNumber}
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell>{member.email}</TableCell>
                             <TableCell>{member.phone}</TableCell>
@@ -594,6 +631,7 @@ export default function AdminAnalytics() {
                           <TableHead>Agent</TableHead>
                           <TableHead>Agent #</TableHead>
                           <TableHead>Member</TableHead>
+                          <TableHead>Member ID</TableHead>
                           <TableHead>Plan</TableHead>
                           <TableHead className="text-right">Commission</TableHead>
                           <TableHead className="text-right">Plan Cost</TableHead>
@@ -608,6 +646,19 @@ export default function AdminAnalytics() {
                             <TableCell className="font-medium">{commission.agentName}</TableCell>
                             <TableCell>{commission.agentNumber}</TableCell>
                             <TableCell>{commission.memberName}</TableCell>
+                            <TableCell className="font-mono text-xs">
+                              #{commission.memberId || '—'}
+                              {commission.memberPublicId && (
+                                <div className="text-[11px] text-gray-500">
+                                  Public: {commission.memberPublicId}
+                                </div>
+                              )}
+                              {commission.membershipId && (
+                                <div className="text-[11px] text-gray-500">
+                                  Customer: {commission.membershipId}
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell>{commission.planName}</TableCell>
                             <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(commission.totalPlanCost)}</TableCell>

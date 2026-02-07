@@ -58,6 +58,8 @@ interface Enrollment {
   pendingReason?: string;
   pendingDetails?: string;
   subscriptionId?: number;
+  memberPublicId?: string | null;
+  customerNumber?: string | null;
 }
 
 type GoalPeriodKey = "weekly" | "monthly" | "quarterly";
@@ -653,6 +655,7 @@ export default function AgentDashboard() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-2">Date</th>
+                    <th className="text-left py-2">Member ID</th>
                     <th className="text-left py-2">Member Name</th>
                     <th className="text-left py-2">Plan</th>
                     <th className="text-left py-2">Type</th>
@@ -670,6 +673,19 @@ export default function AgentDashboard() {
                       onClick={() => enrollment.status === 'pending' && handlePendingClick(enrollment)}
                     >
                       <td className="py-2">{format(new Date(enrollment.createdAt), "MM/dd/yyyy")}</td>
+                      <td className="py-2 font-mono text-xs">
+                        #{enrollment.id}
+                        {enrollment.memberPublicId && (
+                          <div className="text-[11px] text-gray-500">
+                            Public: {enrollment.memberPublicId}
+                          </div>
+                        )}
+                        {enrollment.customerNumber && (
+                          <div className="text-[11px] text-gray-500">
+                            Customer: {enrollment.customerNumber}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2">{enrollment.firstName} {enrollment.lastName}</td>
                       <td className="py-2">{enrollment.planName}</td>
                       <td className="py-2">{enrollment.memberType}</td>
@@ -771,6 +787,16 @@ export default function AgentDashboard() {
                 <h4 className="font-semibold mb-2">Member Information</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><span className="font-medium">Name:</span> {selectedEnrollment.firstName} {selectedEnrollment.lastName}</div>
+                  <div className="col-span-2 font-mono text-xs text-gray-700">
+                    <span className="font-sans font-medium text-gray-900 mr-1">Member ID:</span>
+                    #{selectedEnrollment.id}
+                    {selectedEnrollment.memberPublicId && (
+                      <div className="text-[11px] text-gray-500">Public: {selectedEnrollment.memberPublicId}</div>
+                    )}
+                    {selectedEnrollment.customerNumber && (
+                      <div className="text-[11px] text-gray-500">Customer: {selectedEnrollment.customerNumber}</div>
+                    )}
+                  </div>
                   <div><span className="font-medium">Plan:</span> {selectedEnrollment.planName}</div>
                   <div><span className="font-medium">Type:</span> {selectedEnrollment.memberType}</div>
                   <div><span className="font-medium">Monthly:</span> ${selectedEnrollment.totalMonthlyPrice}</div>

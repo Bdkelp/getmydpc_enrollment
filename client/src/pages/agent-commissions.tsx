@@ -26,6 +26,8 @@ interface Commission {
   subscriptionId?: number;
   userId?: string;
   userName?: string;
+  memberId?: string | number;
+  membershipId?: string;
   planName?: string;
   planType?: string;
   planTier?: string;
@@ -306,6 +308,7 @@ export default function AgentCommissions() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Member</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Plan Cost</TableHead>
@@ -325,6 +328,12 @@ export default function AgentCommissions() {
                           {commission.createdAt ? format(new Date(commission.createdAt), "MM/dd/yyyy") : 'N/A'}
                         </TableCell>
                         <TableCell>{commission.userName || 'N/A'}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          #{commission.memberId ?? '—'}
+                          {commission.membershipId && (
+                            <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
+                          )}
+                        </TableCell>
                         <TableCell>{commission.planName || commission.planTier || 'N/A'}</TableCell>
                         <TableCell>{commission.planType || 'N/A'}</TableCell>
                         <TableCell>

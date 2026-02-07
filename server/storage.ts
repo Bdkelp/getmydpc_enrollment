@@ -5854,6 +5854,9 @@ export const storage = {
           const plan = allPlans.find(p => p.id === m.plan_id);
           return {
             id: m.id.toString(),
+            memberId: m.id?.toString() || '',
+            memberPublicId: m.member_public_id || '',
+            customerNumber: m.customer_number || '',
             firstName: m.first_name || '',
             lastName: m.last_name || '',
             email: m.email || '',
@@ -5906,6 +5909,9 @@ export const storage = {
 
         return {
           id: member.id,
+          memberId: member.id?.toString() || '',
+          memberPublicId: member.member_public_id || '',
+          customerNumber: member.customer_number || '',
           firstName: member.first_name || '',
           lastName: member.last_name || '',
           email: member.email || '',
@@ -5927,6 +5933,9 @@ export const storage = {
 
         return {
           id: commission.id.toString(),
+          memberId: commission.member_id?.toString() || '',
+          memberPublicId: member?.member_public_id || '',
+          membershipId: member?.customer_number || '',
           agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Unknown',
           agentNumber: agent?.agent_number || '',
           memberName: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown',
