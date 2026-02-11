@@ -295,7 +295,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
         <LoadingSpinner />
       </div>
     );
-                    <p className="font-semibold">{formattedPhone}</p>
+  }
   
   if (!enrollment) {
     return (
@@ -313,7 +313,6 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
             </Button>
           </div>
         </div>
-                        <p className="font-semibold">{formattedEmergencyPhone}</p>
     );
   }
 
