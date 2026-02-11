@@ -24,7 +24,7 @@ import {
   FileText,
   Users
 } from "lucide-react";
-import { format } from "date-fns";
+import { addMonths, format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,54 @@ interface FamilyMember {
   memberType: string;
   isActive: boolean;
 }
+
+const parseFlexibleDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (/^\d{8}$/.test(trimmed)) {
+    const month = Number(trimmed.slice(0, 2)) - 1;
+    const day = Number(trimmed.slice(2, 4));
+    const year = Number(trimmed.slice(4));
+    const parsed = new Date(year, month, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDateDisplay = (
+  value?: string | null,
+  pattern = "MMM d, yyyy",
+  fallback = "Not provided",
+) => {
+  const parsed = parseFlexibleDate(value);
+  if (!parsed) {
+    return fallback;
+  }
+  return format(parsed, pattern);
+};
+
+const formatPhoneDisplay = (value?: string | null, fallback = "Not provided") => {
+  return value ? formatPhoneNumber(value) : fallback;
+};
+
+const formatCoverageLabel = (value?: string | null) => {
+  if (!value) return "Not specified";
+  return value.replace(/[-_]/g, " ");
+};
+
+const canManageFamilyMembers = (value?: string | null) => {
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("spouse") ||
+    normalized.includes("children") ||
+    normalized.includes("family")
+  );
+};
 
 export default function EnrollmentDetails() {
   const [, setLocation] = useLocation();
@@ -165,20 +213,49 @@ export default function EnrollmentDetails() {
   // Export enrollment summary
   const exportSummary = () => {
     if (!enrollment) return;
-    
+
+    const enrollmentDate = formatDateDisplay(enrollment.createdAt, "MMMM d, yyyy", "N/A");
+    const dateOfBirth = formatDateDisplay(enrollment.dateOfBirth, "MM/dd/yyyy", "N/A");
+    const planStartDate = formatDateDisplay(enrollment.planStartDate, "MM/dd/yyyy", "N/A");
+    const phone = formatPhoneDisplay(enrollment.phone, "Not provided");
+    const emergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
+    const coverageType = formatCoverageLabel(enrollment.memberType);
+
+    const familySection = enrollment.familyMembers && enrollment.familyMembers.length > 0
+      ? `
+FAMILY MEMBERS
+--------------
+${enrollment.familyMembers.map((member, index) => `
+${index + 1}. ${member.firstName} ${member.lastName}
+   Relationship: ${member.relationship}
+   DOB: ${formatDateDisplay(member.dateOfBirth, 'MM/dd/yyyy', 'N/A')}
+   Status: ${member.isActive ? 'Active' : 'Inactive'}
+`).join('')}
+`
+      : '';
+
+    const emergencySection = enrollment.emergencyContactName
+      ? `
+EMERGENCY CONTACT
+-----------------
+Name: ${enrollment.emergencyContactName}
+Phone: ${emergencyPhone}
+`
+      : '';
+
     const summary = `
 ENROLLMENT SUMMARY
 ==================
 Customer Number: ${enrollment.customerNumber || 'Pending'}
 Member ID: ${enrollment.memberPublicId || 'Pending'}
-Enrollment Date: ${format(new Date(enrollment.createdAt), 'MMMM d, yyyy')}
+Enrollment Date: ${enrollmentDate}
 
 MEMBER INFORMATION
 ------------------
 Name: ${enrollment.firstName} ${enrollment.middleName || ''} ${enrollment.lastName}
-Date of Birth: ${format(new Date(enrollment.dateOfBirth), 'MM/dd/yyyy')}
+Date of Birth: ${dateOfBirth}
 Email: ${enrollment.email}
-Phone: ${formatPhoneNumber(enrollment.phone)}
+Phone: ${phone}
 
 ADDRESS
 -------
@@ -189,34 +266,18 @@ ${enrollment.city}, ${enrollment.state} ${enrollment.zipCode}
 PLAN DETAILS
 ------------
 Plan: ${enrollment.planName}
-Coverage Type: ${enrollment.memberType}
+Coverage Type: ${coverageType}
 Monthly Premium: $${enrollment.totalMonthlyPrice}
-Start Date: ${format(new Date(enrollment.planStartDate), 'MM/dd/yyyy')}
+Start Date: ${planStartDate}
 Status: ${enrollment.status}
-
-${enrollment.emergencyContactName ? `
-EMERGENCY CONTACT
------------------
-Name: ${enrollment.emergencyContactName}
-Phone: ${formatPhoneNumber(enrollment.emergencyContactPhone || '')}
-` : ''}
-
-${enrollment.familyMembers && enrollment.familyMembers.length > 0 ? `
-FAMILY MEMBERS
---------------
-${enrollment.familyMembers.map((member, index) => `
-${index + 1}. ${member.firstName} ${member.lastName}
-   Relationship: ${member.relationship}
-   DOB: ${format(new Date(member.dateOfBirth), 'MM/dd/yyyy')}
-   Status: ${member.isActive ? 'Active' : 'Inactive'}
-`).join('')}
-` : ''}
+${emergencySection}
+${familySection}
 
 ENROLLMENT AGENT
 ----------------
 ${enrollment.enrolledBy || 'Self-enrolled'}
 `;
-    
+
     const blob = new Blob([summary], { type: 'text/plain' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -234,7 +295,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
         <LoadingSpinner />
       </div>
     );
-  }
+                    <p className="font-semibold">{formattedPhone}</p>
   
   if (!enrollment) {
     return (
@@ -252,9 +313,27 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
             </Button>
           </div>
         </div>
-      </div>
+                        <p className="font-semibold">{formattedEmergencyPhone}</p>
     );
   }
+
+  const enrollmentDateLabel = formatDateDisplay(enrollment.createdAt, "MMM d, yyyy", "N/A");
+  const planStartLabel = formatDateDisplay(enrollment.planStartDate, "MMMM d, yyyy", "Not scheduled");
+  const dateOfBirthLabel = formatDateDisplay(enrollment.dateOfBirth, "MM/dd/yyyy", "Not provided");
+  const coverageTypeLabel = formatCoverageLabel(enrollment.memberType);
+  const formattedPhone = formatPhoneDisplay(enrollment.phone, "Not provided");
+  const formattedEmergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
+  const canAddFamilyMembersCta = canManageFamilyMembers(enrollment.memberType);
+  const monthlyPremiumDisplay = typeof enrollment.totalMonthlyPrice === "number"
+    ? enrollment.totalMonthlyPrice.toFixed(2)
+    : "0.00";
+  const nextBillingDateLabel = (() => {
+    const startDate = parseFlexibleDate(enrollment.planStartDate);
+    if (!startDate) {
+      return "Not scheduled";
+    }
+    return format(addMonths(startDate, 1), "MMMM d, yyyy");
+  })();
   
   const startEditingContact = () => {
     setEditedContact({
@@ -311,7 +390,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   {enrollment.firstName} {enrollment.lastName}
                 </h1>
                 <p className="text-gray-600 mt-1">
-                  Member ID {enrollment.memberPublicId || 'Pending'} • Customer #{enrollment.customerNumber || 'Pending'} • Enrolled {format(new Date(enrollment.createdAt), 'MMM d, yyyy')}
+                  Member ID {enrollment.memberPublicId || 'Pending'} • Customer #{enrollment.customerNumber || 'Pending'} • Enrolled {enrollmentDateLabel}
                 </p>
               </div>
             </div>
@@ -350,15 +429,15 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   </div>
                   <div>
                     <Label className="text-gray-600">Coverage Type</Label>
-                    <p className="font-semibold capitalize">{enrollment.memberType.replace(/-/g, ' ')}</p>
+                    <p className="font-semibold capitalize">{coverageTypeLabel}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Monthly Premium</Label>
-                    <p className="font-semibold text-2xl text-green-600">${enrollment.totalMonthlyPrice}</p>
+                    <p className="font-semibold text-2xl text-green-600">${monthlyPremiumDisplay}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Start Date</Label>
-                    <p className="font-semibold">{format(new Date(enrollment.planStartDate), 'MMMM d, yyyy')}</p>
+                    <p className="font-semibold">{planStartLabel}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Status</Label>
@@ -386,7 +465,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   </div>
                   <div>
                     <Label className="text-gray-600">Date of Birth</Label>
-                    <p className="font-semibold">{format(new Date(enrollment.dateOfBirth), 'MM/dd/yyyy')}</p>
+                    <p className="font-semibold">{dateOfBirthLabel}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Gender</Label>
@@ -455,7 +534,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     </div>
                     <div>
                       <Label className="text-gray-600">Phone Number</Label>
-                      <p className="font-semibold">{formatPhoneNumber(enrollment.phone)}</p>
+                      <p className="font-semibold">{formattedPhone}</p>
                     </div>
                     {enrollment.emergencyContactName && (
                       <>
@@ -468,7 +547,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           {enrollment.emergencyContactPhone && (
                             <div className="mt-2">
                               <Label className="text-gray-600">Phone</Label>
-                              <p className="font-semibold">{formatPhoneNumber(enrollment.emergencyContactPhone)}</p>
+                              <p className="font-semibold">{formattedEmergencyPhone}</p>
                             </div>
                           )}
                         </div>
@@ -489,9 +568,9 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                       <Label>Phone Number</Label>
                       <Input
                         type="tel"
-                        value={formatPhoneNumber(editedContact.phone)}
+                        value={formatPhoneNumber(editedContact.phone || "")}
                         onChange={(e) => {
-                          const formatted = formatPhoneNumber(e.target.value);
+                          const formatted = formatPhoneNumber(e.target.value || "");
                           setEditedContact({ ...editedContact, phone: formatted });
                         }}
                       />
@@ -509,9 +588,9 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                         <Label>Phone</Label>
                         <Input
                           type="tel"
-                          value={formatPhoneNumber(editedContact.emergencyContactPhone)}
+                          value={formatPhoneNumber(editedContact.emergencyContactPhone || "")}
                           onChange={(e) => {
-                            const formatted = formatPhoneNumber(e.target.value);
+                            const formatted = formatPhoneNumber(e.target.value || "");
                             setEditedContact({ ...editedContact, emergencyContactPhone: formatted });
                           }}
                         />
@@ -592,9 +671,9 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                       <div>
                         <Label>ZIP Code</Label>
                         <Input
-                          value={formatZipCode(editedAddress.zipCode)}
+                          value={formatZipCode(editedAddress.zipCode || "")}
                           onChange={(e) => {
-                            const formatted = formatZipCode(e.target.value);
+                            const formatted = formatZipCode(e.target.value || "");
                             setEditedAddress({ ...editedAddress, zipCode: formatted });
                           }}
                           maxLength={10}
@@ -616,7 +695,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     <Users className="h-5 w-5 mr-2 text-blue-600" />
                     Family Members
                   </span>
-                  {(enrollment.memberType.includes('spouse') || enrollment.memberType.includes('children') || enrollment.memberType === 'family') && (
+                  {canAddFamilyMembersCta && (
                     <Dialog>
                       <DialogTrigger asChild>
                         <Button size="sm">
@@ -657,7 +736,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                             <span className="text-gray-600">Relationship:</span> {member.relationship}
                           </div>
                           <div>
-                            <span className="text-gray-600">DOB:</span> {format(new Date(member.dateOfBirth), 'MM/dd/yyyy')}
+                            <span className="text-gray-600">DOB:</span> {formatDateDisplay(member.dateOfBirth, 'MM/dd/yyyy', 'Not provided')}
                           </div>
                           {member.email && (
                             <div>
@@ -695,7 +774,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                 <div className="space-y-4">
                   <div>
                     <Label className="text-gray-600">Monthly Premium</Label>
-                    <p className="font-semibold text-2xl">${enrollment.totalMonthlyPrice}</p>
+                    <p className="font-semibold text-2xl">${monthlyPremiumDisplay}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Billing Status</Label>
@@ -706,7 +785,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   <div>
                     <Label className="text-gray-600">Next Billing Date</Label>
                     <p className="font-semibold">
-                      {format(new Date(new Date(enrollment.planStartDate).setMonth(new Date().getMonth() + 1)), 'MMMM d, yyyy')}
+                      {nextBillingDateLabel}
                     </p>
                   </div>
                   <div className="pt-4 border-t">
