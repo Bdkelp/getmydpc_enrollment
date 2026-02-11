@@ -313,6 +313,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
             </Button>
           </div>
         </div>
+      </div>
     );
   }
 
