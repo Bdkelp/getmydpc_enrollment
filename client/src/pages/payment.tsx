@@ -53,6 +53,7 @@ export default function Payment() {
     queryKey: ["/api/plans"],
     enabled: isAuthenticated,
   });
+  const canOverrideAmount = isAdminOrAbove(user?.role);
 
   // Load stored plan ID and member data from registration
   useEffect(() => {
@@ -103,6 +104,14 @@ export default function Payment() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!canOverrideAmount && isOverrideEnabled) {
+      setIsOverrideEnabled(false);
+      setOverrideAmountInput("");
+      setOverrideReasonInput("");
+    }
+  }, [canOverrideAmount, isOverrideEnabled]);
+
 
 
   if (authLoading) {
@@ -118,7 +127,6 @@ export default function Payment() {
   }
 
   const selectedPlan = plans?.find((plan: any) => plan.id === selectedPlanId);
-  const canOverrideAmount = isAdminOrAbove(user?.role);
   const parsedOverrideAmount = isOverrideEnabled ? parseFloat(overrideAmountInput) : NaN;
   const hasValidOverrideAmount = isOverrideEnabled && Number.isFinite(parsedOverrideAmount) && parsedOverrideAmount > 0;
   const overrideAmountValue = hasValidOverrideAmount ? parsedOverrideAmount : undefined;
@@ -159,14 +167,6 @@ export default function Payment() {
     },
     availablePlans: plans?.map((p: any) => ({ id: p.id, name: p.name }))
   });
-
-  useEffect(() => {
-    if (!canOverrideAmount && isOverrideEnabled) {
-      setIsOverrideEnabled(false);
-      setOverrideAmountInput('');
-      setOverrideReasonInput('');
-    }
-  }, [canOverrideAmount, isOverrideEnabled]);
 
   const handlePolicyAccept = () => {
     setShowPolicyModal(false);
