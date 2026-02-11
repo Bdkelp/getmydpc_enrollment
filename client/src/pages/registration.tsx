@@ -67,7 +67,6 @@ const registrationSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  ssn: z.string().optional().transform(val => val === "" ? undefined : val),
   email: z.string().email("Valid email is required"),
   phone: z.string().min(10, "Valid phone number is required"),
   dateOfBirth: z.string().min(1, "Date of birth is required"),
@@ -78,6 +77,8 @@ const registrationSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
+  // Enrolling agent
+  enrollingAgentId: z.string().min(1, "Enrolling agent is required"),
   // Employment information (optional for non-individual plans)
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
@@ -178,13 +179,19 @@ export default function Registration() {
     enabled: isAuthenticated,
   });
 
+  // Fetch all agents for selection
+  const { data: agents = [] } = useQuery<Array<{ id: string; firstName: string; lastName: string; agentNumber: string; email: string }>>({
+    queryKey: ["/api/agents"],
+    enabled: isAuthenticated,
+  });
+
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       firstName: "",
       lastName: "",
       middleName: "",
-      ssn: "",
+      enrollingAgentId: "",
       email: "",
       phone: "",
       dateOfBirth: "",
@@ -210,6 +217,13 @@ export default function Registration() {
     },
   });
 
+  // Auto-populate enrolling agent for logged-in agent (admins can override)
+  useEffect(() => {
+    if (currentUser?.id && !form.getValues("enrollingAgentId")) {
+      form.setValue("enrollingAgentId", currentUser.id);
+    }
+  }, [currentUser?.id, form]);
+
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
       const isFamilyCoverage = coverageType === "Family";
@@ -229,7 +243,6 @@ export default function Registration() {
         phone: data.phone,
         dateOfBirth: data.dateOfBirth,
         gender: data.gender,
-        ssn: data.ssn,
         address: data.address,
         address2: data.address2,
         city: data.city,
@@ -254,8 +267,8 @@ export default function Registration() {
         communicationsConsent: data.communicationsConsent,
         faqDownloaded: data.faqDownloaded,
         discountCode: data.discountCode || null,
-        agentNumber: currentUser?.agentNumber || null,
-        enrolledByAgentId: currentUser?.id || null
+        enrolledByAgentId: data.enrollingAgentId,
+        agentNumber: agents.find(a => a.id === data.enrollingAgentId)?.agentNumber || null
       };
 
       const apiResponse = await apiClient.post("/api/registration", registrationPayload);
@@ -681,27 +694,39 @@ export default function Registration() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <FormField
                         control={form.control}
-                        name="ssn"
+                        name="enrollingAgentId"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Last 4 Digits of SSN (Required for Agent Number)</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="text" 
-                                placeholder="1154" 
-                                maxLength={4}
-                                autoComplete="off"
-                                {...field}
-                                onChange={(e) => {
-                                  const value = e.target.value.replace(/\D/g, '').slice(0, 4);
-                                  field.onChange(value);
-                                }}
-                              />
-                            </FormControl>
+                            <FormLabel>Enrolling Agent *</FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={!isAdminUser} // Only admins can change agent
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select enrolling agent" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {agents.map((agent) => (
+                                  <SelectItem key={agent.id} value={agent.id}>
+                                    {agent.firstName} {agent.lastName} ({agent.agentNumber})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             <FormMessage />
-                            <p className="text-xs text-gray-500">
-                              Used to generate your unique agent identifier (e.g., MPPSA231154)
-                            </p>
+                            {!isAdminUser && (
+                              <p className="text-xs text-gray-500">
+                                This enrollment will be credited to your agent account
+                              </p>
+                            )}
+                            {isAdminUser && (
+                              <p className="text-xs text-gray-500">
+                                Select which agent should receive credit for this enrollment
+                              </p>
+                            )}
                           </FormItem>
                         )}
                       />

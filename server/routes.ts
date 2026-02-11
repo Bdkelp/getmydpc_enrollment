@@ -2835,6 +2835,32 @@ router.get(
   },
 );
 
+// Get all agents (for enrollment agent selection) - accessible by all authenticated users
+router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const agents = await storage.getAgents();
+    
+    // Return basic agent info for selection dropdowns
+    const agentList = agents.map(agent => ({
+      id: agent.id,
+      firstName: agent.firstName,
+      lastName: agent.lastName,
+      agentNumber: agent.agentNumber,
+      email: agent.email,
+      isActive: agent.isActive
+    })).filter(agent => agent.isActive); // Only return active agents
+
+    res.json(agentList);
+  } catch (error: any) {
+    console.error("Error fetching agents:", error);
+    res.status(500).json({ message: "Failed to fetch agents", error: error.message });
+  }
+});
+
 router.get(
   "/api/admin/login-sessions",
   authenticateToken,
