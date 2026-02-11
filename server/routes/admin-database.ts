@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { neonPool } from '../lib/neonDb';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { isAtLeastAdmin } from '../auth/roles';
+import { storage } from '../storage';
 
 const router = Router();
 
@@ -199,6 +200,111 @@ router.get('/api/admin/members/:memberId', authenticateToken, async (req: AuthRe
   } catch (error: any) {
     console.error('[Admin Database] Failed to load member', error);
     return res.status(500).json({ success: false, error: error?.message || 'Unable to load member' });
+  }
+});
+
+router.get('/api/admin/memberships/overview', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!isAtLeastAdmin(req.user?.role)) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  try {
+    const summary = await storage.getMembershipStats();
+    res.json({ ...summary, generatedAt: new Date().toISOString() });
+  } catch (error: any) {
+    console.error('[Admin Memberships] Failed to load summary', error);
+    res.status(500).json({ message: error?.message || 'Unable to load membership summary' });
+  }
+});
+
+router.get('/api/admin/memberships/duplicates', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!isAtLeastAdmin(req.user?.role)) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  const limit = Math.min(parseInt((req.query.limit as string) || '10', 10) || 10, 50);
+
+  try {
+    const groups = await storage.getDuplicateMembershipGroups(limit);
+    res.json({ groups, limit });
+  } catch (error: any) {
+    console.error('[Admin Memberships] Failed to load duplicates', error);
+    res.status(500).json({ message: error?.message || 'Unable to load duplicate memberships' });
+  }
+});
+
+router.patch('/api/admin/memberships/:memberId/test', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!isAtLeastAdmin(req.user?.role)) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  const memberId = parseInt(req.params.memberId, 10);
+  if (!Number.isFinite(memberId)) {
+    return res.status(400).json({ message: 'Member ID must be numeric' });
+  }
+
+  const { isTestMember, reason } = req.body || {};
+  if (typeof isTestMember !== 'boolean') {
+    return res.status(400).json({ message: 'isTestMember boolean flag is required' });
+  }
+
+  try {
+    const updated = await storage.setMemberTestFlag(memberId, isTestMember, {
+      reason,
+      updatedBy: req.user?.id || null,
+    });
+    res.json({ success: true, member: updated });
+  } catch (error: any) {
+    console.error('[Admin Memberships] Failed to update test flag', error);
+    res.status(500).json({ message: error?.message || 'Unable to update test flag' });
+  }
+});
+
+router.post('/api/admin/memberships/:memberId/archive', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!isAtLeastAdmin(req.user?.role)) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  const memberId = parseInt(req.params.memberId, 10);
+  if (!Number.isFinite(memberId)) {
+    return res.status(400).json({ message: 'Member ID must be numeric' });
+  }
+
+  const { reason } = req.body || {};
+
+  try {
+    const updated = await storage.archiveMember(memberId, {
+      reason,
+      archivedBy: req.user?.id || null,
+    });
+    res.json({ success: true, member: updated });
+  } catch (error: any) {
+    console.error('[Admin Memberships] Failed to archive member', error);
+    res.status(500).json({ message: error?.message || 'Unable to archive member' });
+  }
+});
+
+router.post('/api/admin/memberships/:memberId/restore', authenticateToken, async (req: AuthRequest, res: Response) => {
+  if (!isAtLeastAdmin(req.user?.role)) {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+
+  const memberId = parseInt(req.params.memberId, 10);
+  if (!Number.isFinite(memberId)) {
+    return res.status(400).json({ message: 'Member ID must be numeric' });
+  }
+
+  const { targetStatus } = req.body || {};
+
+  try {
+    const updated = await storage.restoreMember(memberId, {
+      restoredBy: req.user?.id || null,
+      targetStatus: typeof targetStatus === 'string' && targetStatus.trim() ? targetStatus.trim() : undefined,
+    });
+    res.json({ success: true, member: updated });
+  } catch (error: any) {
+    console.error('[Admin Memberships] Failed to restore member', error);
+    res.status(500).json({ message: error?.message || 'Unable to restore member' });
   }
 });
 

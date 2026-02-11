@@ -106,6 +106,23 @@ export interface ResolvedPerformanceGoals {
   resolved: PerformanceGoals;
 }
 
+export interface MembershipStatsSummary {
+  total: number;
+  active: number;
+  test: number;
+  archived: number;
+}
+
+export interface DuplicateMembershipGroup {
+  matchFields: {
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string | null;
+  };
+  count: number;
+  members: Array<Record<string, any>>;
+}
+
 export async function getPlatformSetting<T = any>(key: string): Promise<PlatformSettingRecord<T> | null> {
   try {
     const { data, error } = await supabase
@@ -541,6 +558,21 @@ export interface IStorage {
   getAllMembers(limit?: number, offset?: number): Promise<{ members: Member[]; totalCount: number }>;
   updateMember(id: number, data: Partial<Member>): Promise<Member>;
   getMembersByAgent(agentId: string): Promise<Member[]>;
+  getMembershipStats(): Promise<MembershipStatsSummary>;
+  getDuplicateMembershipGroups(limit?: number): Promise<DuplicateMembershipGroup[]>;
+  setMemberTestFlag(
+    memberId: number,
+    isTestMember: boolean,
+    options?: { reason?: string; updatedBy?: string | null },
+  ): Promise<Member>;
+  archiveMember(
+    memberId: number,
+    options?: { reason?: string; archivedBy?: string | null },
+  ): Promise<Member>;
+  restoreMember(
+    memberId: number,
+    options?: { restoredBy?: string | null; targetStatus?: string },
+  ): Promise<Member>;
 
   // Family member operations
   getFamilyMembers(primary_user_id: string): Promise<FamilyMember[]>;
@@ -6316,6 +6348,210 @@ export const storage = {
     } catch (error: any) {
       console.error('[Storage] Error fetching members by agent:', error);
       throw new Error(`Failed to get members by agent: ${error.message}`);
+    }
+  },
+
+  getMembershipStats: async (): Promise<MembershipStatsSummary> => {
+    try {
+      const result = await query(
+        `SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE archived_at IS NULL AND COALESCE(is_active, true))::int AS active,
+          COUNT(*) FILTER (WHERE COALESCE(is_test_member, false))::int AS test,
+          COUNT(*) FILTER (WHERE archived_at IS NOT NULL)::int AS archived
+        FROM members`
+      );
+
+      const row = result.rows[0] || {};
+      return {
+        total: Number(row.total) || 0,
+        active: Number(row.active) || 0,
+        test: Number(row.test) || 0,
+        archived: Number(row.archived) || 0,
+      };
+    } catch (error: any) {
+      console.error('[Storage] Error fetching membership stats:', error);
+      throw new Error(`Failed to load membership stats: ${error.message}`);
+    }
+  },
+
+  getDuplicateMembershipGroups: async (limit: number = 10): Promise<DuplicateMembershipGroup[]> => {
+    try {
+      const result = await query(
+        `WITH duplicate_groups AS (
+          SELECT first_name, last_name, COALESCE(date_of_birth, '') AS date_of_birth, COUNT(*) AS group_count
+          FROM members
+          GROUP BY first_name, last_name, COALESCE(date_of_birth, '')
+          HAVING COUNT(*) > 1
+          ORDER BY group_count DESC
+          LIMIT $1
+        )
+        SELECT
+          dg.first_name,
+          dg.last_name,
+          NULLIF(dg.date_of_birth, '') AS date_of_birth,
+          dg.group_count AS count,
+          json_agg(
+            json_build_object(
+              'id', m.id,
+              'firstName', m.first_name,
+              'lastName', m.last_name,
+              'email', m.email,
+              'customerNumber', m.customer_number,
+              'memberPublicId', m.member_public_id,
+              'status', m.status,
+              'isActive', m.is_active,
+              'isTestMember', COALESCE(m.is_test_member, false),
+              'archivedAt', m.archived_at,
+              'archivedBy', m.archived_by,
+              'archiveReason', m.archive_reason,
+              'planId', m.plan_id,
+              'totalMonthlyPrice', m.total_monthly_price,
+              'createdAt', m.created_at
+            ) ORDER BY m.created_at DESC
+          ) AS members
+        FROM duplicate_groups dg
+        JOIN members m
+          ON m.first_name = dg.first_name
+         AND m.last_name = dg.last_name
+         AND COALESCE(m.date_of_birth, '') = dg.date_of_birth
+        GROUP BY dg.first_name, dg.last_name, dg.date_of_birth, dg.group_count
+        ORDER BY dg.group_count DESC`,
+        [limit]
+      );
+
+      return result.rows.map((row: any) => ({
+        matchFields: {
+          firstName: row.first_name,
+          lastName: row.last_name,
+          dateOfBirth: row.date_of_birth,
+        },
+        count: Number(row.count) || 0,
+        members: Array.isArray(row.members) ? row.members : [],
+      }));
+    } catch (error: any) {
+      console.error('[Storage] Error fetching duplicate memberships:', error);
+      throw new Error(`Failed to load duplicate memberships: ${error.message}`);
+    }
+  },
+
+  setMemberTestFlag: async (
+    memberId: number,
+    isTestMember: boolean,
+    options: { reason?: string; updatedBy?: string | null } = {}
+  ): Promise<Member> => {
+    try {
+      const result = await query(
+        `UPDATE members
+         SET is_test_member = $1,
+             updated_at = NOW()
+         WHERE id = $2
+         RETURNING *`,
+        [isTestMember, memberId]
+      );
+
+      if (!result.rows.length) {
+        throw new Error('Member not found');
+      }
+
+      if (options.updatedBy) {
+        await recordEnrollmentModification({
+          user_id: memberId,
+          modified_by: options.updatedBy,
+          changes: {
+            changeType: 'membership_test_flag',
+            isTestMember,
+            reason: options.reason || null,
+          },
+        });
+      }
+
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error updating membership test flag:', error);
+      throw new Error(`Failed to update membership test status: ${error.message}`);
+    }
+  },
+
+  archiveMember: async (
+    memberId: number,
+    options: { reason?: string; archivedBy?: string | null } = {}
+  ): Promise<Member> => {
+    try {
+      const result = await query(
+        `UPDATE members
+         SET archived_at = NOW(),
+             archived_by = $2,
+             archive_reason = $3,
+             is_active = false,
+             status = 'archived',
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [memberId, options.archivedBy || null, options.reason || null]
+      );
+
+      if (!result.rows.length) {
+        throw new Error('Member not found');
+      }
+
+      if (options.archivedBy) {
+        await recordEnrollmentModification({
+          user_id: memberId,
+          modified_by: options.archivedBy,
+          changes: {
+            changeType: 'membership_archived',
+            archivedAt: new Date().toISOString(),
+            reason: options.reason || null,
+          },
+        });
+      }
+
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error archiving membership:', error);
+      throw new Error(`Failed to archive membership: ${error.message}`);
+    }
+  },
+
+  restoreMember: async (
+    memberId: number,
+    options: { restoredBy?: string | null; targetStatus?: string } = {}
+  ): Promise<Member> => {
+    try {
+      const result = await query(
+        `UPDATE members
+         SET archived_at = NULL,
+             archived_by = NULL,
+             archive_reason = NULL,
+             is_active = true,
+             status = CASE WHEN status = 'archived' THEN $2 ELSE status END,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [memberId, options.targetStatus || 'pending_activation']
+      );
+
+      if (!result.rows.length) {
+        throw new Error('Member not found');
+      }
+
+      if (options.restoredBy) {
+        await recordEnrollmentModification({
+          user_id: memberId,
+          modified_by: options.restoredBy,
+          changes: {
+            changeType: 'membership_restored',
+            restoredAt: new Date().toISOString(),
+            targetStatus: options.targetStatus || 'pending_activation',
+          },
+        });
+      }
+
+      return result.rows[0];
+    } catch (error: any) {
+      console.error('[Storage] Error restoring membership:', error);
+      throw new Error(`Failed to restore membership: ${error.message}`);
     }
   }
 } as any;

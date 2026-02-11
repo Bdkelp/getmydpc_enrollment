@@ -3053,6 +3053,7 @@ router.patch(
       "inactive",
       "cancelled",
       "suspended",
+      "archived",
     ];
 
     if (!status || !allowedStatuses.includes(status)) {

@@ -20,6 +20,11 @@ import {
   Plus,
   FileEdit,
   DollarSign,
+  AlertTriangle,
+  ShieldCheck,
+  Archive,
+  Undo2,
+  RefreshCw,
 } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -65,6 +70,41 @@ interface Agent {
   agentNumber?: string;
 }
 
+interface MembershipSummary {
+  total: number;
+  active: number;
+  test: number;
+  archived: number;
+  generatedAt?: string;
+}
+
+interface DuplicateMembershipMember {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  customerNumber?: string;
+  memberPublicId?: string;
+  status?: string;
+  isActive?: boolean;
+  isTestMember?: boolean;
+  archivedAt?: string;
+  archiveReason?: string;
+  planId?: number;
+  totalMonthlyPrice?: number | string;
+  createdAt?: string;
+}
+
+interface DuplicateMembershipGroup {
+  matchFields: {
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string | null;
+  };
+  count: number;
+  members: DuplicateMembershipMember[];
+}
+
 const toUTCISODate = (dateString: string, endOfDay = false) => {
   if (!dateString) return "";
   const [year, month, day] = dateString.split("-").map(Number);
@@ -81,6 +121,28 @@ const buildDateRangeParams = (startDate: string, endDate: string) => {
   return { startDate: startDateISO, endDate: endDateISO };
 };
 
+const formatCurrency = (value?: number | string | null) => {
+  if (value === null || value === undefined) {
+    return "$0.00";
+  }
+  const numeric = typeof value === "string" ? parseFloat(value) : value;
+  if (!Number.isFinite(numeric)) {
+    return "$0.00";
+  }
+  return `$${numeric.toFixed(2)}`;
+};
+
+const formatDob = (dob?: string | null) => {
+  if (!dob) {
+    return "Not provided";
+  }
+  const digits = dob.replace(/\D/g, "");
+  if (digits.length !== 8) {
+    return dob;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
 export default function AdminEnrollments() {
   const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
   const [, setLocation] = useLocation();
@@ -88,6 +150,15 @@ export default function AdminEnrollments() {
   const { user, isLoading: authLoading } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const queryClient = useQueryClient();
+
+  const invalidateMembershipInsights = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/memberships/overview"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/admin/memberships/duplicates"] });
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        Array.isArray(query.queryKey) && query.queryKey[0] === "/api/admin/enrollments",
+    });
+  }, [queryClient]);
 
   log("Component mounted", { user: user?.email, authLoading });
 
@@ -124,6 +195,7 @@ export default function AdminEnrollments() {
     { value: "inactive", label: "Inactive" },
     { value: "cancelled", label: "Cancelled" },
     { value: "suspended", label: "Suspended" },
+    { value: "archived", label: "Archived" },
   ];
 
   // Fetch all agents for the filter dropdown
@@ -176,6 +248,36 @@ export default function AdminEnrollments() {
       return failureCount < 2;
     },
   });
+
+  const {
+    data: membershipSummary,
+    isLoading: membershipSummaryLoading,
+  } = useQuery<MembershipSummary>({
+    queryKey: ["/api/admin/memberships/overview"],
+    enabled: !!user && isAdminUser,
+    staleTime: 60_000,
+  });
+
+  const {
+    data: duplicateMemberships,
+    isLoading: duplicatesLoading,
+  } = useQuery<{ groups: DuplicateMembershipGroup[] }>({
+    queryKey: ["/api/admin/memberships/duplicates"],
+    enabled: !!user && isAdminUser,
+    staleTime: 15_000,
+  });
+
+  const membershipStats: MembershipSummary = membershipSummary ?? {
+    total: 0,
+    active: 0,
+    test: 0,
+    archived: 0,
+  };
+  const duplicateGroups: DuplicateMembershipGroup[] = Array.isArray(
+    duplicateMemberships?.groups,
+  )
+    ? duplicateMemberships!.groups
+    : [];
 
   // Export enrollments mutation
   const exportMutation = useMutation({
@@ -324,6 +426,98 @@ export default function AdminEnrollments() {
     },
   });
 
+  const toggleTestFlagMutation = useMutation({
+    mutationFn: async ({
+      memberId,
+      isTestMember,
+      reason,
+    }: {
+      memberId: number;
+      isTestMember: boolean;
+      reason?: string;
+    }) => {
+      return apiRequest(`/api/admin/memberships/${memberId}/test`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ isTestMember, reason }),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: variables.isTestMember ? "Marked as test membership" : "Test membership cleared",
+        description: `Member #${variables.memberId} updated successfully.`,
+      });
+      invalidateMembershipInsights();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to update test flag",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const archiveMembershipMutation = useMutation({
+    mutationFn: async ({ memberId, reason }: { memberId: number; reason?: string }) => {
+      return apiRequest(`/api/admin/memberships/${memberId}/archive`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reason }),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Membership archived",
+        description: `Member #${variables.memberId} moved to archive.`,
+      });
+      invalidateMembershipInsights();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to archive membership",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const restoreMembershipMutation = useMutation({
+    mutationFn: async ({
+      memberId,
+      targetStatus,
+    }: {
+      memberId: number;
+      targetStatus?: string;
+    }) => {
+      return apiRequest(`/api/admin/memberships/${memberId}/restore`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ targetStatus }),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Membership restored",
+        description: `Member #${variables.memberId} reactivated.`,
+      });
+      invalidateMembershipInsights();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to restore membership",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleNewEnrollment = () => {
     setLocation("/registration");
   };
@@ -352,6 +546,80 @@ export default function AdminEnrollments() {
     });
   };
 
+  const handleToggleTestFlag = (member: DuplicateMembershipMember) => {
+    if (!member?.id) {
+      return;
+    }
+
+    if (member.isTestMember) {
+      if (
+        !window.confirm(
+          `Remove test membership flag for ${member.firstName} ${member.lastName}?`,
+        )
+      ) {
+        return;
+      }
+      toggleTestFlagMutation.mutate({ memberId: member.id, isTestMember: false });
+      return;
+    }
+
+    const reason = window.prompt(
+      `Optional note for marking ${member.firstName} ${member.lastName} as a test membership`,
+      "Duplicate enrollment",
+    );
+    toggleTestFlagMutation.mutate({
+      memberId: member.id,
+      isTestMember: true,
+      reason: reason?.trim() ? reason.trim() : undefined,
+    });
+  };
+
+  const handleArchiveMemberRecord = (member: DuplicateMembershipMember) => {
+    if (!member?.id) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Archive membership for ${member.firstName} ${member.lastName}? This hides it from reporting but keeps a record.`,
+      )
+    ) {
+      return;
+    }
+
+    const reason = window.prompt(
+      "Provide a short note for the archive log",
+      member.archiveReason || "Duplicate membership detected",
+    );
+    if (reason === null) {
+      return;
+    }
+
+    archiveMembershipMutation.mutate({
+      memberId: member.id,
+      reason: reason?.trim() ? reason.trim() : undefined,
+    });
+  };
+
+  const handleRestoreMemberRecord = (member: DuplicateMembershipMember) => {
+    if (!member?.id) {
+      return;
+    }
+
+    const targetStatus = window.prompt(
+      "Set a status after restoring (leave blank for pending_activation)",
+      "pending_activation",
+    );
+    if (targetStatus === null) {
+      return;
+    }
+
+    restoreMembershipMutation.mutate({
+      memberId: member.id,
+      targetStatus: targetStatus?.trim() ? targetStatus.trim() : undefined,
+    });
+  };
+
   const formatStatusLabel = (status: string) => {
     switch (status) {
       case "pending_activation":
@@ -366,6 +634,8 @@ export default function AdminEnrollments() {
         return "Inactive";
       case "suspended":
         return "Suspended";
+      case "archived":
+        return "Archived";
       default:
         return status || "Unknown";
     }
@@ -384,6 +654,8 @@ export default function AdminEnrollments() {
         return <Badge className="bg-red-100 text-red-800">{label}</Badge>;
       case "suspended":
         return <Badge className="bg-orange-100 text-orange-800">{label}</Badge>;
+      case "archived":
+        return <Badge className="bg-slate-200 text-slate-700">{label}</Badge>;
       default:
         return <Badge>{label}</Badge>;
     }
@@ -595,6 +867,197 @@ export default function AdminEnrollments() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Membership Oversight */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Membership Oversight</CardTitle>
+            <p className="text-sm text-gray-600">
+              Monitor live counts, highlight duplicate enrollments, and quarantine records without impacting production data.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {membershipSummaryLoading ? (
+              <div className="flex items-center justify-center py-6">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/70">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-emerald-100">
+                      <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Active Members</p>
+                      <p className="text-2xl font-semibold text-emerald-700">{membershipStats.active}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4 bg-amber-50/70">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-amber-100">
+                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Test Memberships</p>
+                      <p className="text-2xl font-semibold text-amber-700">{membershipStats.test}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4 bg-slate-100/70">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-slate-200">
+                      <Archive className="h-5 w-5 text-slate-700" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Archived Records</p>
+                      <p className="text-2xl font-semibold text-slate-800">{membershipStats.archived}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4 bg-blue-50/70">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-full bg-blue-100">
+                      <Users className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">All Memberships</p>
+                      <p className="text-2xl font-semibold text-blue-700">{membershipStats.total}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-8">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Duplicate Candidates</h3>
+                  <p className="text-sm text-gray-600">
+                    Groups share the same first/last name and date of birth. Archive or flag as test without deleting data.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={invalidateMembershipInsights}
+                  disabled={duplicatesLoading}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" /> Refresh List
+                </Button>
+              </div>
+
+              {duplicatesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <LoadingSpinner />
+                </div>
+              ) : duplicateGroups.length === 0 ? (
+                <p className="mt-4 text-sm text-gray-600">
+                  No duplicate signals detected with the current heuristic.
+                </p>
+              ) : (
+                <div className="space-y-4 mt-4">
+                  {duplicateGroups.map((group, index) => {
+                    const groupKey = `${group.matchFields.firstName}-${group.matchFields.lastName}-${group.matchFields.dateOfBirth || 'na'}-${index}`;
+                    return (
+                      <div
+                        key={groupKey}
+                        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="text-xs uppercase text-slate-500 tracking-wide">Match Group</p>
+                            <p className="text-lg font-semibold text-gray-900">
+                              {group.matchFields.firstName} {group.matchFields.lastName}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              DOB: {formatDob(group.matchFields.dateOfBirth)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs uppercase text-slate-500">Records</p>
+                            <p className="text-3xl font-bold text-gray-900">{group.count}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 divide-y divide-slate-200">
+                          {group.members.map((member) => (
+                            <div
+                              key={member.id}
+                              className="py-3 grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr] gap-4"
+                            >
+                              <div>
+                                <p className="font-semibold text-gray-900">
+                                  {member.firstName} {member.lastName}
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  {member.email || "No email on file"}
+                                </p>
+                                <div className="text-xs text-gray-500 flex flex-wrap gap-3 mt-1">
+                                  {member.customerNumber && <span>Customer #{member.customerNumber}</span>}
+                                  {member.memberPublicId && <span>Member #{member.memberPublicId}</span>}
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-2">
+                                <div className="flex flex-wrap gap-2">
+                                  {member.status && getStatusBadge(member.status)}
+                                  {member.isTestMember && (
+                                    <Badge className="bg-indigo-100 text-indigo-700">Test</Badge>
+                                  )}
+                                  {member.archivedAt && (
+                                    <Badge className="bg-slate-200 text-slate-700">Archived</Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500">
+                                  Added {member.createdAt ? format(new Date(member.createdAt), "MMM d, yyyy") : "N/A"}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  Billing {formatCurrency(member.totalMonthlyPrice)}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleToggleTestFlag(member)}
+                                  disabled={toggleTestFlagMutation.isPending}
+                                >
+                                  {member.isTestMember ? "Clear Test Flag" : "Mark Test"}
+                                </Button>
+                                {!member.archivedAt ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-red-200 text-red-600 hover:bg-red-50"
+                                    onClick={() => handleArchiveMemberRecord(member)}
+                                    disabled={archiveMembershipMutation.isPending}
+                                  >
+                                    Archive
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-slate-200 text-slate-700 hover:bg-slate-50"
+                                    onClick={() => handleRestoreMemberRecord(member)}
+                                    disabled={restoreMembershipMutation.isPending}
+                                  >
+                                    <Undo2 className="h-4 w-4 mr-2" /> Restore
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Filters */}
         <Card className="mb-8">

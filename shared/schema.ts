@@ -141,6 +141,10 @@ export const members = pgTable("members", {
   status: varchar("status", { length: 20 }).default("pending_activation"), // pending_activation, active, cancelled, suspended, pending
   cancellationDate: timestamp("cancellation_date"),
   cancellationReason: text("cancellation_reason"),
+  isTestMember: boolean("is_test_member").default(false),
+  archivedAt: timestamp("archived_at"),
+  archivedBy: uuid("archived_by").references(() => users.id),
+  archiveReason: text("archive_reason"),
   // Timestamps
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
