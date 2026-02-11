@@ -3398,6 +3398,65 @@ router.get(
   },
 );
 
+// Agent failed payments route - allows agents to see and retry failed payments for their members
+router.get(
+  "/api/agent/failed-payments",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAgentRole(req.user!.role)) {
+      return res.status(403).json({ message: "Agent access required" });
+    }
+
+    try {
+      const failedPayments = await storage.getAgentFailedPayments(req.user!.id);
+
+      // Format and enrich the response
+      const formattedPayments = failedPayments.map((payment) => ({
+        id: payment.id,
+        transactionId: payment.transaction_id,
+        amount: parseFloat(payment.amount),
+        status: payment.status,
+        paymentMethod: payment.payment_method,
+        failureReason: payment.metadata?.StatusMessage || 'Payment declined',
+        createdAt: payment.created_at,
+        updatedAt: payment.updated_at,
+        member: {
+          id: payment.member_id,
+          firstName: payment.member_first_name,
+          lastName: payment.member_last_name,
+          email: payment.member_email,
+          phone: payment.member_phone,
+          customerNumber: payment.member_customer_number,
+          monthlyPrice: parseFloat(payment.member_monthly_price || payment.plan_monthly_price || '0')
+        },
+        plan: {
+          name: payment.plan_name,
+          monthlyPrice: parseFloat(payment.plan_monthly_price || '0')
+        },
+        commission: {
+          amount: payment.commission_amount ? parseFloat(payment.commission_amount) : null,
+          status: payment.commission_status
+        },
+        canRetry: payment.status === 'failed' || payment.status === 'declined',
+        metadata: payment.metadata
+      }));
+
+      res.json({
+        success: true,
+        payments: formattedPayments,
+        total: formattedPayments.length
+      });
+    } catch (error) {
+      console.error("Error fetching agent failed payments:", error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to fetch failed payments" 
+      });
+    }
+  },
+);
+
+
 router.get(
   "/api/agent/members/:memberId",
   authenticateToken,

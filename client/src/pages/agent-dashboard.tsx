@@ -389,6 +389,13 @@ export default function AgentDashboard() {
                 <Users className="mr-2 h-4 w-4" />
                 Enroll a Group
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => setLocation('/agent/failed-payments')}
+              >
+                <AlertCircle className="mr-2 h-4 w-4" />
+                Failed Payments
+              </Button>
               <Button variant="outline" onClick={() => setLocation('/profile')}>
                 <User className="mr-2 h-4 w-4" />
                 Profile

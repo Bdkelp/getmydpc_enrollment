@@ -14,12 +14,14 @@ import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
 import AgentCommissions from "@/pages/agent-commissions";
+import AgentFailedPayments from "@/pages/agent-failed-payments";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
 import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
 import AdminCommissions from "@/pages/admin-commissions";
+import AdminNotifications from "@/pages/admin-notifications";
 import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
 import AdminDiscountCodes from "@/pages/admin-discount-codes";
 import AdminEPXCertification from "@/pages/admin-epx-certification";
@@ -111,12 +113,14 @@ function Router() {
               <Route path="/admin/payments/checkout" component={AdminPaymentCheckout} />
               <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
+              <Route path="/admin/notifications" component={AdminNotifications} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
               <Route path="/profile" component={Profile} />
               <Route path="/admin/groups" component={GroupEnrollment} />
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
+              <Route path="/agent/failed-payments" component={AgentFailedPayments} />
               <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
@@ -132,6 +136,7 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
+              <Route path="/agent/failed-payments" component={AgentFailedPayments} />
               <Route path="/agent/groups" component={GroupEnrollment} />
               <Route path="/profile" component={Profile} />
               <Route path="/registration" component={Registration} />

@@ -1349,10 +1349,85 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     if (!result.isApproved) {
       logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error, transactionId: result.transactionId } });
       
+      // Persist the failed payment status
+      try {
+        const persistResult = await persistHostedPaymentUpdate({
+          epxTransactionId,
+          fallbackOrderNumber,
+          authGuid: null,
+          authCode: null,
+          amount: result.amount,
+          callbackStatus: req.body?.status || 'Failure',
+          callbackMessage: req.body?.StatusMessage || result.error || 'Payment declined',
+          bricTokenPresent: false,
+          paymentStatus: 'failed',
+          tranType: req.body?.tranType || req.body?.TRAN_TYPE || 'CCE1',
+          paymentMethodType: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'
+        });
+
+        paymentRecordForLogging = persistResult.paymentRecord;
+
+        // Create admin notification for failed payment
+        if (paymentRecordForLogging?.member_id) {
+          try {
+            const memberId = Number(paymentRecordForLogging.member_id);
+            const memberRecord = await storage.getMember(memberId);
+            
+            await storage.createAdminNotification({
+              type: 'payment_failed',
+              memberId,
+              subscriptionId: null,
+              errorMessage: req.body?.StatusMessage || result.error || 'Payment declined by processor',
+              metadata: {
+                transactionId: result.transactionId,
+                amount: result.amount,
+                paymentId: paymentRecordForLogging.id,
+                memberEmail: memberRecord?.email,
+                memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
+                failureReason: req.body?.StatusMessage || result.error,
+                planId: paymentRecordForLogging.metadata?.planId || null,
+                enrollingAgentId: memberRecord?.enrollingAgentId || memberRecord?.enrolled_by_agent_id || null,
+                timestamp: new Date().toISOString()
+              }
+            });
+
+            logEPX({
+              level: 'info',
+              phase: 'callback',
+              message: 'Admin notification created for failed payment',
+              data: {
+                memberId,
+                transactionId: result.transactionId,
+                paymentId: paymentRecordForLogging.id
+              }
+            });
+          } catch (notificationError: any) {
+            logEPX({
+              level: 'error',
+              phase: 'callback',
+              message: 'Failed to create admin notification for payment failure',
+              data: {
+                error: notificationError?.message,
+                memberId: paymentRecordForLogging.member_id
+              }
+            });
+          }
+        }
+      } catch (persistError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'callback',
+          message: 'Failed to persist declined payment',
+          data: { error: persistError?.message }
+        });
+      }
+      
       const declinePayload = {
         success: false,
         error: result.error,
-        transactionId: result.transactionId
+        transactionId: result.transactionId,
+        paymentId: paymentRecordForLogging?.id || null,
+        memberId: paymentRecordForLogging?.member_id || null
       };
 
       if (certificationLoggingEnabled) {

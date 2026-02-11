@@ -34,7 +34,8 @@ import {
   FileText,
   Database,
   AlertTriangle,
-  Target
+  Target,
+  Bell
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { format, formatDistanceToNow } from "date-fns";
@@ -1125,6 +1126,13 @@ export default function Admin() {
                       onClick={() => setLocation('/admin/enrollments')}>
                 <Users className="h-5 w-5 mb-1" />
                 <span className="text-sm font-medium">Enrollments</span>
+              </Button>
+              <Button variant="outline" 
+                      className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center relative"
+                      onClick={() => setLocation('/admin/notifications')}>
+                <Bell className="h-5 w-5 mb-1" />
+                <span className="text-sm font-medium">Notifications</span>
+                {/* Add badge for unresolved count if needed */}
               </Button>
               <Button variant="outline" 
                       className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center"

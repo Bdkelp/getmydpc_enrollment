@@ -4681,6 +4681,119 @@ export async function getRecentPaymentsDetailed(options: { limit?: number; statu
   return result.rows || [];
 }
 
+/**
+ * Get failed payments for members enrolled by a specific agent
+ * Returns failed payments with member details for agent's oversight
+ */
+export async function getAgentFailedPayments(agentId: string): Promise<any[]> {
+  const sql = `
+    SELECT
+      p.*,
+      m.id AS member_id,
+      m.first_name AS member_first_name,
+      m.last_name AS member_last_name,
+      m.email AS member_email,
+      m.phone AS member_phone,
+      m.customer_number AS member_customer_number,
+      m.total_monthly_price AS member_monthly_price,
+      pl.name AS plan_name,
+      pl.monthlyPrice AS plan_monthly_price,
+      ac.commission_amount,
+      ac.commission_status
+    FROM payments p
+    LEFT JOIN members m ON p.member_id = m.id
+    LEFT JOIN plans pl ON m.plan_id = pl.id
+    LEFT JOIN agent_commissions ac ON ac.member_id = m.id AND ac.agent_id = $1
+    WHERE p.status IN ('failed', 'canceled', 'declined')
+      AND (m.enrolling_agent_id = $1 OR ac.agent_id = $1)
+    ORDER BY p.created_at DESC
+    LIMIT 100
+  `;
+
+  const result = await query(sql, [agentId]);
+  return result.rows || [];
+}
+
+/**
+ * Create an admin notification for system alerts
+ * Used for failed payments, subscription issues, etc.
+ */
+export async function createAdminNotification(notification: {
+  type: string;
+  memberId?: number | null;
+  subscriptionId?: number | null;
+  errorMessage?: string | null;
+  metadata?: Record<string, any> | null;
+}): Promise<any> {
+  const sql = `
+    INSERT INTO admin_notifications (
+      type,
+      member_id,
+      subscription_id,
+      error_message,
+      metadata,
+      resolved,
+      created_at
+    ) VALUES (
+      $1, $2, $3, $4, $5, false, NOW()
+    )
+    RETURNING *;
+  `;
+
+  const values = [
+    notification.type,
+    notification.memberId || null,
+    notification.subscriptionId || null,
+    notification.errorMessage || null,
+    notification.metadata ? JSON.stringify(notification.metadata) : null
+  ];
+
+  try {
+    const result = await query(sql, values);
+    return result.rows[0];
+  } catch (error: any) {
+    console.error('[Storage] Failed to create admin notification:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get unresolved admin notifications
+ */
+export async function getUnresolvedNotifications(limit = 50): Promise<any[]> {
+  const sql = `
+    SELECT
+      n.*,
+      m.first_name AS member_first_name,
+      m.last_name AS member_last_name,
+      m.email AS member_email,
+      m.customer_number AS member_customer_number
+    FROM admin_notifications n
+    LEFT JOIN members m ON n.member_id = m.id
+    WHERE n.resolved = false
+    ORDER BY n.created_at DESC
+    LIMIT $1
+  `;
+
+  const result = await query(sql, [limit]);
+  return result.rows || [];
+}
+
+/**
+ * Mark an admin notification as resolved
+ */
+export async function resolveAdminNotification(notificationId: number, resolvedBy: string): Promise<void> {
+  const sql = `
+    UPDATE admin_notifications
+    SET resolved = true,
+        resolved_at = NOW(),
+        resolved_by = $1
+    WHERE id = $2
+  `;
+
+  await query(sql, [resolvedBy, notificationId]);
+}
+
 export type DiscountValueType = 'fixed' | 'percentage';
 export type DiscountDurationType = 'once' | 'limited_months' | 'indefinite';
 
@@ -5477,6 +5590,11 @@ export const storage = {
   getLatestPaymentWithAuthGuid,
   updatePayment,
   getPaymentsWithFilters,
+  getAgentFailedPayments,
+  
+  createAdminNotification,
+  getUnresolvedNotifications,
+  resolveAdminNotification,
 
   getFamilyMembers: async () => [],
   addFamilyMember: async (member: any) => member,

@@ -9,6 +9,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/table";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, CheckCircle, RefreshCw, Eye, Clock, AlertTriangle } from "lucide-react";
+import { AlertCircle, CheckCircle, RefreshCw, Eye, Clock, AlertTriangle, CreditCard, Mail, User } from "lucide-react";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -31,29 +32,46 @@ interface AdminNotification {
   id: number;
   type: string;
   memberId?: number;
+  member_id?: number;
   subscriptionId?: number;
   errorMessage?: string;
+  error_message?: string;
   metadata?: any;
   resolved: boolean;
   resolvedAt?: string;
+  resolved_at?: string;
   resolvedBy?: string;
+  resolved_by?: string;
   createdAt: string;
+  created_at?: string;
+  // From JOIN
+  member_first_name?: string;
+  member_last_name?: string;
+  member_email?: string;
+  member_customer_number?: string;
 }
 
 export default function AdminNotifications() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'resolved'>('unresolved');
 
-  const { data: notifications = [], isLoading } = useQuery<AdminNotification[]>({
+  const { data: response, isLoading } = useQuery<{ success: boolean; notifications: AdminNotification[]; total: number }>({
     queryKey: ['/api/admin/notifications', filter],
     queryFn: async () => {
-      const response = await apiRequest(`/api/admin/notifications?filter=${filter}`, {
+      const result = await apiRequest(`/api/admin/notifications?filter=${filter}`, {
         method: 'GET'
       });
-      return response;
+      // Handle both old and new response formats
+      if (result?.notifications) {
+        return result;
+      }
+      return { success: true, notifications: Array.isArray(result) ? result : [], total: Array.isArray(result) ? result.length : 0 };
     }
   });
+
+  const notifications = response?.notifications || [];
 
   const resolveNotificationMutation = useMutation({
     mutationFn: async (notificationId: number) => {
@@ -100,7 +118,7 @@ export default function AdminNotifications() {
     }
   });
 
-  const getNotificationTypeLabel = (type: string) => {
+  const getNotification TypeLabel = (type: string) => {
     switch (type) {
       case 'epx_subscription_failed':
         return 'EPX Subscription Failed';
@@ -116,10 +134,53 @@ export default function AdminNotifications() {
       case 'epx_subscription_failed':
         return <Badge variant="destructive">EPX Error</Badge>;
       case 'payment_failed':
-        return <Badge variant="destructive">Payment</Badge>;
+        return <Badge variant="destructive" className="bg-red-100 text-red-800"><CreditCard className="h-3 w-3 mr-1" />Payment Failed</Badge>;
       default:
         return <Badge variant="secondary">{type}</Badge>;
     }
+  };
+
+  const getMemberDisplayName = (notification: AdminNotification) => {
+    // Try metadata first
+    if (notification.metadata?.memberName) {
+      return notification.metadata.memberName;
+    }
+    // Try joined data
+    if (notification.member_first_name || notification.member_last_name) {
+      return `${notification.member_first_name || ''} ${notification.member_last_name || ''}`.trim();
+    }
+    // Try email
+    if (notification.metadata?.memberEmail || notification.member_email) {
+      return notification.metadata?.memberEmail || notification.member_email;
+    }
+    return `Member #${notification.memberId || notification.member_id || 'Unknown'}`;
+  };
+
+  const handleRetryPayment = (notification: AdminNotification) => {
+    const memberId = notification.memberId || notification.member_id;
+    const amount = notification.metadata?.amount;
+    const paymentId = notification.metadata?.paymentId;
+    
+    if (!memberId || !amount) {
+      toast({
+        title: "Missing Information",
+        description: "Cannot retry payment - missing member ID or amount",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const params = new URLSearchParams({
+      memberId: memberId.toString(),
+      amount: amount.toString(),
+      description: `Retry failed payment for ${getMemberDisplayName(notification)}`,
+      retryPaymentId: paymentId?.toString() || '',
+      retryMemberId: memberId.toString(),
+      retryReason: "Admin-initiated retry from notification",
+      autoLaunch: "true"
+    });
+
+    setLocation(`/admin/payment-checkout?${params.toString()}`);
   };
 
   const unresolvedCount = notifications.filter(n => !n.resolved).length;
@@ -195,20 +256,34 @@ export default function AdminNotifications() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {notifications.map((notification) => (
+                {notifications.map((notification) => {
+                  const memberId = notification.memberId || notification.member_id;
+                  const memberEmail = notification.metadata?.memberEmail || notification.member_email;
+                  const errorMessage = notification.errorMessage || notification.error_message;
+                  const createdAt = notification.createdAt || notification.created_at;
+                  
+                  return (
                   <TableRow key={notification.id}>
                     <TableCell>
                       {getNotificationTypeBadge(notification.type)}
                     </TableCell>
                     <TableCell>
-                      {notification.memberId ? (
-                        <Button
-                          variant="link"
-                          className="p-0 h-auto"
-                          onClick={() => window.open(`/admin/members/${notification.memberId}`, '_blank')}
-                        >
-                          Member #{notification.memberId}
-                        </Button>
+                      {memberId ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <User className="h-3 w-3 text-gray-500" />
+                            <span className="font-medium">{getMemberDisplayName(notification)}</span>
+                          </div>
+                          {memberEmail && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Mail className="h-3 w-3" />
+                              {memberEmail}
+                            </div>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            Member #{memberId}
+                          </span>
+                        </div>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -216,13 +291,20 @@ export default function AdminNotifications() {
                     <TableCell className="max-w-md">
                       <div className="flex items-start gap-2">
                         <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-sm line-clamp-2">{notification.errorMessage || 'No error message'}</p>
+                        <div className="space-y-1">
+                          <p className="text-sm line-clamp-2">{errorMessage || 'No error message'}</p>
+                          {notification.metadata?.amount && (
+                            <p className="text-xs text-muted-foreground">
+                              Amount: ${parseFloat(notification.metadata.amount).toFixed(2)}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Clock className="h-3 w-3" />
-                        {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(createdAt!), { addSuffix: true })}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -240,6 +322,16 @@ export default function AdminNotifications() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        {!notification.resolved && notification.type === 'payment_failed' && memberId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRetryPayment(notification)}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Retry Payment
+                          </Button>
+                        )}
                         {!notification.resolved && notification.type === 'epx_subscription_failed' && notification.subscriptionId && (
                           <Button
                             size="sm"
@@ -268,7 +360,8 @@ export default function AdminNotifications() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
