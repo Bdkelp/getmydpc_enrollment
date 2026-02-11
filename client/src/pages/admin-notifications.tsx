@@ -118,7 +118,7 @@ export default function AdminNotifications() {
     }
   });
 
-  const getNotification TypeLabel = (type: string) => {
+  const getNotificationTypeLabel = (type: string) => {
     switch (type) {
       case 'epx_subscription_failed':
         return 'EPX Subscription Failed';
