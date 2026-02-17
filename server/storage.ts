@@ -5878,6 +5878,27 @@ export const storage = {
         member.created_at && new Date(member.created_at) >= thirtyDaysAgo
       ).length || 0;
 
+      // Get plan distribution from members with planId
+      const planDistributionResult = await query(`
+        SELECT p.name as plan_name, COUNT(m.id) as member_count
+        FROM members m
+        LEFT JOIN plans p ON m.plan_id = p.id
+        WHERE m.status IN ('active', 'pending_activation')
+        GROUP BY p.name
+        ORDER BY member_count DESC
+      `);
+      const planDistribution = planDistributionResult.rows || [];
+      
+      // Also get coverage type distribution
+      const coverageDistributionResult = await query(`
+        SELECT coverage_type, COUNT(id) as count
+        FROM members
+        WHERE status IN ('active', 'pending_activation')
+        GROUP BY coverage_type
+        ORDER BY count DESC
+      `);
+      const coverageDistribution = coverageDistributionResult.rows || [];
+
       const stats = {
         totalUsers,
         totalMembers,
@@ -5892,7 +5913,10 @@ export const storage = {
         pendingCommissions: parseFloat(pendingCommissions.toFixed(2)),
         newEnrollments,
         churnRate: totalMembers > 0 ? parseFloat(((cancelledSubscriptions / totalMembers) * 100).toFixed(2)) : 0,
-        averageRevenue: activeSubscriptions > 0 ? parseFloat((monthlyRevenue / activeSubscriptions).toFixed(2)) : 0
+        averageRevenue: activeSubscriptions > 0 ? parseFloat((monthlyRevenue / activeSubscriptions).toFixed(2)) : 0,
+        planDistribution,
+        coverageDistribution,
+        totalEnrollments: totalMembers
       };
 
       console.log('[Storage] Admin stats:', stats);

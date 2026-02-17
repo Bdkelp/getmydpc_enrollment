@@ -3841,6 +3841,44 @@ router.get(
       const paidCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status === 'paid')));
       const pendingCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status !== 'paid')));
 
+      // Get plan distribution for this agent's enrollments
+      const planDistribution: { [key: string]: number } = {};
+      const coverageDistribution: { [key: string]: number } = {};
+      
+      // Get plan names from plan_id lookup
+      for (const member of allMembers.filter((m: any) => m.status === 'active' || m.status === 'pending_activation')) {
+        if (member.plan_id) {
+          try {
+            const { data: planData } = await supabase
+              .from('plans')
+              .select('name')
+              .eq('id', member.plan_id)
+              .single();
+            
+            if (planData?.name) {
+              planDistribution[planData.name] = (planDistribution[planData.name] || 0) + 1;
+            }
+          } catch (err) {
+            console.warn('[Agent Stats] Could not fetch plan name for plan_id:', member.plan_id);
+          }
+        }
+        
+        // Coverage type distribution
+        if (member.coverage_type) {
+          coverageDistribution[member.coverage_type] = (coverageDistribution[member.coverage_type] || 0) + 1;
+        }
+      }
+      
+      const planDistributionArray = Object.entries(planDistribution).map(([plan_name, member_count]) => ({
+        plan_name,
+        member_count
+      }));
+      
+      const coverageDistributionArray = Object.entries(coverageDistribution).map(([coverage_type, count]) => ({
+        coverage_type,
+        count
+      }));
+
       res.json({
         totalRevenue,
         totalRevenueAllTime,
@@ -3869,6 +3907,8 @@ router.get(
         leads: [],
         periodStart: start ? start.toISOString() : null,
         periodEnd: end ? end.toISOString() : null,
+        planDistribution: planDistributionArray,
+        coverageDistribution: coverageDistributionArray,
       });
     } catch (error) {
       console.error("❌ Error fetching agent stats:", error);

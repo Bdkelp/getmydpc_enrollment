@@ -52,6 +52,10 @@ interface StatsData {
   performanceGoalsMeta?: {
     hasOverride?: boolean;
   };
+  
+  // Plan distribution
+  planDistribution?: Array<{ plan_name: string; member_count: number | string }>;
+  coverageDistribution?: Array<{ coverage_type: string; count: number | string }>;
 }
 
 export default function DashboardStats({ userRole, agentId }: DashboardStatsProps) {
@@ -471,72 +475,104 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         {/* Sales Donut Chart */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Sales</CardTitle>
+            <CardTitle className="text-sm font-medium">Sales by Plan</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between h-48">
               {/* Donut Chart */}
               <div className="relative w-40 h-40">
-                <svg viewBox="0 0 100 100" className="transform -rotate-90">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="none"
-                    stroke="#e2e2e2"
-                    strokeWidth="20"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="none"
-                    stroke="#0a2463"
-                    strokeWidth="20"
-                    strokeDasharray="160 251"
-                    strokeDashoffset="0"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="none"
-                    stroke="#fb3640"
-                    strokeWidth="20"
-                    strokeDasharray="90 251"
-                    strokeDashoffset="-160"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-bold text-navy-500">
-                    {formatNumber(stats?.totalEnrollments || 342)}
-                  </span>
-                  <span className="text-xs text-gray-500">TOTAL</span>
-                </div>
+                {(() => {
+                  const distribution = stats?.planDistribution || [];
+                  const total = distribution.reduce((sum, item) => sum + Number(item.member_count || 0), 0);
+                  
+                  if (total === 0) {
+                    return (
+                      <div className="flex items-center justify-center h-full text-sm text-gray-500">
+                        No data
+                      </div>
+                    );
+                  }
+                  
+                  // Plan colors
+                  const colors = ['#0a2463', '#fb3640', '#247ba0', '#605f5e'];
+                  let currentOffset = 0;
+                  const circumference = 2 * Math.PI * 40;
+                  
+                  return (
+                    <>
+                      <svg viewBox="0 0 100 100" className="transform -rotate-90">
+                        {/* Background circle */}
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="none"
+                          stroke="#e2e2e2"
+                          strokeWidth="20"
+                        />
+                        {/* Plan segments */}
+                        {distribution.map((item, index) => {
+                          const percentage = (Number(item.member_count) / total) * 100;
+                          const dashLength = (percentage / 100) * circumference;
+                          const segment = (
+                            <circle
+                              key={index}
+                              cx="50"
+                              cy="50"
+                              r="40"
+                              fill="none"
+                              stroke={colors[index % colors.length]}
+                              strokeWidth="20"
+                              strokeDasharray={`${dashLength} ${circumference}`}
+                              strokeDashoffset={-currentOffset}
+                            />
+                          );
+                          currentOffset += dashLength;
+                          return segment;
+                        })}
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-bold text-navy-500">
+                          {formatNumber(total)}
+                        </span>
+                        <span className="text-xs text-gray-500">TOTAL</span>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               
               {/* Legend */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-navy-500 rounded"></div>
-                  <span className="text-sm">MOST PLAN</span>
-                  <span className="text-sm font-semibold ml-auto">63%</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-coral-500 rounded"></div>
-                  <span className="text-sm">MOST/MET</span>
-                  <span className="text-sm font-semibold ml-auto">35%</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
-                  <span className="text-sm">UNLIMITED PLAN</span>
-                  <span className="text-sm font-semibold ml-auto">2%</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-gray-300 rounded"></div>
-                  <span className="text-sm">UNLIMITED/MET</span>
-                  <span className="text-sm font-semibold ml-auto">0%</span>
-                </div>
+              <div className="space-y-2 flex-1 ml-4">
+                {(() => {
+                  const distribution = stats?.planDistribution || [];
+                  const total = distribution.reduce((sum, item) => sum + Number(item.member_count || 0), 0);
+                  const colors = ['#0a2463', '#fb3640', '#247ba0', '#605f5e'];
+                  
+                  if (total === 0) {
+                    return (
+                      <div className="text-sm text-gray-500">No enrollment data</div>
+                    );
+                  }
+                  
+                  return distribution.map((item, index) => {
+                    const count = Number(item.member_count || 0);
+                    const percentage = total > 0 ? Math.round((count / total) * 100) : 0;
+                    
+                    return (
+                      <div key={index} className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded flex-shrink-0" 
+                          style={{ backgroundColor: colors[index % colors.length] }}
+                        ></div>
+                        <span className="text-xs truncate flex-1" title={item.plan_name}>
+                          {item.plan_name || 'Unknown'}
+                        </span>
+                        <span className="text-xs font-semibold">{percentage}%</span>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           </CardContent>
