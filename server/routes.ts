@@ -4607,6 +4607,7 @@ export async function registerRoutes(app: any) {
             totalMonthlyPrice: totalMonthlyPrice
           });
           console.error("[Registration]   ⚠️  This enrollment will NOT generate commission revenue!");
+      }
 
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
