@@ -53,6 +53,7 @@ import { lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
 import { hasAtLeastRole } from "@/lib/roles";
 import ColorPaletteTest from "@/pages/ColorPaletteTest";
+import DashboardMockup from "@/pages/dashboard-mockup";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -80,6 +81,7 @@ function Router() {
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
       <Route path="/color-test" component={ColorPaletteTest} />
+      <Route path="/dashboard-mockup" component={DashboardMockup} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/payment/callback" component={PaymentCallback} />
       <Route path="/payment/success" component={PaymentSuccess} />

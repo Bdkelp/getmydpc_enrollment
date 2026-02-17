@@ -4193,9 +4193,33 @@ export async function registerRoutes(app: any) {
         smsConsent,
         communicationsConsent,
         faqDownloaded,
-        agentNumber,
         enrolledByAgentId
       } = req.body;
+
+      // SERVER-SIDE AGENT NUMBER LOOKUP (don't trust client data)
+      let agentNumber: string | null = null;
+      let agentUser: any = null;
+      
+      if (enrolledByAgentId) {
+        try {
+          agentUser = await storage.getUser(enrolledByAgentId);
+          if (agentUser) {
+            agentNumber = agentUser.agentNumber || agentUser.agent_number || null;
+            console.log(`[Registration] ✅ Agent lookup: ${agentUser.email} → Agent #${agentNumber || 'NONE'}`);
+            
+            if (!agentNumber) {
+              console.error(`[Registration] ❌ CRITICAL: Agent ${enrolledByAgentId} (${agentUser.email}) has NO agent_number assigned!`);
+              console.error(`[Registration] Commission will NOT be created without agent number!`);
+            }
+          } else {
+            console.error(`[Registration] ❌ Agent ${enrolledByAgentId} not found in database!`);
+          }
+        } catch (agentLookupError: any) {
+          console.error(`[Registration] ❌ Error looking up agent:`, agentLookupError.message);
+        }
+      } else {
+        console.warn("[Registration] ⚠️  No enrolledByAgentId provided - enrollment will have no agent association");
+      }
 
       console.log("[Registration] Email:", email);
       console.log("[Registration] Extracted Key Fields:", {
@@ -4205,6 +4229,7 @@ export async function registerRoutes(app: any) {
         memberType: memberType,
         totalMonthlyPrice: totalMonthlyPrice,
         agentNumber: agentNumber,
+        agentEmail: agentUser?.email || 'N/A',
         enrolledByAgentId: enrolledByAgentId,
         addRxValet: addRxValet
       });
@@ -4564,12 +4589,24 @@ export async function registerRoutes(app: any) {
           // Continue with registration even if commission creation fails
         }
       } else {
-        console.warn("[Registration] ⚠️  Commission NOT created - missing required values");
-        if (!agentNumber) console.warn("[Registration]   - Missing: agentNumber");
-        if (!enrolledByAgentId) console.warn("[Registration]   - Missing: enrolledByAgentId");
-        if (!coverageType && !memberType) console.warn("[Registration]   - Missing: coverageType/memberType");
-        console.log("[Registration]   Note: planId is optional and can be inferred from price");
-      }
+          console.error("[Registration] ❌❌❌ COMMISSION NOT CREATED ❌❌❌");
+          console.error("[Registration] Missing required values:");
+          if (!agentNumber) {
+            console.error(`[Registration]   ❌ Missing: agentNumber`);
+            if (enrolledByAgentId && agentUser) {
+              console.error(`[Registration]      Agent ${agentUser.email} (${enrolledByAgentId}) exists but has no agent_number in database!`);
+              console.error(`[Registration]      ACTION REQUIRED: Assign agent number to this user in admin panel`);
+            }
+          }
+          if (!enrolledByAgentId) console.error("[Registration]   ❌ Missing: enrolledByAgentId");
+          if (!coverageType && !memberType) console.error("[Registration]   ❌ Missing: coverageType/memberType");
+          console.error("[Registration]   📊 Member Info:", {
+            memberId: member.id,
+            memberEmail: email,
+            memberName: `${firstName} ${lastName}`,
+            totalMonthlyPrice: totalMonthlyPrice
+          });
+          console.error("[Registration]   ⚠️  This enrollment will NOT generate commission revenue!");
 
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {

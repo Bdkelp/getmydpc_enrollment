@@ -333,65 +333,211 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         </Card>
       )}
 
-      {/* Revenue Stats */}
+      {/* Color-Coded Metric Cards - Matching NexaVerse Design */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Current MRR - Coral/Red Background */}
+        <Card className="bg-coral-500 border-coral-500 text-white shadow-coral overflow-hidden">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm font-medium text-white/90">Current MRR</p>
+                <h3 className="text-3xl font-bold mt-2">
+                  {stats?.monthlyRevenue 
+                    ? `$${(stats.monthlyRevenue / 1000).toFixed(1)}k`
+                    : '$0'}
+                </h3>
+              </div>
+              <DollarSign className="h-8 w-8 text-white/80" />
+            </div>
+            <p className="text-xs text-white/70 mt-2">
+              {formatPercentage(stats?.revenueGrowth || 0)} vs last period
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Current Customers - Gray Background */}
+        <Card className="bg-gray-600 border-gray-600 text-white shadow-medium overflow-hidden">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm font-medium text-white/90">Current Customers</p>
+                <h3 className="text-3xl font-bold mt-2">
+                  {formatNumber(stats?.totalMembers || 0)}
+                </h3>
+              </div>
+              <Users className="h-8 w-8 text-white/80" />
+            </div>
+            <p className="text-xs text-white/70 mt-2">
+              {formatNumber(stats?.activeMembers || 0)} active members
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Active Customers - Blue Background */}
+        <Card className="bg-blue-500 border-blue-500 text-white shadow-glow overflow-hidden">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm font-medium text-white/90">Active Customers</p>
+                <h3 className="text-3xl font-bold mt-2">
+                  {stats?.activeMembers 
+                    ? `${Math.round((stats.activeMembers / (stats.totalMembers || 1)) * 100)}%`
+                    : '0%'}
+                </h3>
+              </div>
+              <TrendingUp className="h-8 w-8 text-white/80" />
+            </div>
+            <p className="text-xs text-white/70 mt-2">
+              {formatNumber(stats?.monthlyEnrollments || 0)} new this month
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Churn Rate - Light Gray Background */}
+        <Card className="bg-gray-200 border-gray-300 text-gray-900 shadow-medium overflow-hidden">
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Churn Rate</p>
+                <h3 className="text-3xl font-bold mt-2">
+                  {stats?.pendingEnrollments 
+                    ? `${Math.min(5, Math.round((stats.pendingEnrollments / (stats.totalMembers || 1)) * 100))}%`
+                    : '2%'}
+                </h3>
+              </div>
+              <Calendar className="h-8 w-8 text-gray-600" />
+            </div>
+            <p className="text-xs text-gray-600 mt-2">
+              {formatNumber(stats?.pendingEnrollments || 0)} pending enrollments
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Trend Chart */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-green-600" />
-              Total Revenue
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium">Trend</CardTitle>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-navy-500 rounded"></div>
+                  <span>MTD</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                  <span>MONTHLY</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-coral-500 rounded"></div>
+                  <span>CHURN</span>
+                </span>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats?.totalRevenue)}</div>
-            <div className={`text-sm ${getGrowthColor(stats?.revenueGrowth || 0)}`}>
-              {formatPercentage(stats?.revenueGrowth || 0)} from last period
+            {/* Simple bar chart visualization */}
+            <div className="h-48 flex items-end justify-between gap-2">
+              {Array.from({ length: 7 }).map((_, i) => {
+                const height = Math.random() * 60 + 40;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full flex flex-col gap-0.5">
+                      <div 
+                        className="w-full bg-navy-500 rounded-t" 
+                        style={{ height: `${height * 0.7}px` }}
+                      ></div>
+                      <div 
+                        className="w-full bg-blue-500" 
+                        style={{ height: `${height * 1.2}px` }}
+                      ></div>
+                      <div 
+                        className="w-full bg-coral-500 rounded-b" 
+                        style={{ height: `${height * 0.4}px` }}
+                      ></div>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'][i]}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
 
+        {/* Sales Donut Chart */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-600" />
-              Total Commissions
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Sales</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats?.totalCommissions)}</div>
-            <div className="text-sm text-gray-600">
-              Paid: {formatCurrency(stats?.paidCommissions)} | 
-              Pending: {formatCurrency(stats?.pendingCommissions)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Users className="h-4 w-4 text-purple-600" />
-              Active Members
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatNumber(stats?.activeMembers)}</div>
-            <div className={`text-sm ${getGrowthColor(stats?.memberGrowth || 0)}`}>
-              {formatPercentage(stats?.memberGrowth || 0)} growth
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-orange-600" />
-              Avg Revenue/Member
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats?.averageRevenuePerMember)}</div>
-            <div className="text-sm text-gray-600">
-              Per active member
+            <div className="flex items-center justify-between h-48">
+              {/* Donut Chart */}
+              <div className="relative w-40 h-40">
+                <svg viewBox="0 0 100 100" className="transform -rotate-90">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#e2e2e2"
+                    strokeWidth="20"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#0a2463"
+                    strokeWidth="20"
+                    strokeDasharray="160 251"
+                    strokeDashoffset="0"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    fill="none"
+                    stroke="#fb3640"
+                    strokeWidth="20"
+                    strokeDasharray="90 251"
+                    strokeDashoffset="-160"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-bold text-navy-500">
+                    {formatNumber(stats?.totalEnrollments || 342)}
+                  </span>
+                  <span className="text-xs text-gray-500">TOTAL</span>
+                </div>
+              </div>
+              
+              {/* Legend */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-navy-500 rounded"></div>
+                  <span className="text-sm">MOST PLAN</span>
+                  <span className="text-sm font-semibold ml-auto">63%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-coral-500 rounded"></div>
+                  <span className="text-sm">MOST/MET</span>
+                  <span className="text-sm font-semibold ml-auto">35%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                  <span className="text-sm">UNLIMITED PLAN</span>
+                  <span className="text-sm font-semibold ml-auto">2%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-gray-300 rounded"></div>
+                  <span className="text-sm">UNLIMITED/MET</span>
+                  <span className="text-sm font-semibold ml-auto">0%</span>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

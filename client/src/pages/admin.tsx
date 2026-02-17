@@ -1190,7 +1190,7 @@ export default function Admin() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Personalized Welcome Message */}
-        <Card className="mb-8 bg-gradient-to-r from-medical-blue-500 to-medical-blue-600 text-white">
+        <Card className="mb-8 bg-gradient-to-r from-navy-500 to-blue-500 text-white shadow-colored">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -1242,11 +1242,11 @@ export default function Admin() {
         )}
 
         {/* Manual EPX Transactions */}
-        <Card className="mb-8 border border-blue-200 bg-white">
+        <Card className="mb-8 border border-navy-200 bg-white shadow-soft">
           <CardContent className="p-6 space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Manual EPX Transactions</h2>
+                <h2 className="text-lg font-semibold text-navy-500">Manual EPX Transactions</h2>
                 <p className="text-sm text-gray-600">
                   Run SALE, refund, or void events directly from the admin dashboard without opening the certification toolkit.
                 </p>

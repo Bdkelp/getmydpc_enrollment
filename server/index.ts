@@ -35,6 +35,8 @@ import discountCodesRoutes from "./routes/discount-codes";
 import paymentsRoutes from "./routes/payments";
 import { initializePaymentEnvironment } from "./services/payment-environment-service";
 import groupEnrollmentRoutes from "./routes/group-enrollment";
+import paymentReconciliationRoutes from "./routes/payment-reconciliation";
+import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
 
 const app = express();
 
@@ -149,6 +151,8 @@ app.use((req, res, next) => {
   app.use('/', devUtilitiesRoutes);
   app.use('/', paymentsRoutes);
   app.use('/', groupEnrollmentRoutes);
+  app.use('/', paymentReconciliationRoutes);
+  app.use('/', paymentDiagnosticRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -348,7 +348,7 @@ export default function AgentDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -362,8 +362,8 @@ export default function AgentDashboard() {
                 </AvatarFallback>
               </Avatar>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
-                <span className="text-sm text-gray-500">
+                <h1 className="text-2xl font-bold text-navy-500">Agent Dashboard</h1>
+                <span className="text-sm text-gray-600">
                   Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
                 </span>
               </div>
@@ -377,7 +377,7 @@ export default function AgentDashboard() {
               )}
               <Button
                 onClick={handleNewEnrollment}
-                className="bg-green-600 hover:bg-green-700 text-white shadow-lg animate-pulse-slow"
+                className="bg-coral-500 hover:bg-coral-600 text-white shadow-lg animate-pulse-slow"
               >
                 <UserPlus className="mr-2 h-4 w-4" />
                 New Enrollment
@@ -457,65 +457,65 @@ export default function AgentDashboard() {
         )}
 
         {/* Personalized Welcome Message */}
-        <Card className="mb-8 bg-gradient-to-r from-green-500 to-green-600 text-white">
+        <Card className="mb-8 bg-gradient-to-r from-blue-500 to-navy-500 text-white shadow-glow">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold mb-1">
                   {getTimeOfDayGreeting()}, {getUserName()}! 🎯
                 </h2>
-                <p className="text-green-100">
+                <p className="text-blue-100">
                   Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
                 </p>
                 <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-green-100">Monthly Enrollment Goal</p>
+                    <p className="text-sm text-blue-100">Monthly Enrollment Goal</p>
                     <p className="text-lg font-semibold">{currentMonthlyEnrollments} / {monthlyGoalEnrollments || "—"}</p>
-                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
+                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
                       <div className="h-full bg-white rounded-full transition-all" style={{ width: `${enrollmentProgress}%` }} />
                     </div>
-                    <p className="text-xs text-green-100 mt-1">{goalSourceLabel}</p>
+                    <p className="text-xs text-blue-100 mt-1">{goalSourceLabel}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-green-100">Monthly Revenue</p>
+                    <p className="text-sm text-blue-100">Monthly Revenue</p>
                     <p className="text-lg font-semibold">{formatCurrency(currentMonthlyRevenue)}</p>
-                    <p className="text-xs text-green-100">Goal: {monthlyGoalRevenue ? formatCurrency(monthlyGoalRevenue) : "No goal"} ({revenueProgress}%)</p>
-                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
+                    <p className="text-xs text-blue-100">Goal: {monthlyGoalRevenue ? formatCurrency(monthlyGoalRevenue) : "No goal"} ({revenueProgress}%)</p>
+                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
                       <div className="h-full bg-white rounded-full transition-all" style={{ width: `${revenueProgress}%` }} />
                     </div>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-green-100">Monthly Commission</p>
+                    <p className="text-sm text-blue-100">Monthly Commission</p>
                     <p className="text-lg font-semibold">{formatCurrency(currentMonthlyCommission)}</p>
-                    <p className="text-xs text-green-100">Goal: {monthlyGoalCommissions ? formatCurrency(monthlyGoalCommissions) : "No goal"} ({commissionProgress}%)</p>
-                    <div className="mt-2 h-2 bg-green-600/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${commissionProgress}%` }} />
+                    <p className="text-xs text-blue-100">Goal: {monthlyGoalCommissions ? formatCurrency(monthlyGoalCommissions) : "No goal"} ({commissionProgress}%)</p>
+                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${revenueProgress}%` }} />
                     </div>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-green-100">Leads to Follow Up</p>
+                    <p className="text-sm text-blue-100">Leads to Follow Up</p>
                     <p className="text-lg font-semibold flex items-center">
                       <Phone className="h-5 w-5 mr-2" />
                       {stats?.activeLeads || 0}
                     </p>
-                    <p className="text-xs text-green-100 mt-1">Conversion Rate: {(stats?.conversionRate || 0).toFixed(1)}%</p>
+                    <p className="text-xs text-blue-100 mt-1">Conversion Rate: {(stats?.conversionRate || 0).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>
               <div className="hidden md:block">
-                <TrendingUp className="h-24 w-24 text-green-200 opacity-50" />
+                <TrendingUp className="h-24 w-24 text-blue-200 opacity-50" />
               </div>
             </div>
           </CardContent>
         </Card>
         
         {performanceGoals && (
-          <Card className="mb-8 border border-emerald-200 bg-white">
+          <Card className="mb-8 border border-blue-200 bg-white shadow-soft">
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-sm text-gray-500 uppercase tracking-wide">Performance Goals</p>
-                  <h3 className="text-2xl font-semibold text-gray-900 mt-1">
+                  <p className="text-sm text-navy-600 uppercase tracking-wide font-semibold">Performance Goals</p>
+                  <h3 className="text-2xl font-semibold text-navy-500 mt-1">
                     {stats?.performanceGoalsMeta?.hasOverride ? 'Custom targets for your desk' : 'Platform targets applied to you'}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
@@ -523,7 +523,7 @@ export default function AgentDashboard() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200">
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                     {stats?.performanceGoalsMeta?.hasOverride ? 'Agent Override Active' : 'Default Platform Goal'}
                   </Badge>
                   {isAdminUser && (
@@ -541,13 +541,13 @@ export default function AgentDashboard() {
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-3">
                 {goalPeriodSummaries.map(({ key, label, helper }) => (
-                  <div key={key} className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 space-y-3">
+                  <div key={key} className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs uppercase text-emerald-600 tracking-wide">{helper}</p>
-                        <p className="text-lg font-semibold text-emerald-900">{label}</p>
+                        <p className="text-xs uppercase text-blue-600 tracking-wide">{helper}</p>
+                        <p className="text-lg font-semibold text-navy-500">{label}</p>
                       </div>
-                      <Target className="h-4 w-4 text-emerald-500" />
+                      <Target className="h-4 w-4 text-blue-500" />
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
@@ -573,8 +573,8 @@ export default function AgentDashboard() {
 
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-emerald-600" />
-                  <p className="text-sm font-semibold text-gray-800">Plan Enrollment Targets</p>
+                  <Target className="h-4 w-4 text-blue-600" />
+                  <p className="text-sm font-semibold text-navy-500">Plan Enrollment Targets</p>
                 </div>
                 {performanceGoals.productGoals?.length ? (
                   <div className="overflow-x-auto">

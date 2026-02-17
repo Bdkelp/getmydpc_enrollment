@@ -267,8 +267,8 @@ export default function Registration() {
         communicationsConsent: data.communicationsConsent,
         faqDownloaded: data.faqDownloaded,
         discountCode: data.discountCode || null,
-        enrolledByAgentId: data.enrollingAgentId,
-        agentNumber: agents.find(a => a.id === data.enrollingAgentId)?.agentNumber || null
+        enrolledByAgentId: data.enrollingAgentId
+        // agentNumber removed - backend will look it up from database for accuracy
       };
 
       const apiResponse = await apiClient.post("/api/registration", registrationPayload);
