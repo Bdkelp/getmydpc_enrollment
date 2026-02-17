@@ -111,10 +111,20 @@ module.exports = {
         },
         // Legacy medical colors (backward compatibility)
         "medical-blue": {
+          50: "var(--medical-blue-50)",
+          100: "var(--medical-blue-100)",
+          200: "var(--medical-blue-200)",
+          300: "var(--medical-blue-300)",
+          400: "var(--medical-blue-400)",
           500: "var(--medical-blue-500)",
           600: "var(--medical-blue-600)",
+          700: "var(--medical-blue-700)",
+          800: "var(--medical-blue-800)",
+          900: "var(--medical-blue-900)",
         },
         "medical-green": {
+          50: "var(--medical-green-50)",
+          100: "var(--medical-green-100)",
           500: "var(--medical-green-500)",
           600: "var(--medical-green-600)",
         },

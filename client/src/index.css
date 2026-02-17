@@ -77,8 +77,18 @@
   --sage-900: hsl(72, 23%, 30%);
 
   /* Legacy Medical Colors - keeping for backward compatibility */
+  --medical-blue-50: hsl(199, 62%, 95%);
+  --medical-blue-100: hsl(199, 62%, 88%);
+  --medical-blue-200: hsl(199, 62%, 75%);
+  --medical-blue-300: hsl(199, 62%, 60%);
+  --medical-blue-400: hsl(199, 62%, 50%);
   --medical-blue-500: hsl(199, 62%, 39%);
   --medical-blue-600: hsl(199, 62%, 32%);
+  --medical-blue-700: hsl(199, 62%, 26%);
+  --medical-blue-800: hsl(199, 62%, 20%);
+  --medical-blue-900: hsl(199, 62%, 15%);
+  --medical-green-50: hsl(72, 23%, 95%);
+  --medical-green-100: hsl(72, 23%, 88%);
   --medical-green-500: hsl(72, 23%, 70%);
   --medical-green-600: hsl(72, 23%, 60%);
 
