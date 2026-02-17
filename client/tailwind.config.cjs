@@ -60,21 +60,61 @@ module.exports = {
           border: "var(--sidebar-border)",
           ring: "var(--sidebar-ring)",
         },
+        // New Color Palette - https://coolors.co/0a2463-fb3640-605f5e-247ba0-e2e2e2-c6ccb2
+        navy: {
+          50: "var(--navy-50)",
+          100: "var(--navy-100)",
+          200: "var(--navy-200)",
+          300: "var(--navy-300)",
+          400: "var(--navy-400)",
+          500: "var(--navy-500)", // #0a2463
+          600: "var(--navy-600)",
+          700: "var(--navy-700)",
+          800: "var(--navy-800)",
+          900: "var(--navy-900)",
+        },
+        blue: {
+          50: "var(--blue-50)",
+          100: "var(--blue-100)",
+          200: "var(--blue-200)",
+          300: "var(--blue-300)",
+          400: "var(--blue-400)",
+          500: "var(--blue-500)", // #247ba0
+          600: "var(--blue-600)",
+          700: "var(--blue-700)",
+          800: "var(--blue-800)",
+          900: "var(--blue-900)",
+        },
+        coral: {
+          50: "var(--coral-50)",
+          100: "var(--coral-100)",
+          200: "var(--coral-200)",
+          300: "var(--coral-300)",
+          400: "var(--coral-400)",
+          500: "var(--coral-500)", // #fb3640
+          600: "var(--coral-600)",
+          700: "var(--coral-700)",
+          800: "var(--coral-800)",
+          900: "var(--coral-900)",
+        },
+        sage: {
+          50: "var(--sage-50)",
+          100: "var(--sage-100)",
+          200: "var(--sage-200)",
+          300: "var(--sage-300)",
+          400: "var(--sage-400)",
+          500: "var(--sage-500)", // #c6ccb2
+          600: "var(--sage-600)",
+          700: "var(--sage-700)",
+          800: "var(--sage-800)",
+          900: "var(--sage-900)",
+        },
+        // Legacy medical colors (backward compatibility)
         "medical-blue": {
-          50: "var(--medical-blue-50)",
-          100: "var(--medical-blue-100)",
-          200: "var(--medical-blue-200)",
-          300: "var(--medical-blue-300)",
-          400: "var(--medical-blue-400)",
           500: "var(--medical-blue-500)",
           600: "var(--medical-blue-600)",
-          700: "var(--medical-blue-700)",
-          800: "var(--medical-blue-800)",
-          900: "var(--medical-blue-900)",
         },
         "medical-green": {
-          50: "var(--medical-green-50)",
-          100: "var(--medical-green-100)",
           500: "var(--medical-green-500)",
           600: "var(--medical-green-600)",
         },
@@ -105,8 +145,8 @@ module.exports = {
           "100%": { transform: "translateY(0)", opacity: "1" },
         },
         glow: {
-          "0%": { boxShadow: "0 0 5px rgba(59, 130, 246, 0.2)" },
-          "100%": { boxShadow: "0 0 20px rgba(59, 130, 246, 0.4)" },
+          "0%": { boxShadow: "0 0 5px rgba(36, 123, 160, 0.2)" }, // Blue
+          "100%": { boxShadow: "0 0 20px rgba(36, 123, 160, 0.4)" },
         },
         "bounce-subtle": {
           "0%, 20%, 53%, 80%, 100%": { transform: "translate3d(0, 0, 0)" },
@@ -135,8 +175,9 @@ module.exports = {
         soft: "0 2px 8px rgba(0, 0, 0, 0.06)",
         medium: "0 4px 16px rgba(0, 0, 0, 0.08)",
         large: "0 8px 32px rgba(0, 0, 0, 0.12)",
-        colored: "0 8px 32px rgba(59, 130, 246, 0.15)",
-        glow: "0 0 20px rgba(59, 130, 246, 0.3)",
+        colored: "0 8px 32px rgba(10, 36, 99, 0.15)", // Navy shadow
+        glow: "0 0 20px rgba(36, 123, 160, 0.3)", // Blue glow
+        coral: "0 8px 32px rgba(251, 54, 64, 0.15)", // Coral shadow
       },
     },
   },

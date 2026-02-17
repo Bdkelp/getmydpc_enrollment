@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Palette Test - GetMyDPC</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --dark-navy: #0a2463;
+            --coral: #fb3640;
+            --dark-gray: #605f5e;
+            --medium-blue: #247ba0;
+            --light-gray: #e2e2e2;
+            --sage: #c6ccb2;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background-color: var(--light-gray);
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            color: var(--dark-navy);
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .header p {
+            color: var(--dark-gray);
+            font-size: 1.125rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header h2 {
+            color: var(--dark-navy);
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-header p {
+            color: var(--dark-gray);
+            font-size: 0.875rem;
+        }
+
+        .swatches {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .swatch {
+            text-align: center;
+        }
+
+        .swatch-color {
+            height: 100px;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+            border: 2px solid #ddd;
+        }
+
+        .swatch-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--dark-navy);
+        }
+
+        .swatch-hex {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            color: var(--dark-gray);
+        }
+
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            font-size: 1rem;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-navy {
+            background-color: var(--dark-navy);
+            color: white;
+        }
+
+        .btn-blue {
+            background-color: var(--medium-blue);
+            color: white;
+        }
+
+        .btn-coral {
+            background-color: var(--coral);
+            color: white;
+        }
+
+        .btn-sage {
+            background-color: var(--sage);
+            color: var(--dark-navy);
+        }
+
+        .btn-outline-navy {
+            background-color: white;
+            color: var(--dark-navy);
+            border: 2px solid var(--dark-navy);
+        }
+
+        .btn-outline-blue {
+            background-color: white;
+            color: var(--medium-blue);
+            border: 2px solid var(--medium-blue);
+        }
+
+        .btn-outline-coral {
+            background-color: white;
+            color: var(--coral);
+            border: 2px solid var(--coral);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card-colored-header {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .colored-header {
+            padding: 1.5rem;
+            color: white;
+        }
+
+        .colored-header h3 {
+            font-size: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .colored-header p {
+            font-size: 0.875rem;
+            opacity: 0.9;
+        }
+
+        .card-body {
+            background: white;
+            padding: 1.5rem;
+        }
+
+        .card-body p {
+            color: var(--dark-gray);
+            margin-bottom: 1rem;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, var(--dark-navy) 0%, var(--medium-blue) 100%);
+            padding: 4rem 2rem;
+            border-radius: 12px;
+            text-align: center;
+            color: white;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-hero {
+            padding: 1rem 2rem;
+            font-size: 1.125rem;
+        }
+
+        .btn-outline-white {
+            background-color: transparent;
+            color: white;
+            border: 2px solid white;
+        }
+
+        .btn-outline-white:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .gradients {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .gradient-box {
+            height: 120px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1.125rem;
+        }
+
+        .badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .recommendations {
+            border-left: 4px solid var(--medium-blue);
+        }
+
+        .recommendation-list {
+            list-style: none;
+        }
+
+        .recommendation-list li {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            color: var(--dark-gray);
+        }
+
+        .color-dot {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .recommendation-list strong {
+            color: var(--dark-navy);
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero p {
+                font-size: 1.125rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Color Palette Test</h1>
+            <p>Testing the Coolors palette for GetMyDPC Enrollment Platform</p>
+        </div>
+
+        <!-- Color Swatches -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Color Swatches</h2>
+                <p>Primary colors from the palette</p>
+            </div>
+            <div class="swatches">
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--dark-navy);"></div>
+                    <div class="swatch-name">Dark Navy</div>
+                    <div class="swatch-hex">#0a2463</div>
+                </div>
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--coral);"></div>
+                    <div class="swatch-name">Coral</div>
+                    <div class="swatch-hex">#fb3640</div>
+                </div>
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--dark-gray);"></div>
+                    <div class="swatch-name">Dark Gray</div>
+                    <div class="swatch-hex">#605f5e</div>
+                </div>
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--medium-blue);"></div>
+                    <div class="swatch-name">Medium Blue</div>
+                    <div class="swatch-hex">#247ba0</div>
+                </div>
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--light-gray);"></div>
+                    <div class="swatch-name">Light Gray</div>
+                    <div class="swatch-hex">#e2e2e2</div>
+                </div>
+                <div class="swatch">
+                    <div class="swatch-color" style="background-color: var(--sage);"></div>
+                    <div class="swatch-name">Sage</div>
+                    <div class="swatch-hex">#c6ccb2</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Button Variations</h2>
+                <p>Different button styles with the new palette</p>
+            </div>
+            <div class="buttons">
+                <button class="btn btn-navy">Primary (Dark Navy)</button>
+                <button class="btn btn-blue">Secondary (Medium Blue)</button>
+                <button class="btn btn-coral">CTA (Coral)</button>
+                <button class="btn btn-sage">Success (Sage)</button>
+            </div>
+            <div class="buttons">
+                <button class="btn btn-outline-navy">Outline Dark Navy</button>
+                <button class="btn btn-outline-blue">Outline Blue</button>
+                <button class="btn btn-outline-coral">Outline Coral</button>
+            </div>
+        </div>
+
+        <!-- Cards with Different Backgrounds -->
+        <div class="grid-2">
+            <div class="card-colored-header">
+                <div class="colored-header" style="background-color: var(--dark-navy);">
+                    <h3>Dark Navy Header</h3>
+                    <p>With white card body</p>
+                </div>
+                <div class="card-body">
+                    <p>This card demonstrates the dark navy header with a white body. Perfect for creating visual hierarchy and drawing attention to important sections.</p>
+                    <button class="btn btn-coral">Take Action</button>
+                </div>
+            </div>
+
+            <div class="card-colored-header">
+                <div class="colored-header" style="background-color: var(--medium-blue);">
+                    <h3>Medium Blue Header</h3>
+                    <p>Friendlier, lighter option</p>
+                </div>
+                <div class="card-body">
+                    <p>The medium blue provides a softer, more approachable feel while maintaining professional credibility.</p>
+                    <button class="btn btn-sage">Learn More</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Typography -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Typography & Text Colors</h2>
+                <p>How the palette works with different text styles</p>
+            </div>
+            <div>
+                <h2 style="color: var(--dark-navy); font-size: 2rem; margin-bottom: 1rem;">
+                    Heading in Dark Navy
+                </h2>
+                <p style="color: var(--dark-gray); margin-bottom: 2rem;">
+                    Body text in dark gray for optimal readability. This ensures great contrast while maintaining a sophisticated, professional appearance.
+                </p>
+
+                <h2 style="color: var(--medium-blue); font-size: 2rem; margin-bottom: 1rem;">
+                    Heading in Medium Blue
+                </h2>
+                <p style="color: var(--dark-gray); margin-bottom: 1rem;">
+                    A lighter alternative for headings that still stands out but feels more approachable.
+                </p>
+
+                <div class="badges">
+                    <span class="badge" style="background-color: var(--dark-navy); color: white;">Premium</span>
+                    <span class="badge" style="background-color: var(--medium-blue); color: white;">Active</span>
+                    <span class="badge" style="background-color: var(--sage); color: var(--dark-navy);">Enrolled</span>
+                    <span class="badge" style="background-color: var(--coral); color: white;">Action Required</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hero Section -->
+        <div class="hero">
+            <h1>Welcome to Direct Primary Care</h1>
+            <p>Affordable, personalized healthcare for you and your family</p>
+            <div class="hero-buttons">
+                <button class="btn btn-coral btn-hero">Enroll Now</button>
+                <button class="btn btn-outline-white btn-hero">Learn More</button>
+            </div>
+        </div>
+
+        <!-- Gradients -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Gradient Options</h2>
+                <p>Various gradient combinations from the palette</p>
+            </div>
+            <div class="gradients">
+                <div class="gradient-box" style="background: linear-gradient(135deg, var(--dark-navy) 0%, var(--medium-blue) 100%); color: white;">
+                    Navy to Blue
+                </div>
+                <div class="gradient-box" style="background: linear-gradient(135deg, var(--medium-blue) 0%, var(--coral) 100%); color: white;">
+                    Blue to Coral
+                </div>
+                <div class="gradient-box" style="background: linear-gradient(135deg, var(--light-gray) 0%, var(--sage) 100%); color: var(--dark-navy);">
+                    Light Gray to Sage
+                </div>
+                <div class="gradient-box" style="background: linear-gradient(135deg, var(--dark-navy) 0%, var(--coral) 100%); color: white;">
+                    Navy to Coral
+                </div>
+            </div>
+        </div>
+
+        <!-- Recommendations -->
+        <div class="card recommendations">
+            <div class="card-header">
+                <h2>Recommended Usage</h2>
+                <p>How to apply this palette effectively</p>
+            </div>
+            <ul class="recommendation-list">
+                <li>
+                    <div class="color-dot" style="background-color: var(--dark-navy);"></div>
+                    <div>
+                        <strong>Dark Navy (#0a2463)</strong> - Primary brand color, main headers, navigation bars, important CTAs
+                    </div>
+                </li>
+                <li>
+                    <div class="color-dot" style="background-color: var(--medium-blue);"></div>
+                    <div>
+                        <strong>Medium Blue (#247ba0)</strong> - Secondary buttons, links, subheadings, hover states
+                    </div>
+                </li>
+                <li>
+                    <div class="color-dot" style="background-color: var(--coral);"></div>
+                    <div>
+                        <strong>Coral (#fb3640)</strong> - High-priority CTAs, alerts, destructive actions, urgency indicators
+                    </div>
+                </li>
+                <li>
+                    <div class="color-dot" style="background-color: var(--sage);"></div>
+                    <div>
+                        <strong>Sage (#c6ccb2)</strong> - Success messages, confirmed status, tertiary buttons, subtle accents
+                    </div>
+                </li>
+                <li>
+                    <div class="color-dot" style="background-color: var(--dark-gray);"></div>
+                    <div>
+                        <strong>Dark Gray (#605f5e)</strong> - Body text, secondary text, borders
+                    </div>
+                </li>
+                <li>
+                    <div class="color-dot" style="background-color: var(--light-gray);"></div>
+                    <div>
+                        <strong>Light Gray (#e2e2e2)</strong> - Backgrounds, card backgrounds, subtle dividers
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

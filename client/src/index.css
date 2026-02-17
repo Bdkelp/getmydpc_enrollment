@@ -3,55 +3,93 @@
 @tailwind utilities;
 
 :root {
+  /* New Color Palette - https://coolors.co/0a2463-fb3640-605f5e-247ba0-e2e2e2-c6ccb2 */
   --background: hsl(0, 0%, 100%);
-  --foreground: hsl(222, 47%, 11%);
-  --muted: hsl(210, 40%, 96%);
-  --muted-foreground: hsl(215, 16%, 47%);
+  --foreground: hsl(223, 82%, 21%); /* Dark Navy */
+  --muted: hsl(0, 0%, 89%); /* Light Gray */
+  --muted-foreground: hsl(5, 1%, 38%); /* Dark Gray */
   --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(222, 47%, 11%);
+  --popover-foreground: hsl(223, 82%, 21%);
   --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(222, 47%, 11%);
-  --border: hsl(214, 32%, 91%);
-  --input: hsl(214, 32%, 91%);
-  --primary: hsl(213, 94%, 55%);
+  --card-foreground: hsl(223, 82%, 21%);
+  --border: hsl(0, 0%, 89%);
+  --input: hsl(0, 0%, 89%);
+  --primary: hsl(223, 82%, 21%); /* Dark Navy - Primary brand color */
   --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(210, 40%, 96%);
-  --secondary-foreground: hsl(222, 47%, 11%);
-  --accent: hsl(210, 40%, 96%);
-  --accent-foreground: hsl(222, 47%, 11%);
-  --destructive: hsl(0, 84%, 60%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --ring: hsl(213, 94%, 55%);
+  --secondary: hsl(199, 62%, 39%); /* Medium Blue */
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(357, 96%, 61%); /* Coral - High-priority CTAs */
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(357, 96%, 61%); /* Coral for destructive actions */
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(199, 62%, 39%); /* Medium Blue for focus rings */
   --radius: 0.875rem;
-  --success: hsl(142, 76%, 36%);
+  --success: hsl(72, 23%, 75%); /* Sage for success states */
   --warning: hsl(38, 92%, 50%);
-  --info: hsl(199, 89%, 48%);
+  --info: hsl(199, 62%, 39%); /* Medium Blue for info */
 
-  /* Enhanced Medical blue color scheme - more vibrant */
-  --medical-blue-50: hsl(213, 100%, 98%);
-  --medical-blue-100: hsl(213, 100%, 96%);
-  --medical-blue-200: hsl(213, 100%, 92%);
-  --medical-blue-300: hsl(213, 100%, 82%);
-  --medical-blue-400: hsl(213, 100%, 68%);
-  --medical-blue-500: hsl(213, 94%, 55%);
-  --medical-blue-600: hsl(213, 94%, 48%);
-  --medical-blue-700: hsl(213, 94%, 40%);
-  --medical-blue-800: hsl(213, 94%, 32%);
-  --medical-blue-900: hsl(213, 94%, 24%);
+  /* New Palette - Navy Blue Scale (Primary) */
+  --navy-50: hsl(223, 82%, 95%);
+  --navy-100: hsl(223, 82%, 90%);
+  --navy-200: hsl(223, 82%, 80%);
+  --navy-300: hsl(223, 82%, 65%);
+  --navy-400: hsl(223, 82%, 45%);
+  --navy-500: hsl(223, 82%, 21%); /* Base: #0a2463 */
+  --navy-600: hsl(223, 82%, 17%);
+  --navy-700: hsl(223, 82%, 14%);
+  --navy-800: hsl(223, 82%, 10%);
+  --navy-900: hsl(223, 82%, 7%);
 
-  /* Medical green accent */
-  --medical-green-50: hsl(142, 76%, 95%);
-  --medical-green-100: hsl(142, 76%, 90%);
-  --medical-green-500: hsl(142, 76%, 36%);
-  --medical-green-600: hsl(142, 76%, 30%);
+  /* New Palette - Medium Blue Scale (Secondary) */
+  --blue-50: hsl(199, 62%, 95%);
+  --blue-100: hsl(199, 62%, 88%);
+  --blue-200: hsl(199, 62%, 75%);
+  --blue-300: hsl(199, 62%, 60%);
+  --blue-400: hsl(199, 62%, 50%);
+  --blue-500: hsl(199, 62%, 39%); /* Base: #247ba0 */
+  --blue-600: hsl(199, 62%, 32%);
+  --blue-700: hsl(199, 62%, 26%);
+  --blue-800: hsl(199, 62%, 20%);
+  --blue-900: hsl(199, 62%, 15%);
 
-  /* Enhanced Gradients */
-  --gradient-primary: linear-gradient(135deg, hsl(213, 94%, 55%) 0%, hsl(213, 94%, 45%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(210, 40%, 98%) 0%, hsl(210, 40%, 94%) 100%);
-  --gradient-hero: linear-gradient(135deg, hsl(213, 100%, 98%) 0%, hsl(213, 100%, 96%) 50%, hsl(210, 40%, 98%) 100%);
-  --gradient-card: linear-gradient(145deg, hsl(0, 0%, 100%) 0%, hsl(210, 40%, 99%) 100%);
-  --gradient-vibrant: linear-gradient(135deg, hsl(213, 94%, 55%) 0%, hsl(199, 89%, 48%) 100%);
-  --gradient-soft: linear-gradient(135deg, hsl(210, 40%, 98%) 0%, hsl(0, 0%, 100%) 100%);
+  /* New Palette - Coral Scale (CTA/Accent) */
+  --coral-50: hsl(357, 96%, 97%);
+  --coral-100: hsl(357, 96%, 92%);
+  --coral-200: hsl(357, 96%, 82%);
+  --coral-300: hsl(357, 96%, 72%);
+  --coral-400: hsl(357, 96%, 67%);
+  --coral-500: hsl(357, 96%, 61%); /* Base: #fb3640 */
+  --coral-600: hsl(357, 96%, 52%);
+  --coral-700: hsl(357, 96%, 43%);
+  --coral-800: hsl(357, 96%, 35%);
+  --coral-900: hsl(357, 96%, 27%);
+
+  /* New Palette - Sage Scale (Success) */
+  --sage-50: hsl(72, 23%, 95%);
+  --sage-100: hsl(72, 23%, 88%);
+  --sage-200: hsl(72, 23%, 82%);
+  --sage-300: hsl(72, 23%, 78%);
+  --sage-400: hsl(72, 23%, 75%);
+  --sage-500: hsl(72, 23%, 70%); /* Base: #c6ccb2 */
+  --sage-600: hsl(72, 23%, 60%);
+  --sage-700: hsl(72, 23%, 50%);
+  --sage-800: hsl(72, 23%, 40%);
+  --sage-900: hsl(72, 23%, 30%);
+
+  /* Legacy Medical Colors - keeping for backward compatibility */
+  --medical-blue-500: hsl(199, 62%, 39%);
+  --medical-blue-600: hsl(199, 62%, 32%);
+  --medical-green-500: hsl(72, 23%, 70%);
+  --medical-green-600: hsl(72, 23%, 60%);
+
+  /* Updated Gradients with New Palette */
+  --gradient-primary: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(199, 62%, 39%) 100%); /* Navy to Blue */
+  --gradient-secondary: linear-gradient(135deg, hsl(0, 0%, 89%) 0%, hsl(72, 23%, 75%) 100%); /* Light Gray to Sage */
+  --gradient-hero: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(199, 62%, 39%) 100%); /* Navy to Blue */
+  --gradient-card: linear-gradient(145deg, hsl(0, 0%, 100%) 0%, hsl(0, 0%, 98%) 100%);
+  --gradient-vibrant: linear-gradient(135deg, hsl(199, 62%, 39%) 0%, hsl(357, 96%, 61%) 100%); /* Blue to Coral */
+  --gradient-soft: linear-gradient(135deg, hsl(0, 0%, 89%) 0%, hsl(0, 0%, 100%) 100%);
+  --gradient-accent: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(357, 96%, 61%) 100%); /* Navy to Coral */
 
   /* Enhanced Shadows with better depth */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.04);
@@ -59,7 +97,7 @@
   --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
   --shadow-xl: 0 20px 35px -5px rgba(0, 0, 0, 0.08), 0 10px 15px -5px rgba(0, 0, 0, 0.04);
   --shadow-2xl: 0 25px 60px -15px rgba(0, 0, 0, 0.15);
-  --shadow-colored: 0 10px 25px -3px rgba(37, 99, 235, 0.15), 0 4px 10px -2px rgba(37, 99, 235, 0.08);
+  --shadow-colored: 0 10px 25px -3px rgba(10, 36, 99, 0.15), 0 4px 10px -2px rgba(10, 36, 99, 0.08); /* Navy shadow */
   --shadow-inset: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
 
   /* Transition timings */
@@ -70,35 +108,35 @@
 }
 
 .dark {
-  --background: hsl(220, 20%, 6%);
-  --foreground: hsl(220, 10%, 95%);
-  --muted: hsl(220, 15%, 12%);
-  --muted-foreground: hsl(220, 10%, 60%);
-  --popover: hsl(220, 20%, 8%);
-  --popover-foreground: hsl(220, 10%, 95%);
-  --card: hsl(220, 20%, 8%);
-  --card-foreground: hsl(220, 10%, 95%);
-  --border: hsl(220, 15%, 18%);
-  --input: hsl(220, 15%, 18%);
-  --primary: hsl(210, 100%, 60%);
-  --primary-foreground: hsl(220, 20%, 6%);
-  --secondary: hsl(220, 15%, 12%);
-  --secondary-foreground: hsl(220, 10%, 95%);
-  --accent: hsl(220, 15%, 14%);
-  --accent-foreground: hsl(220, 10%, 95%);
-  --destructive: hsl(0, 70%, 55%);
-  --destructive-foreground: hsl(0, 0%, 98%);
-  --ring: hsl(210, 100%, 60%);
+  --background: hsl(223, 82%, 7%); /* Dark Navy tone */
+  --foreground: hsl(0, 0%, 95%);
+  --muted: hsl(223, 82%, 14%);
+  --muted-foreground: hsl(0, 0%, 70%);
+  --popover: hsl(223, 82%, 10%);
+  --popover-foreground: hsl(0, 0%, 95%);
+  --card: hsl(223, 82%, 10%);
+  --card-foreground: hsl(0, 0%, 95%);
+  --border: hsl(223, 82%, 17%);
+  --input: hsl(223, 82%, 17%);
+  --primary: hsl(199, 62%, 50%); /* Lighter Medium Blue for dark mode */
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(223, 82%, 21%); /* Navy for secondary in dark */
+  --secondary-foreground: hsl(0, 0%, 100%);
+  --accent: hsl(357, 96%, 67%); /* Lighter Coral for dark mode */
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(357, 96%, 67%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --ring: hsl(199, 62%, 50%);
   --radius: 0.75rem;
 
   /* Dark mode gradients */
-  --gradient-primary: linear-gradient(135deg, hsl(210, 100%, 60%) 0%, hsl(210, 100%, 52%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(220, 15%, 12%) 0%, hsl(220, 15%, 16%) 100%);
-  --gradient-hero: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 50%, hsl(220, 15%, 12%) 100%);
-  --gradient-card: linear-gradient(135deg, hsl(220, 20%, 8%) 0%, hsl(220, 20%, 10%) 100%);
+  --gradient-primary: linear-gradient(135deg, hsl(223, 82%, 17%) 0%, hsl(199, 62%, 39%) 100%);
+  --gradient-secondary: linear-gradient(135deg, hsl(223, 82%, 14%) 0%, hsl(223, 82%, 17%) 100%);
+  --gradient-hero: linear-gradient(135deg, hsl(223, 82%, 10%) 0%, hsl(223, 82%, 14%) 50%, hsl(199, 62%, 26%) 100%);
+  --gradient-card: linear-gradient(135deg, hsl(223, 82%, 10%) 0%, hsl(223, 82%, 14%) 100%);
 
   /* Dark mode shadows */
-  --shadow-colored: 0 10px 15px -3px rgba(59, 130, 246, 0.2), 0 4px 6px -2px rgba(59, 130, 246, 0.1);
+  --shadow-colored: 0 10px 15px -3px rgba(36, 123, 160, 0.3), 0 4px 6px -2px rgba(36, 123, 160, 0.15);
 }
 
 @layer base {
