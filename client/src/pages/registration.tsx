@@ -179,12 +179,6 @@ export default function Registration() {
     enabled: isAuthenticated,
   });
 
-  // Fetch all agents for selection
-  const { data: agents = [] } = useQuery<Array<{ id: string; firstName: string; lastName: string; agentNumber: string; email: string }>>({
-    queryKey: ["/api/agents"],
-    enabled: isAuthenticated,
-  });
-
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
     mode: "onChange", // Validate on change to show errors immediately
@@ -718,44 +712,6 @@ export default function Registration() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <FormField
-                        control={form.control}
-                        name="enrollingAgentId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Enrolling Agent *</FormLabel>
-                            <Select
-                              onValueChange={field.onChange}
-                              value={field.value}
-                              disabled={!isAdminUser} // Only admins can change agent
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select enrolling agent" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {agents.map((agent) => (
-                                  <SelectItem key={agent.id} value={agent.id}>
-                                    {agent.firstName} {agent.lastName} ({agent.agentNumber})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                            {!isAdminUser && (
-                              <p className="text-xs text-gray-500">
-                                This enrollment will be credited to your agent account
-                              </p>
-                            )}
-                            {isAdminUser && (
-                              <p className="text-xs text-gray-500">
-                                Select which agent should receive credit for this enrollment
-                              </p>
-                            )}
-                          </FormItem>
-                        )}
-                      />
                       <FormField
                         control={form.control}
                         name="dateOfBirth"
