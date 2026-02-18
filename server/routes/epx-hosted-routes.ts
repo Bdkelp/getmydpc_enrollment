@@ -1031,6 +1031,268 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
 });
 
 /**
+ * Frontend-triggered failure recording when EPX hosted checkout fails.
+ * This endpoint logs payment decline/failure from the client-side EPX modal.
+ */
+router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response) => {
+  try {
+    const {
+      transactionId,
+      memberId,
+      statusMessage,
+      status,
+      amount
+    } = req.body || {};
+
+    // Parse user-friendly error message
+    let failureReason = statusMessage || status || 'Payment declined';
+    if (typeof statusMessage === 'string') {
+      if (statusMessage.includes('INSUFF') || statusMessage.includes('51')) {
+        failureReason = 'Insufficient funds';
+      } else if (statusMessage.includes('DECLINED') || statusMessage.includes('05')) {
+        failureReason = 'Card declined by issuer';
+      } else if (statusMessage.includes('INVALID') || statusMessage.includes('EXPIRED')) {
+        failureReason = 'Card information invalid or expired';
+      }
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'record-failure',
+      message: 'Recording client-side payment failure',
+      data: { transactionId, memberId, failureReason, rawMessage: statusMessage }
+    });
+
+    // Update payment record if exists
+    if (transactionId) {
+      try {
+        await persistHostedPaymentUpdate({
+          epxTransactionId: transactionId,
+          fallbackOrderNumber: transactionId,
+          authGuid: null,
+          authCode: null,
+          amount: amount || null,
+          callbackStatus: status || 'Failure',
+          callbackMessage: statusMessage || failureReason,
+          memberId: memberId || null,
+          bricTokenPresent: false,
+          paymentStatus: 'failed',
+          tranType: 'CCE1',
+          paymentMethodType: 'CreditCard'
+        });
+      } catch (persistError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'record-failure',
+          message: 'Failed to persist payment failure',
+          data: { error: persistError?.message, transactionId }
+        });
+      }
+    }
+
+    // Create admin notification
+    if (memberId) {
+      try {
+        const memberRecord = await storage.getMember(Number(memberId));
+        
+        await storage.createAdminNotification({
+          type: 'payment_failed',
+          memberId: Number(memberId),
+          subscriptionId: null,
+          errorMessage: failureReason,
+          metadata: {
+            transactionId,
+            amount,
+            memberEmail: memberRecord?.email,
+            memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
+            failureReason,
+            rawMessage: statusMessage,
+            enrollingAgentId: memberRecord?.enrolledByAgentId || memberRecord?.enrolled_by_agent_id || null,
+            timestamp: new Date().toISOString()
+          }
+        });
+
+        logEPX({
+          level: 'info',
+          phase: 'record-failure',
+          message: 'Admin notification created for failed payment',
+          data: { memberId, transactionId }
+        });
+      } catch (notificationError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'record-failure',
+          message: 'Failed to create admin notification',
+          data: { error: notificationError?.message, memberId }
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Payment failure recorded'
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'record-failure',
+      message: 'Unhandled error recording payment failure',
+      data: { error: error?.message }
+    });
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to record payment failure'
+    });
+  }
+});
+
+/**
+ * Record payment failure from frontend
+ * Called when EPX returns a failure response to the browser
+ */
+router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response) => {
+  try {
+    const {
+      transactionId,
+      sessionId,
+      failureMessage,
+      failureStatus,
+      memberId,
+      amount
+    } = req.body || {};
+
+    if (!transactionId && !sessionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'transactionId or sessionId is required'
+      });
+    }
+
+    const effectiveTransactionId = transactionId || sessionId;
+
+    logEPX({
+      level: 'warn',
+      phase: 'record-failure',
+      message: 'Recording payment failure from frontend',
+      data: {
+        transactionId: effectiveTransactionId,
+        memberId,
+        failureMessage,
+        failureStatus
+      }
+    });
+
+    // Try to find existing payment record
+    let paymentRecord = await storage.getPaymentByTransactionId(effectiveTransactionId);
+
+    if (paymentRecord) {
+      // Update existing record
+      const updateResult = await persistHostedPaymentUpdate({
+        epxTransactionId: effectiveTransactionId,
+        fallbackOrderNumber: effectiveTransactionId,
+        authGuid: null,
+        authCode: null,
+        amount: amount || paymentRecord.amount || 0,
+        callbackStatus: failureStatus || 'Failure',
+        callbackMessage: failureMessage || 'Payment declined',
+        bricTokenPresent: false,
+        paymentStatus: 'failed',
+        tranType: 'CCE1',
+        paymentMethodType: 'CreditCard'
+      });
+
+      paymentRecord = updateResult.paymentRecord;
+    } else {
+      // Create new payment record for the failure
+      if (!memberId) {
+        return res.status(400).json({
+          success: false,
+          error: 'memberId is required when payment record does not exist'
+        });
+      }
+
+      try {
+        paymentRecord = await storage.createPayment({
+          member_id: memberId,
+          amount: amount || 0,
+          status: 'failed',
+          payment_method: 'credit_card',
+          transaction_id: effectiveTransactionId,
+          metadata: {
+            failureReason: failureMessage,
+            failureStatus: failureStatus,
+            recordedFrom: 'frontend',
+            timestamp: new Date().toISOString()
+          }
+        });
+
+        logEPX({
+          level: 'info',
+          phase: 'record-failure',
+          message: 'Created payment record for frontend failure',
+          data: { paymentId: paymentRecord?.id, transactionId: effectiveTransactionId }
+        });
+      } catch (createError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'record-failure',
+          message: 'Failed to create payment record for failure',
+          data: { error: createError?.message }
+        });
+      }
+    }
+
+    // Create admin notification
+    if (paymentRecord && memberId) {
+      try {
+        const memberRecord = await storage.getMember(memberId);
+        
+        await storage.createAdminNotification({
+          type: 'payment_failed',
+          memberId,
+          subscriptionId: null,
+          errorMessage: failureMessage || 'Payment declined by processor',
+          metadata: {
+            transactionId: effectiveTransactionId,
+            amount: amount || paymentRecord.amount,
+            paymentId: paymentRecord.id,
+            memberEmail: memberRecord?.email,
+            memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
+            failureReason: failureMessage,
+            failureStatus: failureStatus,
+            timestamp: new Date().toISOString()
+          }
+        });
+      } catch (notificationError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'record-failure',
+          message: 'Failed to create admin notification for payment failure',
+          data: { error: notificationError?.message }
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      paymentId: paymentRecord?.id || null,
+      recorded: true
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'record-failure',
+      message: 'Failed to record payment failure',
+      data: { error: error?.message }
+    });
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to record payment failure'
+    });
+  }
+});
+
+/**
  * Handle success callback from EPX
  */
 router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {

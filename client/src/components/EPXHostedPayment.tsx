@@ -42,8 +42,8 @@ interface EPXHostedPaymentProps {
 declare global {
   interface Window {
     Epx: any;
-    epxSuccessCallback: (msg: string) => void;
-    epxFailureCallback: (msg: string) => void;
+    epxSuccessCallback: (msg: string) => void | Promise<void>;
+    epxFailureCallback: (msg: string) => void | Promise<void>;
     grecaptcha: any;
   }
 }
@@ -393,17 +393,55 @@ export default function EPXHostedPayment({
     };
 
     // Failure callback
-    window.epxFailureCallback = (msg: string) => {
+    window.epxFailureCallback = async (msg: any) => {
       console.error('[EPX Hosted] Payment failed:', msg);
-      setError(msg || 'Payment failed');
+      
+      // Parse EPX response object
+      let errorMessage = 'Payment failed';
+      if (typeof msg === 'object' && msg !== null) {
+        if (msg.StatusMessage) {
+          // Extract user-friendly message from EPX status
+          const statusMsg = msg.StatusMessage.toString();
+          if (statusMsg.includes('INSUFF') || statusMsg.includes('51')) {
+            errorMessage = 'Card declined: Insufficient funds';
+          } else if (statusMsg.includes('DECLINED') || statusMsg.includes('05')) {
+            errorMessage = 'Card declined by issuer';
+          } else if (statusMsg.includes('INVALID') || statusMsg.includes('EXPIRED')) {
+            errorMessage = 'Card information is invalid or expired';
+          } else {
+            errorMessage = `Payment declined: ${statusMsg}`;
+          }
+        } else if (msg.Status === 'Failure') {
+          errorMessage = 'Payment was declined';
+        }
+      } else if (typeof msg === 'string') {
+        errorMessage = msg;
+      }
+      
+      // Record the failure to the backend
+      try {
+        await apiClient.post('/api/epx/hosted/record-failure', {
+          transactionId: sessionData?.transactionId || sessionData?.sessionId,
+          sessionId: sessionData?.sessionId || sessionData?.transactionId,
+          memberId: customerId,
+          failureMessage: typeof msg === 'object' ? msg.StatusMessage : msg,
+          failureStatus: typeof msg === 'object' ? msg.Status : 'Failure',
+          amount: finalAmount
+        });
+        console.log('[EPX Hosted] Payment failure recorded to database');
+      } catch (recordError) {
+        console.error('[EPX Hosted] Failed to record payment failure:', recordError);
+      }
+      
+      setError(errorMessage);
       toast({
         title: "Payment Failed",
-        description: msg || "There was an error processing your payment.",
+        description: errorMessage,
         variant: "destructive"
       });
       
       if (onError) {
-        onError(msg);
+        onError(errorMessage);
       }
     };
 
