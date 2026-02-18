@@ -220,10 +220,11 @@ export default function Registration() {
 
   // Auto-populate enrolling agent for logged-in agent (admins can override)
   useEffect(() => {
-    if (currentUser?.id && !form.getValues("enrollingAgentId")) {
+    if (currentUser?.id && agents.length > 0 && !form.getValues("enrollingAgentId")) {
+      console.log('[Registration] Auto-populating enrolling agent:', currentUser.id, currentUser.email);
       form.setValue("enrollingAgentId", currentUser.id);
     }
-  }, [currentUser?.id, form]);
+  }, [currentUser?.id, agents.length, form]);
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {

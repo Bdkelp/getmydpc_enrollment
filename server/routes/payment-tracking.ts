@@ -226,7 +226,7 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
           ORDER BY created_at DESC 
           LIMIT 1
         ) p ON true
-        WHERE m.archived_at IS NULL
+        WHERE m.status != 'archived'
         ${agentFilter}
         ORDER BY m.created_at DESC
         LIMIT $1

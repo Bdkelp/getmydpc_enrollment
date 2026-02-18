@@ -2776,10 +2776,11 @@ export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLe
 
 // Agent operations
 export async function getAgents(): Promise<User[]> {
+  // Get all active users (agents, admins, super_admins) since they all have agent numbers
   const { data, error } = await supabase
     .from('users')
     .select('*')
-    .ilike('role', 'agent%')
+    .eq('is_active', true)
     .order('first_name', { ascending: true, nullsFirst: false })
     .order('last_name', { ascending: true, nullsFirst: false })
     .order('agent_number', { ascending: true, nullsFirst: false });
@@ -2789,6 +2790,7 @@ export async function getAgents(): Promise<User[]> {
     throw new Error(`Failed to get agents: ${error.message}`);
   }
 
+  console.log(`[getAgents] Fetched ${data?.length || 0} active users`);
   return data || [];
 }
 
