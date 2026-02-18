@@ -114,7 +114,7 @@ router.get('/api/admin/payments/failed', authenticateToken, async (req: AuthRequ
         FROM payments p
         LEFT JOIN members m ON p.member_id = m.id
         LEFT JOIN plans pl ON m.plan_id = pl.id
-        LEFT JOIN users u ON m.enrolled_by_agent_id = u.id
+        LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
         WHERE p.status IN ('failed', 'pending', 'canceled', 'declined')
         ORDER BY p.created_at DESC
         LIMIT $1
@@ -219,7 +219,7 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
           p.epx_auth_guid
         FROM members m
         LEFT JOIN plans pl ON m.plan_id = pl.id
-        LEFT JOIN users u ON m.enrolled_by_agent_id = u.id
+        LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
         LEFT JOIN LATERAL (
           SELECT * FROM payments 
           WHERE member_id = m.id 

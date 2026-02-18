@@ -187,6 +187,7 @@ export default function Registration() {
 
   const form = useForm<RegistrationForm>({
     resolver: zodResolver(registrationSchema),
+    mode: "onChange", // Validate on change to show errors immediately
     defaultValues: {
       firstName: "",
       lastName: "",
@@ -514,12 +515,34 @@ export default function Registration() {
   };
 
   const onSubmit = (data: RegistrationForm) => {
+    console.log("[Registration] Form submission triggered", data);
+    console.log("[Registration] selectedPlanId:", selectedPlanId);
+    console.log("[Registration] Form planId:", data.planId);
+    
+    // Ensure plan is selected
+    if (!selectedPlanId || selectedPlanId === 0) {
+      toast({
+        title: "Plan Selection Required",
+        description: "Please select a healthcare membership plan.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Ensure planId is set in form data
+    if (!data.planId || data.planId === 0) {
+      console.warn("[Registration] Form planId not set, using selectedPlanId");
+      form.setValue('planId', selectedPlanId);
+    }
+    
     // Add the selected plan ID and family members to the form data
     const submissionData = {
       ...data,
-      planId: selectedPlanId!,
+      planId: selectedPlanId,
       familyMembers: familyMembers.filter(member => member && member.firstName), // Include only valid family members
     };
+    
+    console.log("[Registration] Submitting data:", submissionData);
     registrationMutation.mutate(submissionData);
   };
 
@@ -599,6 +622,7 @@ export default function Registration() {
                   {currentStep === 7 && "Choose your healthcare membership level"}
                   {currentStep === 8 && "Review your information and accept terms"}
                 </p>
+                <p className="text-xs text-gray-400 mt-1">Debug: Step {currentStep}</p>
               </div>
 
               <Form {...form}>
@@ -1578,6 +1602,18 @@ export default function Registration() {
 
                 {currentStep === 8 && (
                   <div className="space-y-6">
+                    {/* Debug Info */}
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-xs space-y-1">
+                      <p><strong>Debug Info:</strong></p>
+                      <p>Current Step: {currentStep}</p>
+                      <p>Terms Accepted: {form.watch("termsAccepted") ? "✓ Yes" : "✗ No"}</p>
+                      <p>Privacy Acknowledged: {form.watch("privacyNoticeAcknowledged") ? "✓  Yes" : "✗ No"}</p>
+                      <p>FAQ Downloaded: {form.watch("faqDownloaded") ? "✓ Yes" : "✗ No"}</p>
+                      <p>SMS Consent: {form.watch("communicationsConsent") ? "✓ Yes" : "✗ No"}</p>
+                      <p>Form Valid: {form.formState.isValid ? "✓ Yes" : "✗ No"}</p>
+                      <p>Errors: {Object.keys(form.formState.errors).length > 0 ? Object.keys(form.formState.errors).join(", ") : "None"}</p>
+                    </div>
+                    
                     {/* Important Disclaimer */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <p className="text-sm text-blue-800 font-medium">
@@ -1967,9 +2003,51 @@ export default function Registration() {
                     </Button>
                   ) : (
                     <Button 
-                      type="submit" 
+                      type="button"
                       className="flex-1 medical-blue-600 hover:medical-blue-700"
                       disabled={registrationMutation.isPending}
+                      onClick={async () => {
+                        console.log("[Registration] Complete Registration clicked");
+                        console.log("[Registration] Form values:", form.getValues());
+                        console.log("[Registration] Form errors before validation:", form.formState.errors);
+                        
+                        // Manually trigger validation for all fields
+                        const isValid = await form.trigger();
+                        console.log("[Registration] Form validation result:", isValid);
+                        console.log("[Registration] Form errors after validation:", form.formState.errors);
+                        
+                        if (!isValid) {
+                          const errors = form.formState.errors;
+                          const errorMessages: string[] = [];
+                          
+                          if (errors.termsAccepted) errorMessages.push("❌ Terms of Service must be accepted");
+                          if (errors.privacyNoticeAcknowledged) errorMessages.push("❌ Privacy Notice must be acknowledged");
+                          if (errors.faqDownloaded) errorMessages.push("❌ FAQ document must be downloaded and reviewed");
+                          if (errors.planId) errorMessages.push("❌ Healthcare plan must be selected");
+                          
+                          // Show all errors
+                          Object.keys(errors).forEach(key => {
+                            const error = errors[key as keyof typeof errors];
+                            if (error && typeof error === 'object' && 'message' in error) {
+                              console.error(`Validation error - ${key}:`, error.message);
+                            }
+                          });
+                          
+                          toast({
+                            title: "❌ Cannot Complete Registration",
+                            description: errorMessages.length > 0 
+                              ? errorMessages.join("\n")
+                              : "Please check all required checkboxes and try again.",
+                            variant: "destructive",
+                            duration: 6000,
+                          });
+                          return;
+                        }
+                        
+                        // If validation passed, submit the form
+                        console.log("[Registration] Validation passed, submitting form");
+                        form.handleSubmit(onSubmit)();
+                      }}
                     >
                       {registrationMutation.isPending ? <LoadingSpinner /> : "Complete Registration"}
                     </Button>
