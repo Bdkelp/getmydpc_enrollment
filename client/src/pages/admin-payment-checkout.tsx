@@ -338,10 +338,9 @@ export default function AdminPaymentCheckoutPage() {
                           description: message || "See console for additional details.",
                           variant: "destructive",
                         });
-                      
-                    }}
-                  />
-                </div>
+                      }}
+                    />
+                  </div>
               )}
             </CardContent>
           </Card>
