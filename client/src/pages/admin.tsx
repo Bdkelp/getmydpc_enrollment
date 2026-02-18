@@ -1182,6 +1182,18 @@ export default function Admin() {
                   <span className="text-sm font-medium">Group Enrollment</span>
                 </Button>
               </Link>
+              <Link href="/admin/payments/recent">
+                <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 h-20 flex flex-col items-center justify-center">
+                  <DollarSign className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Recent Payments</span>
+                </Button>
+              </Link>
+              <Link href="/admin/payments/failed">
+                <Button variant="outline" className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center">
+                  <AlertTriangle className="h-5 w-5 mb-1" />
+                  <span className="text-sm font-medium">Failed Payments</span>
+                </Button>
+              </Link>
             </div>
           </div>
         </div>

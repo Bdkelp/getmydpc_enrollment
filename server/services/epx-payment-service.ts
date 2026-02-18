@@ -466,7 +466,14 @@ const SERVER_POST_ENDPOINTS = {
   production: 'https://secure.epx.com/'
 } as const;
 
-type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9' | 'TEST';
+// Transaction Types:
+// CCE1 = Credit Card MIT (Merchant Initiated Transaction)
+// CCE7 = Credit Card Reversal
+// CCE9 = Credit Card Refund
+// CKC2 = ACH MIT (Merchant Initiated Transaction)
+// CKC7 = ACH Reversal
+// CKC9 = ACH Refund
+type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9' | 'CKC2' | 'CKC7' | 'CKC9' | 'TEST';
 
 interface ServerPostRecurringOptions {
   amount?: number;
@@ -481,6 +488,13 @@ interface ServerPostRecurringOptions {
   tranNbr?: string;
   batchId?: string;
   metadata?: Record<string, any>;
+  // ACH-specific fields (for CKC2, CKC7, CKC9 transactions)
+  bankAccountData?: {
+    routingNumber: string;    // 9-digit ABA routing number
+    accountNumber: string;    // Bank account number
+    accountType: 'Checking' | 'Savings';
+    accountHolderName: string; // Name on the account (RECV_NAME in EPX)
+  };
 }
 
 interface ServerPostRecurringResult {
@@ -548,6 +562,12 @@ function maskServerPostFields(fields: Record<string, string>): Record<string, st
   Object.entries(fields).forEach(([key, value]) => {
     if (key === 'ORIG_AUTH_GUID' && value) {
       masked[key] = maskAuthGuid(value);
+    } else if (key === 'ACCOUNT_NBR' && value) {
+      // Mask bank account number (show last 4 digits)
+      masked[key] = value.length > 4 ? `****${value.slice(-4)}` : '****';
+    } else if (key === 'ROUTING_NBR' && value) {
+      // Mask routing number (show last 4 digits)
+      masked[key] = value.length > 4 ? `****${value.slice(-4)}` : '****';
     } else {
       masked[key] = value;
     }
@@ -607,10 +627,12 @@ export async function submitServerPostRecurringPayment(
   let rawResponse = '';
   const resolvedTranType: ServerPostTranType = options.tranType || 'CCE1';
   const networkTranType = resolvedTranType === 'TEST' ? 'CCE1' : resolvedTranType;
+  const isACHTransaction = networkTranType.startsWith('CKC'); // CKC2, CKC7, CKC9
+  const isCreditCardTransaction = networkTranType.startsWith('CCE'); // CCE1, CCE7, CCE9
   const certificationPurpose =
-    resolvedTranType === 'CCE7'
+    resolvedTranType === 'CCE7' || resolvedTranType === 'CKC7'
       ? 'server-post-reversal'
-      : resolvedTranType === 'CCE9'
+      : resolvedTranType === 'CCE9' || resolvedTranType === 'CKC9'
         ? 'server-post-refund'
         : 'server-post-mit';
 
@@ -666,6 +688,20 @@ export async function submitServerPostRecurringPayment(
       CARD_ENT_METH: options.cardEntryMethod || 'Z',
       INDUSTRY_TYPE: options.industryType || 'E'
     };
+
+    // Add ACH-specific fields for CKC2, CKC7, CKC9 transactions
+    if (isACHTransaction && options.bankAccountData) {
+      const bankData = options.bankAccountData;
+      requestFields.ROUTING_NBR = bankData.routingNumber;
+      requestFields.ACCOUNT_NBR = bankData.accountNumber;
+      requestFields.RECV_NAME = bankData.accountHolderName;
+      requestFields.ACCOUNT_TYPE = bankData.accountType === 'Checking' ? 'C' : 'S'; // C=Checking, S=Savings
+      
+      // ACH transactions don't use CARD_ENT_METH, remove it
+      delete requestFields.CARD_ENT_METH;
+    } else if (isACHTransaction && !options.bankAccountData) {
+      throw new Error('Bank account data is required for ACH transactions (CKC2, CKC7, CKC9).');
+    }
 
     if (resolvedAciExt) {
       requestFields.ACI_EXT = resolvedAciExt;
@@ -844,4 +880,107 @@ export async function submitServerPostRecurringPayment(
       error: error.message || 'Server Post request failed'
     };
   }
+}
+
+// ============================================================
+// ACH PAYMENT HELPERS
+// ============================================================
+
+/**
+ * Submit ACH payment using EPX Server POST API (CKC2 transaction type)
+ * This is a convenience wrapper around submitServerPostRecurringPayment for ACH payments
+ * 
+ * @param options - ACH payment options
+ * @returns Payment result with success status and transaction details
+ */
+export async function submitACHRecurringPayment(options: {
+  amount: number;
+  authGuid: string; // EPX AUTH_GUID token from initial ACH transaction
+  member: Record<string, any>;
+  bankAccountData: {
+    routingNumber: string;
+    accountNumber: string;
+    accountType: 'Checking' | 'Savings';
+    accountHolderName: string;
+  };
+  transactionId?: string | null;
+  description?: string;
+}): Promise<ServerPostRecurringResult> {
+  return submitServerPostRecurringPayment({
+    amount: options.amount,
+    authGuid: options.authGuid,
+    transactionId: options.transactionId,
+    member: options.member,
+    description: options.description,
+    tranType: 'CKC2', // ACH MIT (Merchant Initiated Transaction)
+    bankAccountData: options.bankAccountData,
+    cardEntryMethod: undefined, // Not applicable for ACH
+    industryType: 'E', // Commerce
+    metadata: {
+      paymentMethodType: 'ACH',
+      accountType: options.bankAccountData.accountType
+    }
+  });
+}
+
+/**
+ * Submit ACH reversal (CKC7)
+ * Used to reverse a previous ACH transaction
+ */
+export async function submitACHReversal(options: {
+  authGuid: string; // Original transaction AUTH_GUID
+  member: Record<string, any>;
+  bankAccountData: {
+    routingNumber: string;
+    accountNumber: string;
+    accountType: 'Checking' | 'Savings';
+    accountHolderName: string;
+  };
+  transactionId?: string | null;
+  description?: string;
+}): Promise<ServerPostRecurringResult> {
+  return submitServerPostRecurringPayment({
+    authGuid: options.authGuid,
+    transactionId: options.transactionId,
+    member: options.member,
+    description: options.description,
+    tranType: 'CKC7', // ACH Reversal
+    bankAccountData: options.bankAccountData,
+    metadata: {
+      paymentMethodType: 'ACH',
+      operationType: 'reversal'
+    }
+  });
+}
+
+/**
+ * Submit ACH refund (CKC9)
+ * Used to refund a previous ACH transaction
+ */
+export async function submitACHRefund(options: {
+  amount: number;
+  authGuid: string; // Original transaction AUTH_GUID
+  member: Record<string, any>;
+  bankAccountData: {
+    routingNumber: string;
+    accountNumber: string;
+    accountType: 'Checking' | 'Savings';
+    accountHolderName: string;
+  };
+  transactionId?: string | null;
+  description?: string;
+}): Promise<ServerPostRecurringResult> {
+  return submitServerPostRecurringPayment({
+    amount: options.amount,
+    authGuid: options.authGuid,
+    transactionId: options.transactionId,
+    member: options.member,
+    description: options.description,
+    tranType: 'CKC9', // ACH Refund
+    bankAccountData: options.bankAccountData,
+    metadata: {
+      paymentMethodType: 'ACH',
+      operationType: 'refund'
+    }
+  });
 }

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
+import BankAccountForm from "@/components/BankAccountForm";
 import { CreditCard, AlertTriangle, Shield, ExternalLink } from "lucide-react";
 
 interface MemberLookupResponse {
@@ -54,6 +55,7 @@ export default function AdminPaymentCheckoutPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [hasLaunchedPayment, setHasLaunchedPayment] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'ach'>('card'); // Default to card
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
 
   const memberIdParam = searchParams.get("memberId");
@@ -237,9 +239,32 @@ export default function AdminPaymentCheckoutPage() {
                 </AlertDescription>
               </Alert>
 
+              {/* Quiet ACH option - not prominently displayed */}
+              {!hasLaunchedPayment && (
+                <div className="text-center text-xs text-gray-500">
+                  {paymentMethod === 'card' ? (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('ach')}
+                      className="underline hover:text-gray-700"
+                    >
+                      Member doesn't have a card? Use bank account
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('card')}
+                      className="underline hover:text-gray-700"
+                    >
+                      Use credit/debit card instead
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={handleLaunch} disabled={hasLaunchedPayment}>
-                  {hasLaunchedPayment ? "Checkout Window Ready" : "Launch Hosted Checkout"}
+                  {hasLaunchedPayment ? "Checkout Window Ready" : `Launch ${paymentMethod === 'card' ? 'Card' : 'ACH'} Checkout`}
                 </Button>
                 <Button variant="ghost" onClick={resetAndExit}>
                   Cancel
@@ -252,38 +277,68 @@ export default function AdminPaymentCheckoutPage() {
 
               {hasLaunchedPayment && (
                 <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                  <EPXHostedPayment
-                    amount={amount}
-                    customerId={String(member.id)}
-                    customerEmail={member.email}
-                    customerName={customerName}
-                    planId={member.planId ? String(member.planId) : undefined}
-                    description={descriptionParam || `Manual admin checkout for member #${member.id}`}
-                    billingAddress={{
-                      streetAddress: member.address || undefined,
-                      city: member.city || undefined,
-                      state: member.state || undefined,
-                      postalCode: member.zipCode || undefined,
-                    }}
-                    redirectOnSuccess={false}
-                    onSuccess={(transactionId, paidAmount) => {
-                      toast({
-                        title: "Payment complete",
-                        description: transactionId
-                          ? `Transaction ${transactionId} was accepted.`
-                          : "Hosted checkout finished successfully.",
-                      });
-                      if (paidAmount) {
-                        console.info("Hosted checkout amount", paidAmount);
-                      }
-                      setHasLaunchedPayment(false);
-                    }}
-                    onError={(message) => {
-                      toast({
-                        title: "Hosted checkout error",
-                        description: message || "See console for additional details.",
-                        variant: "destructive",
-                      });
+                  {paymentMethod === 'ach' ? (
+                    <BankAccountForm
+                      amount={amount}
+                      customerId={String(member.id)}
+                      customerEmail={member.email}
+                      customerName={customerName}
+                      description={descriptionParam || `Manual admin checkout for member #${member.id}`}
+                      redirectOnSuccess={false}
+                      onSuccess={(transactionId, paidAmount) => {
+                        toast({
+                          title: "Payment complete",
+                          description: transactionId
+                            ? `Transaction ${transactionId} was accepted.`
+                            : "ACH payment processed successfully.",
+                        });
+                        if (paidAmount) {
+                          console.info("ACH payment amount", paidAmount);
+                        }
+                        setHasLaunchedPayment(false);
+                      }}
+                      onError={(message) => {
+                        toast({
+                          title: "ACH payment error",
+                          description: message || "See console for additional details.",
+                          variant: "destructive",
+                        });
+                      }}
+                    />
+                  ) : (
+                    <EPXHostedPayment
+                      amount={amount}
+                      customerId={String(member.id)}
+                      customerEmail={member.email}
+                      customerName={customerName}
+                      planId={member.planId ? String(member.planId) : undefined}
+                      description={descriptionParam || `Manual admin checkout for member #${member.id}`}
+                      billingAddress={{
+                        streetAddress: member.address || undefined,
+                        city: member.city || undefined,
+                        state: member.state || undefined,
+                        postalCode: member.zipCode || undefined,
+                      }}
+                      redirectOnSuccess={false}
+                      onSuccess={(transactionId, paidAmount) => {
+                        toast({
+                          title: "Payment complete",
+                          description: transactionId
+                            ? `Transaction ${transactionId} was accepted.`
+                            : "Hosted checkout finished successfully.",
+                        });
+                        if (paidAmount) {
+                          console.info("Hosted checkout amount", paidAmount);
+                        }
+                        setHasLaunchedPayment(false);
+                      }}
+                      onError={(message) => {
+                        toast({
+                          title: "Hosted checkout error",
+                          description: message || "See console for additional details.",
+                          variant: "destructive",
+                        });
+                      
                     }}
                   />
                 </div>

@@ -130,7 +130,13 @@ export const members = pgTable("members", {
   membershipStartDate: timestamp("membership_start_date"), // When membership actually begins (1st or 15th only)
   // Payment token storage (for recurring billing)
   paymentToken: varchar("payment_token", { length: 255 }), // BRIC token from EPX Hosted Checkout
-  paymentMethodType: varchar("payment_method_type", { length: 20 }), // CreditCard, BankAccount
+  paymentMethodType: varchar("payment_method_type", { length: 20 }), // CreditCard, ACH, BankAccount
+  // Bank account information (for ACH payments - "quiet" backup option)
+  bankRoutingNumber: varchar("bank_routing_number", { length: 9 }), // ABA routing number (9 digits)
+  bankAccountNumber: varchar("bank_account_number", { length: 255 }), // Encrypted bank account number
+  bankAccountType: varchar("bank_account_type", { length: 20 }), // Checking, Savings
+  bankAccountHolderName: varchar("bank_account_holder_name", { length: 255 }), // Name on bank account
+  bankAccountLastFour: varchar("bank_account_last_four", { length: 4 }), // Last 4 digits for display
   // Plan and pricing information
   planId: integer("plan_id").references(() => plans.id), // Selected plan
   coverageType: varchar("coverage_type", { length: 50 }), // Member Only, Member/Spouse, Member/Child, Family
@@ -203,7 +209,8 @@ export const payments = pgTable("payments", {
   currency: varchar("currency").default("USD"), // Payment currency
   status: varchar("status").notNull(), // succeeded, failed, pending, refunded
   transactionId: varchar("transaction_id").unique(), // External transaction ID
-  paymentMethod: varchar("payment_method"), // card, bank_transfer, etc
+  paymentMethod: varchar("payment_method"), // card, bank_transfer, etc (legacy)
+  paymentMethodType: varchar("payment_method_type", { length: 20 }), // CreditCard, ACH, BankAccount
   epxAuthGuid: varchar("epx_auth_guid", { length: 255 }),
   metadata: jsonb("metadata"), // Additional payment metadata
   createdAt: timestamp("created_at").defaultNow(),
@@ -352,15 +359,18 @@ export const familyMembers = pgTable("family_members", {
 // EPX SERVER POST - RECURRING BILLING TABLES
 // ============================================================
 
-// Payment Tokens (Card on File - BRIC tokens)
+// Payment Tokens (Card on File - BRIC tokens + ACH tokens)
 export const paymentTokens = pgTable("payment_tokens", {
   id: serial("id").primaryKey(),
   memberId: integer("member_id").references(() => members.id, { onDelete: "cascade" }).notNull(),
   
+  // Payment Method Type (CreditCard or ACH)
+  paymentMethodType: varchar("payment_method_type", { length: 20 }).default("CreditCard"), // CreditCard, ACH, BankAccount
+  
   // EPX BRIC Token (treat like password - secure storage)
   bricToken: varchar("bric_token", { length: 255 }).notNull().unique(),
   
-  // Card display information (for member UI)
+  // Card display information (for member UI - for CreditCard type)
   cardLastFour: varchar("card_last_four", { length: 4 }),
   cardType: varchar("card_type", { length: 50 }), // Visa, Mastercard, Discover, Amex
   expiryMonth: varchar("expiry_month", { length: 2 }),
@@ -368,6 +378,12 @@ export const paymentTokens = pgTable("payment_tokens", {
   
   // Card network tracking (CRITICAL for recurring charges)
   originalNetworkTransId: varchar("original_network_trans_id", { length: 255 }),
+  
+  // Bank account information (for ACH type)
+  bankRoutingNumber: varchar("bank_routing_number", { length: 9 }), // ABA routing number
+  bankAccountLastFour: varchar("bank_account_last_four", { length: 4 }), // Last 4 for display
+  bankAccountType: varchar("bank_account_type", { length: 20 }), // Checking, Savings
+  bankName: varchar("bank_name", { length: 100 }), // Optional: derived from routing lookup
   
   // Token management
   isActive: boolean("is_active").default(true),
@@ -380,6 +396,7 @@ export const paymentTokens = pgTable("payment_tokens", {
 }, (table: any) => [
   index("idx_payment_tokens_member_id").on(table.memberId),
   index("idx_payment_tokens_bric").on(table.bricToken),
+  index("idx_payment_tokens_payment_method_type").on(table.paymentMethodType),
 ]);
 
 // Billing Schedule (recurring billing management)

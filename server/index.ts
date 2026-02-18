@@ -37,6 +37,8 @@ import { initializePaymentEnvironment } from "./services/payment-environment-ser
 import groupEnrollmentRoutes from "./routes/group-enrollment";
 import paymentReconciliationRoutes from "./routes/payment-reconciliation";
 import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
+import paymentTrackingRoutes from "./routes/payment-tracking";
+import achPaymentRoutes from "./routes/ach-payment-routes";
 
 const app = express();
 
@@ -153,6 +155,8 @@ app.use((req, res, next) => {
   app.use('/', groupEnrollmentRoutes);
   app.use('/', paymentReconciliationRoutes);
   app.use('/', paymentDiagnosticRoutes);
+  app.use('/', paymentTrackingRoutes);
+  app.use('/api/payments/ach', achPaymentRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

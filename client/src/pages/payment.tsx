@@ -16,6 +16,7 @@ import { Shield, Check, CreditCard, MapPin, Phone } from "lucide-react";
 import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 // import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
+import BankAccountForm from "@/components/BankAccountForm"; // ACH payment option
 import { isAdminOrAbove } from "@/lib/roles";
 
 export default function Payment() {
@@ -31,6 +32,7 @@ export default function Payment() {
   const [isOverrideEnabled, setIsOverrideEnabled] = useState(false);
   const [overrideAmountInput, setOverrideAmountInput] = useState("");
   const [overrideReasonInput, setOverrideReasonInput] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<'card' | 'ach'>('card'); // Default to card
   const { toast } = useToast();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -441,8 +443,30 @@ export default function Payment() {
                         }}
                         disabled={isProcessingPayment || !selectedPlanId || !user?.id || !user?.email || !memberId}
                       >
-                        {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with Card - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
+                        {!user?.id || !user?.email ? "Loading User..." : (isProcessingPayment ? <LoadingSpinner /> : `Pay with ${paymentMethod === 'card' ? 'Card' : 'Bank Account'} - $${sessionStorage.getItem("totalMonthlyPrice") || "0"}/month`)}
                       </Button>
+                      
+                      {/* Quiet ACH option - not prominently displayed */}
+                      <div className="text-center text-xs text-gray-500 mt-2">
+                        {paymentMethod === 'card' ? (
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('ach')}
+                            className="underline hover:text-gray-700"
+                          >
+                            Don't have a card? Pay with bank account
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setPaymentMethod('card')}
+                            className="underline hover:text-gray-700"
+                          >
+                            Use credit/debit card instead
+                          </button>
+                        )}
+                      </div>
+                      
                       <p className="text-xs text-gray-500 text-center">
                         <Shield className="inline-block mr-1 h-3 w-3" />
                         Payments are processed securely via EPX hosted checkout. Card details never touch MyPremierPlans servers.
@@ -642,8 +666,27 @@ export default function Payment() {
                 finalCustomerName,
                 finalCustomerEmail,
                 userId: user.id,
-                memberId
+                memberId,
+                paymentMethod
               });
+              
+              // Render payment form based on selected method
+              if (paymentMethod === 'ach') {
+                return (
+                  <BankAccountForm
+                    key={epxRetryKey}
+                    amount={epxPaymentAmount}
+                    customerId={memberId.toString()}
+                    customerEmail={finalCustomerEmail}
+                    customerName={finalCustomerName}
+                    description={`${selectedPlan.name} - DPC Subscription`}
+                    redirectOnSuccess={false}
+                    onSuccess={handleEPXPaymentSuccess}
+                    onError={handleEPXPaymentError}
+                  />
+                );
+              }
+              
               return (
                 <EPXHostedPayment
                   key={epxRetryKey}

@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPhoneNumber, cleanPhoneNumber, formatZipCode } from "@/lib/formatters";
 
 interface EnrollmentDetails {
@@ -158,6 +159,13 @@ export default function EnrollmentDetails() {
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({
     queryKey: [`/api/admin/enrollment/${enrollmentId}`],
     enabled: !!enrollmentId,
+  });
+  
+  // Fetch payment history for this member
+  const { data: paymentHistory, isLoading: paymentsLoading } = useQuery<any>({
+    queryKey: [`/api/admin/payments/member/${enrollmentId}`],
+    enabled: !!enrollmentId,
+    select: (data) => data?.payments || []
   });
   
   // Update contact info mutation
@@ -788,16 +796,70 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                       {nextBillingDateLabel}
                     </p>
                   </div>
-                  <div className="pt-4 border-t">
-                    <p className="text-sm text-gray-600 mb-4">
-                      Payment information updates are currently handled through customer service.
-                    </p>
-                    <Button variant="outline" disabled>
-                      <CreditCard className="h-4 w-4 mr-2" />
-                      Update Payment Method (Coming Soon)
-                    </Button>
-                  </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Payment Transaction History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <FileText className="h-5 w-5 mr-2 text-blue-600" />
+                  Transaction History
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {paymentsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <LoadingSpinner />
+                  </div>
+                ) : paymentHistory && paymentHistory.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Transaction ID</TableHead>
+                          <TableHead>Payment Method</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paymentHistory.map((payment: any, idx: number) => (
+                          <TableRow key={payment.id || idx}>
+                            <TableCell>
+                              {payment.created_at ? format(new Date(payment.created_at), 'MMM d, yyyy h:mm a') : 'N/A'}
+                            </TableCell>
+                            <TableCell className="font-semibold">
+                              ${typeof payment.amount === 'number' ? payment.amount.toFixed(2) : payment.amount || '0.00'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={
+                                payment.status === 'succeeded' ? 'bg-green-100 text-green-800' :
+                                payment.status === 'failed' ? 'bg-red-100 text-red-800' :
+                                payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-gray-100 text-gray-600'
+                              }>
+                                {payment.status || 'unknown'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {payment.transaction_id || 'N/A'}
+                            </TableCell>
+                            <TableCell className="capitalize">
+                              {payment.payment_method || 'N/A'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">
+                    No payment transactions recorded
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

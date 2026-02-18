@@ -60,6 +60,13 @@ interface Enrollment {
   subscriptionId?: number;
   memberPublicId?: string | null;
   customerNumber?: string | null;
+  // Payment fields
+  payment_id?: number | null;
+  payment_status?: string | null;
+  payment_amount?: number | string | null;
+  transaction_id?: string | null;
+  payment_date?: string | null;
+  epx_auth_guid?: string | null;
 }
 
 interface Agent {
@@ -210,30 +217,26 @@ export default function AdminEnrollments() {
     isLoading: enrollmentsLoading,
     error: enrollmentsError,
   } = useQuery<Enrollment[]>({
-    queryKey: ["/api/admin/enrollments", dateFilter, selectedAgentId],
+    queryKey: ["/api/admin/enrollments-with-payments", dateFilter, selectedAgentId],
     queryFn: async () => {
       try {
-        const { startDate, endDate } = buildDateRangeParams(
-          dateFilter.startDate,
-          dateFilter.endDate,
-        );
         const params = new URLSearchParams({
-          startDate,
-          endDate,
+          limit: "500",
           ...(selectedAgentId !== "all" && { agentId: selectedAgentId }),
         });
 
         console.log(
-          "[AdminEnrollments] Fetching enrollments with params:",
+          "[AdminEnrollments] Fetching enrollments with payments:",
           params.toString(),
         );
-        const response = await apiRequest(`/api/admin/enrollments?${params}`, {
+        const response = await apiRequest(`/api/admin/enrollments-with-payments?${params}`, {
           method: "GET",
         });
         console.log("[AdminEnrollments] Response:", response);
 
-        // Ensure we return an array
-        return Array.isArray(response) ? response : [];
+        // Handle the new API response format
+        const enrollmentData = response?.enrollments || response;
+        return Array.isArray(enrollmentData) ? enrollmentData : [];
       } catch (error) {
         console.error("[AdminEnrollments] Error fetching enrollments:", error);
         throw error;
@@ -658,6 +661,32 @@ export default function AdminEnrollments() {
         return <Badge className="bg-slate-200 text-slate-700">{label}</Badge>;
       default:
         return <Badge>{label}</Badge>;
+    }
+  };
+
+  const getPaymentStatusBadge = (paymentStatus?: string | null, transactionId?: string | null) => {
+    if (!paymentStatus) {
+      return <Badge className="bg-gray-100 text-gray-600">No Payment</Badge>;
+    }
+    
+    switch (paymentStatus.toLowerCase()) {
+      case "succeeded":
+      case "success":
+        return (
+          <Badge className="bg-green-100 text-green-800">
+            ✓ Paid
+            {transactionId && <div className="text-[10px] mt-0.5 opacity-70">#{transactionId.slice(-8)}</div>}
+          </Badge>
+        );
+      case "failed":
+      case "declined":
+        return <Badge className="bg-red-100 text-red-800">✗ Failed</Badge>;
+      case "pending":
+        return <Badge className="bg-yellow-100 text-yellow-800">⏱ Pending</Badge>;
+      case "refunded":
+        return <Badge className="bg-purple-100 text-purple-800">↩ Refunded</Badge>;
+      default:
+        return <Badge className="bg-gray-100 text-gray-600">{paymentStatus}</Badge>;
     }
   };
 
@@ -1194,6 +1223,7 @@ export default function AdminEnrollments() {
                     <TableHead>Plan</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Price</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Enrolled By</TableHead>
                     <TableHead>Actions</TableHead>
@@ -1227,6 +1257,9 @@ export default function AdminEnrollments() {
                         {enrollment.memberType}
                       </TableCell>
                       <TableCell>${enrollment.totalMonthlyPrice}</TableCell>
+                      <TableCell>
+                        {getPaymentStatusBadge(enrollment.payment_status, enrollment.transaction_id)}
+                      </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-2">
                           {getStatusBadge(enrollment.status)}
