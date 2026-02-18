@@ -218,13 +218,15 @@ export default function Registration() {
     },
   });
 
-  // Auto-populate enrolling agent for logged-in agent (admins can override)
+  // Auto-populate enrolling agent for logged-in user
   useEffect(() => {
-    if (currentUser?.id && agents.length > 0 && !form.getValues("enrollingAgentId")) {
-      console.log('[Registration] Auto-populating enrolling agent:', currentUser.id, currentUser.email);
-      form.setValue("enrollingAgentId", currentUser.id);
+    if (currentUser?.id) {
+      const currentValue = form.getValues("enrollingAgentId");
+      if (!currentValue || currentValue === "") {
+        form.setValue("enrollingAgentId", currentUser.id, { shouldValidate: true });
+      }
     }
-  }, [currentUser?.id, agents.length, form]);
+  }, [currentUser?.id, form]);
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
@@ -623,7 +625,6 @@ export default function Registration() {
                   {currentStep === 7 && "Choose your healthcare membership level"}
                   {currentStep === 8 && "Review your information and accept terms"}
                 </p>
-                <p className="text-xs text-gray-400 mt-1">Debug: Step {currentStep}</p>
               </div>
 
               <Form {...form}>
@@ -1603,18 +1604,6 @@ export default function Registration() {
 
                 {currentStep === 8 && (
                   <div className="space-y-6">
-                    {/* Debug Info */}
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-xs space-y-1">
-                      <p><strong>Debug Info:</strong></p>
-                      <p>Current Step: {currentStep}</p>
-                      <p>Terms Accepted: {form.watch("termsAccepted") ? "✓ Yes" : "✗ No"}</p>
-                      <p>Privacy Acknowledged: {form.watch("privacyNoticeAcknowledged") ? "✓  Yes" : "✗ No"}</p>
-                      <p>FAQ Downloaded: {form.watch("faqDownloaded") ? "✓ Yes" : "✗ No"}</p>
-                      <p>SMS Consent: {form.watch("communicationsConsent") ? "✓ Yes" : "✗ No"}</p>
-                      <p>Form Valid: {form.formState.isValid ? "✓ Yes" : "✗ No"}</p>
-                      <p>Errors: {Object.keys(form.formState.errors).length > 0 ? Object.keys(form.formState.errors).join(", ") : "None"}</p>
-                    </div>
-                    
                     {/* Important Disclaimer */}
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                       <p className="text-sm text-blue-800 font-medium">
