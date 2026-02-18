@@ -6505,9 +6505,9 @@ export const storage = {
       const result = await query(
         `SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE archived_at IS NULL AND COALESCE(is_active, true))::int AS active,
+          COUNT(*) FILTER (WHERE status != 'archived' AND COALESCE(is_active, true))::int AS active,
           COUNT(*) FILTER (WHERE COALESCE(is_test_member, false))::int AS test,
-          COUNT(*) FILTER (WHERE archived_at IS NOT NULL)::int AS archived
+          COUNT(*) FILTER (WHERE status = 'archived')::int AS archived
         FROM members`
       );
 
@@ -6551,7 +6551,6 @@ export const storage = {
               'status', m.status,
               'isActive', m.is_active,
               'isTestMember', COALESCE(m.is_test_member, false),
-              'archivedAt', m.archived_at,
               'archivedBy', m.archived_by,
               'archiveReason', m.archive_reason,
               'planId', m.plan_id,

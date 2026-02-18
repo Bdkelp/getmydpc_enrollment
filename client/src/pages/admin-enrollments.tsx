@@ -1233,7 +1233,7 @@ export default function AdminEnrollments() {
                   {safeFilteredEnrollments.map((enrollment) => (
                     <TableRow key={enrollment.id}>
                       <TableCell>
-                        {format(new Date(enrollment.createdAt), "MMM d, yyyy")}
+                        {enrollment.createdAt ? format(new Date(enrollment.createdAt), "MMM d, yyyy") : "N/A"}
                       </TableCell>
                       <TableCell className="font-mono text-xs">
                         #{enrollment.id}
