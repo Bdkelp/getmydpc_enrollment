@@ -1,7 +1,0 @@
-{
-  "publicKey": "eyAidGVybWluYWxQcm9maWxlSWQiOiAiNzJjNzg5OTEtYTdjNS00NTQwLWE0YzgtNDUyM2UxOTgxNTc2IiB9",
-  "terminalProfileId": "72c78991-a7c5-4540-a4c8-4523e1981576",
-  "environment": "sandbox",
-  "successCallback": "epxSuccessCallback",
-  "failureCallback": "epxFailureCallback"
-}
