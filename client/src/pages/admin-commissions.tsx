@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { DollarSign, Calendar, CheckCircle, ChevronLeft, Clock } from "lucide-react";
 import { hasAtLeastRole } from "@/lib/roles";
-import { format, startOfWeek, endOfWeek, isFuture, isPast, isToday } from "date-fns";
+import { format, isFuture, isPast, isToday } from "date-fns";
 import {
   Table,
   TableBody,
@@ -53,10 +53,10 @@ export default function AdminCommissions() {
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const queryClient = useQueryClient();
 
-  // Current week by default
+  // Month to date by default (more useful than current week)
   const [dateFilter, setDateFilter] = useState({
-    startDate: format(startOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd"),
-    endDate: format(endOfWeek(new Date(), { weekStartsOn: 0 }), "yyyy-MM-dd"),
+    startDate: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"),
+    endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
   const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
