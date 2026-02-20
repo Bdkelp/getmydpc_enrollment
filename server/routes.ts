@@ -4220,6 +4220,8 @@ export async function registerRoutes(app: any) {
         zipCode,
         employerName,
         dateOfHire,
+        emergencyContactName,
+        emergencyContactPhone,
         memberType,
         planStartDate,
         planId,
@@ -4354,6 +4356,8 @@ export async function registerRoutes(app: any) {
         zipCode: zipCode || null,
         employerName: employerName?.trim() || null,
         dateOfHire: dateOfHire || null,
+        emergencyContactName: emergencyContactName?.trim() || null,
+        emergencyContactPhone: emergencyContactPhone || null,
         memberType: memberType || "member-only",
         planStartDate: planStartDate || null,
         agentNumber: agentNumber || null,
@@ -4657,7 +4661,7 @@ export async function registerRoutes(app: any) {
             try {
               await storage.addFamilyMember({
                 ...familyMember,
-                primaryUserId: member.id,
+                primaryMemberId: member.id, // Use primaryMemberId for members (not primaryUserId)
               });
               console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
             } catch (familyError) {
@@ -4749,6 +4753,8 @@ export async function registerRoutes(app: any) {
         zipCode,
         employerName,
         dateOfHire,
+        emergencyContactName,
+        emergencyContactPhone,
         memberType,
         planStartDate,
         planId,
@@ -4817,6 +4823,8 @@ export async function registerRoutes(app: any) {
         zipCode: zipCode || null,
         employerName: employerName?.trim() || null,
         dateOfHire: dateOfHire || null,
+        emergencyContactName: emergencyContactName?.trim() || null,
+        emergencyContactPhone: emergencyContactPhone || null,
         memberType: memberType || "member-only",
         planStartDate: planStartDate || null,
         enrolledByAgentId: req.user.id,
@@ -4886,7 +4894,7 @@ export async function registerRoutes(app: any) {
             try {
               await storage.addFamilyMember({
                 ...familyMember,
-                primaryUserId: member.id,
+                primaryMemberId: member.id, // Use primaryMemberId for members (not primaryUserId)
               });
               console.log("[Agent Enrollment] Added family member:", familyMember.firstName);
             } catch (familyError) {
