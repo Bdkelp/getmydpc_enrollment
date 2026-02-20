@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabaseClient';
 import { calculatePaymentEligibleDate } from './commission-payment-calculator';
 
 interface CreatePayoutParams {
-  commissionId: number;
+  commissionId: string; // UUID
   memberPaymentId?: number;
   epxTransactionId?: string;
   paymentCapturedAt: Date;
@@ -298,7 +298,7 @@ export async function getAgentPayoutSummary(agentId: string, startDate?: string,
  * Cancel future payouts when member cancels subscription
  * (Within 14 days or before next payment)
  */
-export async function cancelFuturePayouts(commissionId: number, reason: string): Promise<void> {
+export async function cancelFuturePayouts(commissionId: string, reason: string): Promise<void> {
   console.log('[Payout Service] Cancelling future payouts for commission:', commissionId);
   
   // Only cancel payouts that haven't been paid yet
