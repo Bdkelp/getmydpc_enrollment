@@ -154,6 +154,9 @@ export default function EnrollmentDetails() {
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [editedContact, setEditedContact] = useState<any>({});
   const [editedAddress, setEditedAddress] = useState<any>({});
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
+  const [newPaymentStatus, setNewPaymentStatus] = useState<string>('');
+  const [paymentUpdateNote, setPaymentUpdateNote] = useState<string>('');
   
   // Fetch enrollment details
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({
@@ -213,6 +216,57 @@ export default function EnrollmentDetails() {
       toast({
         title: "Update Failed",
         description: "Failed to update address.",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Update payment status mutation
+  const updatePaymentStatusMutation = useMutation({
+    mutationFn: async ({ paymentId, status, note }: { paymentId: number; status: string; note: string }) => {
+      return apiRequest(`/api/admin/payments/${paymentId}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status, note }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Payment Updated",
+        description: "Payment status has been successfully updated.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/payments/member/${enrollmentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      setSelectedPaymentId(null);
+      setNewPaymentStatus('');
+      setPaymentUpdateNote('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update Failed",
+        description: error.message || "Failed to update payment status.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Create commission mutation
+  const createCommissionMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest(`/api/admin/members/${enrollmentId}/create-commission`, {
+        method: "POST",
+      });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Commission Created",
+        description: `Commission of $${data.commission?.amount?.toFixed(2) || '0.00'} has been created for agent ${data.commission?.agentNumber || 'N/A'}`,
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Create Commission",
+        description: error.message || "Could not create commission for this member.",
         variant: "destructive",
       });
     },
@@ -823,6 +877,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           <TableHead>Status</TableHead>
                           <TableHead>Transaction ID</TableHead>
                           <TableHead>Payment Method</TableHead>
+                          <TableHead>Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -850,6 +905,86 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                             <TableCell className="capitalize">
                               {payment.payment_method || 'N/A'}
                             </TableCell>
+                            <TableCell>
+                              {payment.status === 'pending' && (
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => {
+                                        setSelectedPaymentId(payment.id);
+                                        setNewPaymentStatus('succeeded');
+                                      }}
+                                    >
+                                      <Edit className="h-3 w-3 mr-1" />
+                                      Update
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Update Payment Status</DialogTitle>
+                                      <DialogDescription>
+                                        Manually update the status of this payment transaction.
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4 mt-4">
+                                      <div>
+                                        <Label htmlFor="status">New Status</Label>
+                                        <Select 
+                                          value={newPaymentStatus} 
+                                          onValueChange={setNewPaymentStatus}
+                                        >
+                                          <SelectTrigger>
+                                            <SelectValue placeholder="Select status" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="succeeded">Succeeded</SelectItem>
+                                            <SelectItem value="failed">Failed</SelectItem>
+                                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div>
+                                        <Label htmlFor="note">Note (optional)</Label>
+                                        <Input
+                                          id="note"
+                                          value={paymentUpdateNote}
+                                          onChange={(e) => setPaymentUpdateNote(e.target.value)}
+                                          placeholder="Reason for manual update..."
+                                        />
+                                      </div>
+                                      <div className="flex justify-end space-x-2">
+                                        <Button
+                                          variant="outline"
+                                          onClick={() => {
+                                            setSelectedPaymentId(null);
+                                            setNewPaymentStatus('');
+                                            setPaymentUpdateNote('');
+                                          }}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          onClick={() => {
+                                            if (selectedPaymentId && newPaymentStatus) {
+                                              updatePaymentStatusMutation.mutate({
+                                                paymentId: selectedPaymentId,
+                                                status: newPaymentStatus,
+                                                note: paymentUpdateNote
+                                              });
+                                            }
+                                          }}
+                                          disabled={!newPaymentStatus || updatePaymentStatusMutation.isPending}
+                                        >
+                                          {updatePaymentStatusMutation.isPending ? 'Updating...' : 'Update Status'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </DialogContent>
+                                </Dialog>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -860,6 +995,35 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     No payment transactions recorded
                   </p>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Admin Tools */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                  Admin Tools
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-sm font-semibold">Commission Management</Label>
+                    <p className="text-sm text-gray-600 mb-2">
+                      If this enrollment is missing a commission, you can manually create it here.
+                    </p>
+                    <Button
+                      onClick={() => createCommissionMutation.mutate()}
+                      disabled={createCommissionMutation.isPending}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      {createCommissionMutation.isPending ? 'Creating...' : 'Create Commission'}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

@@ -19,6 +19,7 @@ import { certificationLogger } from '../services/certification-logger';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 import { paymentEnvironment } from '../services/payment-environment-service';
 import { sendEnrollmentNotification, sendPaymentNotification } from '../utils/notifications';
+import { calculateCommission, RX_VALET_COMMISSION } from '../commissionCalculator';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -1411,6 +1412,148 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         }
       }
 
+      // COMMISSION CREATION/VERIFICATION - Check if commission exists and create if missing
+      if (paymentRecordForLogging?.member_id) {
+        try {
+          const memberId = Number(paymentRecordForLogging.member_id);
+          const memberRecord = await storage.getMember(memberId);
+          
+          if (memberRecord) {
+            // Check if commission already exists for this member
+            const { data: existingCommissions, error: commissionCheckError } = await supabase
+              .from('agent_commissions')
+              .select('id')
+              .eq('member_id', memberId.toString())
+              .limit(1);
+            
+            if (commissionCheckError) {
+              logEPX({
+                level: 'error',
+                phase: 'callback',
+                message: 'Failed to check for existing commission',
+                data: { error: commissionCheckError.message, memberId }
+              });
+            } else if (!existingCommissions || existingCommissions.length === 0) {
+              // No commission exists - create one now
+              const agentId = memberRecord.enrolledByAgentId || memberRecord.enrolled_by_agent_id;
+              
+              if (agentId) {
+                logEPX({
+                  level: 'info',
+                  phase: 'callback',
+                  message: 'No commission found for member - creating now',
+                  data: { memberId, agentId }
+                });
+                
+                const agentRecord = await storage.getUser(agentId);
+                const agentNumber = memberRecord.agentNumber || memberRecord.agent_number || agentRecord?.agentNumber || agentRecord?.agent_number || 'HOUSE';
+                
+                // Get plan details
+                const paymentMetadata = parsePaymentMetadata(paymentRecordForLogging.metadata);
+                const planIdFromMember = memberRecord.planId || memberRecord.plan_id || paymentMetadata.planId;
+                
+                let planName = 'MyPremierPlan Base'; // Default
+                if (planIdFromMember) {
+                  try {
+                    const planRecord = await storage.getPlan(String(planIdFromMember));
+                    if (planRecord?.name) {
+                      // Extract tier from full plan name (e.g., "MyPremierPlan Base - Member Only" -> "MyPremierPlan Base")
+                      planName = planRecord.name.includes(' - ') ? planRecord.name.split(' - ')[0].trim() : planRecord.name;
+                    }
+                  } catch (planError) {
+                    logEPX({ level: 'warn', phase: 'callback', message: 'Could not load plan details', data: { error: planError } });
+                  }
+                }
+                
+                const coverageType = memberRecord.coverageType || memberRecord.coverage_type || memberRecord.memberType || memberRecord.member_type || 'Member Only';
+                const hasRxValet = memberRecord.addRxValet || memberRecord.add_rx_valet || false;
+                
+                // Calculate commission
+                const commissionResult = calculateCommission(planName, coverageType, hasRxValet);
+                
+                if (commissionResult) {
+                  const commissionData = {
+                    agent_id: agentId,
+                    agent_number: agentNumber,
+                    member_id: memberId.toString(),
+                    enrollment_id: paymentRecordForLogging.subscription_id ? paymentRecordForLogging.subscription_id.toString() : null,
+                    commission_amount: commissionResult.commission,
+                    coverage_type: 'other' as const,
+                    status: 'pending' as const,
+                    payment_status: 'unpaid' as const,
+                    base_premium: commissionResult.totalCost,
+                    notes: `Commission created via EPX callback - Plan: ${planName}, Coverage: ${coverageType}${hasRxValet ? ', RxValet: +$' + RX_VALET_COMMISSION : ''}, Total: $${commissionResult.commission}`
+                  };
+                  
+                  const { data: newCommission, error: commissionError } = await supabase
+                    .from('agent_commissions')
+                    .insert(commissionData)
+                    .select()
+                    .single();
+                  
+                  if (commissionError) {
+                    logEPX({
+                      level: 'error',
+                      phase: 'callback',
+                      message: 'Failed to create commission in callback',
+                      data: { error: commissionError.message, memberId, agentId }
+                    });
+                  } else {
+                    logEPX({
+                      level: 'info',
+                      phase: 'callback',
+                      message: '✅ Commission created successfully via callback',
+                      data: {
+                        commissionId: newCommission.id,
+                        memberId,
+                        agentId,
+                        agentNumber,
+                        amount: commissionResult.commission,
+                        plan: planName,
+                        coverage: coverageType
+                      }
+                    });
+                  }
+                } else {
+                  logEPX({
+                    level: 'warn',
+                    phase: 'callback',
+                    message: 'Could not calculate commission - no matching rate found',
+                    data: { planName, coverageType, memberId }
+                  });
+                }
+              } else {
+                logEPX({
+                  level: 'warn',
+                  phase: 'callback',
+                  message: 'Cannot create commission - member has no enrolling agent',
+                  data: { memberId }
+                });
+              }
+            } else {
+              logEPX({
+                level: 'info',
+                phase: 'callback',
+                message: 'Commission already exists for member',
+                data: { memberId, commissionId: existingCommissions[0].id }
+              });
+            }
+          }
+        } catch (commissionVerifyError: any) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Exception during commission verification/creation',
+            data: {
+              error: commissionVerifyError?.message,
+              stack: commissionVerifyError?.stack,
+              memberId: paymentRecordForLogging?.member_id
+            }
+          });
+          // Continue processing - commission creation failure shouldn't block payment success
+        }
+      }
+
       if (paymentRecordForLogging) {
         try {
           const paymentMetadata = parsePaymentMetadata(paymentRecordForLogging.metadata);
@@ -1958,6 +2101,547 @@ router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthReques
       success: false,
       error: error.message || 'Server Post test failed',
       message: 'Check server logs for details'
+    });
+  }
+});
+
+/**
+ * ADMIN: Manually update payment status
+ * Allows admins to manually change payment status when EPX callback fails
+ */
+router.put('/api/admin/payments/:id/status', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const paymentId = parseInt(req.params.id, 10);
+    const { status, note } = req.body;
+
+    if (!paymentId || isNaN(paymentId)) {
+      return res.status(400).json({ success: false, error: 'Valid payment ID required' });
+    }
+
+    const validStatuses = ['pending', 'succeeded', 'failed', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `Status must be one of: ${validStatuses.join(', ')}` 
+      });
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'admin-update',
+      message: 'Admin manually updating payment status',
+      data: {
+        paymentId,
+        newStatus: status,
+        adminUserId: req.user.id,
+        adminEmail: req.user.email,
+        note: note || 'No note provided'
+      }
+    });
+
+    // Get current payment record
+    const currentPayment = await storage.getPaymentById(paymentId);
+    if (!currentPayment) {
+      return res.status(404).json({ success: false, error: 'Payment not found' });
+    }
+
+    // Update metadata to track the manual change
+    const paymentMetadata = parsePaymentMetadata(currentPayment.metadata);
+    paymentMetadata.manualStatusUpdate = {
+      previousStatus: currentPayment.status,
+      newStatus: status,
+      updatedBy: req.user.email,
+      updatedByUserId: req.user.id,
+      updatedAt: new Date().toISOString(),
+      note: note || null
+    };
+
+    // Update payment status
+    await storage.updatePayment(paymentId, {
+      status,
+      metadata: paymentMetadata
+    });
+
+    // If status changed to succeeded and member exists, activate member and create commission if needed
+    if (status === 'succeeded' && currentPayment.member_id) {
+      const memberId = Number(currentPayment.member_id);
+      
+      try {
+        const memberRecord = await storage.getMember(memberId);
+        if (memberRecord) {
+          // Activate member
+          await storage.updateMember(memberId, {
+            status: 'active',
+            isActive: true,
+            firstPaymentDate: memberRecord.firstPaymentDate || memberRecord.first_payment_date || new Date().toISOString()
+          });
+
+          logEPX({
+            level: 'info',
+            phase: 'admin-update',
+            message: 'Member activated after manual payment approval',
+            data: { memberId, paymentId }
+          });
+
+          // Check for commission
+          const { data: existingCommissions } = await supabase
+            .from('agent_commissions')
+            .select('id')
+            .eq('member_id', memberId.toString())
+            .limit(1);
+
+          if (!existingCommissions || existingCommissions.length === 0) {
+            const agentId = memberRecord.enrolledByAgentId || memberRecord.enrolled_by_agent_id;
+            
+            if (agentId) {
+              logEPX({
+                level: 'info',
+                phase: 'admin-update',
+                message: 'Creating missing commission after manual approval',
+                data: { memberId, agentId }
+              });
+
+              const agentRecord = await storage.getUser(agentId);
+              const agentNumber = memberRecord.agentNumber || memberRecord.agent_number || agentRecord?.agentNumber || agentRecord?.agent_number || 'HOUSE';
+              
+              const planIdFromMember = memberRecord.planId || memberRecord.plan_id;
+              let planName = 'MyPremierPlan Base';
+              
+              if (planIdFromMember) {
+                try {
+                  const planRecord = await storage.getPlan(String(planIdFromMember));
+                  if (planRecord?.name) {
+                    planName = planRecord.name.includes(' - ') ? planRecord.name.split(' - ')[0].trim() : planRecord.name;
+                  }
+                } catch (planError) {
+                  logEPX({ level: 'warn', phase: 'admin-update', message: 'Could not load plan', data: { error: planError } });
+                }
+              }
+              
+              const coverageType = memberRecord.coverageType || memberRecord.coverage_type || memberRecord.memberType || memberRecord.member_type || 'Member Only';
+              const hasRxValet = memberRecord.addRxValet || memberRecord.add_rx_valet || false;
+              
+              const commissionResult = calculateCommission(planName, coverageType, hasRxValet);
+              
+              if (commissionResult) {
+                const { data: newCommission, error: commissionError } = await supabase
+                  .from('agent_commissions')
+                  .insert({
+                    agent_id: agentId,
+                    agent_number: agentNumber,
+                    member_id: memberId.toString(),
+                    enrollment_id: currentPayment.subscription_id ? currentPayment.subscription_id.toString() : null,
+                    commission_amount: commissionResult.commission,
+                    coverage_type: 'other' as const,
+                    status: 'pending' as const,
+                    payment_status: 'unpaid' as const,
+                    base_premium: commissionResult.totalCost,
+                    notes: `Commission created via admin manual payment approval - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`
+                  })
+                  .select()
+                  .single();
+                
+                if (!commissionError) {
+                  logEPX({
+                    level: 'info',
+                    phase: 'admin-update',
+                    message: '✅ Commission created via admin approval',
+                    data: { commissionId: newCommission.id, memberId, amount: commissionResult.commission }
+                  });
+                } else {
+                  logEPX({
+                    level: 'error',
+                    phase: 'admin-update',
+                    message: 'Failed to create commission',
+                    data: { error: commissionError.message }
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (memberUpdateError: any) {
+        logEPX({
+          level: 'error',
+          phase: 'admin-update',
+          message: 'Failed to update member after payment approval',
+          data: { error: memberUpdateError?.message, memberId }
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment status updated successfully',
+      payment: {
+        id: paymentId,
+        previousStatus: currentPayment.status,
+        newStatus: status
+      }
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'admin-update',
+      message: 'Failed to update payment status',
+      data: { error: error?.message }
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update payment status'
+    });
+  }
+});
+
+/**
+ * ADMIN: Manually create commission for a member
+ * Useful for fixing missing commissions
+ */
+router.post('/api/admin/members/:id/create-commission', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const memberId = parseInt(req.params.id, 10);
+
+    if (!memberId || isNaN(memberId)) {
+      return res.status(400).json({ success: false, error: 'Valid member ID required' });
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'admin-commission',
+      message: 'Admin manually creating commission',
+      data: {
+        memberId,
+        adminUserId: req.user.id,
+        adminEmail: req.user.email
+      }
+    });
+
+    // Check if commission already exists
+    const { data: existingCommissions } = await supabase
+      .from('agent_commissions')
+      .select('id, commission_amount, agent_id')
+      .eq('member_id', memberId.toString());
+
+    if (existingCommissions && existingCommissions.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Commission(s) already exist for this member',
+        commissions: existingCommissions
+      });
+    }
+
+    // Get member details
+    const memberRecord = await storage.getMember(memberId);
+    if (!memberRecord) {
+      return res.status(404).json({ success: false, error: 'Member not found' });
+    }
+
+    const agentId = memberRecord.enrolledByAgentId || memberRecord.enrolled_by_agent_id;
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Member has no enrolling agent - cannot create commission'
+      });
+    }
+
+    const agentRecord = await storage.getUser(agentId);
+    const agentNumber = memberRecord.agentNumber || memberRecord.agent_number || agentRecord?.agentNumber || agentRecord?.agent_number || 'HOUSE';
+
+    // Get plan details
+    const planIdFromMember = memberRecord.planId || memberRecord.plan_id;
+    let planName = 'MyPremierPlan Base';
+    
+    if (planIdFromMember) {
+      try {
+        const planRecord = await storage.getPlan(String(planIdFromMember));
+        if (planRecord?.name) {
+          planName = planRecord.name.includes(' - ') ? planRecord.name.split(' - ')[0].trim() : planRecord.name;
+        }
+      } catch (planError) {
+        logEPX({ level: 'warn', phase: 'admin-commission', message: 'Could not load plan', data: { error: planError } });
+      }
+    }
+
+    const coverageType = memberRecord.coverageType || memberRecord.coverage_type || memberRecord.memberType || memberRecord.member_type || 'Member Only';
+    const hasRxValet = memberRecord.addRxValet || memberRecord.add_rx_valet || false;
+
+    // Calculate commission
+    const commissionResult = calculateCommission(planName, coverageType, hasRxValet);
+    
+    if (!commissionResult) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not calculate commission - no matching rate found',
+        details: { planName, coverageType, hasRxValet }
+      });
+    }
+
+    // Create commission
+    const { data: newCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert({
+        agent_id: agentId,
+        agent_number: agentNumber,
+        member_id: memberId.toString(),
+        commission_amount: commissionResult.commission,
+        coverage_type: 'other' as const,
+        status: 'pending' as const,
+        payment_status: 'unpaid' as const,
+        base_premium: commissionResult.totalCost,
+        notes: `Commission created manually by admin (${req.user.email}) - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`
+      })
+      .select()
+      .single();
+
+    if (commissionError) {
+      logEPX({
+        level: 'error',
+        phase: 'admin-commission',
+        message: 'Failed to create commission',
+        data: { error: commissionError.message, memberId }
+      });
+      return res.status(500).json({
+        success: false,
+        error: commissionError.message || 'Failed to create commission'
+      });
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'admin-commission',
+      message: '✅ Commission created manually by admin',
+      data: {
+        commissionId: newCommission.id,
+        memberId,
+        agentId,
+        agentNumber,
+        amount: commissionResult.commission
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Commission created successfully',
+      commission: {
+        id: newCommission.id,
+        memberId,
+        agentId,
+        agentNumber,
+        amount: commissionResult.commission,
+        planName,
+        coverageType
+      }
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'admin-commission',
+      message: 'Exception creating commission',
+      data: { error: error?.message, stack: error?.stack }
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create commission'
+    });
+  }
+});
+
+/**
+ * ADMIN: Commission repair utility
+ * Scans for members with successful payments but no commissions and creates them
+ */
+router.post('/api/admin/commissions/repair', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const { dryRun = true } = req.body;
+
+    logEPX({
+      level: 'info',
+      phase: 'commission-repair',
+      message: `Starting commission repair utility (${dryRun ? 'DRY RUN' : 'LIVE RUN'})`,
+      data: {
+        adminUserId: req.user.id,
+        adminEmail: req.user.email
+      }
+    });
+
+    // Get all active members with an enrolling agent
+    const { data: activeMembers, error: membersError } = await supabase
+      .from('members')
+      .select('id, enrolled_by_agent_id, agent_number, plan_id, coverage_type, member_type, add_rx_valet, first_name, last_name, email')
+      .eq('is_active', true)
+      .not('enrolled_by_agent_id', 'is', null);
+
+    if (membersError) {
+      throw new Error(`Failed to fetch members: ${membersError.message}`);
+    }
+
+    const results = {
+      totalChecked: activeMembers?.length || 0,
+      missingCommissions: 0,
+      commissionsCreated: 0,
+      errors: [] as any[],
+      details: [] as any[]
+    };
+
+    if (!activeMembers || activeMembers.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No active members found with enrolling agents',
+        results
+      });
+    }
+
+    // Check each member for commission
+    for (const member of activeMembers) {
+      try {
+        // Check if commission exists
+        const { data: existingCommissions } = await supabase
+          .from('agent_commissions')
+          .select('id')
+          .eq('member_id', member.id.toString())
+          .limit(1);
+
+        if (existingCommissions && existingCommissions.length > 0) {
+          continue; // Commission exists, skip
+        }
+
+        results.missingCommissions++;
+
+        // Get agent details
+        const agentRecord = await storage.getUser(member.enrolled_by_agent_id);
+        const agentNumber = member.agent_number || agentRecord?.agentNumber || agentRecord?.agent_number || 'HOUSE';
+
+        // Get plan details
+        let planName = 'MyPremierPlan Base';
+        if (member.plan_id) {
+          try {
+            const planRecord = await storage.getPlan(String(member.plan_id));
+            if (planRecord?.name) {
+              planName = planRecord.name.includes(' - ') ? planRecord.name.split(' - ')[0].trim() : planRecord.name;
+            }
+          } catch (planError) {
+            logEPX({ 
+              level: 'warn', 
+              phase: 'commission-repair', 
+              message: 'Could not load plan for member', 
+              data: { memberId: member.id, error: planError } 
+            });
+          }
+        }
+
+        const coverageType = member.coverage_type || member.member_type || 'Member Only';
+        const hasRxValet = member.add_rx_valet || false;
+
+        // Calculate commission
+        const commissionResult = calculateCommission(planName, coverageType, hasRxValet);
+
+        if (!commissionResult) {
+          results.errors.push({
+            memberId: member.id,
+            memberName: `${member.first_name} ${member.last_name}`,
+            error: 'Could not calculate commission - no matching rate found',
+            planName,
+            coverageType
+          });
+          continue;
+        }
+
+        const commissionData = {
+          agent_id: member.enrolled_by_agent_id,
+          agent_number: agentNumber,
+          member_id: member.id.toString(),
+          commission_amount: commissionResult.commission,
+          coverage_type: 'other' as const,
+          status: 'pending' as const,
+          payment_status: 'unpaid' as const,
+          base_premium: commissionResult.totalCost,
+          notes: `Commission created via repair utility - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`
+        };
+
+        results.details.push({
+          memberId: member.id,
+          memberName: `${member.first_name} ${member.last_name}`,
+          memberEmail: member.email,
+          agentId: member.enrolled_by_agent_id,
+          agentNumber,
+          commissionAmount: commissionResult.commission,
+          planName,
+          coverageType
+        });
+
+        if (!dryRun) {
+          // Actually create the commission
+          const { error: commissionError } = await supabase
+            .from('agent_commissions')
+            .insert(commissionData);
+
+          if (commissionError) {
+            results.errors.push({
+              memberId: member.id,
+              memberName: `${member.first_name} ${member.last_name}`,
+              error: commissionError.message
+            });
+          } else {
+            results.commissionsCreated++;
+            logEPX({
+              level: 'info',
+              phase: 'commission-repair',
+              message: '✅ Commission created via repair utility',
+              data: {
+                memberId: member.id,
+                agentId: member.enrolled_by_agent_id,
+                amount: commissionResult.commission
+              }
+            });
+          }
+        }
+      } catch (memberError: any) {
+        results.errors.push({
+          memberId: member.id,
+          memberName: `${member.first_name} ${member.last_name}`,
+          error: memberError?.message || 'Unknown error'
+        });
+      }
+    }
+
+    const message = dryRun
+      ? `DRY RUN: Found ${results.missingCommissions} members missing commissions (no changes made)`
+      : `LIVE RUN: Created ${results.commissionsCreated} commissions out of ${results.missingCommissions} missing`;
+
+    logEPX({
+      level: 'info',
+      phase: 'commission-repair',
+      message: 'Commission repair utility completed',
+      data: results
+    });
+
+    res.json({
+      success: true,
+      message,
+      results
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'commission-repair',
+      message: 'Commission repair utility failed',
+      data: { error: error?.message, stack: error?.stack }
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Commission repair failed'
     });
   }
 });
