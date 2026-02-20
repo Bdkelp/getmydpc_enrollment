@@ -56,13 +56,6 @@ BEGIN
   ELSE
     RAISE NOTICE 'Could not find Plus plan or member 10 subscription. Plan ID: %, Subscription ID: %', correct_plan_id, member_10_subscription_id;
   END IF;
-
-  -- Also update the member's plan_name field if it exists
-  UPDATE members
-  SET plan_name = 'MyPremierPlan+'
-  WHERE id = 10;
-
-  RAISE NOTICE 'Updated member 10 plan_name to MyPremierPlan+';
 END $$;
 
 -- Update existing commission for member 10 to reflect correct plan and amount
