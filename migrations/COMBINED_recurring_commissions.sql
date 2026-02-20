@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS commission_payouts (
   id SERIAL PRIMARY KEY,
   
   -- Link to base commission relationship
-  commission_id INTEGER NOT NULL REFERENCES agent_commissions(id) ON DELETE CASCADE,
+  commission_id UUID NOT NULL REFERENCES agent_commissions(id) ON DELETE CASCADE,
   
   -- Payout Period (what month is this for?)
   payout_month DATE NOT NULL,

@@ -5,7 +5,7 @@
  * Each payout represents one month of commission for an active member subscription.
  */
 
-import { pgTable, serial, integer, decimal, timestamp, text, date, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, uuid, decimal, timestamp, text, date, index } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { agentCommissions } from "./clean-commission-schema";
@@ -15,7 +15,7 @@ export const commissionPayouts = pgTable("commission_payouts", {
   id: serial("id").primaryKey(),
   
   // Link to base commission relationship
-  commissionId: integer("commission_id")
+  commissionId: uuid("commission_id")
     .references(() => agentCommissions.id, { onDelete: "cascade" })
     .notNull(),
   
@@ -57,7 +57,7 @@ export const commissionPayouts = pgTable("commission_payouts", {
 
 // Zod validation schemas
 export const insertCommissionPayoutSchema = createInsertSchema(commissionPayouts, {
-  commissionId: z.number().int().positive(),
+  commissionId: z.string().uuid(),
   payoutMonth: z.string().regex(/^\d{4}-\d{2}-01$/, "Must be first day of month (YYYY-MM-01)"),
   payoutAmount: z.number().positive().max(1000, "Payout cannot exceed $1000"),
   status: z.enum(["pending", "paid", "cancelled", "ineligible"], {

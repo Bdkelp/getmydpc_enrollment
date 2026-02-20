@@ -3,7 +3,7 @@
  * This replaces the old confused commission schema with a clean, simple design
  */
 
-import { pgTable, text, integer, decimal, timestamp, serial, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, decimal, timestamp, serial, uuid, index } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./users"; // Assuming users schema exists
@@ -12,7 +12,7 @@ import { subscriptions } from "./subscriptions"; // Assuming subscriptions schem
 
 // Clean commission table - simple and clear
 export const agentCommissions = pgTable("agent_commissions", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey().defaultRandom(),
   
   // Core References (simple and clear)
   agentId: text("agent_id").references(() => users.id).notNull(),
