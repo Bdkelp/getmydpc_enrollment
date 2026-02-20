@@ -26,6 +26,10 @@ export const agentCommissions = pgTable("agent_commissions", {
   planName: text("plan_name").notNull(),
   coverageType: text("coverage_type").notNull(),
   
+  // Commission Type (direct or override for downline structure)
+  commissionType: text("commission_type").default("direct"), // 'direct' or 'override'
+  overrideForAgentId: text("override_for_agent_id").references(() => users.id), // If override, which downline agent
+  
   // Status Tracking
   status: text("status").notNull().default("pending"),
   paymentStatus: text("payment_status").notNull().default("unpaid"),
@@ -33,6 +37,7 @@ export const agentCommissions = pgTable("agent_commissions", {
   // Timestamps
   enrollmentDate: timestamp("enrollment_date", { withTimezone: true }).notNull().defaultNow(),
   paidDate: timestamp("paid_date", { withTimezone: true }),
+  paymentEligibleDate: timestamp("payment_eligible_date", { withTimezone: true }), // Friday after week ends (Monday-Sunday), can be overridden by admin
 }, (table) => [
   // Performance indexes
   index("idx_agent_commissions_agent_id").on(table.agentId),
@@ -40,6 +45,9 @@ export const agentCommissions = pgTable("agent_commissions", {
   index("idx_agent_commissions_member_id").on(table.memberId),
   index("idx_agent_commissions_payment_status").on(table.paymentStatus),
   index("idx_agent_commissions_enrollment_date").on(table.enrollmentDate),
+  index("idx_agent_commissions_payment_eligible_date").on(table.paymentEligibleDate),
+  index("idx_agent_commissions_commission_type").on(table.commissionType),
+  index("idx_agent_commissions_override_for").on(table.overrideForAgentId),
 ]);
 
 // Zod schemas for validation
@@ -55,6 +63,7 @@ export const insertAgentCommissionSchema = createInsertSchema(agentCommissions, 
 }).omit({
   id: true,
   enrollmentDate: true,
+  paymentEligibleDate: true, // Calculated automatically, can be overridden
   paidDate: true,
 });
 

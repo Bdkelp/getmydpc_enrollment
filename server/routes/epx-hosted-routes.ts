@@ -2646,6 +2646,185 @@ router.post('/api/admin/commissions/repair', authenticateToken, async (req: Auth
   }
 });
 
+/**
+ * ADMIN: Sync payment amount to member monthly price
+ * Fixes cases where total_monthly_price wasn't set during enrollment
+ */
+router.post('/api/admin/members/:id/sync-price', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const memberId = parseInt(req.params.id, 10);
+
+    if (!memberId || isNaN(memberId)) {
+      return res.status(400).json({ success: false, error: 'Valid member ID required' });
+    }
+
+    // Get member's most recent successful payment using Supabase
+    const { data: payments, error: paymentError } = await supabase
+      .from('payments')
+      .select('amount')
+      .eq('member_id', memberId)
+      .eq('status', 'succeeded')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (paymentError) {
+      throw new Error(`Failed to fetch payment: ${paymentError.message}`);
+    }
+
+    if (!payments || payments.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'No successful payment found for this member' 
+      });
+    }
+
+    const paymentAmount = parseFloat(payments[0].amount);
+
+    if (!paymentAmount || isNaN(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid payment amount' 
+      });
+    }
+
+    // Update member's monthly price
+    await storage.updateMember(memberId, {
+      total_monthly_price: paymentAmount
+    });
+
+    logEPX({
+      level: 'info',
+      phase: 'admin-sync-price',
+      message: 'Synced payment amount to member monthly price',
+      data: {
+        memberId,
+        amount: paymentAmount,
+        adminUserId: req.user.id,
+        adminEmail: req.user.email
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Updated monthly price to $${paymentAmount.toFixed(2)}`,
+      data: { memberId, totalMonthlyPrice: paymentAmount }
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'admin-sync-price',
+      message: 'Failed to sync price from payment',
+      data: { error: error?.message, memberId: req.params.id }
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to sync price'
+    });
+  }
+});
+
+/**
+ * ADMIN: Add family member to enrollment
+ * Manually adds spouse/dependent to an existing member
+ */
+router.post('/api/admin/members/:id/add-family-member', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const primaryMemberId = parseInt(req.params.id, 10);
+
+    if (!primaryMemberId || isNaN(primaryMemberId)) {
+      return res.status(400).json({ success: false, error: 'Valid member ID required' });
+    }
+
+    const {
+      firstName,
+      lastName,
+      middleName,
+      dateOfBirth,
+      gender,
+      ssn,
+      email,
+      phone,
+      relationship,
+      memberType
+    } = req.body;
+
+    if (!firstName || !lastName || !relationship) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'firstName, lastName, and relationship are required' 
+      });
+    }
+
+    // Verify primary member exists
+    const primaryMember = await storage.getMember(primaryMemberId);
+    if (!primaryMember) {
+      return res.status(404).json({ success: false, error: 'Primary member not found' });
+    }
+
+    // Insert family member
+    const { data: newFamilyMember, error: insertError } = await supabase
+      .from('family_members')
+      .insert({
+        primary_member_id: primaryMemberId,
+        first_name: firstName,
+        last_name: lastName,
+        middle_name: middleName || null,
+        date_of_birth: dateOfBirth || null,
+        gender: gender || null,
+        ssn: ssn || null,
+        email: email || null,
+        phone: phone || null,
+        relationship: relationship,
+        member_type: memberType || 'SP',
+        is_active: true
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    logEPX({
+      level: 'info',
+      phase: 'admin-add-family',
+      message: 'Family member added by admin',
+      data: {
+        primaryMemberId,
+        familyMemberId: newFamilyMember.id,
+        relationship,
+        adminUserId: req.user.id,
+        adminEmail: req.user.email
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `Added ${relationship}: ${firstName} ${lastName}`,
+      data: newFamilyMember
+    });
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: 'admin-add-family',
+      message: 'Failed to add family member',
+      data: { error: error?.message, memberId: req.params.id }
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to add family member'
+    });
+  }
+});
+
 export default router;
 
 
