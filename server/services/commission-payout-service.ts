@@ -45,9 +45,7 @@ export async function createMonthlyPayout(params: CreatePayoutParams): Promise<a
   
   // Determine status based on eligible date
   const now = new Date();
-  const is,
-    commissionType,
-    overrideForAgentId: overrideForAgentId || 'none'Eligible = now >= paymentEligibleDate;
+  const isEligible = now >= paymentEligibleDate;
   const status = isEligible ? 'pending' : 'ineligible'; // Will become 'pending' when eligible date passes
   
   console.log('[Payout Service] Creating monthly payout:', {
