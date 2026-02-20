@@ -238,42 +238,52 @@ type EnrollmentRow = Record<string, any> & {
   plan_name?: string | null;
 };
 
-const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberRow[]) => ({
-  id: row.id?.toString(),
-  userId: row.enrolled_by_agent_id || null,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  customerNumber: row.customer_number,
-  memberPublicId: row.member_public_id,
-  firstName: row.first_name,
-  lastName: row.last_name,
-  middleName: row.middle_name,
-  email: row.email,
-  phone: row.phone,
-  dateOfBirth: row.date_of_birth,
-  gender: row.gender,
-  ssn: row.ssn,
-  address: row.address,
-  address2: row.address2,
-  city: row.city,
-  state: row.state,
-  zipCode: row.zip_code,
-  employerName: row.employer_name,
-  divisionName: row.division_name,
-  dateOfHire: row.date_of_hire,
-  planId: row.plan_id,
-  planName: row.plan_name || null,
-  memberType: row.coverage_type || row.member_type,
-  planStartDate: row.plan_start_date,
-  totalMonthlyPrice: row.total_monthly_price,
-  status: row.status,
-  emergencyContactName: row.emergency_contact_name,
-  emergencyContactPhone: row.emergency_contact_phone,
-  enrolledBy: row.agent_number || null,
-  enrolledByAgentId: row.enrolled_by_agent_id,
-  subscriptionId: row.subscription_id || null,
-  familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
-});
+const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberRow[]) => {
+  const mapped = {
+    id: row.id?.toString(),
+    userId: row.enrolled_by_agent_id || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    customerNumber: row.customer_number,
+    memberPublicId: row.member_public_id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    middleName: row.middle_name,
+    email: row.email,
+    phone: row.phone,
+    dateOfBirth: row.date_of_birth,
+    gender: row.gender,
+    ssn: row.ssn,
+    address: row.address,
+    address2: row.address2,
+    city: row.city,
+    state: row.state,
+    zipCode: row.zip_code,
+    employerName: row.employer_name,
+    divisionName: row.division_name,
+    dateOfHire: row.date_of_hire,
+    planId: row.plan_id,
+    planName: row.plan_name || null,
+    memberType: row.coverage_type || row.member_type,
+    planStartDate: row.plan_start_date,
+    totalMonthlyPrice: row.total_monthly_price,
+    status: row.status,
+    emergencyContactName: row.emergency_contact_name,
+    emergencyContactPhone: row.emergency_contact_phone,
+    enrolledBy: row.agent_number || null,
+    enrolledByAgentId: row.enrolled_by_agent_id,
+    subscriptionId: row.subscription_id || null,
+    familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
+  };
+  
+  console.log('[Storage] mapEnrollmentRowToDetails result:', {
+    memberId: mapped.id,
+    familyMembersCount: mapped.familyMembers.length,
+    familyMembersData: mapped.familyMembers.length > 0 ? mapped.familyMembers : 'none'
+  });
+  
+  return mapped;
+};
 
 export async function getEnrollmentDetails(enrollmentId: number) {
   if (!Number.isFinite(enrollmentId)) {
@@ -297,6 +307,12 @@ export async function getEnrollmentDetails(enrollmentId: number) {
     `SELECT * FROM family_members WHERE primary_member_id = $1 ORDER BY created_at ASC`,
     [enrollmentId],
   );
+
+  console.log(`[Storage] getEnrollmentDetails for member ${enrollmentId}:`, {
+    memberFound: !!memberResult.rows?.length,
+    familyMembersCount: familyResult.rows?.length || 0,
+    familyMembers: familyResult.rows?.length > 0 ? familyResult.rows : 'none'
+  });
 
   return mapEnrollmentRowToDetails(memberResult.rows[0], familyResult.rows || []);
 }
