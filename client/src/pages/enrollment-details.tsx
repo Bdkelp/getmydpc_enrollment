@@ -157,6 +157,17 @@ export default function EnrollmentDetails() {
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
   const [newPaymentStatus, setNewPaymentStatus] = useState<string>('');
   const [paymentUpdateNote, setPaymentUpdateNote] = useState<string>('');
+  const [showAddFamilyDialog, setShowAddFamilyDialog] = useState(false);
+  const [newFamilyMember, setNewFamilyMember] = useState({
+    firstName: '',
+    lastName: '',
+    middleName: '',
+    dateOfBirth: '',
+    gender: '',
+    relationship: 'spouse',
+    email: '',
+    phone: ''
+  });
   
   // Fetch enrollment details
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({
@@ -267,6 +278,64 @@ export default function EnrollmentDetails() {
       toast({
         title: "Failed to Create Commission",
         description: error.message || "Could not create commission for this member.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Sync price from payment mutation
+  const syncPriceMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest(`/api/admin/members/${enrollmentId}/sync-price`, {
+        method: "POST",
+      });
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Price Synced",
+        description: data.message || "Monthly price updated successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Sync Price",
+        description: error.message || "Could not sync price from payment.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Add family member mutation
+  const addFamilyMemberMutation = useMutation({
+    mutationFn: async (data: typeof newFamilyMember) => {
+      return apiRequest(`/api/admin/members/${enrollmentId}/add-family-member`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Family Member Added",
+        description: "Family member has been successfully added to this enrollment.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      setShowAddFamilyDialog(false);
+      setNewFamilyMember({
+        firstName: '',
+        lastName: '',
+        middleName: '',
+        dateOfBirth: '',
+        gender: '',
+        relationship: 'spouse',
+        email: '',
+        phone: ''
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Add Family Member",
+        description: error.message || "An error occurred while adding the family member.",
         variant: "destructive",
       });
     },
@@ -758,22 +827,145 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     Family Members
                   </span>
                   {canAddFamilyMembersCta && (
-                    <Dialog>
+                    <Dialog open={showAddFamilyDialog} onOpenChange={setShowAddFamilyDialog}>
                       <DialogTrigger asChild>
                         <Button size="sm">
                           <UserPlus className="h-4 w-4 mr-2" />
                           Add Member
                         </Button>
                       </DialogTrigger>
-                      <DialogContent>
+                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Family Member</DialogTitle>
                           <DialogDescription>
-                            Add a new family member to this enrollment.
+                            Add a spouse, child, or dependent to this enrollment.
                           </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4 mt-4">
-                          <p className="text-sm text-gray-600">This feature is coming soon.</p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">
+                                First Name <span className="text-red-500">*</span>
+                              </label>
+                              <Input
+                                value={newFamilyMember.firstName}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, firstName: e.target.value})}
+                                placeholder="First name"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">
+                                Last Name <span className="text-red-500">*</span>
+                              </label>
+                              <Input
+                                value={newFamilyMember.lastName}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, lastName: e.target.value})}
+                                placeholder="Last name"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Middle Name</label>
+                            <Input
+                              value={newFamilyMember.middleName}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, middleName: e.target.value})}
+                              placeholder="Middle name (optional)"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium mb-1">
+                              Relationship <span className="text-red-500">*</span>
+                            </label>
+                            <Select
+                              value={newFamilyMember.relationship}
+                              onValueChange={(value) => setNewFamilyMember({...newFamilyMember, relationship: value})}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="spouse">Spouse</SelectItem>
+                                <SelectItem value="child">Child</SelectItem>
+                                <SelectItem value="dependent">Dependent</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                              <Input
+                                type="date"
+                                value={newFamilyMember.dateOfBirth}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, dateOfBirth: e.target.value})}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Gender</label>
+                              <Select
+                                value={newFamilyMember.gender}
+                                onValueChange={(value) => setNewFamilyMember({...newFamilyMember, gender: value})}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select gender" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="male">Male</SelectItem>
+                                  <SelectItem value="female">Female</SelectItem>
+                                  <SelectItem value="other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Email</label>
+                            <Input
+                              type="email"
+                              value={newFamilyMember.email}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, email: e.target.value})}
+                              placeholder="email@example.com (optional)"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Phone</label>
+                            <Input
+                              type="tel"
+                              value={newFamilyMember.phone}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, phone: e.target.value})}
+                              placeholder="(555) 555-5555 (optional)"
+                            />
+                          </div>
+
+                          <div className="flex justify-end gap-2 mt-6">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setShowAddFamilyDialog(false);
+                                setNewFamilyMember({
+                                  firstName: '',
+                                  lastName: '',
+                                  middleName: '',
+                                  dateOfBirth: '',
+                                  gender: '',
+                                  relationship: 'spouse',
+                                  email: '',
+                                  phone: ''
+                                });
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={() => addFamilyMemberMutation.mutate(newFamilyMember)}
+                              disabled={!newFamilyMember.firstName || !newFamilyMember.lastName || !newFamilyMember.relationship || addFamilyMemberMutation.isPending}
+                            >
+                              {addFamilyMemberMutation.isPending ? 'Adding...' : 'Add Family Member'}
+                            </Button>
+                          </div>
                         </div>
                       </DialogContent>
                     </Dialog>
@@ -1021,6 +1213,22 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     >
                       <DollarSign className="h-4 w-4 mr-2" />
                       {createCommissionMutation.isPending ? 'Creating...' : 'Create Commission'}
+                    </Button>
+                  </div>
+                  
+                  <div className="border-t pt-4">
+                    <Label className="text-sm font-semibold">Price Sync</Label>
+                    <p className="text-sm text-gray-600 mb-2">
+                      If monthly premium shows $0.00, sync it from the successful payment amount.
+                    </p>
+                    <Button
+                      onClick={() => syncPriceMutation.mutate()}
+                      disabled={syncPriceMutation.isPending}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      {syncPriceMutation.isPending ? 'Syncing...' : 'Sync Price from Payment'}
                     </Button>
                   </div>
                 </div>
