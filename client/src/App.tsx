@@ -18,7 +18,6 @@ import AgentFailedPayments from "@/pages/agent-failed-payments";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
-import AdminDataViewer from "@/pages/admin-data-viewer";
 import AdminAnalytics from "@/pages/admin-analytics";
 import AdminCommissions from "@/pages/admin-commissions";
 import AdminNotifications from "@/pages/admin-notifications";
@@ -117,7 +116,6 @@ function Router() {
               <Route path="/admin/payments/checkout" component={AdminPaymentCheckout} />
               <Route path="/admin/payments/recent" component={AdminRecentPayments} />
               <Route path="/admin/payments/failed" component={AdminFailedPayments} />
-              <Route path="/admin/data" component={AdminDataViewer} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/notifications" component={AdminNotifications} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
