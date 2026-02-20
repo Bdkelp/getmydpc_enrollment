@@ -25,7 +25,6 @@ import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
-import adminDatabaseRoutes from "./routes/admin-database";
 import debugPaymentsRoutes from './routes/debug-payments';
 import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
 import devUtilitiesRoutes from "./routes/dev-utilities";
@@ -145,7 +144,6 @@ app.use((req, res, next) => {
 
   // Register additional admin/debug routes
   app.use('/', adminLogsRoutes);
-  app.use('/', adminDatabaseRoutes);
   app.use('/', adminNotificationsRoutes);
   app.use('/', discountCodesRoutes);
   app.use('/', debugPaymentsRoutes);
