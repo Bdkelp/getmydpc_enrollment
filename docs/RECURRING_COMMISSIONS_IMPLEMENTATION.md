@@ -17,6 +17,8 @@
 ### 3. **Override Commission Support** (Downline/Upline)
 - `commission_type`: 'direct' or 'override'
 - `override_for_agent_id`: Tracks which downline agent generated the sale
+- **Override rates are flexible**: Each agent has their own `override_commission_rate` in users table
+- **Configurable per agent**: Override amounts vary by agency, performance level, or hierarchy tier
 - **When member payment captured**: Creates payouts for BOTH direct and override commissions
 
 ### 4. **Business Rules Enforced**
@@ -121,21 +123,26 @@ await markPayoutsAsPaid(
 
 ## Example Data Flow
 
-### Enrollment (Initial)
-```
-1. Member enrolls → Create agent_commissions record
-   - Direct commission: $40/month (agent MPP0001)
-   - Override commission: $10/month (upline agent MPP0999)
+### Enrollment (Invia Agent MPP0001 (who has upline MPP0999)
+   - System looks up MPP0001's record:
+     * upline_agent_id: MPP0999
+     * override_commission_rate: $15.00 (configured per agent)
    
-2. First payment captured → Create 2 payout records:
+2. Create agent_commissions records:
+   - Direct commission: $40/month (agent MPP0001)
+   - Override commission: $15/month (upline agent MPP0999) ← Uses agent's rate
+   
+3. First payment captured → Create 2 payout records:
    commission_payouts:
      - id: 1, commission_id: 100, payout_month: '2026-02-01', 
        amount: 40.00, commission_type: 'direct', status: 'pending'
      - id: 2, commission_id: 101, payout_month: '2026-02-01',
+       amount: 15.00, commission_type: 'direct', status: 'pending'
+     - id: 2, commission_id: 101, payout_month: '2026-02-01',
        amount: 10.00, commission_type: 'override', status: 'pending'
 ```
 
-### Monthly Recurring
+### Monthly Recurring5
 ```
 3. Month 2 payment captured → Create 2 more payouts:
    commission_payouts:
@@ -148,7 +155,7 @@ await markPayoutsAsPaid(
 4. Admin runs batch:
    - Query: status='pending' AND payment_eligible_date <= TODAY
    - Find: Payouts #1, #2 (eligible this Friday)
-   - Pay agents: $40 → MPP0001, $10 → MPP0999
+   - Pay agents: $40 → MPP0001, $15 → MPP0999
    - Update: status='paid', batch_id='BATCH-2026-02-28'
 ```
 
