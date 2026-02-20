@@ -36,7 +36,7 @@ BEGIN
   SELECT id INTO correct_plan_id
   FROM plans
   WHERE name ILIKE '%plus%'
-    AND (name ILIKE '%spouse%' OR description ILIKE '%spouse%' OR tier = 'Plus')
+    AND (name ILIKE '%spouse%' OR description ILIKE '%spouse%')
   LIMIT 1;
 
   -- Find member 10's subscription
