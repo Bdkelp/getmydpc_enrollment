@@ -4235,7 +4235,8 @@ export async function registerRoutes(app: any) {
         smsConsent,
         communicationsConsent,
         faqDownloaded,
-        enrolledByAgentId
+        enrolledByAgentId,
+        overrideEnrollmentDate  // Admin-only: backdate enrollment (e.g., March 4 → March 1)
       } = req.body;
 
       // SERVER-SIDE AGENT NUMBER LOOKUP (don't trust client data)
@@ -4318,7 +4319,38 @@ export async function registerRoutes(app: any) {
       }
 
       // Calculate membership dates
-      const enrollmentDate = new Date();
+      // Admin/Super Admin can override enrollment date for backdating
+      let enrollmentDate = new Date();
+      
+      if (overrideEnrollmentDate) {
+        // Validate that only admin/super_admin can use override
+        if (agentUser && (agentUser.role === 'admin' || agentUser.role === 'super_admin')) {
+          const overrideDate = new Date(overrideEnrollmentDate);
+          const now = new Date();
+          
+          // Validate override date is valid and not in the future
+          if (isNaN(overrideDate.getTime())) {
+            console.error("[Registration] Invalid override date format:", overrideEnrollmentDate);
+            return res.status(400).json({
+              error: "Invalid override enrollment date format"
+            });
+          }
+          
+          if (overrideDate > now) {
+            console.error("[Registration] Override date cannot be in the future:", overrideDate);
+            return res.status(400).json({
+              error: "Override enrollment date cannot be in the future"
+            });
+          }
+          
+          // Use override date
+          enrollmentDate = overrideDate;
+          console.log(`[Registration] ✅ ADMIN OVERRIDE: Enrollment date set to ${enrollmentDate.toISOString()} (by ${agentUser.email})`);
+        } else {
+          console.warn(`[Registration] ⚠️  Ignoring overrideEnrollmentDate - user is not admin/super_admin`);
+        }
+      }
+      
       const firstPaymentDate = enrollmentDate; // Same as enrollment date
       const membershipStartDate = calculateMembershipStartDate(enrollmentDate);
       
