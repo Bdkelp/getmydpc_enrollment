@@ -65,7 +65,7 @@ export default function ChangePassword() {
     setIsLoading(true);
 
     try {
-      // Step 1: Sign in with current password to get a session
+      // Sign in to get a valid session token
       const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
         email: userEmail,
         password: passwords.currentPassword
@@ -79,20 +79,19 @@ export default function ChangePassword() {
         throw new Error('Failed to establish session');
       }
 
-      // Step 2: Update password in Supabase Auth
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: passwords.newPassword
+      // Call the backend password change endpoint
+      // This will update both Supabase Auth and our database
+      const response = await apiClient.post('/api/auth/change-password', {
+        currentPassword: passwords.currentPassword,
+        newPassword: passwords.newPassword
+      }, {
+        headers: {
+          Authorization: `Bearer ${authData.session.access_token}`
+        }
       });
 
-      if (updateError) {
-        throw updateError;
-      }
-
-      // Step 3: Update password_change_required flag in backend
-      const response = await apiClient.post('/api/auth/password-change-completed');
-
-      if (!response) {
-        console.warn('No response from password-change-completed endpoint, but password was updated');
+      if (!response || !response.success) {
+        throw new Error(response?.message || 'Failed to change password');
       }
 
       // Clear the stored email
@@ -103,8 +102,14 @@ export default function ChangePassword() {
         description: "Your password has been changed successfully. Redirecting...",
       });
 
-      // Determine redirect based on user role
-      const userRole = authData.user?.user_metadata?.role || 'agent';
+      // Get user data from the database to determine role
+      const userResponse = await apiClient.get('/api/auth/me', {
+        headers: {
+          Authorization: `Bearer ${authData.session.access_token}`
+        }
+      });
+
+      const userRole = userResponse?.user?.role || authData.user?.user_metadata?.role || 'agent';
       const isAdminUser = hasAtLeastRole(userRole, 'admin');
       const isAgentOrAbove = hasAtLeastRole(userRole, 'agent');
       

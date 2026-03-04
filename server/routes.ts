@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
-import { hasAtLeastRole } from "./auth/roles";
+import { hasAtLeastRole, requireRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
 import {
   calculateCommission,

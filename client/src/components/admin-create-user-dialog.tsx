@@ -153,7 +153,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
               {tempPassword && (
                 <div className="bg-white border border-green-200 rounded-md p-3">
                   <p className="text-xs text-gray-600 mb-2">
-                    Temporary password (share securely and prompt the user to change it after first login):
+                    <strong>Temporary password</strong> (user will be required to change on first login):
                   </p>
                   <div className="flex items-center gap-3">
                     <code className="flex-1 px-3 py-2 bg-gray-100 rounded text-gray-900 font-mono text-sm break-all">
@@ -167,11 +167,16 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                       {copiedPassword ? 'Copied!' : 'Copy'}
                     </button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    ✓ A welcome email with login credentials has been sent to the user.<br />
+                    ✓ Email is auto-verified (no verification step required).<br />
+                    ✓ User must change password on first login.
+                  </p>
                 </div>
               )}
               {!tempPassword && (
                 <p className="text-xs text-gray-600">
-                  No temporary password was generated. The user will receive the standard verification email.
+                  User created successfully. A welcome email has been sent with their login credentials.
                 </p>
               )}
             </div>

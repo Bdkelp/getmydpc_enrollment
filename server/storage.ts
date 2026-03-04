@@ -738,6 +738,7 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       is_active: userData.isActive !== undefined ? userData.isActive : true,
       approval_status: userData.approvalStatus || 'approved',
       email_verified: userData.emailVerified !== undefined ? userData.emailVerified : false,
+      password_change_required: userData.passwordChangeRequired !== undefined ? userData.passwordChangeRequired : false,
       // Note: created_by column does not exist in Supabase users table schema
       created_at: userData.createdAt || new Date(),
       updated_at: userData.updatedAt || new Date()

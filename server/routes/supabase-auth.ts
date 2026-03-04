@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
 import { storage } from '../storage';
-import { sendEmailVerification } from '../email';
+import { sendEmailVerification, sendWelcomeWithPassword } from '../email';
 import { isAtLeastAdmin } from '../auth/roles';
 import axios from 'axios';
 
@@ -473,14 +473,14 @@ router.post('/api/admin/create-user', async (req, res) => {
     const finalPassword = password || generateTemporaryPassword();
 
     // ============================================
-    // CREATE USER IN SUPABASE AUTH
+    // CREATE USER IN SUPABASE AUTH (AUTO-VERIFIED)
     // ============================================
     console.log(`[Admin Create User] Creating Supabase Auth user: ${email}`);
 
     const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
       email,
       password: finalPassword,
-      email_confirm: false, // Require email verification for security
+      email_confirm: true, // Auto-verify admin-created users
       user_metadata: {
         firstName,
         lastName,
@@ -511,7 +511,8 @@ router.post('/api/admin/create-user', async (req, res) => {
       role,
       isActive: true,
       approvalStatus: 'approved', // Admin-created users are auto-approved
-      emailVerified: false, // Require email verification for security
+      emailVerified: true, // Auto-verified since admin created the account
+      passwordChangeRequired: true, // Force password change on first login
       createdBy: adminUser.id, // AUDIT TRAIL: Track which admin created this user
       createdAt: new Date(),
       updatedAt: new Date()
@@ -520,20 +521,21 @@ router.post('/api/admin/create-user', async (req, res) => {
     console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
 
     // ============================================
-    // SEND EMAIL VERIFICATION
+    // SEND WELCOME EMAIL WITH CREDENTIALS
     // ============================================
-    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${signUpData.user.id}&email=${encodeURIComponent(email)}`;
+    const loginUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login`;
     
     try {
-      await sendEmailVerification({
+      await sendWelcomeWithPassword({
         email,
         firstName,
-        verificationUrl
+        temporaryPassword: finalPassword,
+        loginUrl
       });
-      console.log(`[Admin Create User] Verification email sent to ${email}`);
+      console.log(`[Admin Create User] Welcome email sent to ${email}`);
     } catch (emailError) {
-      console.error(`[Admin Create User] Failed to send verification email:`, emailError);
-      // Continue anyway - admin can resend later
+      console.error(`[Admin Create User] Failed to send welcome email:`, emailError);
+      // Continue anyway - admin can manually send credentials
     }
 
     // ============================================
@@ -619,5 +621,113 @@ function determineUserRole(email: string): string {
   
   return 'agent';
 }
+
+// ============================================
+// PASSWORD CHANGE ENDPOINT
+// ============================================
+router.post('/change-password', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({ 
+        message: 'No token provided',
+        code: 'NO_TOKEN'
+      });
+    }
+
+    // Verify token
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return res.status(401).json({ 
+        message: 'Invalid token',
+        code: 'INVALID_TOKEN'
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate inputs
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        message: 'Current password and new password are required',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ 
+        message: 'New password must be at least 8 characters',
+        code: 'PASSWORD_TOO_SHORT'
+      });
+    }
+
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ 
+        message: 'New password must be different from current password',
+        code: 'SAME_PASSWORD'
+      });
+    }
+
+    // Verify current password by attempting to sign in
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: user.email!,
+      password: currentPassword
+    });
+
+    if (signInError) {
+      return res.status(401).json({ 
+        message: 'Current password is incorrect',
+        code: 'WRONG_PASSWORD'
+      });
+    }
+
+    // Update password in Supabase Auth
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      user.id,
+      { password: newPassword }
+    );
+
+    if (updateError) {
+      console.error('[Password Change] Failed to update password:', updateError);
+      return res.status(500).json({ 
+        message: 'Failed to update password',
+        code: 'UPDATE_FAILED',
+        error: updateError.message
+      });
+    }
+
+    // Update database to clear password_change_required flag
+    const { error: dbError } = await supabase
+      .from('users')
+      .update({
+        password_change_required: false,
+        last_password_change_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+
+    if (dbError) {
+      console.error('[Password Change] Failed to update database:', dbError);
+      // Continue anyway - password was changed successfully
+    }
+
+    console.log(`[Password Change] Password updated for user ${user.email}`);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+
+  } catch (error: any) {
+    console.error('[Password Change] Error:', error);
+    res.status(500).json({
+      message: 'Failed to change password',
+      code: 'SERVER_ERROR',
+      error: error.message
+    });
+  }
+});
 
 export default router;
