@@ -4936,6 +4936,168 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // ============================================================
+  // FAMILY ENROLLMENT ENDPOINT
+  // Standalone endpoint for adding family members during enrollment flow
+  // ============================================================
+  app.post("/api/family-enrollment", async (req: any, res: any) => {
+    try {
+      const { members, primaryMemberId } = req.body;
+      
+      console.log("[Family Enrollment] Request received:", {
+        memberCount: members?.length,
+        providedPrimaryMemberId: primaryMemberId,
+        hasSessionStorage: !!req.session
+      });
+
+      if (!members || !Array.isArray(members) || members.length === 0) {
+        return res.status(400).json({ 
+          error: "Members array required",
+          details: "Please provide an array of family members to enroll"
+        });
+      }
+
+      // Try to get primary member ID from request body first, then from session
+      let resolvedPrimaryMemberId = primaryMemberId;
+      
+      // If not in body, try to get from most recently created member in session
+      if (!resolvedPrimaryMemberId && req.session?.memberId) {
+        resolvedPrimaryMemberId = req.session.memberId;
+      }
+
+      // Last resort: query for most recent member by email if available
+      if (!resolvedPrimaryMemberId && members[0]?.email) {
+        console.log("[Family Enrollment] Attempting to find primary member from recent registrations");
+        // This is a fallback - normally primaryMemberId should be passed
+      }
+
+      if (!resolvedPrimaryMemberId) {
+        return res.status(400).json({ 
+          error: "Primary member ID required",
+          details: "Unable to determine primary member. Please complete primary enrollment first."
+        });
+      }
+
+      // Verify primary member exists
+      const primaryMember = await storage.getMember(parseInt(resolvedPrimaryMemberId));
+      if (!primaryMember) {
+        return res.status(404).json({ 
+          error: "Primary member not found",
+          details: `No member found with ID ${resolvedPrimaryMemberId}`
+        });
+      }
+
+      console.log("[Family Enrollment] Adding family members for primary:", {
+        primaryMemberId: resolvedPrimaryMemberId,
+        primaryMemberEmail: primaryMember.email,
+        familyMemberCount: members.length
+      });
+
+      // Add all family members
+      const addedMembers = [];
+      const errors = [];
+
+      for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+        
+        if (!member.firstName || !member.lastName) {
+          errors.push({
+            index: i,
+            error: "First name and last name are required",
+            member: member
+          });
+          continue;
+        }
+
+        try {
+          const familyMember = await storage.addFamilyMember({
+            primaryMemberId: parseInt(resolvedPrimaryMemberId),
+            firstName: member.firstName,
+            lastName: member.lastName,
+            middleName: member.middleName || null,
+            dateOfBirth: member.dateOfBirth || null,
+            gender: member.gender || null,
+            ssn: member.ssn || null,
+            email: member.email || null,
+            phone: member.phone || null,
+            relationship: member.relationship || 'dependent',
+            memberType: member.memberType || 'dependent',
+            address: member.address || null,
+            address2: member.address2 || null,
+            city: member.city || null,
+            state: member.state || null,
+            zipCode: member.zipCode || null,
+            planStartDate: member.planStartDate || null,
+            isActive: true
+          });
+          
+          addedMembers.push(familyMember);
+          console.log("[Family Enrollment] Added family member:", {
+            name: `${member.firstName} ${member.lastName}`,
+            relationship: member.relationship,
+            memberType: member.memberType
+          });
+        } catch (familyError: any) {
+          console.error("[Family Enrollment] Error adding family member:", familyError);
+          errors.push({
+            index: i,
+            error: familyError.message,
+            member: member
+          });
+        }
+      }
+
+      console.log("[Family Enrollment] Completed:", {
+        requested: members.length,
+        succeeded: addedMembers.length,
+        failed: errors.length
+      });
+
+      // Update primary member's coverage type if needed
+      if (addedMembers.length > 0 && primaryMember.coverageType === 'member-only') {
+        try {
+          const hasSpouse = addedMembers.some(m => m.relationship === 'spouse');
+          const hasChildren = addedMembers.some(m => m.relationship === 'child');
+          
+          let newCoverageType = primaryMember.coverageType;
+          if (hasSpouse && hasChildren) {
+            newCoverageType = 'Family';
+          } else if (hasSpouse) {
+            newCoverageType = 'Member/Spouse';
+          } else if (hasChildren) {
+            newCoverageType = 'Member/Child';
+          }
+
+          if (newCoverageType !== primaryMember.coverageType) {
+            await storage.updateMember(parseInt(resolvedPrimaryMemberId), {
+              coverageType: newCoverageType
+            });
+            console.log("[Family Enrollment] Updated primary member coverage type:", newCoverageType);
+          }
+        } catch (updateError: any) {
+          console.error("[Family Enrollment] Failed to update coverage type:", updateError);
+          // Non-fatal - continue
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Successfully added ${addedMembers.length} family member(s)`,
+        familyMembers: addedMembers,
+        errors: errors.length > 0 ? errors : undefined,
+        primaryMemberId: resolvedPrimaryMemberId
+      });
+
+    } catch (error: any) {
+      console.error("[Family Enrollment] Error:", error);
+      res.status(500).json({ 
+        error: "Family enrollment failed",
+        message: error.message,
+        details: "Internal server error"
+      });
+    }
+  });
+
   // Fix: /api/agent/enrollments (404)
   // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
   app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
@@ -5971,10 +6133,10 @@ export async function registerRoutes(app: any) {
         },
         member: member ? {
           id: member.id,
-          customerNumber: member.customerNumber || member.customer_number,
-          memberPublicId: member.memberPublicId || member.member_public_id,
-          firstName: member.firstName || member.first_name,
-          lastName: member.lastName || member.last_name,
+          customerNumber: member.customerNumber,
+          memberPublicId: member.memberPublicId,
+          firstName: member.firstName,
+          lastName: member.lastName,
           email: member.email,
           status: member.status
         } : null
@@ -5985,9 +6147,423 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  /**
+   * POST /api/payments/force-status-update
+   * Admin endpoint to manually force a payment status update
+   * Used for stuck payments that didn't receive proper webhook callbacks
+   * Requires admin authentication
+   */
+  router.post('/api/payments/force-status-update', requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { paymentId, transactionId, newStatus, reason } = req.body;
+
+      if (!paymentId && !transactionId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Either paymentId or transactionId is required' 
+        });
+      }
+
+      if (!newStatus || !['succeeded', 'failed', 'pending'].includes(newStatus)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Valid newStatus required (succeeded, failed, or pending)' 
+        });
+      }
+
+      let payment;
+      if (paymentId) {
+        payment = await storage.getPayment(paymentId);
+      } else if (transactionId) {
+        payment = await storage.getPaymentByTransactionId(transactionId);
+      }
+
+      if (!payment) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Payment not found' 
+        });
+      }
+
+      const oldStatus = payment.status;
+      
+      // Update payment status
+      await storage.updatePayment(payment.id, { 
+        status: newStatus,
+        metadata: {
+          ...(payment.metadata || {}),
+          manualStatusUpdate: {
+            updatedBy: req.user?.email || 'admin',
+            updatedAt: new Date().toISOString(),
+            oldStatus,
+            newStatus,
+            reason: reason || 'Manual status update via force-status-update endpoint',
+            paymentId: payment.id,
+            transactionId: payment.transaction_id
+          }
+        }
+      });
+
+      // If status changed to succeeded and there's a member, update member status
+      if (newStatus === 'succeeded' && payment.member_id && oldStatus !== 'succeeded') {
+        try {
+          await storage.updateMember(Number(payment.member_id), {
+            status: 'active',
+            isActive: true,
+            firstPaymentDate: payment.created_at || new Date().toISOString()
+          });
+        } catch (memberError) {
+          console.error('[Payments] Failed to activate member after manual status update', memberError);
+        }
+      }
+
+      console.log('[Payments] Manual status update', {
+        paymentId: payment.id,
+        transactionId: payment.transaction_id,
+        oldStatus,
+        newStatus,
+        updatedBy: req.user?.email || 'admin',
+        reason
+      });
+
+      res.json({
+        success: true,
+        payment: {
+          id: payment.id,
+          transactionId: payment.transaction_id,
+          oldStatus,
+          newStatus,
+          updatedAt: new Date().toISOString()
+        }
+      });
+    } catch (error: any) {
+      console.error('[Payments] Error forcing status update:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to update payment status' 
+      });
+    }
+  });
+
+  /**
+   * GET /api/payments/reconciliation/pending
+   * Admin endpoint to find stuck payments that have been pending too long
+   * Returns payments that are still "pending" after a threshold time (default 1 hour)
+   * Requires admin authentication
+   */
+  router.get('/api/payments/reconciliation/pending', requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const thresholdMinutes = parseInt(req.query.thresholdMinutes as string) || 60;
+      const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000);
+
+      // Query for pending payments older than threshold
+      const { data: pendingPayments, error } = await storage.supabase
+        .from('payments')
+        .select(`
+          id,
+          transaction_id,
+          amount,
+          status,
+          created_at,
+          member_id,
+          metadata
+        `)
+        .eq('status', 'pending')
+        .lt('created_at', thresholdDate.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        throw error;
+      }
+
+      // Enrich with member details
+      const enrichedPayments = await Promise.all(
+        (pendingPayments || []).map(async (payment) => {
+          let member = null;
+          if (payment.member_id) {
+            try {
+              member = await storage.getMember(payment.member_id);
+            } catch (err) {
+              console.warn('[Payments Reconciliation] Could not fetch member', { memberId: payment.member_id });
+            }
+          }
+
+          return {
+            ...payment,
+            ageMinutes: Math.floor((Date.now() - new Date(payment.created_at).getTime()) / 60000),
+            member: member ? {
+              id: member.id,
+              firstName: member.firstName,
+              lastName: member.lastName,
+              email: member.email,
+              status: member.status
+            } : null
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        thresholdMinutes,
+        count: enrichedPayments.length,
+        payments: enrichedPayments
+      });
+    } catch (error: any) {
+      console.error('[Payments] Error fetching pending payments:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to fetch pending payments' 
+      });
+    }
+  });
+
+  /**
+   * POST /api/payments/reconciliation/batch-update
+   * Admin endpoint to batch update stuck payments
+   * Accepts array of payment IDs or transaction IDs with their new statuses
+   * Requires admin authentication
+   */
+  router.post('/api/payments/reconciliation/batch-update', requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { updates, reason } = req.body;
+
+      if (!Array.isArray(updates) || updates.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'updates array is required' 
+        });
+      }
+
+      const results = {
+        succeeded: [] as any[],
+        failed: [] as any[]
+      };
+
+      for (const update of updates) {
+        try {
+          const { paymentId, transactionId, newStatus } = update;
+
+          if (!paymentId && !transactionId) {
+            results.failed.push({
+              update,
+              error: 'Either paymentId or transactionId is required'
+            });
+            continue;
+          }
+
+          if (!newStatus || !['succeeded', 'failed', 'pending'].includes(newStatus)) {
+            results.failed.push({
+              update,
+              error: 'Valid newStatus required'
+            });
+            continue;
+          }
+
+          let payment;
+          if (paymentId) {
+            payment = await storage.getPayment(paymentId);
+          } else if (transactionId) {
+            payment = await storage.getPaymentByTransactionId(transactionId);
+          }
+
+          if (!payment) {
+            results.failed.push({
+              update,
+              error: 'Payment not found'
+            });
+            continue;
+          }
+
+          const oldStatus = payment.status;
+
+          await storage.updatePayment(payment.id, {
+            status: newStatus,
+            metadata: {
+              ...(payment.metadata || {}),
+              batchStatusUpdate: {
+                updatedBy: req.user?.email || 'admin',
+                updatedAt: new Date().toISOString(),
+                oldStatus,
+                newStatus,
+                reason: reason || 'Batch reconciliation update',
+                paymentId: payment.id,
+                transactionId: payment.transaction_id
+              }
+            }
+          });
+
+          // If status changed to succeeded, activate member
+          if (newStatus === 'succeeded' && payment.member_id && oldStatus !== 'succeeded') {
+            try {
+              await storage.updateMember(Number(payment.member_id), {
+                status: 'active',
+                isActive: true,
+                firstPaymentDate: payment.created_at || new Date().toISOString()
+              });
+            } catch (memberError) {
+              console.error('[Payments] Failed to activate member in batch update', memberError);
+            }
+          }
+
+          results.succeeded.push({
+            paymentId: payment.id,
+            transactionId: payment.transaction_id,
+            oldStatus,
+            newStatus
+          });
+        } catch (updateError: any) {
+          results.failed.push({
+            update,
+            error: updateError.message
+          });
+        }
+      }
+
+      console.log('[Payments] Batch reconciliation update completed', {
+        total: updates.length,
+        succeeded: results.succeeded.length,
+        failed: results.failed.length,
+        updatedBy: req.user?.email || 'admin'
+      });
+
+      res.json({
+        success: true,
+        results
+      });
+    } catch (error: any) {
+      console.error('[Payments] Error in batch update:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to perform batch update' 
+      });
+    }
+  });
+
+  /**
+   * GET /api/admin/member/:memberId/sensitive
+   * Admin-only endpoint to view sensitive member data (SSN, bank info, etc.)
+   * Returns decrypted data with audit logging
+   * Requires admin/super_admin authentication
+   */
+  router.get('/api/admin/member/:memberId/sensitive', requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const { memberId } = req.params;
+      const { reason } = req.query;
+
+      if (!memberId) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Member ID is required' 
+        });
+      }
+
+      const member = await storage.getMember(Number(memberId));
+
+      if (!member) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'Member not found' 
+        });
+      }
+
+      // Decrypt sensitive data
+      let decryptedSSN = null;
+      let maskedSSN = null;
+      if (member.ssn) {
+        try {
+          const { decryptSSN, maskSSN } = await import('./utils/encryption');
+          decryptedSSN = decryptSSN(member.ssn);
+          maskedSSN = maskSSN(member.ssn);
+        } catch (decryptError) {
+          console.error('[Admin] Failed to decrypt SSN', { memberId, error: decryptError });
+          // SSN might be legacy plaintext - just mask it
+          maskedSSN = member.ssn.replace(/\d(?=\d{4})/g, '*');
+        }
+      }
+
+      // Log access for audit trail
+      const accessLog = {
+        adminEmail: req.user?.email || 'unknown',
+        adminId: req.user?.id || 'unknown',
+        memberId: member.id,
+        memberEmail: member.email,
+        customerNumber: member.customerNumber,
+        accessedAt: new Date().toISOString(),
+        reason: reason || 'No reason provided',
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      };
+
+      console.log('[Admin Sensitive Data Access]', accessLog);
+
+      // Store audit log in database (if admin_logs table exists)
+      try {
+        await storage.supabase.from('admin_logs').insert({
+          log_type: 'sensitive_data_access',
+          admin_id: req.user?.id,
+          admin_email: req.user?.email,
+          member_id: memberId,
+          action: 'view_sensitive_member_data',
+          reason: reason || null,
+          metadata: {
+            fields_accessed: ['ssn', 'bank_info'],
+            customer_number: member.customerNumber,
+            member_email: member.email
+          },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent'),
+          created_at: new Date().toISOString()
+        });
+      } catch (logError) {
+        // If admin_logs table doesn't exist, just console log
+        console.warn('[Admin] Could not save audit log to database', logError);
+      }
+
+      res.json({
+        success: true,
+        member: {
+          id: member.id,
+          customerNumber: member.customerNumber,
+          memberPublicId: member.memberPublicId,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          email: member.email,
+          phone: member.phone,
+          dateOfBirth: member.dateOfBirth
+        },
+        sensitiveData: {
+          ssn: {
+            decrypted: decryptedSSN,
+            masked: maskedSSN,
+            warning: 'This data is logged and monitored'
+          },
+          bankInfo: {
+            routingNumber: member.bankRoutingNumber || null,
+            accountLastFour: member.bankAccountLastFour || null,
+            accountType: member.bankAccountType || null,
+            accountHolderName: member.bankAccountHolderName || null
+          }
+        },
+        auditLog: {
+          accessedBy: req.user?.email,
+          accessedAt: new Date().toISOString(),
+          reason: reason || 'No reason provided'
+        }
+      });
+    } catch (error: any) {
+      console.error('[Admin] Error accessing sensitive member data:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Failed to retrieve sensitive data' 
+      });
+    }
+  });
+
   // Log the new routes
   console.log("[Route] POST /api/registration");
   console.log("[Route] POST /api/agent/enrollment");
+  console.log("[Route] POST /api/family-enrollment");
   console.log("[Route] GET /api/agent/:agentId");
   console.log("[Route] GET /api/agent/enrollments");
   console.log("[Route] GET /api/agent/stats"); 
@@ -5996,6 +6572,10 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/user");
   console.log("[Route] POST /api/send-confirmation-email");
   console.log("[Route] GET /api/payments/by-transaction/:transactionId");
+  console.log("[Route] POST /api/payments/force-status-update");
+  console.log("[Route] GET /api/payments/reconciliation/pending");
+  console.log("[Route] POST /api/payments/reconciliation/batch-update");
+  console.log("[Route] GET /api/admin/member/:memberId/sensitive");
 
   // Return the app with routes registered
   return app;

@@ -93,7 +93,9 @@ export const members = pgTable("members", {
   firstName: varchar("first_name", { length: 50 }).notNull(),
   lastName: varchar("last_name", { length: 50 }).notNull(),
   middleName: varchar("middle_name", { length: 50 }),
-  email: varchar("email", { length: 100 }).unique().notNull(),
+  // Email: NOT unique to allow household members to share one email
+  // Members do not authenticate - email is for communication only
+  email: varchar("email", { length: 100 }).notNull(),
   // Phone: US numbers - stored as digits only, but allow extra space for formatting during input
   phone: varchar("phone", { length: 20 }), // Allow formatted input, backend strips to 10 digits
   // Date of Birth: MMDDYYYY format (8 chars: 01151990 = Jan 15, 1990)

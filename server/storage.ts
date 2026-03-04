@@ -2,6 +2,7 @@ import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import { normalizeRole } from './auth/roles';
 import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
+import { encryptSSN, decryptSSN, maskSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data
@@ -6232,8 +6233,8 @@ export const storage = {
         dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
         dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
         planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
-        // Format SSN to 9 digits (plain text storage for non-insurance DPC)
-        ssn: memberData.ssn ? formatSSN(memberData.ssn) : null,
+        // Encrypt SSN before storage - validate and encrypt with AES-256-GCM
+        ssn: memberData.ssn ? encryptSSN(memberData.ssn) : null,
         // Format ZIP to 5 digits
         zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
         // Ensure state is uppercase 2 chars
@@ -6360,7 +6361,48 @@ export const storage = {
   getMember: async (id: number): Promise<Member | undefined> => {
     try {
       const result = await query('SELECT * FROM members WHERE id = $1', [id]);
-      return result.rows[0];
+      const row = result.rows[0];
+      if (!row) return undefined;
+      
+      // Map snake_case to camelCase for consistency
+      return {
+        ...row,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        middleName: row.middle_name,
+        customerNumber: row.customer_number,
+        memberPublicId: row.member_public_id,
+        dateOfBirth: row.date_of_birth,
+        zipCode: row.zip_code,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactPhone: row.emergency_contact_phone,
+        employerName: row.employer_name,
+        divisionName: row.division_name,
+        memberType: row.member_type,
+        dateOfHire: row.date_of_hire,
+        planStartDate: row.plan_start_date,
+        enrolledByAgentId: row.enrolled_by_agent_id,
+        agentNumber: row.agent_number,
+        enrollmentDate: row.enrollment_date,
+        firstPaymentDate: row.first_payment_date,
+        membershipStartDate: row.membership_start_date,
+        paymentToken: row.payment_token,
+        paymentMethodType: row.payment_method_type,
+        isActive: row.is_active,
+        cancellationDate: row.cancellation_date,
+        cancellationReason: row.cancellation_reason,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        planId: row.plan_id,
+        coverageType: row.coverage_type,
+        totalMonthlyPrice: row.total_monthly_price,
+        addRxValet: row.add_rx_valet,
+        bankRoutingNumber: row.bank_routing_number,
+        bankAccountNumber: row.bank_account_number,
+        bankAccountType: row.bank_account_type,
+        bankAccountHolderName: row.bank_account_holder_name,
+        bankAccountLastFour: row.bank_account_last_four
+      };
     } catch (error: any) {
       console.error('[Storage] Error fetching member:', error);
       throw new Error(`Failed to get member: ${error.message}`);
@@ -6370,7 +6412,48 @@ export const storage = {
   getMemberByEmail: async (email: string): Promise<Member | undefined> => {
     try {
       const result = await query('SELECT * FROM members WHERE email = $1', [email]);
-      return result.rows[0];
+      const row = result.rows[0];
+      if (!row) return undefined;
+      
+      // Map snake_case to camelCase for consistency
+      return {
+        ...row,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        middleName: row.middle_name,
+        customerNumber: row.customer_number,
+        memberPublicId: row.member_public_id,
+        dateOfBirth: row.date_of_birth,
+        zipCode: row.zip_code,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactPhone: row.emergency_contact_phone,
+        employerName: row.employer_name,
+        divisionName: row.division_name,
+        memberType: row.member_type,
+        dateOfHire: row.date_of_hire,
+        planStartDate: row.plan_start_date,
+        enrolledByAgentId: row.enrolled_by_agent_id,
+        agentNumber: row.agent_number,
+        enrollmentDate: row.enrollment_date,
+        firstPaymentDate: row.first_payment_date,
+        membershipStartDate: row.membership_start_date,
+        paymentToken: row.payment_token,
+        paymentMethodType: row.payment_method_type,
+        isActive: row.is_active,
+        cancellationDate: row.cancellation_date,
+        cancellationReason: row.cancellation_reason,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        planId: row.plan_id,
+        coverageType: row.coverage_type,
+        totalMonthlyPrice: row.total_monthly_price,
+        addRxValet: row.add_rx_valet,
+        bankRoutingNumber: row.bank_routing_number,
+        bankAccountNumber: row.bank_account_number,
+        bankAccountType: row.bank_account_type,
+        bankAccountHolderName: row.bank_account_holder_name,
+        bankAccountLastFour: row.bank_account_last_four
+      };
     } catch (error: any) {
       console.error('[Storage] Error fetching member by email:', error);
       throw new Error(`Failed to get member: ${error.message}`);
@@ -6380,7 +6463,48 @@ export const storage = {
   getMemberByCustomerNumber: async (customerNumber: string): Promise<Member | undefined> => {
     try {
       const result = await query('SELECT * FROM members WHERE customer_number = $1', [customerNumber]);
-      return result.rows[0];
+      const row = result.rows[0];
+      if (!row) return undefined;
+      
+      // Map snake_case to camelCase for consistency
+      return {
+        ...row,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        middleName: row.middle_name,
+        customerNumber: row.customer_number,
+        memberPublicId: row.member_public_id,
+        dateOfBirth: row.date_of_birth,
+        zipCode: row.zip_code,
+        emergencyContactName: row.emergency_contact_name,
+        emergencyContactPhone: row.emergency_contact_phone,
+        employerName: row.employer_name,
+        divisionName: row.division_name,
+        memberType: row.member_type,
+        dateOfHire: row.date_of_hire,
+        planStartDate: row.plan_start_date,
+        enrolledByAgentId: row.enrolled_by_agent_id,
+        agentNumber: row.agent_number,
+        enrollmentDate: row.enrollment_date,
+        firstPaymentDate: row.first_payment_date,
+        membershipStartDate: row.membership_start_date,
+        paymentToken: row.payment_token,
+        paymentMethodType: row.payment_method_type,
+        isActive: row.is_active,
+        cancellationDate: row.cancellation_date,
+        cancellationReason: row.cancellation_reason,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        planId: row.plan_id,
+        coverageType: row.coverage_type,
+        totalMonthlyPrice: row.total_monthly_price,
+        addRxValet: row.add_rx_valet,
+        bankRoutingNumber: row.bank_routing_number,
+        bankAccountNumber: row.bank_account_number,
+        bankAccountType: row.bank_account_type,
+        bankAccountHolderName: row.bank_account_holder_name,
+        bankAccountLastFour: row.bank_account_last_four
+      };
     } catch (error: any) {
       console.error('[Storage] Error fetching member by customer number:', error);
       throw new Error(`Failed to get member: ${error.message}`);
@@ -6426,7 +6550,7 @@ export const storage = {
         dateOfBirth: data.dateOfBirth ? formatDateMMDDYYYY(data.dateOfBirth) : undefined,
         dateOfHire: data.dateOfHire ? formatDateMMDDYYYY(data.dateOfHire) : undefined,
         planStartDate: data.planStartDate ? formatDateMMDDYYYY(data.planStartDate) : undefined,
-        ssn: data.ssn ? formatSSN(data.ssn) : undefined,
+        ssn: data.ssn ? encryptSSN(data.ssn) : undefined,
         zipCode: data.zipCode ? formatZipCode(data.zipCode) : undefined,
         state: data.state?.toUpperCase().slice(0, 2),
         gender: data.gender?.toUpperCase().slice(0, 1),
