@@ -1524,10 +1524,19 @@ router.get(
       
       // Limit the results if specified
       const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
+
+      // Mask SSN for agent view (show only last 4 digits)
+      const { decryptSSN, maskSSN } = await import('./utils/encryption');
+      const maskedEnrollments = limitedEnrollments.map((enrollment) => {
+        return {
+          ...enrollment,
+          ssn: enrollment.ssn ? maskSSN(decryptSSN(enrollment.ssn)) : null,
+        };
+      });
+
+      console.log("✅ Got", maskedEnrollments?.length || 0, "enrollments for agent");
       
-      console.log("✅ Got", limitedEnrollments?.length || 0, "enrollments for agent");
-      
-      res.json(limitedEnrollments);
+      res.json(maskedEnrollments);
     } catch (error) {
       console.error("❌ Error fetching user enrollments:", error);
       res.status(500).json({ message: "Failed to fetch enrollments" });
@@ -2936,7 +2945,18 @@ router.get(
 
       // Ensure we always return an array
       const safeEnrollments = Array.isArray(enrollments) ? enrollments : [];
-      res.json(safeEnrollments);
+
+      // Decrypt SSN for admin view (full SSN)
+      const { decryptSSN, formatSSN } = await import('./utils/encryption');
+      const enrichedEnrollments = safeEnrollments.map((enrollment) => {
+        const decrypted = enrollment.ssn ? decryptSSN(enrollment.ssn) : null;
+        return {
+          ...enrollment,
+          ssn: decrypted ? formatSSN(decrypted) : null,
+        };
+      });
+
+      res.json(enrichedEnrollments);
     } catch (error) {
       console.error("Error fetching enrollments:", error);
       res
@@ -2964,7 +2984,19 @@ router.get(
       if (!enrollment) {
         return res.status(404).json({ message: "Enrollment not found" });
       }
-      res.json(enrollment);
+
+      const { decryptSSN, formatSSN } = await import('./utils/encryption');
+      const decryptedSSN = enrollment.ssn ? formatSSN(decryptSSN(enrollment.ssn)) : null;
+      const familyWithMaskedSSN = (enrollment.familyMembers || []).map((fm: any) => {
+        const decrypted = fm.ssn ? formatSSN(decryptSSN(fm.ssn)) : null;
+        return { ...fm, ssn: decrypted };
+      });
+
+      res.json({
+        ...enrollment,
+        ssn: decryptedSSN,
+        familyMembers: familyWithMaskedSSN,
+      });
     } catch (error: any) {
       console.error("Error fetching enrollment details:", error);
       res.status(500).json({ message: "Failed to load enrollment", error: error.message });
@@ -3402,15 +3434,25 @@ router.get(
       const allMembers = [...enrolledUsers, ...additionalUsers];
 
       // Get subscription info for each member
+      const { decryptSSN, maskSSN } = await import('./utils/encryption');
+
       const membersWithDetails = await Promise.all(
         allMembers.map(async (member) => {
           const subscription = await storage.getUserSubscription(member.id);
           const familyMembers = await storage.getFamilyMembers(member.id);
 
+          // Mask SSN for agents (show only last 4)
+          const memberSSN = member.ssn ? maskSSN(decryptSSN(member.ssn)) : null;
+          const maskedFamily = familyMembers.map((fm: any) => ({
+            ...fm,
+            ssn: fm.ssn ? maskSSN(decryptSSN(fm.ssn)) : null,
+          }));
+
           return {
             ...member,
+            ssn: memberSSN,
             subscription,
-            familyMembers,
+            familyMembers: maskedFamily,
             totalFamilyMembers: familyMembers.length,
           };
         }),
