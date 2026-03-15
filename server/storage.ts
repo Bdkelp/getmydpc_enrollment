@@ -3685,16 +3685,12 @@ export async function markCommissionsAsPaid(commissionIds: string[], paymentDate
       firstIdType: typeof commissionIds[0]
     });
 
-    // Convert string IDs to integers for database query
-    const intIds = commissionIds.map(id => {
-      const parsed = parseInt(id, 10);
-      if (isNaN(parsed)) {
-        throw new Error(`Invalid commission ID: ${id}`);
-      }
-      return parsed;
-    });
-    
-    console.log('[Storage] Converted IDs:', intIds);
+    // Validate that we have commission IDs
+    if (!commissionIds || commissionIds.length === 0) {
+      throw new Error('No commission IDs provided');
+    }
+
+    console.log('[Storage] Commission IDs to update:', commissionIds);
 
     const updateData = {
       payment_status: 'paid',
@@ -3706,7 +3702,7 @@ export async function markCommissionsAsPaid(commissionIds: string[], paymentDate
     const { data, error } = await supabase
       .from('agent_commissions')
       .update(updateData)
-      .in('id', intIds)
+      .in('id', commissionIds)
       .select();
 
     if (error) {
