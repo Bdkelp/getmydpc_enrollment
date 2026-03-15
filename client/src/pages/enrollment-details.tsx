@@ -168,6 +168,9 @@ export default function EnrollmentDetails() {
     email: '',
     phone: ''
   });
+  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
+  const [newPaymentStatus, setNewPaymentStatus] = useState('');
+  const [paymentUpdateNote, setPaymentUpdateNote] = useState('');
   
   // Fetch enrollment details
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({
@@ -1286,3 +1289,4 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
       </Dialog>
     </div>
   );
+}
