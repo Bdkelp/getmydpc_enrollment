@@ -83,6 +83,9 @@ const registrationSchema = z.object({
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
   dateOfHire: z.string().optional(),
+  ssn: z.string().optional().refine((val) => !val || /^\d{9}$/.test(val), {
+    message: "SSN must be 9 digits (numbers only)"
+  }),
   memberType: z.string().min(1, "Member type is required"),
   planStartDate: z.string()
     .min(1, "Plan start date is required")
@@ -247,6 +250,7 @@ export default function Registration() {
         state: data.state,
         zipCode: data.zipCode,
         emergencyContactName: data.emergencyContactName,
+        ssn: data.ssn || null,
         emergencyContactPhone: data.emergencyContactPhone,
         employerName: data.employerName,
         divisionName: data.divisionName,
@@ -702,6 +706,32 @@ export default function Registration() {
                                   const formatted = formatPhoneNumber(e.target.value);
                                   const cleaned = cleanPhoneNumber(formatted);
                                   field.onChange(cleaned);
+                                }}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <FormField
+                        control={form.control}
+                        name="ssn"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>SSN (Optional)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="tel"
+                                placeholder="123-45-6789"
+                                maxLength={11}
+                                {...field}
+                                value={formatSSN(field.value || "")}
+                                onChange={(e) => {
+                                  const formatted = formatSSN(e.target.value);
+                                  field.onChange(cleanSSN(formatted));
                                 }}
                               />
                             </FormControl>
@@ -1203,14 +1233,15 @@ export default function Registration() {
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-2">SSN (Optional)</label>
                           <Input 
-                            type="password" 
-                            placeholder="123456789 (Optional)" 
-                            maxLength={9}
-                            value={familyMembers[0]?.ssn || ""} 
+                            type="tel" 
+                            placeholder="123-45-6789" 
+                            maxLength={11}
+                            value={formatSSN(familyMembers[0]?.ssn || "")} 
                             onChange={(e) => {
                               const updated = [...familyMembers];
                               if (!updated[0]) updated[0] = {};
-                              updated[0].ssn = e.target.value;
+                              const formatted = formatSSN(e.target.value);
+                              updated[0].ssn = cleanSSN(formatted);
                               setFamilyMembers(updated);
                             }}
                           />
@@ -1340,15 +1371,16 @@ export default function Registration() {
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">SSN (Optional)</label>
                                 <Input 
-                                  type="password" 
-                                  placeholder="123456789 (Optional)" 
-                                  maxLength={9}
-                                  value={child.ssn || ""} 
+                                  type="tel" 
+                                  placeholder="123-45-6789" 
+                                  maxLength={11}
+                                  value={formatSSN(child.ssn || "")} 
                                   onChange={(e) => {
                                     const updated = [...familyMembers];
+                                    const formatted = formatSSN(e.target.value);
                                     updated[childIndex] = {
                                       ...updated[childIndex],
-                                      ssn: e.target.value
+                                      ssn: cleanSSN(formatted)
                                     };
                                     setFamilyMembers(updated);
                                   }}
