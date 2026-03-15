@@ -63,6 +63,7 @@ interface EnrollmentDetails {
   // Plan Info
   planId: number;
   planName: string;
+  planPrice?: number | string;
   memberType: string;
   planStartDate: string;
   totalMonthlyPrice: number;
@@ -455,8 +456,9 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
   const formattedPhone = formatPhoneDisplay(enrollment.phone, "Not provided");
   const formattedEmergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
   const canAddFamilyMembersCta = canManageFamilyMembers(enrollment.memberType);
-  const monthlyPremiumDisplay = typeof enrollment.totalMonthlyPrice === "number"
-    ? enrollment.totalMonthlyPrice.toFixed(2)
+  const monthlyPremiumValue = Number(enrollment.totalMonthlyPrice ?? enrollment.planPrice ?? 0);
+  const monthlyPremiumDisplay = Number.isFinite(monthlyPremiumValue)
+    ? monthlyPremiumValue.toFixed(2)
     : "0.00";
   const nextBillingDateLabel = (() => {
     const startDate = parseFlexibleDate(enrollment.planStartDate);

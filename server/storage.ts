@@ -265,6 +265,7 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
     dateOfHire: row.date_of_hire,
     planId: row.plan_id,
     planName: row.plan_name || null,
+    planPrice: row.plan_price,
     memberType: row.coverage_type || row.member_type,
     planStartDate: row.plan_start_date,
     totalMonthlyPrice: row.total_monthly_price,
@@ -292,7 +293,7 @@ export async function getEnrollmentDetails(enrollmentId: number) {
   }
 
   const memberResult = await query(
-    `SELECT m.*, p.name AS plan_name
+    `SELECT m.*, p.name AS plan_name, p.price AS plan_price
      FROM members m
      LEFT JOIN plans p ON p.id = m.plan_id
      WHERE m.id = $1
