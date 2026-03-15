@@ -1239,7 +1239,6 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
           </TabsContent>
         </Tabs>
       </div>
-    </div>
 
     {/* Schedule Commission Dialog */}
     <Dialog open={showScheduleCommissionDialog} onOpenChange={setShowScheduleCommissionDialog}>
