@@ -1240,49 +1240,49 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
         </Tabs>
       </div>
 
-    {/* Schedule Commission Dialog */}
-    <Dialog open={showScheduleCommissionDialog} onOpenChange={setShowScheduleCommissionDialog}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Schedule Commission Payout</DialogTitle>
-          <DialogDescription>
-            Set a scheduled date for when this commission should be paid out to the agent.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="scheduled-date">Scheduled Payout Date</Label>
-            <Input
-              id="scheduled-date"
-              type="date"
-              value={scheduledCommissionDate}
-              onChange={(e) => setScheduledCommissionDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
-            />
+      {/* Schedule Commission Dialog */}
+      <Dialog open={showScheduleCommissionDialog} onOpenChange={setShowScheduleCommissionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Schedule Commission Payout</DialogTitle>
+            <DialogDescription>
+              Set a scheduled date for when this commission should be paid out to the agent.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="scheduled-date">Scheduled Payout Date</Label>
+              <Input
+                id="scheduled-date"
+                type="date"
+                value={scheduledCommissionDate}
+                onChange={(e) => setScheduledCommissionDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+              />
+            </div>
           </div>
-        </div>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setShowScheduleCommissionDialog(false);
-              setScheduledCommissionDate('');
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              createCommissionMutation.mutate({ scheduledDate: scheduledCommissionDate });
-              setShowScheduleCommissionDialog(false);
-              setScheduledCommissionDate('');
-            }}
-            disabled={createCommissionMutation.isPending || !scheduledCommissionDate}
-          >
-            {createCommissionMutation.isPending ? 'Scheduling...' : 'Schedule Commission'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowScheduleCommissionDialog(false);
+                setScheduledCommissionDate('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                createCommissionMutation.mutate({ scheduledDate: scheduledCommissionDate });
+                setShowScheduleCommissionDialog(false);
+                setScheduledCommissionDate('');
+              }}
+              disabled={createCommissionMutation.isPending || !scheduledCommissionDate}
+            >
+              {createCommissionMutation.isPending ? 'Scheduling...' : 'Schedule Commission'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
-}
