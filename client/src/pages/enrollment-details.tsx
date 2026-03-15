@@ -155,9 +155,8 @@ export default function EnrollmentDetails() {
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [editedContact, setEditedContact] = useState<any>({});
   const [editedAddress, setEditedAddress] = useState<any>({});
-  const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
-  const [newPaymentStatus, setNewPaymentStatus] = useState<string>('');
-  const [paymentUpdateNote, setPaymentUpdateNote] = useState<string>('');
+  const [showScheduleCommissionDialog, setShowScheduleCommissionDialog] = useState(false);
+  const [scheduledCommissionDate, setScheduledCommissionDate] = useState('');
   const [showAddFamilyDialog, setShowAddFamilyDialog] = useState(false);
   const [newFamilyMember, setNewFamilyMember] = useState({
     firstName: '',
@@ -263,22 +262,23 @@ export default function EnrollmentDetails() {
 
   // Create commission mutation
   const createCommissionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (data?: { scheduledDate?: string }) => {
       return apiRequest(`/api/admin/members/${enrollmentId}/create-commission`, {
         method: "POST",
+        body: JSON.stringify({ scheduledDate: data?.scheduledDate }),
       });
     },
     onSuccess: (data: any) => {
       toast({
-        title: "Commission Created",
-        description: `Commission of $${data.commission?.amount?.toFixed(2) || '0.00'} has been created for agent ${data.commission?.agentNumber || 'N/A'}`,
+        title: "Commission Scheduled",
+        description: `Commission of $${data.commission?.amount?.toFixed(2) || '0.00'} has been scheduled for agent ${data.commission?.agentNumber || 'N/A'}`,
       });
       queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
     },
     onError: (error: any) => {
       toast({
-        title: "Failed to Create Commission",
-        description: error.message || "Could not create commission for this member.",
+        title: "Failed to Schedule Commission",
+        description: error.message || "Could not schedule commission for this member.",
         variant: "destructive",
       });
     },
@@ -1205,16 +1205,16 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   <div>
                     <Label className="text-sm font-semibold">Commission Management</Label>
                     <p className="text-sm text-gray-600 mb-2">
-                      If this enrollment is missing a commission, you can manually create it here.
+                      Schedule commission payouts for this enrollment.
                     </p>
                     <Button
-                      onClick={() => createCommissionMutation.mutate()}
+                      onClick={() => setShowScheduleCommissionDialog(true)}
                       disabled={createCommissionMutation.isPending}
                       variant="outline"
                       size="sm"
                     >
                       <DollarSign className="h-4 w-4 mr-2" />
-                      {createCommissionMutation.isPending ? 'Creating...' : 'Create Commission'}
+                      {createCommissionMutation.isPending ? 'Scheduling...' : 'Schedule Commission'}
                     </Button>
                   </div>
                   
@@ -1240,5 +1240,50 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
         </Tabs>
       </div>
     </div>
+
+    {/* Schedule Commission Dialog */}
+    <Dialog open={showScheduleCommissionDialog} onOpenChange={setShowScheduleCommissionDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Schedule Commission Payout</DialogTitle>
+          <DialogDescription>
+            Set a scheduled date for when this commission should be paid out to the agent.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="scheduled-date">Scheduled Payout Date</Label>
+            <Input
+              id="scheduled-date"
+              type="date"
+              value={scheduledCommissionDate}
+              onChange={(e) => setScheduledCommissionDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowScheduleCommissionDialog(false);
+              setScheduledCommissionDate('');
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              createCommissionMutation.mutate({ scheduledDate: scheduledCommissionDate });
+              setShowScheduleCommissionDialog(false);
+              setScheduledCommissionDate('');
+            }}
+            disabled={createCommissionMutation.isPending || !scheduledCommissionDate}
+          >
+            {createCommissionMutation.isPending ? 'Scheduling...' : 'Schedule Commission'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

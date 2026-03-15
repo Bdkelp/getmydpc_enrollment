@@ -2384,6 +2384,8 @@ router.post('/api/admin/members/:id/create-commission', authenticateToken, async
       });
     }
 
+    const { scheduledDate } = req.body;
+
     // Create commission
     const { data: newCommission, error: commissionError } = await supabase
       .from('agent_commissions')
@@ -2396,7 +2398,8 @@ router.post('/api/admin/members/:id/create-commission', authenticateToken, async
         status: 'pending' as const,
         payment_status: 'unpaid' as const,
         base_premium: commissionResult.totalCost,
-        notes: `Commission created manually by admin (${req.user.email}) - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`
+        scheduled_date: scheduledDate ? new Date(scheduledDate).toISOString() : null,
+        notes: `Commission created manually by admin (${req.user.email}) - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}${scheduledDate ? `, Scheduled: ${scheduledDate}` : ''}`
       })
       .select()
       .single();
