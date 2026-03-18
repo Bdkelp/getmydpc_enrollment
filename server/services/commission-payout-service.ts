@@ -10,7 +10,7 @@
  */
 
 import { supabase } from '../lib/supabaseClient';
-import { calculatePaymentEligibleDate } from './commission-payment-calculator';
+import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
 
 interface CreatePayoutParams {
   commissionId: string; // UUID
@@ -86,9 +86,7 @@ export async function createMonthlyPayout(params: CreatePayoutParams): Promise<a
       override_for_agent_id: overrideForAgentId || null,
       member_payment_id: memberPaymentId || null,
       epx_transaction_id: epxTransactionId || null,
-      notes: `${commissionType === 'override' ? 'Override commission' : 'Direct commission'} cyment_id: memberPaymentId || null,
-      epx_transaction_id: epxTransactionId || null,
-      notes: `Created via EPX payment capture on ${new Date().toISOString()}`
+      notes: `${commissionType === 'override' ? 'Override commission' : 'Direct commission'} created via EPX payment capture on ${new Date().toISOString()}`
     })
     .select()
     .single();
