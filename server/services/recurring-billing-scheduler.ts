@@ -22,6 +22,7 @@ import {
   type BillableSubscription,
 } from '../storage';
 import { submitServerPostRecurringPayment } from './epx-payment-service';
+import { persistRecurringPostSuccess } from './recurring-post-success-persistence';
 
 const LOG_PREFIX = '[Recurring Billing]';
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
@@ -119,7 +120,7 @@ async function runBillingCycle(): Promise<void> {
       const nextBilling = subRow?.next_billing_date ? new Date(subRow.next_billing_date) : null;
       const staleBillingDate = new Date(stale.billingDate);
 
-      const paymentExists = !!payment && payment.status === 'completed';
+      const paymentExists = !!payment && (payment.status === 'completed' || payment.status === 'succeeded');
       const dateAdvanced = nextBilling !== null && nextBilling > staleBillingDate;
 
       if (paymentExists || dateAdvanced) {
@@ -264,18 +265,46 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
     });
 
     if (result.success) {
-      // Update log to success
+      const persistenceResult = await persistRecurringPostSuccess({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        amount: sub.amount,
+        billedCycleDate: billingDate,
+        transactionId,
+        epxAuthCode: result.responseFields?.AUTH_CODE || null,
+        epxResponseCode: result.responseFields?.AUTH_RESP || null,
+        epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
+        paymentCapturedAt: new Date(),
+      });
+
+      if (!persistenceResult.success) {
+        await updateRecurringBillingLog(logId, {
+          status: 'failed',
+          epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
+          epxAuthCode: result.responseFields?.AUTH_CODE || null,
+          epxResponseCode: result.responseFields?.AUTH_RESP || null,
+          epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
+          failureReason: persistenceResult.failureReason || 'Post-success persistence failed',
+          processedAt: new Date().toISOString(),
+        });
+
+        console.error(
+          `${LOG_PREFIX} ❌ Controlled persistence failure for subscription ${sub.subscriptionId}: ` +
+          `${persistenceResult.failureReason || 'unknown reason'}`
+        );
+        return;
+      }
+
+      // Update log to success only after payment persistence + billing advancement + payout creation succeed.
       await updateRecurringBillingLog(logId, {
         status: 'success',
+        paymentId: persistenceResult.paymentId,
         epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
         epxAuthCode: result.responseFields?.AUTH_CODE || null,
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
         epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
         processedAt: new Date().toISOString(),
       });
-
-      // NOTE: Scheduler does NOT advance next_billing_date.
-      // The EPX webhook (epx-hosted-routes.ts) is the sole owner of that field.
 
       console.log(
         `${LOG_PREFIX} ✅ Charged subscription ${sub.subscriptionId} — $${sub.amount} — ` +
