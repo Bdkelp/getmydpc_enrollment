@@ -4385,6 +4385,201 @@ export async function getActiveSubscriptions(): Promise<Subscription[]> {
 
 // Payment operations
 
+// ============================================================
+// Recurring Billing Scheduler — Query & Log helpers
+// ============================================================
+
+export interface BillableSubscription {
+  subscriptionId: number;
+  memberId: number;
+  planId: number;
+  amount: string;
+  nextBillingDate: string;
+  tokenId: number;
+  bricToken: string;
+  paymentMethodType: string;
+  cardLastFour: string | null;
+  cardType: string | null;
+  memberEmail: string | null;
+  memberFirstName: string | null;
+  memberLastName: string | null;
+}
+
+export async function getSubscriptionsDueForBilling(now: Date): Promise<BillableSubscription[]> {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select(`
+      id,
+      member_id,
+      plan_id,
+      amount,
+      next_billing_date,
+      payment_tokens!inner (
+        id,
+        bric_token,
+        payment_method_type,
+        card_last_four,
+        card_type,
+        is_active
+      ),
+      members!inner (
+        email,
+        first_name,
+        last_name
+      )
+    `)
+    .eq('status', 'active')
+    .lte('next_billing_date', now.toISOString())
+    .eq('payment_tokens.is_active', true)
+    .eq('payment_tokens.payment_method_type', 'CreditCard');
+
+  if (error) {
+    console.error('[Recurring Billing] Error querying due subscriptions:', error);
+    throw new Error(`Failed to query due subscriptions: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) return [];
+
+  return data.map((row: any) => {
+    const token = Array.isArray(row.payment_tokens) ? row.payment_tokens[0] : row.payment_tokens;
+    const member = Array.isArray(row.members) ? row.members[0] : row.members;
+    return {
+      subscriptionId: row.id,
+      memberId: row.member_id,
+      planId: row.plan_id,
+      amount: row.amount,
+      nextBillingDate: row.next_billing_date,
+      tokenId: token.id,
+      bricToken: token.bric_token,
+      paymentMethodType: token.payment_method_type,
+      cardLastFour: token.card_last_four,
+      cardType: token.card_type,
+      memberEmail: member?.email ?? null,
+      memberFirstName: member?.first_name ?? null,
+      memberLastName: member?.last_name ?? null,
+    };
+  });
+}
+
+export interface RecurringBillingLogEntry {
+  subscriptionId: number;
+  memberId: number;
+  paymentTokenId: number;
+  amount: string;
+  billingDate: string;
+  attemptNumber: number;
+  status: string;
+  epxTransactionId?: string | null;
+  epxAuthCode?: string | null;
+  epxResponseCode?: string | null;
+  epxResponseMessage?: string | null;
+  failureReason?: string | null;
+  nextRetryDate?: string | null;
+  paymentId?: number | null;
+  processedAt?: string | null;
+}
+
+export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry): Promise<number> {
+  const { data, error } = await supabase
+    .from('recurring_billing_log')
+    .insert({
+      subscription_id: entry.subscriptionId,
+      member_id: entry.memberId,
+      payment_token_id: entry.paymentTokenId,
+      amount: entry.amount,
+      billing_date: entry.billingDate,
+      attempt_number: entry.attemptNumber,
+      status: entry.status,
+      epx_transaction_id: entry.epxTransactionId ?? null,
+      epx_auth_code: entry.epxAuthCode ?? null,
+      epx_response_code: entry.epxResponseCode ?? null,
+      epx_response_message: entry.epxResponseMessage ?? null,
+      failure_reason: entry.failureReason ?? null,
+      next_retry_date: entry.nextRetryDate ?? null,
+      payment_id: entry.paymentId ?? null,
+      processed_at: entry.processedAt ?? null,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('[Recurring Billing] Error inserting billing log:', error);
+    throw new Error(`Failed to insert recurring billing log: ${error.message}`);
+  }
+
+  return data.id;
+}
+
+export async function updateRecurringBillingLog(
+  logId: number,
+  updates: Partial<RecurringBillingLogEntry>
+): Promise<void> {
+  const dbUpdates: Record<string, any> = {};
+  if (updates.status !== undefined) dbUpdates.status = updates.status;
+  if (updates.epxTransactionId !== undefined) dbUpdates.epx_transaction_id = updates.epxTransactionId;
+  if (updates.epxAuthCode !== undefined) dbUpdates.epx_auth_code = updates.epxAuthCode;
+  if (updates.epxResponseCode !== undefined) dbUpdates.epx_response_code = updates.epxResponseCode;
+  if (updates.epxResponseMessage !== undefined) dbUpdates.epx_response_message = updates.epxResponseMessage;
+  if (updates.failureReason !== undefined) dbUpdates.failure_reason = updates.failureReason;
+  if (updates.paymentId !== undefined) dbUpdates.payment_id = updates.paymentId;
+  if (updates.processedAt !== undefined) dbUpdates.processed_at = updates.processedAt;
+
+  const { error } = await supabase
+    .from('recurring_billing_log')
+    .update(dbUpdates)
+    .eq('id', logId);
+
+  if (error) {
+    console.error('[Recurring Billing] Error updating billing log:', error);
+    throw new Error(`Failed to update recurring billing log: ${error.message}`);
+  }
+}
+
+export async function hasExistingBillingLogEntry(
+  subscriptionId: number,
+  billingDate: string
+): Promise<{ exists: boolean; status?: string }> {
+  const { data, error } = await supabase
+    .from('recurring_billing_log')
+    .select('id, status')
+    .eq('subscription_id', subscriptionId)
+    .eq('billing_date', billingDate)
+    .in('status', ['success', 'pending'])
+    .limit(1);
+
+  if (error) {
+    console.error('[Recurring Billing] Error checking billing log:', error);
+    throw new Error(`Failed to check billing log: ${error.message}`);
+  }
+
+  if (data && data.length > 0) {
+    return { exists: true, status: data[0].status };
+  }
+  return { exists: false };
+}
+
+export async function getStalePendingBillingLogs(
+  staleThresholdMinutes: number
+): Promise<Array<{ id: number; subscriptionId: number; billingDate: string }>> {
+  const threshold = new Date(Date.now() - staleThresholdMinutes * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('recurring_billing_log')
+    .select('id, subscription_id, billing_date')
+    .eq('status', 'pending')
+    .lt('created_at', threshold);
+
+  if (error) {
+    console.error('[Recurring Billing] Error checking stale pending logs:', error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    subscriptionId: row.subscription_id,
+    billingDate: row.billing_date,
+  }));
+}
+
 // Family member operations (add missing ones)
 export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
   const { data, error } = await supabase

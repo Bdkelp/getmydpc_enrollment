@@ -23,6 +23,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
+import { scheduleRecurringBilling } from "./services/recurring-billing-scheduler";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import debugPaymentsRoutes from './routes/debug-payments';
@@ -206,6 +207,9 @@ app.use((req, res, next) => {
 
       // Initialize membership activation scheduler
       scheduleMembershipActivation();
+
+      // Initialize recurring billing scheduler (card-only Phase 1)
+      scheduleRecurringBilling();
 
       // Validate EPX configuration
       try {
