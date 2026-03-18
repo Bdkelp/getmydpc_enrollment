@@ -1,17 +1,20 @@
 /**
- * Recurring Billing Scheduler — Phase 1: Credit Card Only
+ * Recurring Billing Scheduler
  *
  * Processes due subscriptions on a configurable interval.
- * ACH subscriptions are explicitly excluded in this phase.
+ * Supports CreditCard recurring and ACH recurring (hard-gated by env flags).
  *
  * Environment flags:
  *   BILLING_SCHEDULER_ENABLED  – must be 'true' to start the scheduler
  *   BILLING_SCHEDULER_DRY_RUN  – 'true' (default) logs what would happen without charging
  *   BILLING_SCHEDULER_INTERVAL_MS – cycle interval in ms (default: 3600000 = 1 hour)
+ *   ACH_RECURRING_ENABLED – must be 'true' to process ACH subscriptions
+ *   ACH_RECURRING_TEST_MODE – defaults to true; tags ACH logs for internal/certification runs
  */
 
 import { supabase } from '../lib/supabaseClient';
 import {
+  decryptSensitiveData,
   decryptPaymentToken,
   getSubscriptionsDueForBilling,
   insertRecurringBillingLog,
@@ -40,6 +43,135 @@ function getIntervalMs(): number {
   const raw = process.env.BILLING_SCHEDULER_INTERVAL_MS;
   const parsed = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 3_600_000;
+}
+
+function isSimulationModeEnabled(): boolean {
+  const explicitEnable = process.env.EPX_SIMULATION_MODE === 'true';
+  if (!explicitEnable) return false;
+
+  // Hard guard: simulation mode is never allowed in production runtime.
+  if (process.env.NODE_ENV === 'production') {
+    console.error(`${LOG_PREFIX} EPX_SIMULATION_MODE requested but blocked in NODE_ENV=production`);
+    return false;
+  }
+
+  return true;
+}
+
+function isAchRecurringEnabled(): boolean {
+  return process.env.ACH_RECURRING_ENABLED === 'true';
+}
+
+function isAchRecurringTestMode(): boolean {
+  return process.env.ACH_RECURRING_TEST_MODE !== 'false';
+}
+
+function normalizePaymentMethodType(paymentMethodType: string | null | undefined): 'CreditCard' | 'ACH' | 'UNKNOWN' {
+  const normalized = String(paymentMethodType || '').trim().toUpperCase();
+  if (normalized === 'CREDITCARD') return 'CreditCard';
+  if (normalized === 'ACH' || normalized === 'BANKACCOUNT') return 'ACH';
+  return 'UNKNOWN';
+}
+
+function normalizeAchAccountType(accountType: string | null | undefined): 'Checking' | 'Savings' | null {
+  const normalized = String(accountType || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'c' || normalized.startsWith('check')) return 'Checking';
+  if (normalized === 's' || normalized.startsWith('sav')) return 'Savings';
+  return null;
+}
+
+function resolveAchRuntimeData(sub: BillableSubscription):
+  | {
+      bankAccountData: {
+        routingNumber: string;
+        accountNumber: string;
+        accountType: 'Checking' | 'Savings';
+        accountHolderName: string;
+      };
+      maskedSummary: string;
+    }
+  | { error: string } {
+  const routingNumberRaw = (sub.memberBankRoutingNumber || sub.tokenBankRoutingNumber || '').trim();
+  const routingNumber = routingNumberRaw.replace(/\D/g, '');
+  if (!routingNumber || routingNumber.length !== 9) {
+    return { error: 'Missing or invalid ACH routing number (must be 9 digits)' };
+  }
+
+  const encryptedOrRawAccountNumber = (sub.memberBankAccountNumber || '').trim();
+  if (!encryptedOrRawAccountNumber) {
+    return { error: 'Missing ACH account number on member record' };
+  }
+
+  let resolvedAccountNumber = encryptedOrRawAccountNumber;
+  try {
+    resolvedAccountNumber = decryptSensitiveData(encryptedOrRawAccountNumber).trim();
+  } catch {
+    // If not encrypted with the app format, continue with the stored value.
+    resolvedAccountNumber = encryptedOrRawAccountNumber;
+  }
+
+  const accountNumber = resolvedAccountNumber.replace(/\s+/g, '');
+  if (!accountNumber) {
+    return { error: 'Missing ACH account number after decryption/normalization' };
+  }
+
+  const accountType = normalizeAchAccountType(sub.memberBankAccountType || sub.tokenBankAccountType);
+  if (!accountType) {
+    return { error: 'Missing or invalid ACH account type (expected Checking or Savings)' };
+  }
+
+  const fallbackName = `${sub.memberFirstName || ''} ${sub.memberLastName || ''}`.trim();
+  const accountHolderName = (sub.memberBankAccountHolderName || fallbackName).trim();
+  if (!accountHolderName) {
+    return { error: 'Missing ACH account holder name' };
+  }
+
+  const lastFour = accountNumber.slice(-4) || sub.memberBankAccountLastFour || sub.tokenBankAccountLastFour || '****';
+  return {
+    bankAccountData: {
+      routingNumber,
+      accountNumber,
+      accountType,
+      accountHolderName,
+    },
+    maskedSummary: `acct ****${lastFour}, type ${accountType}`,
+  };
+}
+
+function buildMockRecurringEpxSuccess(transactionId: string, tranType: 'CCE1' | 'CKC2', contextLabel: string): {
+  success: boolean;
+  requestFields: Record<string, string>;
+  requestPayload: string;
+  responseFields: Record<string, string>;
+  rawResponse: string;
+  error?: string;
+} {
+  const now = new Date();
+  const responseFields: Record<string, string> = {
+    AUTH_RESP: '00',
+    AUTH_RESP_TEXT: `APPROVED (SIMULATED ${contextLabel})`,
+    AUTH_CODE: 'SIM123',
+    TRAN_NBR: transactionId,
+    TRANSACTION_ID: transactionId,
+    RESPONSE_SOURCE: 'EPX_SIMULATION_MODE',
+    TS: now.toISOString(),
+  };
+
+  return {
+    success: true,
+    requestFields: {
+      TRAN_TYPE: tranType,
+      TRAN_NBR: transactionId,
+      AMOUNT: 'SIMULATED',
+      MODE: 'EPX_SIMULATION_MODE',
+    },
+    requestPayload: 'SIMULATED_SERVER_POST_REQUEST',
+    responseFields,
+    rawResponse: Object.entries(responseFields)
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&'),
+  };
 }
 
 // ────────────────────────────────────────
@@ -92,6 +224,8 @@ function truncateBillingDate(date: string | Date): string {
 async function runBillingCycle(): Promise<void> {
   const cycleStart = Date.now();
   const dryRun = isDryRun();
+  const achEnabled = isAchRecurringEnabled();
+  const achTestMode = isAchRecurringTestMode();
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
 
   console.log(`${LOG_PREFIX} ──── Cycle start (${mode}) ────`);
@@ -142,16 +276,24 @@ async function runBillingCycle(): Promise<void> {
       }
     }
 
-    // 3. Query due subscriptions (card-only, filtered at DB level)
+    // 3. Query due subscriptions (single query, ACH inclusion hard-gated)
     const now = new Date();
-    const dueSubscriptions = await getSubscriptionsDueForBilling(now);
+    const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
+      includeACH: achEnabled,
+    });
 
     if (dueSubscriptions.length === 0) {
       console.log(`${LOG_PREFIX} No subscriptions due for billing`);
       return;
     }
 
-    console.log(`${LOG_PREFIX} Found ${dueSubscriptions.length} card subscription(s) due`);
+    const cardDueCount = dueSubscriptions.filter((sub) => normalizePaymentMethodType(sub.paymentMethodType) === 'CreditCard').length;
+    const achDueCount = dueSubscriptions.filter((sub) => normalizePaymentMethodType(sub.paymentMethodType) === 'ACH').length;
+
+    console.log(
+      `${LOG_PREFIX} Found ${dueSubscriptions.length} subscription(s) due ` +
+      `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achTestMode=${achTestMode})`
+    );
 
     let successCount = 0;
     let skipCount = 0;
@@ -160,8 +302,12 @@ async function runBillingCycle(): Promise<void> {
     // 4. Process each subscription
     for (const sub of dueSubscriptions) {
       try {
-        await processSubscription(sub, dryRun);
-        successCount++;
+        const processed = await processSubscription(sub, dryRun, achEnabled, achTestMode);
+        if (processed === 'processed') {
+          successCount++;
+        } else {
+          skipCount++;
+        }
       } catch (err: any) {
         failCount++;
         console.error(`${LOG_PREFIX} Error processing subscription ${sub.subscriptionId}:`, err.message);
@@ -171,18 +317,30 @@ async function runBillingCycle(): Promise<void> {
     const elapsed = Date.now() - cycleStart;
     console.log(
       `${LOG_PREFIX} ──── Cycle complete (${mode}) ────  ` +
-      `${successCount} processed, ${failCount} errors, ${elapsed}ms`
+      `${successCount} processed, ${skipCount} skipped, ${failCount} errors, ${elapsed}ms`
     );
   } finally {
     await releaseLock();
   }
 }
 
-async function processSubscription(sub: BillableSubscription, dryRun: boolean): Promise<void> {
-  // Defensive: skip non-CreditCard tokens that somehow got through
-  if (sub.paymentMethodType !== 'CreditCard') {
-    console.log(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — ACH not supported in Phase 1`);
-    return;
+async function processSubscription(
+  sub: BillableSubscription,
+  dryRun: boolean,
+  achEnabled: boolean,
+  achTestMode: boolean
+): Promise<'processed' | 'skipped'> {
+  const methodType = normalizePaymentMethodType(sub.paymentMethodType);
+  if (methodType === 'UNKNOWN') {
+    console.warn(
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — unsupported payment method type '${sub.paymentMethodType || 'null'}'`
+    );
+    return 'skipped';
+  }
+
+  if (methodType === 'ACH' && !achEnabled) {
+    console.log(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — ACH_RECURRING_ENABLED is not true`);
+    return 'skipped';
   }
 
   const billingDate = truncateBillingDate(sub.nextBillingDate);
@@ -194,7 +352,7 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
     console.log(
       `${LOG_PREFIX} Subscription ${sub.subscriptionId} already has '${existing.status}' entry for ${billingDate} — skipping`
     );
-    return;
+    return 'skipped';
   }
 
   // 6. Decrypt BRIC token
@@ -207,6 +365,7 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentTokenId: sub.tokenId,
+      paymentMethodType: methodType,
       amount: sub.amount,
       billingDate,
       attemptNumber: 1,
@@ -214,19 +373,43 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
       failureReason: 'Token decryption failed',
       processedAt: new Date().toISOString(),
     });
-    return;
+    return 'processed';
+  }
+
+  const achRuntimeData = methodType === 'ACH' ? resolveAchRuntimeData(sub) : null;
+  if (achRuntimeData && 'error' in achRuntimeData) {
+    await insertRecurringBillingLog({
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      paymentTokenId: sub.tokenId,
+      paymentMethodType: methodType,
+      amount: sub.amount,
+      billingDate,
+      attemptNumber: 1,
+      status: 'failed',
+      epxTransactionId: transactionId,
+      failureReason: achRuntimeData.error,
+      processedAt: new Date().toISOString(),
+    });
+    console.error(`${LOG_PREFIX} ACH runtime data missing for subscription ${sub.subscriptionId}: ${achRuntimeData.error}`);
+    return 'processed';
   }
 
   // 7. DRY RUN path
   if (dryRun) {
+    const methodLabel = methodType === 'ACH' ? 'ach' : 'card';
+    const achMaskSuffix = achRuntimeData && !('error' in achRuntimeData)
+      ? `, ${achRuntimeData.maskedSummary}`
+      : '';
     console.log(
       `${LOG_PREFIX} DRY RUN — Would charge subscription ${sub.subscriptionId}, ` +
-      `member ${sub.memberId}, amount $${sub.amount}, card ****${sub.cardLastFour || '????'}`
+      `member ${sub.memberId}, amount $${sub.amount}, method ${methodLabel}${achMaskSuffix}`
     );
     await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentTokenId: sub.tokenId,
+      paymentMethodType: methodType,
       amount: sub.amount,
       billingDate,
       attemptNumber: 1,
@@ -234,7 +417,7 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
       epxTransactionId: transactionId,
       processedAt: new Date().toISOString(),
     });
-    return;
+    return 'processed';
   }
 
   // 8. LIVE charge path — write pending log first
@@ -242,6 +425,7 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
     subscriptionId: sub.subscriptionId,
     memberId: sub.memberId,
     paymentTokenId: sub.tokenId,
+    paymentMethodType: methodType,
     amount: sub.amount,
     billingDate,
     attemptNumber: 1,
@@ -250,30 +434,76 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
   });
 
   try {
-    const result = await submitServerPostRecurringPayment({
-      authGuid,
-      amount: parseFloat(sub.amount),
-      transactionId,
-      tranType: 'CCE1',
-      member: {
-        id: sub.memberId,
-        email: sub.memberEmail,
-        firstName: sub.memberFirstName,
-        lastName: sub.memberLastName,
-      },
-      description: `Recurring billing — subscription ${sub.subscriptionId}`,
-    });
+    const simulationMode = isSimulationModeEnabled();
+    const tranType = methodType === 'ACH' ? 'CKC2' : 'CCE1';
+    const achTestLabel = methodType === 'ACH' && achTestMode ? '[ACH_TEST_MODE] ' : '';
+    const result = simulationMode
+      ? buildMockRecurringEpxSuccess(transactionId, tranType, achTestLabel ? 'ACH_TEST_MODE' : methodType)
+      : await submitServerPostRecurringPayment({
+          authGuid,
+          amount: parseFloat(sub.amount),
+          transactionId,
+          tranType,
+          member: {
+            id: sub.memberId,
+            email: sub.memberEmail,
+            firstName: sub.memberFirstName,
+            lastName: sub.memberLastName,
+          },
+          description: `${achTestLabel}Recurring billing — subscription ${sub.subscriptionId}`,
+          bankAccountData:
+            methodType === 'ACH' && achRuntimeData && !('error' in achRuntimeData)
+              ? achRuntimeData.bankAccountData
+              : undefined,
+        });
+
+    if (simulationMode) {
+      console.warn(
+        `${LOG_PREFIX} SIMULATED EPX success for subscription ${sub.subscriptionId} ` +
+        `(transaction ${transactionId})`
+      );
+    }
+
+    if (methodType === 'ACH' && achTestMode) {
+      console.warn(
+        `${LOG_PREFIX} ACH test mode execution for subscription ${sub.subscriptionId} ` +
+        `(transaction ${transactionId})`
+      );
+    }
 
     if (result.success) {
+      const successResponseMessage = methodType === 'ACH' && achTestMode
+        ? `${result.responseFields?.AUTH_RESP_TEXT || 'APPROVED'} [ACH_TEST_MODE]`
+        : result.responseFields?.AUTH_RESP_TEXT || null;
+
+      if (methodType === 'ACH' && achTestMode) {
+        await updateRecurringBillingLog(logId, {
+          status: 'ach_test_success',
+          epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
+          epxAuthCode: result.responseFields?.AUTH_CODE || null,
+          epxResponseCode: result.responseFields?.AUTH_RESP || null,
+          epxResponseMessage: successResponseMessage,
+          failureReason: null,
+          processedAt: new Date().toISOString(),
+        });
+
+        console.log(
+          `${LOG_PREFIX} ✅ ACH test success for subscription ${sub.subscriptionId} ` +
+          `(transaction ${transactionId}) — post-success persistence intentionally skipped`
+        );
+        return 'processed';
+      }
+
       const persistenceResult = await persistRecurringPostSuccess({
         subscriptionId: sub.subscriptionId,
         memberId: sub.memberId,
         amount: sub.amount,
+        paymentMethodType: methodType,
         billedCycleDate: billingDate,
         transactionId,
         epxAuthCode: result.responseFields?.AUTH_CODE || null,
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
-        epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
+        epxResponseMessage: successResponseMessage,
         paymentCapturedAt: new Date(),
       });
 
@@ -283,7 +513,7 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
           epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
           epxAuthCode: result.responseFields?.AUTH_CODE || null,
           epxResponseCode: result.responseFields?.AUTH_RESP || null,
-          epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
+          epxResponseMessage: successResponseMessage,
           failureReason: persistenceResult.failureReason || 'Post-success persistence failed',
           processedAt: new Date().toISOString(),
         });
@@ -302,21 +532,25 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
         epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
         epxAuthCode: result.responseFields?.AUTH_CODE || null,
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
-        epxResponseMessage: result.responseFields?.AUTH_RESP_TEXT || null,
+        epxResponseMessage: successResponseMessage,
         processedAt: new Date().toISOString(),
       });
 
       console.log(
-        `${LOG_PREFIX} ✅ Charged subscription ${sub.subscriptionId} — $${sub.amount} — ` +
+        `${LOG_PREFIX} ✅ Charged ${methodType} subscription ${sub.subscriptionId} — $${sub.amount} — ` +
         `auth ${result.responseFields?.AUTH_CODE || 'n/a'}`
       );
     } else {
+      const failureResponseMessage = methodType === 'ACH' && achTestMode
+        ? `${result.error || result.responseFields?.AUTH_RESP_TEXT || 'EPX declined'} [ACH_TEST_MODE]`
+        : result.error || result.responseFields?.AUTH_RESP_TEXT || null;
+
       // EPX declined
       await updateRecurringBillingLog(logId, {
         status: 'failed',
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
-        epxResponseMessage: result.error || result.responseFields?.AUTH_RESP_TEXT || null,
-        failureReason: result.error || 'EPX declined',
+        epxResponseMessage: failureResponseMessage,
+        failureReason: failureResponseMessage || 'EPX declined',
         processedAt: new Date().toISOString(),
       });
 
@@ -337,6 +571,8 @@ async function processSubscription(sub: BillableSubscription, dryRun: boolean): 
       epxError.message
     );
   }
+
+  return 'processed';
 }
 
 // ────────────────────────────────────────
@@ -351,11 +587,18 @@ export function scheduleRecurringBilling(): void {
 
   const intervalMs = getIntervalMs();
   const dryRun = isDryRun();
+  const simulationMode = isSimulationModeEnabled();
+  const achEnabled = isAchRecurringEnabled();
+  const achTestMode = isAchRecurringTestMode();
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
 
   console.log(`${LOG_PREFIX} Scheduler initialized (${mode})`);
   console.log(`${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`);
-  console.log(`${LOG_PREFIX} Phase 1 — Credit card only (ACH disabled)`);
+  console.log(`${LOG_PREFIX} ACH recurring enabled: ${achEnabled}`);
+  console.log(`${LOG_PREFIX} ACH recurring test mode: ${achTestMode}`);
+  if (simulationMode) {
+    console.warn(`${LOG_PREFIX} EPX simulation mode is ENABLED — recurring charges will be simulated and no EPX request will be sent`);
+  }
 
   // Run first cycle after a short delay (let server finish startup)
   setTimeout(() => {

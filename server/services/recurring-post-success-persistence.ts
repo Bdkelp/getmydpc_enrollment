@@ -6,6 +6,7 @@ interface RecurringPostSuccessOptions {
   subscriptionId: number;
   memberId: number;
   amount: string;
+  paymentMethodType?: string;
   billedCycleDate: string;
   transactionId: string;
   epxAuthCode?: string | null;
@@ -45,6 +46,12 @@ async function ensureRecurringPaymentRow(options: RecurringPostSuccessOptions): 
     return { paymentId: Number(existingPayment.id) };
   }
 
+  const normalizedPaymentMethodType = options.paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const internalPaymentMethod = normalizedPaymentMethodType === 'ACH' ? 'ach' : 'card';
+  const recurringFlow = normalizedPaymentMethodType === 'ACH'
+    ? 'server_post_recurring_ach'
+    : 'server_post_recurring_card';
+
   try {
     const createdPayment = await createPayment({
       userId: null,
@@ -53,12 +60,12 @@ async function ensureRecurringPaymentRow(options: RecurringPostSuccessOptions): 
       amount: options.amount,
       currency: 'USD',
       status: 'succeeded',
-      paymentMethod: 'card',
+      paymentMethod: internalPaymentMethod,
       transactionId: options.transactionId,
       metadata: {
         source: 'recurring_scheduler',
-        flow: 'server_post_recurring_card',
-        paymentMethodType: 'CreditCard',
+        flow: recurringFlow,
+        paymentMethodType: normalizedPaymentMethodType,
         recurring: true,
         billingDate: options.billedCycleDate,
         epxResponseCode: options.epxResponseCode ?? null,

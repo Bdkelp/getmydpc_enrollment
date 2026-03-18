@@ -4403,9 +4403,23 @@ export interface BillableSubscription {
   memberEmail: string | null;
   memberFirstName: string | null;
   memberLastName: string | null;
+  tokenBankRoutingNumber: string | null;
+  tokenBankAccountType: string | null;
+  tokenBankAccountLastFour: string | null;
+  memberBankRoutingNumber: string | null;
+  memberBankAccountNumber: string | null;
+  memberBankAccountType: string | null;
+  memberBankAccountHolderName: string | null;
+  memberBankAccountLastFour: string | null;
 }
 
-export async function getSubscriptionsDueForBilling(now: Date): Promise<BillableSubscription[]> {
+export async function getSubscriptionsDueForBilling(
+  now: Date,
+  options?: { includeACH?: boolean }
+): Promise<BillableSubscription[]> {
+  const includeACH = options?.includeACH === true;
+  const supportedPaymentMethodTypes = includeACH ? ['CreditCard', 'ACH'] : ['CreditCard'];
+
   const { data, error } = await supabase
     .from('subscriptions')
     .select(`
@@ -4420,18 +4434,26 @@ export async function getSubscriptionsDueForBilling(now: Date): Promise<Billable
         payment_method_type,
         card_last_four,
         card_type,
+        bank_routing_number,
+        bank_account_type,
+        bank_account_last_four,
         is_active
       ),
       members!inner (
         email,
         first_name,
-        last_name
+        last_name,
+        bank_routing_number,
+        bank_account_number,
+        bank_account_type,
+        bank_account_holder_name,
+        bank_account_last_four
       )
     `)
     .eq('status', 'active')
     .lte('next_billing_date', now.toISOString())
     .eq('payment_tokens.is_active', true)
-    .eq('payment_tokens.payment_method_type', 'CreditCard');
+    .in('payment_tokens.payment_method_type', supportedPaymentMethodTypes);
 
   if (error) {
     console.error('[Recurring Billing] Error querying due subscriptions:', error);
@@ -4457,6 +4479,14 @@ export async function getSubscriptionsDueForBilling(now: Date): Promise<Billable
       memberEmail: member?.email ?? null,
       memberFirstName: member?.first_name ?? null,
       memberLastName: member?.last_name ?? null,
+      tokenBankRoutingNumber: token?.bank_routing_number ?? null,
+      tokenBankAccountType: token?.bank_account_type ?? null,
+      tokenBankAccountLastFour: token?.bank_account_last_four ?? null,
+      memberBankRoutingNumber: member?.bank_routing_number ?? null,
+      memberBankAccountNumber: member?.bank_account_number ?? null,
+      memberBankAccountType: member?.bank_account_type ?? null,
+      memberBankAccountHolderName: member?.bank_account_holder_name ?? null,
+      memberBankAccountLastFour: member?.bank_account_last_four ?? null,
     };
   });
 }
@@ -4465,6 +4495,7 @@ export interface RecurringBillingLogEntry {
   subscriptionId: number;
   memberId: number;
   paymentTokenId: number;
+  paymentMethodType?: string | null;
   amount: string;
   billingDate: string;
   attemptNumber: number;
@@ -4486,6 +4517,7 @@ export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry)
       subscription_id: entry.subscriptionId,
       member_id: entry.memberId,
       payment_token_id: entry.paymentTokenId,
+      payment_method_type: entry.paymentMethodType ?? null,
       amount: entry.amount,
       billing_date: entry.billingDate,
       attempt_number: entry.attemptNumber,
@@ -4516,6 +4548,7 @@ export async function updateRecurringBillingLog(
 ): Promise<void> {
   const dbUpdates: Record<string, any> = {};
   if (updates.status !== undefined) dbUpdates.status = updates.status;
+  if (updates.paymentMethodType !== undefined) dbUpdates.payment_method_type = updates.paymentMethodType;
   if (updates.epxTransactionId !== undefined) dbUpdates.epx_transaction_id = updates.epxTransactionId;
   if (updates.epxAuthCode !== undefined) dbUpdates.epx_auth_code = updates.epxAuthCode;
   if (updates.epxResponseCode !== undefined) dbUpdates.epx_response_code = updates.epxResponseCode;
