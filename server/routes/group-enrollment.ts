@@ -38,6 +38,202 @@ const parseAmount = (value: unknown): string | null => {
   return numeric.toFixed(2);
 };
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type PayorMixMode = 'full' | 'member' | 'fixed' | 'percentage';
+type PreferredPaymentMethod = 'card' | 'ach' | null;
+
+type GroupProfile = {
+  ein: string | null;
+  responsiblePerson: {
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  contactPerson: {
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  payorMix: {
+    mode: PayorMixMode;
+    employerFixedAmount: string | null;
+    memberFixedAmount: string | null;
+    employerPercentage: number | null;
+    memberPercentage: number | null;
+  };
+  preferredPaymentMethod: PreferredPaymentMethod;
+  achDetails: {
+    routingNumber: string | null;
+    accountNumber: string | null;
+    bankName: string | null;
+    accountType: string | null;
+  };
+};
+
+const toTrimmedOrNull = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const toDigitsOrNull = (value: unknown): string | null => {
+  const normalized = toTrimmedOrNull(value);
+  if (!normalized) {
+    return null;
+  }
+  const digits = normalized.replace(/\D/g, '');
+  return digits.length > 0 ? digits : null;
+};
+
+const toNumberOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizePayorMixMode = (value: unknown, fallbackPayorType?: string): PayorMixMode => {
+  if (value === 'full' || value === 'member' || value === 'fixed' || value === 'percentage') {
+    return value;
+  }
+  if (fallbackPayorType === 'full') {
+    return 'full';
+  }
+  if (fallbackPayorType === 'member') {
+    return 'member';
+  }
+  return 'fixed';
+};
+
+const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfile => {
+  const einRaw = toTrimmedOrNull(raw?.ein);
+  const normalizedEinDigits = einRaw ? einRaw.replace(/\D/g, '') : null;
+  const ein = normalizedEinDigits && normalizedEinDigits.length === 9
+    ? `${normalizedEinDigits.slice(0, 2)}-${normalizedEinDigits.slice(2)}`
+    : einRaw;
+
+  const mode = normalizePayorMixMode(raw?.payorMix?.mode, fallbackPayorType);
+  const preferredPaymentMethod = raw?.preferredPaymentMethod === 'card' || raw?.preferredPaymentMethod === 'ach'
+    ? raw.preferredPaymentMethod
+    : null;
+
+  return {
+    ein,
+    responsiblePerson: {
+      name: toTrimmedOrNull(raw?.responsiblePerson?.name),
+      email: toTrimmedOrNull(raw?.responsiblePerson?.email)?.toLowerCase() || null,
+      phone: toDigitsOrNull(raw?.responsiblePerson?.phone),
+    },
+    contactPerson: {
+      name: toTrimmedOrNull(raw?.contactPerson?.name),
+      email: toTrimmedOrNull(raw?.contactPerson?.email)?.toLowerCase() || null,
+      phone: toDigitsOrNull(raw?.contactPerson?.phone),
+    },
+    payorMix: {
+      mode,
+      employerFixedAmount: parseAmount(raw?.payorMix?.employerFixedAmount),
+      memberFixedAmount: parseAmount(raw?.payorMix?.memberFixedAmount),
+      employerPercentage: toNumberOrNull(raw?.payorMix?.employerPercentage),
+      memberPercentage: toNumberOrNull(raw?.payorMix?.memberPercentage),
+    },
+    preferredPaymentMethod,
+    achDetails: {
+      routingNumber: toDigitsOrNull(raw?.achDetails?.routingNumber),
+      accountNumber: toDigitsOrNull(raw?.achDetails?.accountNumber),
+      bankName: toTrimmedOrNull(raw?.achDetails?.bankName),
+      accountType: toTrimmedOrNull(raw?.achDetails?.accountType)?.toLowerCase() || null,
+    },
+  };
+};
+
+const payorMixModeToPayorType = (mode: PayorMixMode): string => {
+  if (mode === 'full') return 'full';
+  if (mode === 'member') return 'member';
+  return 'mixed';
+};
+
+const getGroupProfileCompleteness = (profile: GroupProfile): { isComplete: boolean; missingFields: string[] } => {
+  const missingFields: string[] = [];
+
+  if (!profile.ein) {
+    missingFields.push('ein');
+  }
+
+  if (!profile.responsiblePerson.name) missingFields.push('responsiblePerson.name');
+  if (!profile.responsiblePerson.email || !EMAIL_REGEX.test(profile.responsiblePerson.email)) {
+    missingFields.push('responsiblePerson.email');
+  }
+  if (!profile.responsiblePerson.phone || profile.responsiblePerson.phone.length < 10) {
+    missingFields.push('responsiblePerson.phone');
+  }
+
+  if (!profile.contactPerson.name) missingFields.push('contactPerson.name');
+  if (!profile.contactPerson.email || !EMAIL_REGEX.test(profile.contactPerson.email)) {
+    missingFields.push('contactPerson.email');
+  }
+  if (!profile.contactPerson.phone || profile.contactPerson.phone.length < 10) {
+    missingFields.push('contactPerson.phone');
+  }
+
+  if (profile.payorMix.mode === 'fixed') {
+    const employer = toNumberOrNull(profile.payorMix.employerFixedAmount);
+    const member = toNumberOrNull(profile.payorMix.memberFixedAmount);
+    if (employer === null || employer < 0) missingFields.push('payorMix.employerFixedAmount');
+    if (member === null || member < 0) missingFields.push('payorMix.memberFixedAmount');
+  }
+
+  if (profile.payorMix.mode === 'percentage') {
+    const employerPct = profile.payorMix.employerPercentage;
+    const memberPct = profile.payorMix.memberPercentage;
+    if (employerPct === null || employerPct < 0) missingFields.push('payorMix.employerPercentage');
+    if (memberPct === null || memberPct < 0) missingFields.push('payorMix.memberPercentage');
+    const total = (employerPct ?? 0) + (memberPct ?? 0);
+    if (Math.abs(total - 100) > 0.01) {
+      missingFields.push('payorMix.percentageTotal');
+    }
+  }
+
+  if (!profile.preferredPaymentMethod) {
+    missingFields.push('preferredPaymentMethod');
+  }
+
+  if (profile.preferredPaymentMethod === 'ach') {
+    if (!profile.achDetails.routingNumber || profile.achDetails.routingNumber.length !== 9) {
+      missingFields.push('achDetails.routingNumber');
+    }
+    if (!profile.achDetails.accountNumber || profile.achDetails.accountNumber.length < 4) {
+      missingFields.push('achDetails.accountNumber');
+    }
+    if (!profile.achDetails.bankName) {
+      missingFields.push('achDetails.bankName');
+    }
+    if (profile.achDetails.accountType !== 'checking' && profile.achDetails.accountType !== 'savings') {
+      missingFields.push('achDetails.accountType');
+    }
+  }
+
+  return {
+    isComplete: missingFields.length === 0,
+    missingFields,
+  };
+};
+
+const getGroupProfileContext = (groupMetadata: any, payorType: string) => {
+  const rawProfile = groupMetadata?.groupProfile ?? null;
+  const profile = normalizeGroupProfile(rawProfile, payorType);
+  const completeness = getGroupProfileCompleteness(profile);
+
+  return {
+    profile,
+    ...completeness,
+  };
+};
+
 const isISODateString = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const getGroupEffectiveDateContext = (req: AuthRequest, groupMetadata: any) => {
@@ -77,7 +273,15 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
       offset: Number.isNaN(offset) ? undefined : offset,
     });
 
-    return res.json({ data: groups, count });
+    const groupsWithContext = groups.map((group) => {
+      const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+      return {
+        ...group,
+        groupProfileComplete: groupProfileContext.isComplete,
+      };
+    });
+
+    return res.json({ data: groupsWithContext, count });
   } catch (error) {
     console.error('[Group Enrollment] Failed to list groups:', error);
     const message = error instanceof Error ? error.message : 'Failed to list groups';
@@ -87,25 +291,36 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
 
 router.post('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, payorType, groupType, discountCode, discountCodeId, metadata } = req.body || {};
+    const { name, payorType, groupType, discountCode, discountCodeId, metadata, groupProfile } = req.body || {};
 
-    if (!name || !payorType) {
+    if (!name) {
       return res.status(400).json({ message: 'Group name and payor type are required' });
     }
 
+    const existingMetadata = (metadata && typeof metadata === 'object') ? metadata : {};
+    const normalizedProfile = normalizeGroupProfile(groupProfile, typeof payorType === 'string' ? payorType : undefined);
+    const normalizedPayorType = typeof payorType === 'string'
+      ? payorType
+      : payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+    const nextMetadata = {
+      ...existingMetadata,
+      groupProfile: normalizedProfile,
+    };
+
     const group = await createGroup({
       name,
-      payorType,
+      payorType: normalizedPayorType,
       groupType,
       discountCode,
       discountCodeId,
-      metadata,
+      metadata: nextMetadata,
       status: 'draft',
       createdBy: req.user?.id,
       updatedBy: req.user?.id,
     });
 
-    return res.status(201).json({ data: group });
+    const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+    return res.status(201).json({ data: group, groupProfileContext });
   } catch (error) {
     console.error('[Group Enrollment] Failed to create group:', error);
     const message = error instanceof Error ? error.message : 'Failed to create group';
@@ -124,7 +339,8 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
 
     const members = await listGroupMembers({ groupId });
     const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
-    return res.json({ data: group, members, effectiveDateContext });
+    const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+    return res.json({ data: group, members, effectiveDateContext, groupProfileContext });
   } catch (error) {
     console.error('[Group Enrollment] Failed to fetch group:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch group';
@@ -211,12 +427,28 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    const { groupProfile, metadata, ...otherFields } = req.body || {};
+    const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
+    const incomingMetadata = (metadata && typeof metadata === 'object') ? metadata : {};
+    const mergedMetadata = { ...existingMetadata, ...incomingMetadata } as Record<string, any>;
+
+    let normalizedPayorType = typeof otherFields.payorType === 'string' ? otherFields.payorType : group.payorType;
+
+    if (groupProfile !== undefined) {
+      const normalizedProfile = normalizeGroupProfile(groupProfile, normalizedPayorType);
+      mergedMetadata.groupProfile = normalizedProfile;
+      normalizedPayorType = payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+    }
+
     const updated = await updateGroup(groupId, {
-      ...req.body,
+      ...otherFields,
+      payorType: normalizedPayorType,
+      metadata: mergedMetadata,
       updatedBy: req.user?.id,
     });
 
-    return res.json({ data: updated });
+    const groupProfileContext = getGroupProfileContext(updated.metadata, updated.payorType);
+    return res.json({ data: updated, groupProfileContext });
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group:', error);
     const message = error instanceof Error ? error.message : 'Failed to update group';
@@ -393,6 +625,14 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
     const group = await getGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+    if (!groupProfileContext.isComplete) {
+      return res.status(400).json({
+        message: 'Group profile is incomplete. Please complete profile fields before marking ready.',
+        missingFields: groupProfileContext.missingFields,
+      });
     }
 
     const completed = await completeGroupRegistration(groupId, {

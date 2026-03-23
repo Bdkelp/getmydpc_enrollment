@@ -29,9 +29,16 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 
-const payorOptions = [
+const payorMixOptions = [
   { value: "full", label: "Employer Pays All" },
   { value: "member", label: "Member Pays All" },
+  { value: "fixed", label: "Fixed Dollar Split" },
+  { value: "percentage", label: "Percentage Split" },
+];
+
+const preferredPaymentMethodOptions = [
+  { value: "card", label: "Card" },
+  { value: "ach", label: "ACH" },
 ];
 
 const tierOptions = [
@@ -67,12 +74,58 @@ type GroupRecord = {
   hostedCheckoutStatus?: string | null;
   registrationCompletedAt?: string | null;
   metadata?: Record<string, any> | null;
+  groupProfileComplete?: boolean;
+};
+
+type GroupProfile = {
+  ein: string;
+  responsiblePersonName: string;
+  responsiblePersonEmail: string;
+  responsiblePersonPhone: string;
+  contactPersonName: string;
+  contactPersonEmail: string;
+  contactPersonPhone: string;
+  payorMixMode: "full" | "member" | "fixed" | "percentage";
+  employerFixedAmount: string;
+  memberFixedAmount: string;
+  employerPercentage: string;
+  memberPercentage: string;
+  preferredPaymentMethod: "card" | "ach";
+  achRoutingNumber: string;
+  achAccountNumber: string;
+  achBankName: string;
+  achAccountType: "checking" | "savings";
+};
+
+type GroupProfileContext = {
+  profile: {
+    ein: string | null;
+    responsiblePerson: { name: string | null; email: string | null; phone: string | null };
+    contactPerson: { name: string | null; email: string | null; phone: string | null };
+    payorMix: {
+      mode: "full" | "member" | "fixed" | "percentage";
+      employerFixedAmount: string | null;
+      memberFixedAmount: string | null;
+      employerPercentage: number | null;
+      memberPercentage: number | null;
+    };
+    preferredPaymentMethod: "card" | "ach" | null;
+    achDetails: {
+      routingNumber: string | null;
+      accountNumber: string | null;
+      bankName: string | null;
+      accountType: string | null;
+    };
+  };
+  isComplete: boolean;
+  missingFields: string[];
 };
 
 type GroupDetailResponse = {
   data: GroupRecord;
   members?: GroupMemberRecord[];
   effectiveDateContext?: GroupEffectiveDateContext;
+  groupProfileContext?: GroupProfileContext;
 };
 
 type GroupEffectiveDateContext = {
@@ -118,6 +171,89 @@ type DiscountValidationState = {
   durationType?: string;
 };
 
+const defaultGroupProfileForm: GroupProfile = {
+  ein: "",
+  responsiblePersonName: "",
+  responsiblePersonEmail: "",
+  responsiblePersonPhone: "",
+  contactPersonName: "",
+  contactPersonEmail: "",
+  contactPersonPhone: "",
+  payorMixMode: "full",
+  employerFixedAmount: "",
+  memberFixedAmount: "",
+  employerPercentage: "",
+  memberPercentage: "",
+  preferredPaymentMethod: "card",
+  achRoutingNumber: "",
+  achAccountNumber: "",
+  achBankName: "",
+  achAccountType: "checking",
+};
+
+const derivePayorTypeFromMode = (mode: GroupProfile["payorMixMode"]): string => {
+  if (mode === "full") return "full";
+  if (mode === "member") return "member";
+  return "mixed";
+};
+
+const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile => {
+  if (!ctx?.profile) return { ...defaultGroupProfileForm };
+  return {
+    ein: ctx.profile.ein || "",
+    responsiblePersonName: ctx.profile.responsiblePerson?.name || "",
+    responsiblePersonEmail: ctx.profile.responsiblePerson?.email || "",
+    responsiblePersonPhone: ctx.profile.responsiblePerson?.phone || "",
+    contactPersonName: ctx.profile.contactPerson?.name || "",
+    contactPersonEmail: ctx.profile.contactPerson?.email || "",
+    contactPersonPhone: ctx.profile.contactPerson?.phone || "",
+    payorMixMode: ctx.profile.payorMix?.mode || "full",
+    employerFixedAmount: ctx.profile.payorMix?.employerFixedAmount || "",
+    memberFixedAmount: ctx.profile.payorMix?.memberFixedAmount || "",
+    employerPercentage:
+      ctx.profile.payorMix?.employerPercentage === null || ctx.profile.payorMix?.employerPercentage === undefined
+        ? ""
+        : String(ctx.profile.payorMix.employerPercentage),
+    memberPercentage:
+      ctx.profile.payorMix?.memberPercentage === null || ctx.profile.payorMix?.memberPercentage === undefined
+        ? ""
+        : String(ctx.profile.payorMix.memberPercentage),
+    preferredPaymentMethod: ctx.profile.preferredPaymentMethod || "card",
+    achRoutingNumber: ctx.profile.achDetails?.routingNumber || "",
+    achAccountNumber: ctx.profile.achDetails?.accountNumber || "",
+    achBankName: ctx.profile.achDetails?.bankName || "",
+    achAccountType: (ctx.profile.achDetails?.accountType as "checking" | "savings") || "checking",
+  };
+};
+
+const buildGroupProfilePayload = (form: GroupProfile) => ({
+  ein: form.ein,
+  responsiblePerson: {
+    name: form.responsiblePersonName,
+    email: form.responsiblePersonEmail,
+    phone: form.responsiblePersonPhone,
+  },
+  contactPerson: {
+    name: form.contactPersonName,
+    email: form.contactPersonEmail,
+    phone: form.contactPersonPhone,
+  },
+  payorMix: {
+    mode: form.payorMixMode,
+    employerFixedAmount: form.employerFixedAmount,
+    memberFixedAmount: form.memberFixedAmount,
+    employerPercentage: form.employerPercentage,
+    memberPercentage: form.memberPercentage,
+  },
+  preferredPaymentMethod: form.preferredPaymentMethod,
+  achDetails: {
+    routingNumber: form.achRoutingNumber,
+    accountNumber: form.achAccountNumber,
+    bankName: form.achBankName,
+    accountType: form.achAccountType,
+  },
+});
+
 export default function GroupEnrollment() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
@@ -133,9 +269,10 @@ export default function GroupEnrollment() {
   const [newGroupForm, setNewGroupForm] = useState({
     name: "",
     groupType: "",
-    payorType: "full",
     discountCode: "",
   });
+  const [newGroupProfileForm, setNewGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
+  const [groupProfileForm, setGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<GroupMemberRecord | null>(null);
   const defaultMemberForm: MemberFormState = {
@@ -155,7 +292,7 @@ export default function GroupEnrollment() {
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
     setMemberForm({
       ...defaultMemberForm,
-      payorType: selectedGroup?.data?.payorType ?? "full",
+      payorType: selectedGroup?.data?.payorType === "member" ? "member" : "full",
       ...overrides,
     });
   };
@@ -195,8 +332,9 @@ export default function GroupEnrollment() {
       const payload = {
         name: newGroupForm.name.trim(),
         groupType: newGroupForm.groupType.trim() || undefined,
-        payorType: newGroupForm.payorType,
+        payorType: derivePayorTypeFromMode(newGroupProfileForm.payorMixMode),
         discountCode,
+        groupProfile: buildGroupProfilePayload(newGroupProfileForm),
       };
       return apiRequest("/api/groups", {
         method: "POST",
@@ -209,7 +347,8 @@ export default function GroupEnrollment() {
         description: "Group record saved. You can start adding members now.",
       });
       setNewGroupOpen(false);
-      setNewGroupForm({ name: "", groupType: "", payorType: "full", discountCode: "" });
+      setNewGroupForm({ name: "", groupType: "", discountCode: "" });
+      setNewGroupProfileForm({ ...defaultGroupProfileForm });
       setDiscountValidation(null);
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
     },
@@ -228,6 +367,7 @@ export default function GroupEnrollment() {
     setSelectedGroup(typed);
     setEffectiveDateSelection(typed.effectiveDateContext?.selectedEffectiveDate || "");
     setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
+    setGroupProfileForm(mapGroupProfileContextToForm(typed.groupProfileContext));
     return typed;
   };
 
@@ -366,6 +506,38 @@ export default function GroupEnrollment() {
     },
   });
 
+  const updateGroupProfileMutation = useMutation({
+    mutationFn: async () => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) throw new Error("Select a group first");
+
+      return apiRequest(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          payorType: derivePayorTypeFromMode(groupProfileForm.payorMixMode),
+          groupProfile: buildGroupProfilePayload(groupProfileForm),
+        }),
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Group profile updated",
+        description: "Saved EIN, contact, payor mix, and payment preference.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to update group profile",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
     const handleValidateDiscount = async () => {
       const normalized = newGroupForm.discountCode.trim().toUpperCase();
       if (!normalized) {
@@ -461,7 +633,9 @@ export default function GroupEnrollment() {
     ? "Update this record before sending the hosted checkout link."
     : "Enter each enrollee before triggering hosted checkout.";
   const memberCount = selectedGroup?.members?.length ?? 0;
-  const canMarkReady = memberCount > 0 && selectedGroup?.data?.status !== "registered";
+  const groupProfileContext = selectedGroup?.groupProfileContext;
+  const profileComplete = Boolean(groupProfileContext?.isComplete);
+  const canMarkReady = memberCount > 0 && profileComplete && selectedGroup?.data?.status !== "registered";
   const hostedStatusLabel = selectedGroup?.data?.status === "registered"
     ? "ready"
     : selectedGroup?.data?.hostedCheckoutStatus || "not-started";
@@ -562,7 +736,11 @@ export default function GroupEnrollment() {
               <CardTitle className="text-sm text-gray-500 uppercase">Payor Mix</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {payorOptions.map((option) => {
+              {[
+                { value: 'full', label: 'Employer Pays All' },
+                { value: 'member', label: 'Member Pays All' },
+                { value: 'mixed', label: 'Mixed Split' },
+              ].map((option) => {
                 const count = groups.filter((g) => g.payorType === option.value).length;
                 return (
                   <div key={option.value} className="flex items-center justify-between text-sm">
@@ -680,16 +858,21 @@ export default function GroupEnrollment() {
               />
             </div>
             <div>
-              <Label>Payor Type</Label>
+              <Label>Payor Mix</Label>
               <Select
-                value={newGroupForm.payorType}
-                onValueChange={(value) => setNewGroupForm((prev) => ({ ...prev, payorType: value }))}
+                value={newGroupProfileForm.payorMixMode}
+                onValueChange={(value) =>
+                  setNewGroupProfileForm((prev) => ({
+                    ...prev,
+                    payorMixMode: value as GroupProfile['payorMixMode'],
+                  }))
+                }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select payor" />
+                  <SelectValue placeholder="Select payor mix" />
                 </SelectTrigger>
                 <SelectContent>
-                  {payorOptions.map((option) => (
+                  {payorMixOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
@@ -697,6 +880,214 @@ export default function GroupEnrollment() {
                 </SelectContent>
               </Select>
             </div>
+            {newGroupProfileForm.payorMixMode === "fixed" && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="new-employer-fixed">Employer Amount ($)</Label>
+                  <Input
+                    id="new-employer-fixed"
+                    value={newGroupProfileForm.employerFixedAmount}
+                    onChange={(event) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, employerFixedAmount: event.target.value }))
+                    }
+                    placeholder="100.00"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-member-fixed">Member Amount ($)</Label>
+                  <Input
+                    id="new-member-fixed"
+                    value={newGroupProfileForm.memberFixedAmount}
+                    onChange={(event) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, memberFixedAmount: event.target.value }))
+                    }
+                    placeholder="25.00"
+                  />
+                </div>
+              </div>
+            )}
+            {newGroupProfileForm.payorMixMode === "percentage" && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="new-employer-percent">Employer Percentage (%)</Label>
+                  <Input
+                    id="new-employer-percent"
+                    value={newGroupProfileForm.employerPercentage}
+                    onChange={(event) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, employerPercentage: event.target.value }))
+                    }
+                    placeholder="80"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-member-percent">Member Percentage (%)</Label>
+                  <Input
+                    id="new-member-percent"
+                    value={newGroupProfileForm.memberPercentage}
+                    onChange={(event) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, memberPercentage: event.target.value }))
+                    }
+                    placeholder="20"
+                  />
+                </div>
+              </div>
+            )}
+            <div>
+              <Label htmlFor="new-group-ein">EIN</Label>
+              <Input
+                id="new-group-ein"
+                value={newGroupProfileForm.ein}
+                onChange={(event) => setNewGroupProfileForm((prev) => ({ ...prev, ein: event.target.value }))}
+                placeholder="12-3456789"
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="new-responsible-name">Responsible Person Name</Label>
+                <Input
+                  id="new-responsible-name"
+                  value={newGroupProfileForm.responsiblePersonName}
+                  onChange={(event) =>
+                    setNewGroupProfileForm((prev) => ({ ...prev, responsiblePersonName: event.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-responsible-email">Responsible Person Email</Label>
+                <Input
+                  id="new-responsible-email"
+                  type="email"
+                  value={newGroupProfileForm.responsiblePersonEmail}
+                  onChange={(event) =>
+                    setNewGroupProfileForm((prev) => ({ ...prev, responsiblePersonEmail: event.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="new-responsible-phone">Responsible Person Phone</Label>
+              <Input
+                id="new-responsible-phone"
+                value={newGroupProfileForm.responsiblePersonPhone}
+                onChange={(event) =>
+                  setNewGroupProfileForm((prev) => ({ ...prev, responsiblePersonPhone: event.target.value }))
+                }
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="new-contact-name">Contact Person Name</Label>
+                <Input
+                  id="new-contact-name"
+                  value={newGroupProfileForm.contactPersonName}
+                  onChange={(event) =>
+                    setNewGroupProfileForm((prev) => ({ ...prev, contactPersonName: event.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-contact-email">Contact Person Email</Label>
+                <Input
+                  id="new-contact-email"
+                  type="email"
+                  value={newGroupProfileForm.contactPersonEmail}
+                  onChange={(event) =>
+                    setNewGroupProfileForm((prev) => ({ ...prev, contactPersonEmail: event.target.value }))
+                  }
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="new-contact-phone">Contact Person Phone</Label>
+              <Input
+                id="new-contact-phone"
+                value={newGroupProfileForm.contactPersonPhone}
+                onChange={(event) =>
+                  setNewGroupProfileForm((prev) => ({ ...prev, contactPersonPhone: event.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <Label>Preferred Payment Method</Label>
+              <Select
+                value={newGroupProfileForm.preferredPaymentMethod}
+                onValueChange={(value) =>
+                  setNewGroupProfileForm((prev) => ({
+                    ...prev,
+                    preferredPaymentMethod: value as GroupProfile['preferredPaymentMethod'],
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select payment method" />
+                </SelectTrigger>
+                <SelectContent>
+                  {preferredPaymentMethodOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {newGroupProfileForm.preferredPaymentMethod === "ach" && (
+              <div className="space-y-4 border rounded-md p-3 bg-slate-50">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="new-ach-routing">Routing Number</Label>
+                    <Input
+                      id="new-ach-routing"
+                      value={newGroupProfileForm.achRoutingNumber}
+                      onChange={(event) =>
+                        setNewGroupProfileForm((prev) => ({ ...prev, achRoutingNumber: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="new-ach-account">Account Number</Label>
+                    <Input
+                      id="new-ach-account"
+                      value={newGroupProfileForm.achAccountNumber}
+                      onChange={(event) =>
+                        setNewGroupProfileForm((prev) => ({ ...prev, achAccountNumber: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="new-ach-bank">Bank Name</Label>
+                    <Input
+                      id="new-ach-bank"
+                      value={newGroupProfileForm.achBankName}
+                      onChange={(event) =>
+                        setNewGroupProfileForm((prev) => ({ ...prev, achBankName: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Account Type</Label>
+                    <Select
+                      value={newGroupProfileForm.achAccountType}
+                      onValueChange={(value) =>
+                        setNewGroupProfileForm((prev) => ({
+                          ...prev,
+                          achAccountType: value as GroupProfile['achAccountType'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select account type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="checking">Checking</SelectItem>
+                        <SelectItem value="savings">Savings</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
             <div>
               <Label htmlFor="discount-code">Discount Code (optional)</Label>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -837,6 +1228,268 @@ export default function GroupEnrollment() {
                 </div>
               )}
 
+              <div className="border rounded-lg p-4 bg-white space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base font-semibold text-slate-900">Group Profile</h3>
+                  <Badge variant={groupProfileContext?.isComplete ? "default" : "secondary"}>
+                    {groupProfileContext?.isComplete ? "Complete" : "Needs info"}
+                  </Badge>
+                </div>
+                {!groupProfileContext?.isComplete && groupProfileContext?.missingFields?.length ? (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    Missing fields: {groupProfileContext.missingFields.join(", ")}
+                  </p>
+                ) : null}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-ein">EIN</Label>
+                    <Input
+                      id="detail-ein"
+                      value={groupProfileForm.ein}
+                      onChange={(event) => setGroupProfileForm((prev) => ({ ...prev, ein: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>Payor Mix</Label>
+                    <Select
+                      value={groupProfileForm.payorMixMode}
+                      onValueChange={(value) =>
+                        setGroupProfileForm((prev) => ({
+                          ...prev,
+                          payorMixMode: value as GroupProfile['payorMixMode'],
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payor mix" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {payorMixOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {groupProfileForm.payorMixMode === "fixed" && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="detail-employer-fixed">Employer Amount ($)</Label>
+                      <Input
+                        id="detail-employer-fixed"
+                        value={groupProfileForm.employerFixedAmount}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, employerFixedAmount: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-member-fixed">Member Amount ($)</Label>
+                      <Input
+                        id="detail-member-fixed"
+                        value={groupProfileForm.memberFixedAmount}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, memberFixedAmount: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {groupProfileForm.payorMixMode === "percentage" && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="detail-employer-percent">Employer Percentage (%)</Label>
+                      <Input
+                        id="detail-employer-percent"
+                        value={groupProfileForm.employerPercentage}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, employerPercentage: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-member-percent">Member Percentage (%)</Label>
+                      <Input
+                        id="detail-member-percent"
+                        value={groupProfileForm.memberPercentage}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, memberPercentage: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-responsible-name">Responsible Person Name</Label>
+                    <Input
+                      id="detail-responsible-name"
+                      value={groupProfileForm.responsiblePersonName}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, responsiblePersonName: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="detail-responsible-email">Responsible Person Email</Label>
+                    <Input
+                      id="detail-responsible-email"
+                      type="email"
+                      value={groupProfileForm.responsiblePersonEmail}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, responsiblePersonEmail: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-responsible-phone">Responsible Person Phone</Label>
+                    <Input
+                      id="detail-responsible-phone"
+                      value={groupProfileForm.responsiblePersonPhone}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, responsiblePersonPhone: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="detail-contact-name">Contact Person Name</Label>
+                    <Input
+                      id="detail-contact-name"
+                      value={groupProfileForm.contactPersonName}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, contactPersonName: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-contact-email">Contact Person Email</Label>
+                    <Input
+                      id="detail-contact-email"
+                      type="email"
+                      value={groupProfileForm.contactPersonEmail}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, contactPersonEmail: event.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="detail-contact-phone">Contact Person Phone</Label>
+                    <Input
+                      id="detail-contact-phone"
+                      value={groupProfileForm.contactPersonPhone}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, contactPersonPhone: event.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Preferred Payment Method</Label>
+                  <Select
+                    value={groupProfileForm.preferredPaymentMethod}
+                    onValueChange={(value) =>
+                      setGroupProfileForm((prev) => ({
+                        ...prev,
+                        preferredPaymentMethod: value as GroupProfile['preferredPaymentMethod'],
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {preferredPaymentMethodOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {groupProfileForm.preferredPaymentMethod === "ach" && (
+                  <div className="space-y-4 border rounded-md p-3 bg-slate-50">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="detail-ach-routing">Routing Number</Label>
+                        <Input
+                          id="detail-ach-routing"
+                          value={groupProfileForm.achRoutingNumber}
+                          onChange={(event) =>
+                            setGroupProfileForm((prev) => ({ ...prev, achRoutingNumber: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="detail-ach-account">Account Number</Label>
+                        <Input
+                          id="detail-ach-account"
+                          value={groupProfileForm.achAccountNumber}
+                          onChange={(event) =>
+                            setGroupProfileForm((prev) => ({ ...prev, achAccountNumber: event.target.value }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="detail-ach-bank">Bank Name</Label>
+                        <Input
+                          id="detail-ach-bank"
+                          value={groupProfileForm.achBankName}
+                          onChange={(event) =>
+                            setGroupProfileForm((prev) => ({ ...prev, achBankName: event.target.value }))
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>Account Type</Label>
+                        <Select
+                          value={groupProfileForm.achAccountType}
+                          onValueChange={(value) =>
+                            setGroupProfileForm((prev) => ({
+                              ...prev,
+                              achAccountType: value as GroupProfile['achAccountType'],
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select account type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="checking">Checking</SelectItem>
+                            <SelectItem value="savings">Savings</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    disabled={updateGroupProfileMutation.isPending}
+                    onClick={() => updateGroupProfileMutation.mutate()}
+                  >
+                    {updateGroupProfileMutation.isPending ? "Saving..." : "Save Group Profile"}
+                  </Button>
+                </div>
+              </div>
+
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -897,6 +1550,8 @@ export default function GroupEnrollment() {
                     <p className="text-sm text-slate-600">
                       {memberCount === 0
                         ? 'Add at least one member before handing off to payments.'
+                        : !profileComplete
+                          ? 'Complete the group profile (EIN, contacts, payor mix, payment preference) before marking ready.'
                         : selectedGroup.data.status === 'registered'
                           ? 'This group is already marked ready for hosted checkout.'
                           : 'Review member details, then mark ready to generate the hosted checkout link.'}
@@ -943,7 +1598,7 @@ export default function GroupEnrollment() {
                     </Button>
                     {!canMarkReady && selectedGroup.data.status !== 'registered' && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
-                        Add members before marking the group ready.
+                        {memberCount === 0 ? 'Add members before marking the group ready.' : 'Complete group profile before marking ready.'}
                       </p>
                     )}
                   </div>
@@ -1063,7 +1718,10 @@ export default function GroupEnrollment() {
                   <SelectValue placeholder="Payor" />
                 </SelectTrigger>
                 <SelectContent>
-                  {payorOptions.map((option) => (
+                  {[
+                    { value: "full", label: "Employer Pays All" },
+                    { value: "member", label: "Member Pays All" },
+                  ].map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
