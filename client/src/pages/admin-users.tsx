@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
@@ -63,7 +64,10 @@ import {
   Ban, 
   Calendar, 
   Mail, 
-  Phone 
+  Phone,
+  Eye,
+  CreditCard,
+  MapPin
 } from "lucide-react";
 
 interface UserType {
@@ -80,6 +84,15 @@ interface UserType {
   createdByAdmin?: { id: string; firstName: string; lastName: string; email: string }; // Creator info
   lastLoginAt?: string;
   emailVerified: boolean;
+  address?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  bankName?: string;
+  routingNumber?: string;
+  accountNumber?: string;
+  accountType?: string;
+  accountHolderName?: string;
   subscription?: {
     status: string;
     planName: string;
@@ -92,7 +105,12 @@ export default function AdminUsers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('members');
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'members' || tab === 'agents' || tab === 'admins' ? tab : 'members';
+  });
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [selectedProfileUser, setSelectedProfileUser] = useState<UserType | null>(null);
 
   // Test authentication on mount
   useEffect(() => {
@@ -502,6 +520,32 @@ export default function AdminUsers() {
     }
   };
 
+  const maskAccountNumber = (value?: string) => {
+    if (!value) return 'Not provided';
+    const clean = String(value).replace(/\D/g, '');
+    const last4 = clean.slice(-4);
+    return last4 ? `••••${last4}` : 'Not provided';
+  };
+
+  const maskRoutingNumber = (value?: string) => {
+    if (!value) return 'Not provided';
+    const clean = String(value).replace(/\D/g, '');
+    if (clean.length < 4) return 'Provided';
+    return `•••••${clean.slice(-4)}`;
+  };
+
+  const hasPayoutProfile = (user: UserType) =>
+    Boolean(
+      user.bankName &&
+      user.routingNumber &&
+      user.accountNumber &&
+      user.accountType &&
+      user.accountHolderName,
+    );
+
+  const hasAddressProfile = (user: UserType) =>
+    Boolean(user.address && user.city && user.state && user.zipCode);
+
   const UserTable = ({ users, showRole = false, showPlan = true }: { users: UserType[], showRole?: boolean, showPlan?: boolean }) => (
     <div className="overflow-x-auto">
       <Table>
@@ -544,6 +588,18 @@ export default function AdminUsers() {
                         }
                       </p>
                       <p className="text-sm text-gray-500">{user.email}</p>
+                      {(user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin') && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <Badge variant="outline" className={hasAddressProfile(user) ? 'text-green-700 border-green-300' : 'text-amber-700 border-amber-300'}>
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {hasAddressProfile(user) ? 'Address Complete' : 'Address Missing'}
+                          </Badge>
+                          <Badge variant="outline" className={hasPayoutProfile(user) ? 'text-green-700 border-green-300' : 'text-amber-700 border-amber-300'}>
+                            <CreditCard className="h-3 w-3 mr-1" />
+                            {hasPayoutProfile(user) ? 'Payout Profile Set' : 'Payout Profile Missing'}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </TableCell>
@@ -694,6 +750,19 @@ export default function AdminUsers() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end space-x-2">
+                    {(user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedProfileUser(user);
+                          setProfileDialogOpen(true);
+                        }}
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        View Profile
+                      </Button>
+                    )}
                     {user.approvalStatus === 'pending' && (
                       <Button
                         size="sm"
@@ -982,6 +1051,44 @@ export default function AdminUsers() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Agent Profile Details</DialogTitle>
+              <DialogDescription>
+                Admin-only profile and payout visibility for staff and agents.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedProfileUser && (
+              <div className="space-y-4 text-sm">
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-gray-900 mb-2">Identity</p>
+                  <p><span className="text-gray-500">Name:</span> {selectedProfileUser.firstName} {selectedProfileUser.lastName}</p>
+                  <p><span className="text-gray-500">Email:</span> {selectedProfileUser.email}</p>
+                  <p><span className="text-gray-500">Role:</span> {getRoleDisplayName(selectedProfileUser.role)}</p>
+                  <p><span className="text-gray-500">Agent #:</span> {selectedProfileUser.agentNumber || 'Not assigned'}</p>
+                </div>
+
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-gray-900 mb-2">Address</p>
+                  <p><span className="text-gray-500">Address:</span> {selectedProfileUser.address || 'Not provided'}</p>
+                  <p><span className="text-gray-500">City/State/Zip:</span> {selectedProfileUser.city || '—'}, {selectedProfileUser.state || '—'} {selectedProfileUser.zipCode || '—'}</p>
+                </div>
+
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-gray-900 mb-2">Payout / Banking</p>
+                  <p><span className="text-gray-500">Bank Name:</span> {selectedProfileUser.bankName || 'Not provided'}</p>
+                  <p><span className="text-gray-500">Account Holder:</span> {selectedProfileUser.accountHolderName || 'Not provided'}</p>
+                  <p><span className="text-gray-500">Account Type:</span> {selectedProfileUser.accountType || 'Not provided'}</p>
+                  <p><span className="text-gray-500">Routing Number:</span> {maskRoutingNumber(selectedProfileUser.routingNumber)}</p>
+                  <p><span className="text-gray-500">Account Number:</span> {maskAccountNumber(selectedProfileUser.accountNumber)}</p>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

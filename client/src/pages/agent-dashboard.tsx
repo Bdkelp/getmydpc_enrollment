@@ -458,6 +458,13 @@ export default function AgentDashboard() {
                 >
                   Open Agent DB View
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLocation('/admin/users?tab=members')}
+                >
+                  Open Member Billing View
+                </Button>
               </div>
             </CardContent>
           </Card>
