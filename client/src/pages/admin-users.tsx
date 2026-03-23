@@ -11,21 +11,24 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { API_URL } from "@/lib/apiClient";
 
 // API request helper function
 async function apiRequest(url: string, options: RequestInit = {}) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url.startsWith('/') ? url : `/${url}`}`;
 
   console.log('[apiRequest] Auth check:', {
     hasSession: !!session.data.session,
     hasToken: !!token,
     tokenPreview: token ? token.substring(0, 20) + '...' : 'NO TOKEN',
-    url
+    url: fullUrl
   });
 
-  const response = await fetch(url, {
+  const response = await fetch(fullUrl, {
     ...options,
+    credentials: options.credentials || 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -39,7 +42,7 @@ async function apiRequest(url: string, options: RequestInit = {}) {
       status: response.status,
       statusText: response.statusText,
       body: errorText,
-      url
+      url: fullUrl
     });
     throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
   }
