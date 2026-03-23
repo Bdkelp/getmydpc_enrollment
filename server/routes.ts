@@ -2878,6 +2878,7 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       id: agent.id,
       firstName: agent.firstName,
       lastName: agent.lastName,
+      role: agent.role,
       agentNumber: agent.agentNumber,
       email: agent.email,
       isActive: agent.isActive

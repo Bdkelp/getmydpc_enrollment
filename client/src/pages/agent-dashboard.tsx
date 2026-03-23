@@ -451,6 +451,13 @@ export default function AgentDashboard() {
                     View My Dashboard
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLocation('/admin/users')}
+                >
+                  Open Agent DB View
+                </Button>
               </div>
             </CardContent>
           </Card>
