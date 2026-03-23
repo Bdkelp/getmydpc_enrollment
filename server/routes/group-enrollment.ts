@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
+import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
 import {
   addGroupMember,
   completeGroupRegistration,
@@ -35,6 +36,29 @@ const parseAmount = (value: unknown): string | null => {
   }
 
   return numeric.toFixed(2);
+};
+
+const isISODateString = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const getGroupEffectiveDateContext = (req: AuthRequest, groupMetadata: any) => {
+  const availableEffectiveDates = getUpcomingPlanStartDates({ anchorCount: 3 }).map(formatPlanStartDateISO);
+  const defaultEffectiveDate = availableEffectiveDates[0] ?? null;
+  const override = groupMetadata?.effectiveDateOverride ?? null;
+  const selectedFromOverride = typeof override?.selectedEffectiveDate === 'string' ? override.selectedEffectiveDate : null;
+
+  const selectedEffectiveDate =
+    selectedFromOverride && availableEffectiveDates.includes(selectedFromOverride)
+      ? selectedFromOverride
+      : defaultEffectiveDate;
+
+  return {
+    availableEffectiveDates,
+    defaultEffectiveDate,
+    selectedEffectiveDate,
+    isOverride: Boolean(selectedEffectiveDate && defaultEffectiveDate && selectedEffectiveDate !== defaultEffectiveDate),
+    overrideReason: typeof override?.overrideReason === 'string' ? override.overrideReason : null,
+    canOverride: Boolean(req.user && hasAtLeastRole(req.user.role, 'admin')),
+  };
 };
 
 router.use('/api/groups', authenticateToken, ensureGroupEnrollmentAccess);
@@ -99,10 +123,82 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
     }
 
     const members = await listGroupMembers({ groupId });
-    return res.json({ data: group, members });
+    const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
+    return res.json({ data: group, members, effectiveDateContext });
   } catch (error) {
     console.error('[Group Enrollment] Failed to fetch group:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch group';
+    return res.status(500).json({ message });
+  }
+});
+
+router.patch('/api/groups/:groupId/effective-date', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can override group effective dates' });
+    }
+
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const { selectedEffectiveDate, overrideReason } = req.body || {};
+    const availableEffectiveDates = getUpcomingPlanStartDates({ anchorCount: 3 }).map(formatPlanStartDateISO);
+    const defaultEffectiveDate = availableEffectiveDates[0] ?? null;
+
+    if (!defaultEffectiveDate) {
+      return res.status(500).json({ message: 'No effective dates available' });
+    }
+
+    const normalizedSelected =
+      typeof selectedEffectiveDate === 'string' && isISODateString(selectedEffectiveDate)
+        ? selectedEffectiveDate
+        : defaultEffectiveDate;
+
+    if (!availableEffectiveDates.includes(normalizedSelected)) {
+      return res.status(400).json({
+        message: 'Selected effective date must be one of the next 3 active effective dates',
+      });
+    }
+
+    const isOverride = normalizedSelected !== defaultEffectiveDate;
+    const normalizedReason = typeof overrideReason === 'string' ? overrideReason.trim() : '';
+
+    if (isOverride && normalizedReason.length < 5) {
+      return res.status(400).json({
+        message: 'Override reason is required and must be at least 5 characters',
+      });
+    }
+
+    const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
+    const nextMetadata = { ...existingMetadata } as Record<string, any>;
+
+    if (isOverride) {
+      nextMetadata.effectiveDateOverride = {
+        selectedEffectiveDate: normalizedSelected,
+        defaultEffectiveDate,
+        availableEffectiveDatesSnapshot: availableEffectiveDates,
+        overrideReason: normalizedReason,
+        overriddenByUserId: req.user.id,
+        overriddenByRole: req.user.role,
+        overriddenAt: new Date().toISOString(),
+      };
+    } else {
+      delete nextMetadata.effectiveDateOverride;
+    }
+
+    const updated = await updateGroup(groupId, {
+      metadata: nextMetadata,
+      updatedBy: req.user.id,
+    });
+
+    const effectiveDateContext = getGroupEffectiveDateContext(req, updated.metadata);
+    return res.json({ data: updated, effectiveDateContext });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to update effective date override:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update effective date override';
     return res.status(500).json({ message });
   }
 });

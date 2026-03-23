@@ -72,6 +72,16 @@ type GroupRecord = {
 type GroupDetailResponse = {
   data: GroupRecord;
   members?: GroupMemberRecord[];
+  effectiveDateContext?: GroupEffectiveDateContext;
+};
+
+type GroupEffectiveDateContext = {
+  availableEffectiveDates: string[];
+  defaultEffectiveDate: string | null;
+  selectedEffectiveDate: string | null;
+  isOverride: boolean;
+  overrideReason: string | null;
+  canOverride: boolean;
 };
 
 type GroupMemberRecord = {
@@ -139,6 +149,8 @@ export default function GroupEnrollment() {
   const [memberForm, setMemberForm] = useState<MemberFormState>(defaultMemberForm);
   const [discountValidation, setDiscountValidation] = useState<DiscountValidationState | null>(null);
   const [isValidatingDiscount, setIsValidatingDiscount] = useState(false);
+  const [effectiveDateSelection, setEffectiveDateSelection] = useState<string>("");
+  const [effectiveDateReason, setEffectiveDateReason] = useState("");
 
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
     setMemberForm({
@@ -212,8 +224,11 @@ export default function GroupEnrollment() {
 
   const fetchGroupDetail = async (groupId: string) => {
     const response = await apiRequest(`/api/groups/${groupId}`);
-    setSelectedGroup(response as GroupDetailResponse);
-    return response as GroupDetailResponse;
+    const typed = response as GroupDetailResponse;
+    setSelectedGroup(typed);
+    setEffectiveDateSelection(typed.effectiveDateContext?.selectedEffectiveDate || "");
+    setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
+    return typed;
   };
 
   const refreshGroups = () => queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
@@ -313,6 +328,38 @@ export default function GroupEnrollment() {
     onError: (err: any) => {
       toast({
         title: "Unable to mark ready",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateEffectiveDateMutation = useMutation({
+    mutationFn: async () => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) throw new Error("Select a group first");
+
+      return apiRequest(`/api/groups/${groupId}/effective-date`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          selectedEffectiveDate: effectiveDateSelection || null,
+          overrideReason: effectiveDateReason || null,
+        }),
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Effective date updated",
+        description: "Group effective-date settings were saved.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to update effective date",
         description: err?.message || "Please try again",
         variant: "destructive",
       });
@@ -423,6 +470,16 @@ export default function GroupEnrollment() {
     : hostedStatusLabel === "in-progress"
       ? "bg-amber-50 text-amber-700 border-amber-200"
       : "bg-slate-50 text-slate-600 border-slate-200";
+  const effectiveDateContext = selectedGroup?.effectiveDateContext;
+  const selectedIsDefault =
+    effectiveDateContext &&
+    effectiveDateSelection &&
+    effectiveDateSelection === effectiveDateContext.defaultEffectiveDate;
+  const canSaveEffectiveDate = Boolean(
+    effectiveDateContext?.canOverride &&
+    effectiveDateSelection &&
+    (selectedIsDefault || effectiveDateReason.trim().length >= 5)
+  );
 
   if (authLoading || isLoading) {
     return (
@@ -717,6 +774,68 @@ export default function GroupEnrollment() {
                   <p className="font-medium">{selectedGroup.data.discountCode || 'Not applied'}</p>
                 </div>
               </div>
+
+              {effectiveDateContext && (
+                <div className="border rounded-lg p-4 bg-blue-50/40 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-base font-semibold text-slate-900">Effective Date</h3>
+                    <Badge variant="outline" className="capitalize">
+                      {effectiveDateContext.isOverride ? "manual override" : "default"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-slate-600">
+                    Default active date: <span className="font-medium text-slate-900">{effectiveDateContext.defaultEffectiveDate || "—"}</span>
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label>Selected Effective Date</Label>
+                      <Select
+                        value={effectiveDateSelection}
+                        onValueChange={setEffectiveDateSelection}
+                        disabled={!effectiveDateContext.canOverride}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select effective date" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {effectiveDateContext.availableEffectiveDates.map((dateValue, idx) => (
+                            <SelectItem key={dateValue} value={dateValue}>
+                              {dateValue} {idx === 0 ? "(default)" : idx === 2 ? "(3rd closest)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500 mt-1">Groups can be manually set up to the 3rd closest active date.</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="effective-date-reason">Override Reason</Label>
+                      <Input
+                        id="effective-date-reason"
+                        placeholder="Optional for default, required for override"
+                        value={effectiveDateReason}
+                        onChange={(event) => setEffectiveDateReason(event.target.value)}
+                        disabled={!effectiveDateContext.canOverride}
+                      />
+                      {!selectedIsDefault && effectiveDateContext.canOverride && (
+                        <p className="text-xs text-slate-500 mt-1">At least 5 characters required when selecting a non-default date.</p>
+                      )}
+                    </div>
+                  </div>
+                  {effectiveDateContext.canOverride ? (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline"
+                        disabled={!canSaveEffectiveDate || updateEffectiveDateMutation.isPending}
+                        onClick={() => updateEffectiveDateMutation.mutate()}
+                      >
+                        {updateEffectiveDateMutation.isPending ? "Saving..." : "Save Effective Date"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">Only admins and super admins can apply manual group effective-date overrides.</p>
+                  )}
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-2">
