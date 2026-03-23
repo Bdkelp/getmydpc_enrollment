@@ -253,20 +253,10 @@ export default function AdminUsers() {
   // Update agent number mutation
   const updateAgentNumberMutation = useMutation({
     mutationFn: async ({ userId, agentNumber }: { userId: string; agentNumber: string }) => {
-      const response = await fetch(`/api/admin/users/${userId}/agent-number`, {
+      return apiRequest(`/api/admin/users/${userId}/agent-number`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
         body: JSON.stringify({ agentNumber }),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update agent number');
-      }
-
-      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -275,10 +265,10 @@ export default function AdminUsers() {
       });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
     },
-    onError: () => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to update agent number.",
+        description: error.message || "Failed to update agent number.",
         variant: "destructive",
       });
     },

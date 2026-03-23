@@ -2591,21 +2591,19 @@ router.put(
       if (agentNumber && agentNumber.trim() !== "") {
         const trimmedAgentNumber = agentNumber.trim().toUpperCase();
 
-        // Validate MPP format: MPP + 2-letter role code + 2-digit year + 4-digit SSN
-        const agentNumberPattern = /^MPP[SA|AG][0-9]{2}[0-9]{4}$/;
-        if (!agentNumberPattern.test(trimmedAgentNumber)) {
+        // Support both legacy and expanded formats:
+        // - Legacy: MPP0001 (MPP + 4 digits)
+        // - Expanded: MPPSA231154 / MPPAG231154 (MPP + role + year + suffix)
+        const legacyAgentNumberPattern = /^MPP\d{4}$/;
+        const expandedAgentNumberPattern = /^MPP(?:SA|AG)\d{6}$/;
+        if (
+          !legacyAgentNumberPattern.test(trimmedAgentNumber) &&
+          !expandedAgentNumberPattern.test(trimmedAgentNumber)
+        ) {
           return res.status(400).json({
             success: false,
             error:
-              "Agent number must follow format: MPP[SA|AG][YY][SSSS] (e.g., MPPSA231154 for Super Admin or MPPAG231154 for Agent)",
-          });
-        }
-
-        if (trimmedAgentNumber.length !== 12) {
-          return res.status(400).json({
-            success: false,
-            error:
-              "Agent number must be exactly 12 characters (MPP + 2-letter role + 2-digit year + 4-digit SSN)",
+              "Agent number must be either legacy format MPP0001 or expanded format MPPSA231154 / MPPAG231154",
           });
         }
 
