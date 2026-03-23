@@ -2609,19 +2609,29 @@ router.put(
           });
         }
 
-        // Check for duplicate agent numbers
-        const existingUser =
-          await storage.getUserByAgentNumber(trimmedAgentNumber);
+        // Prevent collisions among active agents
+        const inUseByActiveAgent = await storage.isAgentNumberUsedByActiveAgent(
+          trimmedAgentNumber,
+          userId,
+        );
+        if (inUseByActiveAgent) {
+          return res.status(400).json({
+            success: false,
+            error: "Agent number already in use by an active agent",
+          });
+        }
+
+        const existingUser = await storage.getUserByAgentNumber(trimmedAgentNumber);
         if (existingUser && existingUser.id !== userId) {
           return res.status(400).json({
             success: false,
-            error: "Agent number already in use",
+            error: "Agent number already assigned",
           });
         }
       }
 
       const result = await storage.updateUser(userId, {
-        agentNumber: agentNumber?.trim() || null,
+        agentNumber: agentNumber?.trim()?.toUpperCase() || null,
         updatedAt: new Date(),
       });
 
@@ -2743,8 +2753,20 @@ router.put(
         return res.status(400).json({ message: "Agent number is required" });
       }
 
+      const normalizedAgentNumber = String(agentNumber).trim().toUpperCase();
+
+      const inUseByActiveAgent = await storage.isAgentNumberUsedByActiveAgent(
+        normalizedAgentNumber,
+        userId,
+      );
+      if (inUseByActiveAgent) {
+        return res
+          .status(400)
+          .json({ message: "Agent number already assigned to an active agent" });
+      }
+
       // Check if agent number is already taken
-      const existingUser = await storage.getUserByAgentNumber(agentNumber);
+      const existingUser = await storage.getUserByAgentNumber(normalizedAgentNumber);
       if (existingUser && existingUser.id !== userId) {
         return res
           .status(400)
@@ -2753,7 +2775,7 @@ router.put(
 
       // Update user with new agent number
       const updatedUser = await storage.updateUser(userId, {
-        agentNumber: agentNumber,
+        agentNumber: normalizedAgentNumber,
         updatedAt: new Date(),
       });
 
@@ -5950,7 +5972,19 @@ export async function registerRoutes(app: any) {
 
       // Check for duplicate agent numbers if provided
       if (agentNumber && agentNumber.trim() !== '') {
-        const existingUser = await storage.getUserByAgentNumber(agentNumber.trim());
+        const normalizedAgentNumber = agentNumber.trim().toUpperCase();
+
+        const inUseByActiveAgent = await storage.isAgentNumberUsedByActiveAgent(
+          normalizedAgentNumber,
+          userId,
+        );
+        if (inUseByActiveAgent) {
+          return res.status(400).json({
+            error: 'Agent number already in use by an active agent'
+          });
+        }
+
+        const existingUser = await storage.getUserByAgentNumber(normalizedAgentNumber);
         if (existingUser && existingUser.id !== userId) {
           return res.status(400).json({
             error: 'Agent number already in use'
@@ -5959,7 +5993,7 @@ export async function registerRoutes(app: any) {
       }
 
       const result = await storage.updateUser(userId, {
-        agentNumber: agentNumber?.trim() || null,
+        agentNumber: agentNumber?.trim()?.toUpperCase() || null,
         updatedAt: new Date(),
       });
 

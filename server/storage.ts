@@ -549,6 +549,7 @@ export interface IStorage {
   updateUser(id: string, data: Partial<User>, options?: UserLookupOptions): Promise<User>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByAgentNumber(agentNumber: string): Promise<User | undefined>;
+  isAgentNumberUsedByActiveAgent(agentNumber: string, excludeUserId?: string): Promise<boolean>;
 
   // Plan operations
   getPlans(): Promise<Plan[]>;
@@ -1306,6 +1307,41 @@ export async function getUserByAgentNumber(agentNumber: string): Promise<User | 
   } catch (error: any) {
     console.error('Error fetching user by agent number:', error);
     return null;
+  }
+}
+
+export async function isAgentNumberUsedByActiveAgent(
+  agentNumber: string,
+  excludeUserId?: string,
+): Promise<boolean> {
+  try {
+    const normalized = agentNumber.trim().toUpperCase();
+    if (!normalized) {
+      return false;
+    }
+
+    let q = supabase
+      .from('users')
+      .select('id')
+      .eq('role', 'agent')
+      .eq('is_active', true)
+      .eq('agent_number', normalized);
+
+    if (excludeUserId) {
+      q = q.neq('id', excludeUserId);
+    }
+
+    const { data, error } = await q.limit(1);
+
+    if (error) {
+      console.error('Error checking active agent number usage:', error);
+      throw new Error(`Failed to check active agent number usage: ${error.message}`);
+    }
+
+    return Array.isArray(data) && data.length > 0;
+  } catch (error: any) {
+    console.error('Error in isAgentNumberUsedByActiveAgent:', error);
+    throw error;
   }
 }
 
@@ -5626,6 +5662,7 @@ export const storage = {
   getUserByVerificationToken,
   getUserByResetToken,
   getUserByAgentNumber,
+  isAgentNumberUsedByActiveAgent,
   upsertUser,
   updateUserProfile,
   getAllUsers,
