@@ -3006,12 +3006,26 @@ router.get(
         return res.status(404).json({ message: "Enrollment not found" });
       }
 
-      const { decryptSSN, formatSSN } = await import('./utils/encryption');
-      const decryptedSSN = enrollment.ssn ? formatSSN(decryptSSN(enrollment.ssn)) : null;
-      const familyWithMaskedSSN = (enrollment.familyMembers || []).map((fm: any) => {
-        const decrypted = fm.ssn ? formatSSN(decryptSSN(fm.ssn)) : null;
-        return { ...fm, ssn: decrypted };
-      });
+      const { decryptSSN, formatSSN, isValidSSN } = await import('./utils/encryption');
+
+      const safeDecodeSSN = (raw?: string | null) => {
+        if (!raw) return null;
+        try {
+          return formatSSN(decryptSSN(raw));
+        } catch {
+          const digitsOnly = String(raw).replace(/\D/g, '');
+          if (isValidSSN(digitsOnly)) {
+            return formatSSN(digitsOnly);
+          }
+          return null;
+        }
+      };
+
+      const decryptedSSN = safeDecodeSSN(enrollment.ssn);
+      const familyWithMaskedSSN = (enrollment.familyMembers || []).map((fm: any) => ({
+        ...fm,
+        ssn: safeDecodeSSN(fm.ssn),
+      }));
 
       res.json({
         ...enrollment,
@@ -6702,13 +6716,25 @@ export async function registerRoutes(app: any) {
       let maskedSSN = null;
       if (member.ssn) {
         try {
-          const { decryptSSN, maskSSN } = await import('./utils/encryption');
-          decryptedSSN = decryptSSN(member.ssn);
-          maskedSSN = maskSSN(member.ssn);
+          const { decryptSSN, maskSSN, formatSSN, isValidSSN } = await import('./utils/encryption');
+          const decryptedRaw = decryptSSN(member.ssn);
+          decryptedSSN = formatSSN(decryptedRaw);
+          maskedSSN = maskSSN(decryptedRaw);
         } catch (decryptError) {
           console.error('[Admin] Failed to decrypt SSN', { memberId, error: decryptError });
-          // SSN might be legacy plaintext - just mask it
-          maskedSSN = member.ssn.replace(/\d(?=\d{4})/g, '*');
+          // SSN might be legacy plaintext
+          try {
+            const { formatSSN, maskSSN, isValidSSN } = await import('./utils/encryption');
+            const digitsOnly = String(member.ssn).replace(/\D/g, '');
+            if (isValidSSN(digitsOnly)) {
+              decryptedSSN = formatSSN(digitsOnly);
+              maskedSSN = maskSSN(digitsOnly);
+            } else {
+              maskedSSN = String(member.ssn).replace(/\d(?=\d{4})/g, '*');
+            }
+          } catch {
+            maskedSSN = String(member.ssn).replace(/\d(?=\d{4})/g, '*');
+          }
         }
       }
 
