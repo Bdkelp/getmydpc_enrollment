@@ -4518,6 +4518,9 @@ export async function registerRoutes(app: any) {
         overrideEnrollmentDate  // Admin-only: backdate enrollment (e.g., March 4 → March 1)
       } = req.body;
 
+      const rawSSN = (ssn ?? req.body?.socialSecurityNumber ?? req.body?.social_security_number ?? '').toString();
+      const normalizedSSN = rawSSN.replace(/\D/g, '');
+
       // SERVER-SIDE AGENT NUMBER LOOKUP (don't trust client data)
       let agentNumber: string | null = null;
       let agentUser: any = null;
@@ -4561,13 +4564,21 @@ export async function registerRoutes(app: any) {
       if (!email) missingFields.push("email");
       if (!firstName) missingFields.push("firstName");
       if (!lastName) missingFields.push("lastName");
+      if (!normalizedSSN) missingFields.push("ssn");
 
       if (missingFields.length > 0) {
         console.log("[Registration] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["email", "firstName", "lastName"],
+          required: ["email", "firstName", "lastName", "ssn"],
           missing: missingFields
+        });
+      }
+
+      if (!/^\d{9}$/.test(normalizedSSN)) {
+        return res.status(400).json({
+          error: "Invalid SSN format",
+          message: "SSN must be exactly 9 digits",
         });
       }
 
@@ -4659,7 +4670,7 @@ export async function registerRoutes(app: any) {
         phone: phone || null,
         dateOfBirth: dateOfBirth || null,
         gender: gender || null,
-        ssn: ssn || null,
+        ssn: normalizedSSN,
         address: address?.trim() || null,
         address2: address2?.trim() || null,
         city: city?.trim() || null,
@@ -5076,19 +5087,30 @@ export async function registerRoutes(app: any) {
         familyMembers
       } = req.body;
 
+      const rawSSN = (ssn ?? req.body?.socialSecurityNumber ?? req.body?.social_security_number ?? '').toString();
+      const normalizedSSN = rawSSN.replace(/\D/g, '');
+
       // Basic validation
       const missingFields = [];
       if (!email) missingFields.push("email");
       if (!firstName) missingFields.push("firstName");
       if (!lastName) missingFields.push("lastName");
       if (!planId) missingFields.push("planId");
+      if (!normalizedSSN) missingFields.push("ssn");
 
       if (missingFields.length > 0) {
         console.log("[Agent Enrollment] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["email", "firstName", "lastName", "planId"],
+          required: ["email", "firstName", "lastName", "planId", "ssn"],
           missing: missingFields
+        });
+      }
+
+      if (!/^\d{9}$/.test(normalizedSSN)) {
+        return res.status(400).json({
+          error: "Invalid SSN format",
+          message: "SSN must be exactly 9 digits",
         });
       }
 
@@ -5126,7 +5148,7 @@ export async function registerRoutes(app: any) {
         phone: phone || null,
         dateOfBirth: dateOfBirth || null,
         gender: gender || null,
-        ssn: ssn || null,
+        ssn: normalizedSSN,
         address: address?.trim() || null,
         address2: address2?.trim() || null,
         city: city?.trim() || null,

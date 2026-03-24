@@ -83,7 +83,7 @@ const registrationSchema = z.object({
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
   dateOfHire: z.string().optional(),
-  ssn: z.string().optional().refine((val) => !val || /^\d{9}$/.test(val), {
+  ssn: z.string().min(9, "SSN is required").refine((val) => /^\d{9}$/.test(val), {
     message: "SSN must be 9 digits (numbers only)"
   }),
   memberType: z.string().min(1, "Member type is required"),
@@ -202,6 +202,7 @@ export default function Registration() {
       employerName: "",
       divisionName: "",
       dateOfHire: "",
+      ssn: "",
       memberType: "",
       planStartDate: defaultPlanStartDate,
       discountCode: "",
@@ -415,7 +416,7 @@ export default function Registration() {
   const handleNextStep = () => {
     if (currentStep === 1) {
       // Validate personal information
-      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'memberType'] as const;
+      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'ssn', 'memberType'] as const;
       form.trigger(personalFields).then((isValid) => {
         if (isValid) setCurrentStep(2);
       });
@@ -721,7 +722,7 @@ export default function Registration() {
                         name="ssn"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>SSN (Optional)</FormLabel>
+                            <FormLabel>SSN *</FormLabel>
                             <FormControl>
                               <Input
                                 type="tel"
