@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
-import { hasAtLeastRole, requireRole } from "./auth/roles";
+import { hasAtLeastRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
 import {
   calculateCommission,
@@ -3259,6 +3259,47 @@ router.post(
 );
 
 router.get(
+  "/api/admin/memberships/overview",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const stats = await storage.getMembershipStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Error loading membership overview:", error);
+      res.status(500).json({ message: "Failed to load membership overview" });
+    }
+  },
+);
+
+router.get(
+  "/api/admin/memberships/duplicates",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const limitParam = Number(req.query.limit);
+      const limit = Number.isFinite(limitParam)
+        ? Math.min(Math.max(limitParam, 1), 100)
+        : 10;
+
+      const groups = await storage.getDuplicateMembershipGroups(limit);
+      res.json({ groups });
+    } catch (error: any) {
+      console.error("Error loading duplicate memberships:", error);
+      res.status(500).json({ message: "Failed to load duplicate memberships" });
+    }
+  },
+);
+
+router.get(
   "/api/admin/analytics",
   authenticateToken,
   async (req: AuthRequest, res) => {
@@ -6326,7 +6367,11 @@ export async function registerRoutes(app: any) {
    * Used for stuck payments that didn't receive proper webhook callbacks
    * Requires admin authentication
    */
-  router.post('/api/payments/force-status-update', requireRole(['admin', 'super_admin']), async (req, res) => {
+  router.post('/api/payments/force-status-update', authenticateToken, async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
     try {
       const { paymentId, transactionId, newStatus, reason } = req.body;
 
@@ -6424,7 +6469,11 @@ export async function registerRoutes(app: any) {
    * Returns payments that are still "pending" after a threshold time (default 1 hour)
    * Requires admin authentication
    */
-  router.get('/api/payments/reconciliation/pending', requireRole(['admin', 'super_admin']), async (req, res) => {
+  router.get('/api/payments/reconciliation/pending', authenticateToken, async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
     try {
       const thresholdMinutes = parseInt(req.query.thresholdMinutes as string) || 60;
       const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000);
@@ -6497,7 +6546,11 @@ export async function registerRoutes(app: any) {
    * Accepts array of payment IDs or transaction IDs with their new statuses
    * Requires admin authentication
    */
-  router.post('/api/payments/reconciliation/batch-update', requireRole(['admin', 'super_admin']), async (req, res) => {
+  router.post('/api/payments/reconciliation/batch-update', authenticateToken, async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
     try {
       const { updates, reason } = req.body;
 
@@ -6619,7 +6672,11 @@ export async function registerRoutes(app: any) {
    * Returns decrypted data with audit logging
    * Requires admin/super_admin authentication
    */
-  router.get('/api/admin/member/:memberId/sensitive', requireRole(['admin', 'super_admin']), async (req, res) => {
+  router.get('/api/admin/member/:memberId/sensitive', authenticateToken, async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
     try {
       const { memberId } = req.params;
       const { reason } = req.query;
@@ -6738,7 +6795,11 @@ export async function registerRoutes(app: any) {
    * Re-encrypts any legacy plaintext SSNs for existing members.
    * Supports dryRun mode to inspect impact before updates.
    */
-  router.post('/api/admin/members/backfill-ssn-encryption', requireRole(['admin', 'super_admin']), async (req, res) => {
+  router.post('/api/admin/members/backfill-ssn-encryption', authenticateToken, async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
     try {
       const dryRun = Boolean(req.body?.dryRun);
       const batchSize = Math.min(Math.max(Number(req.body?.batchSize || 200), 1), 1000);
