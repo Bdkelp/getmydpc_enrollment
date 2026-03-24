@@ -377,8 +377,16 @@ export default function EnrollmentDetails() {
     },
     onSuccess: (response) => {
       const decrypted = response?.sensitiveData?.ssn?.decrypted || null;
-      setRevealedSSN(decrypted);
+      const masked = response?.sensitiveData?.ssn?.masked || null;
+      setRevealedSSN(decrypted || masked);
       setIsSSNVisible(true);
+
+      if (!decrypted && masked) {
+        toast({
+          title: 'Limited SSN view',
+          description: 'Full SSN is unavailable for this record. Showing masked value only.',
+        });
+      }
     },
     onError: (error: any) => {
       toast({
@@ -711,7 +719,10 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            setEditedSSN(isSSNVisible && revealedSSN ? revealedSSN : '');
+                            const normalizedVisibleSSN = (isSSNVisible && revealedSSN && !revealedSSN.includes('*'))
+                              ? revealedSSN
+                              : '';
+                            setEditedSSN(normalizedVisibleSSN);
                             setIsEditingSSN(true);
                           }}
                         >
