@@ -17,8 +17,61 @@
  *   --batch-size Number of records to process at once (default: 100)
  */
 
-import { neonPool } from '../../server/lib/neonDb.js';
-import { encryptSSN, isValidSSN } from '../../server/utils/encryption.js';
+import crypto from 'crypto';
+import pg from 'pg';
+
+const { Pool } = pg;
+const ALGORITHM = 'aes-256-gcm';
+
+if (!process.env.DATABASE_URL) {
+  console.error('❌ ERROR: DATABASE_URL environment variable not set');
+  process.exit(1);
+}
+
+if (!process.env.SSN_ENCRYPTION_KEY) {
+  console.error('❌ ERROR: SSN_ENCRYPTION_KEY environment variable not set');
+  process.exit(1);
+}
+
+const SECRET_KEY = Buffer.from(process.env.SSN_ENCRYPTION_KEY, 'hex');
+if (SECRET_KEY.length !== 32) {
+  console.error('❌ ERROR: SSN_ENCRYPTION_KEY must be a 64-char hex key (32 bytes)');
+  process.exit(1);
+}
+
+const neonPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  max: 5,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+});
+
+function isValidSSN(ssn) {
+  if (!ssn) return false;
+  const cleanSSN = String(ssn).replace(/\D/g, '');
+  if (cleanSSN.length !== 9) return false;
+  if (cleanSSN === '000000000' || cleanSSN === '111111111' || cleanSSN === '123456789') return false;
+  const areaNumber = parseInt(cleanSSN.slice(0, 3), 10);
+  if (areaNumber === 0 || areaNumber === 666 || areaNumber >= 900) return false;
+  return true;
+}
+
+function encryptSSN(ssn) {
+  const cleanSSN = String(ssn).replace(/\D/g, '');
+  if (cleanSSN.length !== 9) {
+    throw new Error('SSN must be 9 digits');
+  }
+
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(ALGORITHM, SECRET_KEY, iv);
+  let encrypted = cipher.update(cleanSSN, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
+}
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const BATCH_SIZE = parseInt(process.argv.find(arg => arg.startsWith('--batch-size='))?.split('=')[1] || '100');
@@ -29,12 +82,6 @@ async function encryptExistingSSNs() {
   console.log(`Mode: ${DRY_RUN ? 'DRY RUN (no changes)' : 'LIVE (will update database)'}`);
   console.log(`Batch size: ${BATCH_SIZE}`);
   console.log('');
-
-  // Check environment variable
-  if (!process.env.SSN_ENCRYPTION_KEY) {
-    console.error('❌ ERROR: SSN_ENCRYPTION_KEY environment variable not set');
-    process.exit(1);
-  }
 
   const client = await neonPool.connect();
 

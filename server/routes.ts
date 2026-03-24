@@ -3070,6 +3070,72 @@ router.patch(
 );
 
 router.patch(
+  "/api/admin/enrollment/:enrollmentId/ssn",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    const { ssn, reason } = req.body || {};
+    if (typeof ssn !== "string" || !ssn.trim()) {
+      return res.status(400).json({ message: "SSN is required" });
+    }
+
+    try {
+      const { isValidSSN, formatSSN, maskSSN } = await import('./utils/encryption');
+      const normalized = ssn.replace(/\D/g, '');
+
+      if (!isValidSSN(normalized)) {
+        return res.status(400).json({ message: "Invalid SSN format" });
+      }
+
+      await storage.updateMember(enrollmentId, { ssn: normalized });
+
+      // Log sensitive update for audit trail
+      try {
+        await storage.supabase.from('admin_logs').insert({
+          log_type: 'sensitive_data_update',
+          admin_id: req.user?.id,
+          admin_email: req.user?.email,
+          member_id: enrollmentId,
+          action: 'update_member_ssn',
+          reason: typeof reason === 'string' ? reason : null,
+          metadata: {
+            updated_field: 'ssn',
+            masked_ssn: maskSSN(normalized),
+          },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent'),
+          created_at: new Date().toISOString()
+        });
+      } catch (logError) {
+        console.warn('[Admin] Could not save SSN update audit log to database', logError);
+      }
+
+      const enrollment = await storage.getEnrollmentDetails(enrollmentId);
+      const decryptedSSN = enrollment?.ssn ? formatSSN(normalized) : null;
+
+      res.json({
+        success: true,
+        ssn: {
+          masked: maskSSN(normalized),
+          formatted: decryptedSSN,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error updating enrollment SSN:", error);
+      res.status(500).json({ message: "Failed to update SSN", error: error.message });
+    }
+  },
+);
+
+router.patch(
   "/api/admin/enrollment/:enrollmentId/address",
   authenticateToken,
   async (req: AuthRequest, res) => {
@@ -6667,6 +6733,134 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  /**
+   * POST /api/admin/members/backfill-ssn-encryption
+   * Re-encrypts any legacy plaintext SSNs for existing members.
+   * Supports dryRun mode to inspect impact before updates.
+   */
+  router.post('/api/admin/members/backfill-ssn-encryption', requireRole(['admin', 'super_admin']), async (req, res) => {
+    try {
+      const dryRun = Boolean(req.body?.dryRun);
+      const batchSize = Math.min(Math.max(Number(req.body?.batchSize || 200), 1), 1000);
+      const { encryptSSN, isValidSSN } = await import('./utils/encryption');
+
+      let offset = 0;
+      let total = 0;
+      let encrypted = 0;
+      let alreadyEncrypted = 0;
+      let invalid = 0;
+      let errors = 0;
+      const invalidMemberIds: number[] = [];
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('members')
+          .select('id, customer_number, ssn')
+          .not('ssn', 'is', null)
+          .neq('ssn', '')
+          .order('id', { ascending: true })
+          .range(offset, offset + batchSize - 1);
+
+        if (error) {
+          throw error;
+        }
+
+        if (!data || data.length === 0) {
+          break;
+        }
+
+        for (const row of data) {
+          total += 1;
+          const raw = String(row.ssn || '');
+
+          try {
+            if (raw.includes(':')) {
+              alreadyEncrypted += 1;
+              continue;
+            }
+
+            if (!isValidSSN(raw)) {
+              invalid += 1;
+              invalidMemberIds.push(row.id);
+              continue;
+            }
+
+            if (!dryRun) {
+              const nextValue = encryptSSN(raw);
+              const { error: updateError } = await supabase
+                .from('members')
+                .update({ ssn: nextValue, updated_at: new Date().toISOString() })
+                .eq('id', row.id);
+
+              if (updateError) {
+                throw updateError;
+              }
+            }
+
+            encrypted += 1;
+          } catch (innerError) {
+            errors += 1;
+            console.error('[SSN Backfill] Failed for member', {
+              memberId: row.id,
+              customerNumber: row.customer_number,
+              error: innerError,
+            });
+          }
+        }
+
+        if (data.length < batchSize) {
+          break;
+        }
+        offset += batchSize;
+      }
+
+      // Audit log for operational traceability
+      try {
+        await storage.supabase.from('admin_logs').insert({
+          log_type: 'sensitive_data_backfill',
+          admin_id: req.user?.id,
+          admin_email: req.user?.email,
+          action: 'backfill_member_ssn_encryption',
+          metadata: {
+            dryRun,
+            batchSize,
+            total,
+            encrypted,
+            alreadyEncrypted,
+            invalid,
+            errors,
+            invalidMemberIds: invalidMemberIds.slice(0, 100),
+          },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent'),
+          created_at: new Date().toISOString(),
+        });
+      } catch (logError) {
+        console.warn('[Admin] Could not save SSN backfill audit log to database', logError);
+      }
+
+      return res.json({
+        success: true,
+        dryRun,
+        summary: {
+          total,
+          encrypted,
+          alreadyEncrypted,
+          invalid,
+          errors,
+        },
+        invalidMemberIds: invalidMemberIds.slice(0, 100),
+      });
+    } catch (error: any) {
+      console.error('[Admin] Error running SSN backfill:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to run SSN backfill',
+        details: error?.message || 'Unknown error',
+      });
+    }
+  });
+
   // Log the new routes
   console.log("[Route] POST /api/registration");
   console.log("[Route] POST /api/agent/enrollment");
@@ -6683,6 +6877,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] GET /api/payments/reconciliation/pending");
   console.log("[Route] POST /api/payments/reconciliation/batch-update");
   console.log("[Route] GET /api/admin/member/:memberId/sensitive");
+  console.log("[Route] POST /api/admin/members/backfill-ssn-encryption");
 
   // Return the app with routes registered
   return app;

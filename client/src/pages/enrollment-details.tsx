@@ -22,7 +22,9 @@ import {
   Shield,
   DollarSign,
   FileText,
-  Users
+  Users,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { addMonths, format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,16 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPhoneNumber, cleanPhoneNumber, formatZipCode } from "@/lib/formatters";
+
+interface SensitiveMemberResponse {
+  success: boolean;
+  sensitiveData?: {
+    ssn?: {
+      decrypted?: string | null;
+      masked?: string | null;
+    };
+  };
+}
 
 interface EnrollmentDetails {
   id: string;
@@ -171,6 +183,18 @@ export default function EnrollmentDetails() {
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
   const [newPaymentStatus, setNewPaymentStatus] = useState('');
   const [paymentUpdateNote, setPaymentUpdateNote] = useState('');
+  const [isSSNVisible, setIsSSNVisible] = useState(false);
+  const [revealedSSN, setRevealedSSN] = useState<string | null>(null);
+  const [isEditingSSN, setIsEditingSSN] = useState(false);
+  const [editedSSN, setEditedSSN] = useState('');
+  const [ssnUpdateReason, setSsnUpdateReason] = useState('');
+
+  const getMaskedSSN = (value?: string | null): string => {
+    if (!value) return '***-**-****';
+    const digits = String(value).replace(/\D/g, '');
+    if (digits.length < 4) return '***-**-****';
+    return `***-**-${digits.slice(-4)}`;
+  };
   
   // Fetch enrollment details
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({
@@ -341,6 +365,57 @@ export default function EnrollmentDetails() {
         title: "Failed to Add Family Member",
         description: error.message || "An error occurred while adding the family member.",
         variant: "destructive",
+      });
+    },
+  });
+
+  const revealSensitiveMutation = useMutation({
+    mutationFn: async () => {
+      const memberId = enrollment?.id;
+      if (!memberId) throw new Error('Member ID is missing');
+      return apiRequest(`/api/admin/member/${memberId}/sensitive?reason=${encodeURIComponent('Enrollment details SSN reveal')}`) as Promise<SensitiveMemberResponse>;
+    },
+    onSuccess: (response) => {
+      const decrypted = response?.sensitiveData?.ssn?.decrypted || null;
+      setRevealedSSN(decrypted);
+      setIsSSNVisible(true);
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Unable to reveal SSN',
+        description: error?.message || 'Failed to retrieve sensitive member data.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const updateSSNMutation = useMutation({
+    mutationFn: async () => {
+      if (!enrollment?.id) throw new Error('Member ID is missing');
+      return apiRequest(`/api/admin/enrollment/${enrollment.id}/ssn`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ssn: editedSSN,
+          reason: ssnUpdateReason,
+        }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'SSN Updated',
+        description: 'Member SSN has been updated successfully.',
+      });
+      setIsEditingSSN(false);
+      setSsnUpdateReason('');
+      setRevealedSSN(null);
+      setIsSSNVisible(false);
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update SSN',
+        description: error?.message || 'Unable to update SSN.',
+        variant: 'destructive',
       });
     },
   });
@@ -606,6 +681,80 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   <div>
                     <Label className="text-gray-600">Gender</Label>
                     <p className="font-semibold capitalize">{enrollment.gender || 'Not specified'}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">SSN</Label>
+                    {!isEditingSSN ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="font-semibold tracking-wide">
+                          {isSSNVisible ? (revealedSSN || 'Not available') : getMaskedSSN(enrollment.ssn)}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            if (isSSNVisible) {
+                              setIsSSNVisible(false);
+                              return;
+                            }
+                            revealSensitiveMutation.mutate();
+                          }}
+                          disabled={revealSensitiveMutation.isPending}
+                          aria-label={isSSNVisible ? 'Hide SSN' : 'Reveal SSN'}
+                        >
+                          {isSSNVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditedSSN(isSSNVisible && revealedSSN ? revealedSSN : '');
+                            setIsEditingSSN(true);
+                          }}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Update
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 mt-2">
+                        <Input
+                          value={editedSSN}
+                          onChange={(e) => setEditedSSN(e.target.value)}
+                          placeholder="XXX-XX-XXXX"
+                        />
+                        <Input
+                          value={ssnUpdateReason}
+                          onChange={(e) => setSsnUpdateReason(e.target.value)}
+                          placeholder="Reason for SSN correction (optional)"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => updateSSNMutation.mutate()}
+                            disabled={!editedSSN.trim() || updateSSNMutation.isPending}
+                          >
+                            {updateSSNMutation.isPending ? 'Saving...' : 'Save SSN'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsEditingSSN(false);
+                              setEditedSSN('');
+                              setSsnUpdateReason('');
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {enrollment.employerName && (
                     <div>
