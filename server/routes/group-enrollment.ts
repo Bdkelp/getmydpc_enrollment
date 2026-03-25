@@ -39,6 +39,9 @@ const parseAmount = (value: unknown): string | null => {
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
+const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered']);
+const ALLOWED_PAYOR_TYPES = new Set(['full', 'member']);
 
 type PayorMixMode = 'full' | 'member' | 'fixed' | 'percentage';
 type PreferredPaymentMethod = 'card' | 'ach' | null;
@@ -257,6 +260,54 @@ const getGroupEffectiveDateContext = (req: AuthRequest, groupMetadata: any) => {
   };
 };
 
+const normalizeAssignedAgentId = (value: unknown): string | null | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeMemberTier = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return 'member';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return ALLOWED_MEMBER_TIERS.has(normalized) ? normalized : 'member';
+};
+
+const normalizeMemberStatus = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return 'draft';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return ALLOWED_MEMBER_STATUSES.has(normalized) ? normalized : 'draft';
+};
+
+const normalizeMemberPayorType = (value: unknown, fallbackPayorType: string): string => {
+  if (fallbackPayorType !== 'mixed') {
+    return fallbackPayorType;
+  }
+
+  if (typeof value !== 'string') {
+    return 'full';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return ALLOWED_PAYOR_TYPES.has(normalized) ? normalized : 'full';
+};
+
 router.use('/api/groups', authenticateToken, ensureGroupEnrollmentAccess);
 
 router.get('/api/groups', async (req: AuthRequest, res: Response) => {
@@ -291,7 +342,7 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
 
 router.post('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, payorType, groupType, discountCode, discountCodeId, metadata, groupProfile } = req.body || {};
+    const { name, payorType, groupType, discountCode, discountCodeId, metadata, groupProfile, assignedAgentId } = req.body || {};
 
     if (!name) {
       return res.status(400).json({ message: 'Group name and payor type are required' });
@@ -302,10 +353,20 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
     const normalizedPayorType = typeof payorType === 'string'
       ? payorType
       : payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+    const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
+    const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
     const nextMetadata = {
       ...existingMetadata,
       groupProfile: normalizedProfile,
     };
+
+    if (isAdminOrHigher) {
+      if (selectedAssignedAgentId) {
+        nextMetadata.assignedAgentId = selectedAssignedAgentId;
+      }
+    } else if (req.user?.id) {
+      nextMetadata.assignedAgentId = req.user.id;
+    }
 
     const group = await createGroup({
       name,
@@ -427,10 +488,12 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ message: 'Group not found' });
     }
 
-    const { groupProfile, metadata, ...otherFields } = req.body || {};
+    const { groupProfile, metadata, assignedAgentId, ...otherFields } = req.body || {};
     const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
     const incomingMetadata = (metadata && typeof metadata === 'object') ? metadata : {};
     const mergedMetadata = { ...existingMetadata, ...incomingMetadata } as Record<string, any>;
+    const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
+    const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
 
     let normalizedPayorType = typeof otherFields.payorType === 'string' ? otherFields.payorType : group.payorType;
 
@@ -438,6 +501,18 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       const normalizedProfile = normalizeGroupProfile(groupProfile, normalizedPayorType);
       mergedMetadata.groupProfile = normalizedProfile;
       normalizedPayorType = payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+    }
+
+    if (selectedAssignedAgentId !== undefined && isAdminOrHigher) {
+      if (selectedAssignedAgentId) {
+        mergedMetadata.assignedAgentId = selectedAssignedAgentId;
+      } else {
+        delete mergedMetadata.assignedAgentId;
+      }
+    }
+
+    if (!mergedMetadata.assignedAgentId && req.user?.id && !isAdminOrHigher) {
+      mergedMetadata.assignedAgentId = req.user.id;
     }
 
     const updated = await updateGroup(groupId, {
@@ -506,6 +581,85 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
   } catch (error) {
     console.error('[Group Enrollment] Failed to add group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to add group member';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const incomingMembers = Array.isArray(req.body?.members) ? req.body.members : [];
+    if (incomingMembers.length === 0) {
+      return res.status(400).json({ message: 'No members provided for bulk import' });
+    }
+
+    const created: any[] = [];
+    const failed: Array<{ row: number; email?: string; reason: string }> = [];
+
+    for (let index = 0; index < incomingMembers.length; index += 1) {
+      const source = incomingMembers[index] || {};
+      const rowNumber = index + 2;
+      const firstName = toTrimmedOrNull(source.firstName);
+      const lastName = toTrimmedOrNull(source.lastName);
+      const email = toTrimmedOrNull(source.email)?.toLowerCase() || null;
+
+      if (!firstName || !lastName || !email) {
+        failed.push({ row: rowNumber, email: email || undefined, reason: 'Missing firstName, lastName, or email' });
+        continue;
+      }
+
+      if (!EMAIL_REGEX.test(email)) {
+        failed.push({ row: rowNumber, email, reason: 'Invalid email format' });
+        continue;
+      }
+
+      try {
+        const memberRecord = await addGroupMember(groupId, {
+          tier: normalizeMemberTier(source.tier),
+          payorType: normalizeMemberPayorType(source.payorType, group.payorType),
+          firstName,
+          lastName,
+          email,
+          phone: toDigitsOrNull(source.phone),
+          dateOfBirth: toTrimmedOrNull(source.dateOfBirth),
+          employerAmount: parseAmount(source.employerAmount),
+          memberAmount: parseAmount(source.memberAmount),
+          discountAmount: parseAmount(source.discountAmount),
+          totalAmount: parseAmount(source.totalAmount),
+          metadata: source.metadata,
+          registrationPayload: source.registrationPayload || source,
+          status: normalizeMemberStatus(source.status),
+        });
+
+        created.push(memberRecord);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to add row';
+        failed.push({ row: rowNumber, email, reason: message });
+      }
+    }
+
+    const summary = {
+      received: incomingMembers.length,
+      created: created.length,
+      failed: failed.length,
+    };
+
+    return res.status(failed.length > 0 ? 207 : 201).json({
+      message: failed.length > 0
+        ? 'Bulk import completed with partial failures'
+        : 'Bulk import completed successfully',
+      summary,
+      created,
+      failed,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to bulk import group members:', error);
+    const message = error instanceof Error ? error.message : 'Failed to bulk import group members';
     return res.status(500).json({ message });
   }
 });

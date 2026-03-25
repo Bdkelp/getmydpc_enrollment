@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
   Pencil,
   Trash2,
   ClipboardCheck,
+  Upload,
 } from "lucide-react";
 
 const payorMixOptions = [
@@ -153,6 +154,15 @@ type GroupMemberRecord = {
   totalAmount?: string | null;
 };
 
+type AgentOption = {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  agentNumber?: string | null;
+  isActive?: boolean;
+};
+
 type MemberFormState = {
   id?: number;
   firstName: string;
@@ -169,6 +179,21 @@ type DiscountValidationState = {
   message?: string;
   discountType?: string;
   durationType?: string;
+};
+
+type CensusImportRow = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  dateOfBirth?: string;
+  tier: string;
+  payorType?: string;
+  status?: string;
+  employerAmount?: string;
+  memberAmount?: string;
+  discountAmount?: string;
+  totalAmount?: string;
 };
 
 const defaultGroupProfileForm: GroupProfile = {
@@ -254,6 +279,133 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
   },
 });
 
+const getAssignedAgentIdFromMetadata = (metadata?: Record<string, any> | null): string => {
+  const assigned = metadata?.assignedAgentId;
+  return typeof assigned === "string" ? assigned : "";
+};
+
+const normalizeHeader = (value: unknown): string =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+
+const parseCsvRows = (csvText: string): string[][] => {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index];
+    const nextChar = csvText[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentCell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      currentRow.push(currentCell.trim());
+      currentCell = "";
+      continue;
+    }
+
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        index += 1;
+      }
+
+      currentRow.push(currentCell.trim());
+      if (currentRow.some((cell) => cell.length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentCell = "";
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell.trim());
+    if (currentRow.some((cell) => cell.length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+};
+
+const readFileAsText = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read file"));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsText(file);
+  });
+
+const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read file"));
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.readAsArrayBuffer(file);
+  });
+
+const getRecordValue = (record: Record<string, unknown>, keys: string[]): string => {
+  const entries = Object.entries(record);
+  for (const key of keys) {
+    const found = entries.find(([entryKey]) => normalizeHeader(entryKey) === normalizeHeader(key));
+    if (found && found[1] !== undefined && found[1] !== null) {
+      const value = String(found[1]).trim();
+      if (value) {
+        return value;
+      }
+    }
+  }
+  return "";
+};
+
+const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => ({
+  firstName: getRecordValue(record, ["firstName", "first_name", "firstname"]),
+  lastName: getRecordValue(record, ["lastName", "last_name", "lastname"]),
+  email: getRecordValue(record, ["email", "emailAddress", "email_address"]),
+  phone: getRecordValue(record, ["phone", "phoneNumber", "phone_number"]),
+  dateOfBirth: getRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"]),
+  tier: getRecordValue(record, ["tier", "memberType", "member_type"]) || "member",
+  payorType: getRecordValue(record, ["payorType", "payor_type", "payor"]),
+  status: getRecordValue(record, ["status"]),
+  employerAmount: getRecordValue(record, ["employerAmount", "employer_amount"]),
+  memberAmount: getRecordValue(record, ["memberAmount", "member_amount"]),
+  discountAmount: getRecordValue(record, ["discountAmount", "discount_amount"]),
+  totalAmount: getRecordValue(record, ["totalAmount", "total_amount"]),
+});
+
+const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
+  if (tableRows.length < 2) {
+    return [];
+  }
+
+  const headers = tableRows[0];
+  return tableRows
+    .slice(1)
+    .map((cells) => {
+      const record: Record<string, unknown> = {};
+      headers.forEach((header, idx) => {
+        record[header] = cells[idx] || "";
+      });
+      return mapRecordToCensusRow(record);
+    })
+    .filter((row) => row.firstName || row.lastName || row.email);
+};
+
 export default function GroupEnrollment() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
@@ -271,8 +423,10 @@ export default function GroupEnrollment() {
     groupType: "",
     discountCode: "",
   });
+  const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState("");
   const [newGroupProfileForm, setNewGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [groupProfileForm, setGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
+  const [groupAssignedAgentId, setGroupAssignedAgentId] = useState("");
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<GroupMemberRecord | null>(null);
   const defaultMemberForm: MemberFormState = {
@@ -288,6 +442,11 @@ export default function GroupEnrollment() {
   const [isValidatingDiscount, setIsValidatingDiscount] = useState(false);
   const [effectiveDateSelection, setEffectiveDateSelection] = useState<string>("");
   const [effectiveDateReason, setEffectiveDateReason] = useState("");
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [importFileName, setImportFileName] = useState("");
+  const [importRows, setImportRows] = useState<CensusImportRow[]>([]);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
     setMemberForm({
@@ -303,7 +462,21 @@ export default function GroupEnrollment() {
     enabled: !authLoading && isAuthorized,
   });
 
+  const { data: agentsData } = useQuery({
+    queryKey: ["/api/agents"],
+    queryFn: async () => apiRequest("/api/agents"),
+    enabled: !authLoading && isAuthorized && canAccessAdminViews,
+    staleTime: 1000 * 60,
+  });
+
   const groups: GroupRecord[] = useMemo(() => data?.data ?? [], [data]);
+  const agentOptions: AgentOption[] = useMemo(() => {
+    if (!Array.isArray(agentsData)) {
+      return [];
+    }
+
+    return agentsData.filter((agent: AgentOption) => agent?.isActive !== false);
+  }, [agentsData]);
 
   useEffect(() => {
     if (!isAuthorized && !authLoading) {
@@ -335,6 +508,7 @@ export default function GroupEnrollment() {
         payorType: derivePayorTypeFromMode(newGroupProfileForm.payorMixMode),
         discountCode,
         groupProfile: buildGroupProfilePayload(newGroupProfileForm),
+        assignedAgentId: canAccessAdminViews ? (newGroupAssignedAgentId || undefined) : undefined,
       };
       return apiRequest("/api/groups", {
         method: "POST",
@@ -348,6 +522,7 @@ export default function GroupEnrollment() {
       });
       setNewGroupOpen(false);
       setNewGroupForm({ name: "", groupType: "", discountCode: "" });
+      setNewGroupAssignedAgentId("");
       setNewGroupProfileForm({ ...defaultGroupProfileForm });
       setDiscountValidation(null);
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
@@ -365,6 +540,13 @@ export default function GroupEnrollment() {
     const response = await apiRequest(`/api/groups/${groupId}`);
     const typed = response as GroupDetailResponse;
     setSelectedGroup(typed);
+    setImportFileName("");
+    setImportRows([]);
+    setImportWarnings([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setGroupAssignedAgentId(getAssignedAgentIdFromMetadata(typed.data?.metadata));
     setEffectiveDateSelection(typed.effectiveDateContext?.selectedEffectiveDate || "");
     setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
     setGroupProfileForm(mapGroupProfileContextToForm(typed.groupProfileContext));
@@ -372,6 +554,68 @@ export default function GroupEnrollment() {
   };
 
   const refreshGroups = () => queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+
+  const parseCensusFile = async (file: File): Promise<CensusImportRow[]> => {
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+
+    if (extension === "csv") {
+      const text = await readFileAsText(file);
+      return mapCsvTableToRows(parseCsvRows(text));
+    }
+
+    if (extension === "xls" || extension === "xlsx") {
+      const XLSX = (await import("xlsx")) as any;
+      const buffer = await readFileAsArrayBuffer(file);
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        return [];
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const records = XLSX.utils.sheet_to_json(worksheet, { defval: "" }) as Record<string, unknown>[];
+      return records.map(mapRecordToCensusRow).filter((row) => row.firstName || row.lastName || row.email);
+    }
+
+    throw new Error("Unsupported file type. Use .csv, .xls, or .xlsx");
+  };
+
+  const setParsedImportRows = (fileName: string, parsedRows: CensusImportRow[]) => {
+    const warnings: string[] = [];
+    parsedRows.forEach((row, index) => {
+      if (!row.firstName || !row.lastName || !row.email) {
+        warnings.push(`Row ${index + 2} missing firstName, lastName, or email`);
+      }
+    });
+
+    setImportFileName(fileName);
+    setImportRows(parsedRows);
+    setImportWarnings(warnings.slice(0, 5));
+  };
+
+  const handleCensusFile = async (file: File) => {
+    try {
+      const parsedRows = await parseCensusFile(file);
+      if (parsedRows.length === 0) {
+        throw new Error("No member rows found in file");
+      }
+
+      setParsedImportRows(file.name, parsedRows);
+      toast({
+        title: "Census file loaded",
+        description: `${parsedRows.length} rows ready to import`,
+      });
+    } catch (err: any) {
+      setImportFileName("");
+      setImportRows([]);
+      setImportWarnings([]);
+      toast({
+        title: "Unable to read file",
+        description: err?.message || "Please check file format and try again",
+        variant: "destructive",
+      });
+    }
+  };
 
   const upsertMemberMutation = useMutation({
     mutationFn: async () => {
@@ -447,6 +691,43 @@ export default function GroupEnrollment() {
     },
   });
 
+  const bulkImportMembersMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedGroup?.data?.id) throw new Error("Select a group first");
+      if (importRows.length === 0) throw new Error("Load a census file first");
+
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/members/bulk`, {
+        method: "POST",
+        body: JSON.stringify({ members: importRows }),
+      });
+    },
+    onSuccess: async (result: any) => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      const summary = result?.summary;
+      toast({
+        title: "Census import complete",
+        description: `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows`,
+        variant: summary?.failed ? "destructive" : undefined,
+      });
+      setImportFileName("");
+      setImportRows([]);
+      setImportWarnings([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Census import failed",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
   const completeGroupMutation = useMutation({
     mutationFn: async () => {
       if (!selectedGroup?.data?.id) throw new Error("Select a group first");
@@ -516,6 +797,7 @@ export default function GroupEnrollment() {
         body: JSON.stringify({
           payorType: derivePayorTypeFromMode(groupProfileForm.payorMixMode),
           groupProfile: buildGroupProfilePayload(groupProfileForm),
+          assignedAgentId: canAccessAdminViews ? (groupAssignedAgentId || null) : undefined,
         }),
       });
     },
@@ -609,6 +891,22 @@ export default function GroupEnrollment() {
     setMemberDialogOpen(true);
   };
 
+  const handleDropZoneDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      await handleCensusFile(file);
+    }
+  };
+
+  const handleDropZoneSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await handleCensusFile(file);
+    }
+  };
+
   const handleEditMemberClick = (member: GroupMemberRecord) => {
     setEditingMember(member);
     resetMemberForm({
@@ -653,6 +951,11 @@ export default function GroupEnrollment() {
     effectiveDateContext?.canOverride &&
     effectiveDateSelection &&
     (selectedIsDefault || effectiveDateReason.trim().length >= 5)
+  );
+  const canRunBulkImport = importRows.length > 0 && !bulkImportMembersMutation.isPending;
+  const canCreateGroup = Boolean(
+    newGroupForm.name.trim().length > 0 &&
+    (!canAccessAdminViews || newGroupAssignedAgentId)
   );
 
   if (authLoading || isLoading) {
@@ -857,6 +1160,30 @@ export default function GroupEnrollment() {
                 onChange={(event) => setNewGroupForm((prev) => ({ ...prev, groupType: event.target.value }))}
               />
             </div>
+            {canAccessAdminViews && (
+              <div>
+                <Label>Assign to Agent of Record</Label>
+                <Select
+                  value={newGroupAssignedAgentId}
+                  onValueChange={setNewGroupAssignedAgentId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agentOptions.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.agentNumber ? `${agent.agentNumber} - ` : ""}
+                        {`${agent.firstName || ""} ${agent.lastName || ""}`.trim() || agent.email || agent.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!newGroupAssignedAgentId && (
+                  <p className="text-xs text-amber-700 mt-1">Required for admin and super admin group creation.</p>
+                )}
+              </div>
+            )}
             <div>
               <Label>Payor Mix</Label>
               <Select
@@ -1125,7 +1452,7 @@ export default function GroupEnrollment() {
             </Button>
             <Button
               onClick={() => createGroupMutation.mutate()}
-              disabled={!newGroupForm.name || createGroupMutation.isPending}
+              disabled={!canCreateGroup || createGroupMutation.isPending}
             >
               {createGroupMutation.isPending ? 'Saving...' : 'Save Group'}
             </Button>
@@ -1156,6 +1483,24 @@ export default function GroupEnrollment() {
                   <Label>Payor Type</Label>
                   <p className="font-medium capitalize">{selectedGroup.data.payorType}</p>
                 </div>
+                {canAccessAdminViews && (
+                  <div>
+                    <Label>Agent of Record</Label>
+                    <Select value={groupAssignedAgentId} onValueChange={setGroupAssignedAgentId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select an agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {agentOptions.map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.agentNumber ? `${agent.agentNumber} - ` : ""}
+                            {`${agent.firstName || ""} ${agent.lastName || ""}`.trim() || agent.email || agent.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <Label>Group Type</Label>
                   <p className="font-medium">{selectedGroup.data.groupType || 'General'}</p>
@@ -1499,6 +1844,59 @@ export default function GroupEnrollment() {
                     <UserPlus className="h-4 w-4 mr-1" />
                     Add Member
                   </Button>
+                </div>
+                <div className="mb-3 border rounded-lg p-3 bg-slate-50 space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".csv,.xls,.xlsx"
+                    className="hidden"
+                    onChange={handleDropZoneSelect}
+                  />
+                  <div
+                    className={`rounded-md border-2 border-dashed p-4 text-center transition-colors ${
+                      isDragActive ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-white"
+                    }`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDragActive(true);
+                    }}
+                    onDragLeave={() => setIsDragActive(false)}
+                    onDrop={handleDropZoneDrop}
+                  >
+                    <Upload className="h-5 w-5 mx-auto mb-2 text-slate-500" />
+                    <p className="text-sm text-slate-700">Drag and drop group census file here</p>
+                    <p className="text-xs text-slate-500 mt-1">Supports .csv, .xls, and .xlsx</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Choose File
+                    </Button>
+                  </div>
+                  {importFileName && (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{importFileName}</p>
+                        <p className="text-xs text-slate-600">{importRows.length} rows ready for import</p>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={() => bulkImportMembersMutation.mutate()}
+                        disabled={!canRunBulkImport}
+                      >
+                        {bulkImportMembersMutation.isPending ? "Importing..." : "Import Census Rows"}
+                      </Button>
+                    </div>
+                  )}
+                  {importWarnings.length > 0 && (
+                    <p className="text-xs text-amber-700">
+                      Potential issues found: {importWarnings.join("; ")}
+                    </p>
+                  )}
                 </div>
                 <div className="border rounded-lg divide-y bg-white">
                   {selectedGroup?.members && selectedGroup.members.length > 0 ? (

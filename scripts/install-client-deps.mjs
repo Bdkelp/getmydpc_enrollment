@@ -6,7 +6,7 @@ const env = {
   NODE_ENV: 'development',
 };
 
-const args = ['--prefix', 'client', 'ci', '--include=dev'];
+const args = ['--prefix', 'client', 'install', '--include=dev'];
 const result = spawnSync(npmCommand, args, {
   stdio: 'inherit',
   env,
