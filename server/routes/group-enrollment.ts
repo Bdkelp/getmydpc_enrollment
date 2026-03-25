@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
 import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
+import { supabase } from '../lib/supabaseClient';
 import {
   addGroupMember,
   completeGroupRegistration,
@@ -42,6 +43,11 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
 const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered']);
 const ALLOWED_PAYOR_TYPES = new Set(['full', 'member']);
+const GROUP_DOCUMENTS_BUCKET = 'group-documents';
+const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
+
+let groupDocumentsBucketReady = false;
 
 type PayorMixMode = 'full' | 'member' | 'fixed' | 'percentage';
 type PreferredPaymentMethod = 'card' | 'ach' | null;
@@ -306,6 +312,45 @@ const normalizeMemberPayorType = (value: unknown, fallbackPayorType: string): st
 
   const normalized = value.trim().toLowerCase();
   return ALLOWED_PAYOR_TYPES.has(normalized) ? normalized : 'full';
+};
+
+const sanitizeStorageFileName = (fileName: string): string => {
+  const trimmed = fileName.trim();
+  if (!trimmed) {
+    return `upload-${Date.now()}.bin`;
+  }
+
+  const sanitized = trimmed
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return sanitized || `upload-${Date.now()}.bin`;
+};
+
+const ensureGroupDocumentsBucket = async () => {
+  if (groupDocumentsBucketReady) {
+    return;
+  }
+
+  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+  if (listError) {
+    throw new Error(`Unable to verify storage buckets: ${listError.message}`);
+  }
+
+  const exists = (buckets || []).some((bucket) => bucket.name === GROUP_DOCUMENTS_BUCKET);
+  if (!exists) {
+    const { error: createError } = await supabase.storage.createBucket(GROUP_DOCUMENTS_BUCKET, {
+      public: false,
+      fileSizeLimit: `${MAX_GROUP_DOCUMENT_BYTES}`,
+    });
+
+    if (createError && !createError.message.toLowerCase().includes('already exists')) {
+      throw new Error(`Unable to create storage bucket: ${createError.message}`);
+    }
+  }
+
+  groupDocumentsBucketReady = true;
 };
 
 router.use('/api/groups', authenticateToken, ensureGroupEnrollmentAccess);
@@ -660,6 +705,91 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
   } catch (error) {
     console.error('[Group Enrollment] Failed to bulk import group members:', error);
     const message = error instanceof Error ? error.message : 'Failed to bulk import group members';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/documents', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const documentType = typeof req.body?.documentType === 'string' ? req.body.documentType.trim().toLowerCase() : '';
+    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
+    const contentType = typeof req.body?.contentType === 'string' ? req.body.contentType.trim() : 'application/octet-stream';
+    const base64Data = typeof req.body?.base64Data === 'string' ? req.body.base64Data.trim() : '';
+
+    if (!ALLOWED_GROUP_DOCUMENT_TYPES.has(documentType)) {
+      return res.status(400).json({ message: 'Unsupported document type' });
+    }
+
+    if (!fileName || !base64Data) {
+      return res.status(400).json({ message: 'fileName and base64Data are required' });
+    }
+
+    const binary = Buffer.from(base64Data, 'base64');
+    if (!binary || binary.length === 0) {
+      return res.status(400).json({ message: 'Uploaded file is empty' });
+    }
+
+    if (binary.length > MAX_GROUP_DOCUMENT_BYTES) {
+      return res.status(400).json({ message: 'File exceeds maximum size (10MB)' });
+    }
+
+    await ensureGroupDocumentsBucket();
+
+    const safeFileName = sanitizeStorageFileName(fileName);
+    const timestamp = Date.now();
+    const storagePath = `groups/${groupId}/${documentType}/${timestamp}-${safeFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(GROUP_DOCUMENTS_BUCKET)
+      .upload(storagePath, binary, {
+        contentType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      throw new Error(uploadError.message);
+    }
+
+    const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
+    const existingDocuments = Array.isArray((existingMetadata as any).groupDocuments)
+      ? (existingMetadata as any).groupDocuments
+      : [];
+
+    const documentRecord = {
+      id: `${timestamp}-${Math.random().toString(36).slice(2, 8)}`,
+      type: documentType,
+      fileName: safeFileName,
+      contentType,
+      storageBucket: GROUP_DOCUMENTS_BUCKET,
+      storagePath,
+      sizeBytes: binary.length,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: req.user?.id || null,
+      uploadedByRole: req.user?.role || null,
+    };
+
+    const updated = await updateGroup(groupId, {
+      metadata: {
+        ...existingMetadata,
+        groupDocuments: [documentRecord, ...existingDocuments].slice(0, 20),
+      },
+      updatedBy: req.user?.id,
+    });
+
+    return res.status(201).json({
+      message: 'Document uploaded successfully',
+      document: documentRecord,
+      data: updated,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to upload group document:', error);
+    const message = error instanceof Error ? error.message : 'Failed to upload group document';
     return res.status(500).json({ message });
   }
 });

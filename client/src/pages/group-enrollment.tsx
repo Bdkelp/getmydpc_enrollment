@@ -154,6 +154,17 @@ type GroupMemberRecord = {
   totalAmount?: string | null;
 };
 
+type GroupDocumentRecord = {
+  id: string;
+  type: string;
+  fileName: string;
+  contentType?: string;
+  sizeBytes?: number;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  uploadedByRole?: string;
+};
+
 type AgentOption = {
   id: string;
   firstName?: string | null;
@@ -291,6 +302,13 @@ const getAssignedAgentIdFromMetadata = (metadata?: Record<string, any> | null): 
   return typeof assigned === "string" ? assigned : "";
 };
 
+const getGroupDocumentsFromMetadata = (metadata?: Record<string, any> | null): GroupDocumentRecord[] => {
+  if (!Array.isArray(metadata?.groupDocuments)) {
+    return [];
+  }
+  return metadata.groupDocuments as GroupDocumentRecord[];
+};
+
 const normalizeHeader = (value: unknown): string =>
   String(value || "")
     .trim()
@@ -364,6 +382,14 @@ const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.onerror = () => reject(new Error("Unable to read file"));
     reader.onload = () => resolve(reader.result as ArrayBuffer);
     reader.readAsArrayBuffer(file);
+  });
+
+const readFileAsDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read file"));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
   });
 
 const getRecordValue = (record: Record<string, unknown>, keys: string[]): string => {
@@ -492,6 +518,9 @@ export default function GroupEnrollment() {
     discountCode: "",
   });
   const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState("");
+  const [newGroupCensusFileName, setNewGroupCensusFileName] = useState("");
+  const [newGroupCensusRows, setNewGroupCensusRows] = useState<CensusImportRow[]>([]);
+  const [newGroupPaymentFormFile, setNewGroupPaymentFormFile] = useState<File | null>(null);
   const [newGroupProfileForm, setNewGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [groupProfileForm, setGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [groupAssignedAgentId, setGroupAssignedAgentId] = useState("");
@@ -517,6 +546,9 @@ export default function GroupEnrollment() {
   const [lastImportSourceFileName, setLastImportSourceFileName] = useState("");
   const [lastImportFailedRows, setLastImportFailedRows] = useState<BulkImportFailedRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const newGroupCensusInputRef = useRef<HTMLInputElement | null>(null);
+  const newGroupPaymentInputRef = useRef<HTMLInputElement | null>(null);
+  const detailPaymentInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
     setMemberForm({
@@ -558,6 +590,25 @@ export default function GroupEnrollment() {
     }
   }, [isAuthorized, authLoading, toast]);
 
+  const uploadGroupDocument = async (groupId: string, file: File, documentType: string) => {
+    const dataUrl = await readFileAsDataUrl(file);
+    const commaIndex = dataUrl.indexOf(",");
+    if (commaIndex < 0) {
+      throw new Error("Unable to encode file for upload");
+    }
+
+    const base64Data = dataUrl.slice(commaIndex + 1);
+    return apiRequest(`/api/groups/${groupId}/documents`, {
+      method: "POST",
+      body: JSON.stringify({
+        documentType,
+        fileName: file.name,
+        contentType: file.type || "application/octet-stream",
+        base64Data,
+      }),
+    });
+  };
+
   const createGroupMutation = useMutation({
     mutationFn: async () => {
       const normalizedDiscount = newGroupForm.discountCode.trim().toUpperCase();
@@ -585,7 +636,46 @@ export default function GroupEnrollment() {
         body: JSON.stringify(payload),
       });
     },
-    onSuccess: () => {
+    onSuccess: async (result: any) => {
+      const createdGroupId = result?.data?.id as string | undefined;
+
+      if (createdGroupId && newGroupCensusRows.length > 0) {
+        try {
+          const bulkResult: any = await apiRequest(`/api/groups/${createdGroupId}/members/bulk`, {
+            method: "POST",
+            body: JSON.stringify({ members: newGroupCensusRows }),
+          });
+          const summary = bulkResult?.summary;
+          toast({
+            title: "Census upload finished",
+            description: `Imported ${summary?.created ?? 0} of ${summary?.received ?? newGroupCensusRows.length} rows for the new group`,
+            variant: summary?.failed ? "destructive" : undefined,
+          });
+        } catch (error: any) {
+          toast({
+            title: "Census upload failed",
+            description: error?.message || "Group was created, but census upload failed.",
+            variant: "destructive",
+          });
+        }
+      }
+
+      if (createdGroupId && newGroupPaymentFormFile) {
+        try {
+          await uploadGroupDocument(createdGroupId, newGroupPaymentFormFile, "authorized_payment_form");
+          toast({
+            title: "Payment form uploaded",
+            description: "Authorized payment form attached to the new group.",
+          });
+        } catch (error: any) {
+          toast({
+            title: "Payment form upload failed",
+            description: error?.message || "Group was created, but payment form upload failed.",
+            variant: "destructive",
+          });
+        }
+      }
+
       toast({
         title: "Group created",
         description: "Group record saved. You can start adding members now.",
@@ -593,8 +683,17 @@ export default function GroupEnrollment() {
       setNewGroupOpen(false);
       setNewGroupForm({ name: "", groupType: "", discountCode: "" });
       setNewGroupAssignedAgentId("");
+      setNewGroupCensusFileName("");
+      setNewGroupCensusRows([]);
+      setNewGroupPaymentFormFile(null);
       setNewGroupProfileForm({ ...defaultGroupProfileForm });
       setDiscountValidation(null);
+      if (newGroupCensusInputRef.current) {
+        newGroupCensusInputRef.current.value = "";
+      }
+      if (newGroupPaymentInputRef.current) {
+        newGroupPaymentInputRef.current.value = "";
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
     },
     onError: (err: any) => {
@@ -623,6 +722,11 @@ export default function GroupEnrollment() {
     setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
     setGroupProfileForm(mapGroupProfileContextToForm(typed.groupProfileContext));
     return typed;
+  };
+
+  const isGroupNotFoundError = (err: any): boolean => {
+    const message = String(err?.message || "");
+    return message.includes("HTTP 404") && message.toLowerCase().includes("group not found");
   };
 
   const refreshGroups = () => queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
@@ -691,6 +795,42 @@ export default function GroupEnrollment() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleNewGroupCensusFile = async (file: File) => {
+    try {
+      const parsedRows = await parseCensusFile(file);
+      if (parsedRows.length === 0) {
+        throw new Error("No member rows found in file");
+      }
+
+      setNewGroupCensusFileName(file.name);
+      setNewGroupCensusRows(parsedRows);
+      toast({
+        title: "Census file queued",
+        description: `${parsedRows.length} rows will import after group creation`,
+      });
+    } catch (err: any) {
+      setNewGroupCensusFileName("");
+      setNewGroupCensusRows([]);
+      toast({
+        title: "Unable to read census file",
+        description: err?.message || "Please check file format and try again",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleNewGroupCensusSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await handleNewGroupCensusFile(file);
+    }
+  };
+
+  const handleNewGroupPaymentFormSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    setNewGroupPaymentFormFile(file);
   };
 
   const upsertMemberMutation = useMutation({
@@ -843,6 +983,42 @@ export default function GroupEnrollment() {
     URL.revokeObjectURL(url);
   };
 
+  const uploadPaymentFormMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) {
+        throw new Error("Select a group first");
+      }
+      return uploadGroupDocument(groupId, file, "authorized_payment_form");
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      toast({
+        title: "Payment form uploaded",
+        description: "Authorized payment form was attached to this group.",
+      });
+      if (detailPaymentInputRef.current) {
+        detailPaymentInputRef.current.value = "";
+      }
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Payment form upload failed",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDetailPaymentFormSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadPaymentFormMutation.mutate(file);
+    }
+  };
+
   const completeGroupMutation = useMutation({
     mutationFn: async () => {
       if (!selectedGroup?.data?.id) throw new Error("Select a group first");
@@ -990,6 +1166,18 @@ export default function GroupEnrollment() {
       await fetchGroupDetail(groupId);
       setDetailOpen(true);
     } catch (err: any) {
+      if (isGroupNotFoundError(err)) {
+        setDetailOpen(false);
+        setSelectedGroup(null);
+        await refreshGroups();
+        toast({
+          title: "Group no longer available",
+          description: "This group was not found. The list has been refreshed.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       toast({
         title: "Failed to load group",
         description: err?.message || "Please try again",
@@ -1069,6 +1257,8 @@ export default function GroupEnrollment() {
   );
   const canRunBulkImport = importRows.length > 0 && !bulkImportMembersMutation.isPending;
   const canDownloadFailedRows = lastImportFailedRows.length > 0;
+  const groupDocuments = getGroupDocumentsFromMetadata(selectedGroup?.data?.metadata);
+  const latestPaymentForm = groupDocuments.find((doc) => doc.type === "authorized_payment_form");
   const canCreateGroup = Boolean(
     newGroupForm.name.trim().length > 0 &&
     (!canAccessAdminViews || newGroupAssignedAgentId)
@@ -1561,6 +1751,44 @@ export default function GroupEnrollment() {
                   </p>
                 )}
             </div>
+
+            <div className="space-y-2 border rounded-md p-3 bg-slate-50">
+              <p className="text-sm font-medium text-slate-800">File Uploads</p>
+              <input
+                ref={newGroupCensusInputRef}
+                type="file"
+                accept=".csv,.xls,.xlsx"
+                className="hidden"
+                onChange={handleNewGroupCensusSelect}
+              />
+              <input
+                ref={newGroupPaymentInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg"
+                className="hidden"
+                onChange={handleNewGroupPaymentFormSelect}
+              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => newGroupCensusInputRef.current?.click()}>
+                  Choose Census File
+                </Button>
+                <span className="text-xs text-slate-600">
+                  {newGroupCensusFileName
+                    ? `${newGroupCensusFileName} (${newGroupCensusRows.length} rows queued)`
+                    : "Optional: import census immediately after saving"}
+                </span>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button type="button" variant="outline" size="sm" onClick={() => newGroupPaymentInputRef.current?.click()}>
+                  Choose Authorized Payment Form
+                </Button>
+                <span className="text-xs text-slate-600">
+                  {newGroupPaymentFormFile
+                    ? `${newGroupPaymentFormFile.name} queued for upload`
+                    : "Optional: attach payment authorization form after saving"}
+                </span>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setNewGroupOpen(false)}>
@@ -2027,6 +2255,34 @@ export default function GroupEnrollment() {
                       </AlertDescription>
                     </Alert>
                   )}
+                  <div className="rounded-md border bg-white p-3">
+                    <input
+                      ref={detailPaymentInputRef}
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      className="hidden"
+                      onChange={handleDetailPaymentFormSelect}
+                    />
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">Authorized Payment Form</p>
+                        <p className="text-xs text-slate-600">
+                          {latestPaymentForm?.uploadedAt
+                            ? `Last uploaded ${formatDistanceToNow(new Date(latestPaymentForm.uploadedAt), { addSuffix: true })}: ${latestPaymentForm.fileName}`
+                            : "No form uploaded yet"}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploadPaymentFormMutation.isPending}
+                        onClick={() => detailPaymentInputRef.current?.click()}
+                      >
+                        {uploadPaymentFormMutation.isPending ? "Uploading..." : "Upload Payment Form"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
                 <div className="border rounded-lg divide-y bg-white">
                   {selectedGroup?.members && selectedGroup.members.length > 0 ? (
