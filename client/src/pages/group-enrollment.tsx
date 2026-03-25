@@ -1252,7 +1252,7 @@ export default function GroupEnrollment() {
       </main>
 
       <Dialog open={newGroupOpen} onOpenChange={setNewGroupOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Enroll a New Group</DialogTitle>
             <DialogDescription>Capture the basic employer information to begin manual registration.</DialogDescription>
@@ -1577,7 +1577,7 @@ export default function GroupEnrollment() {
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedGroup?.data?.name || 'Group Details'}</DialogTitle>
             <DialogDescription>
@@ -2157,7 +2157,7 @@ export default function GroupEnrollment() {
       </Dialog>
 
       <Dialog open={memberDialogOpen} onOpenChange={handleMemberDialogToggle}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{memberDialogTitle}</DialogTitle>
             <DialogDescription>{memberDialogDescription}</DialogDescription>
