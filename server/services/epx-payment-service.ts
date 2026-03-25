@@ -85,6 +85,24 @@ export interface EPXServerPostConfig {
   apiUrl: string;        // Base API URL
 }
 
+function environmentSuffix(environment: PaymentEnvironment): 'SANDBOX' | 'PRODUCTION' {
+  return environment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+}
+
+function resolveEnvScopedValue(environment: PaymentEnvironment, keys: string[]): string {
+  const suffix = environmentSuffix(environment);
+  const expandedKeys = keys.flatMap((key) => [`${key}_${suffix}`, key]);
+
+  for (const envKey of expandedKeys) {
+    const value = process.env[envKey];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return '';
+}
+
 export interface EPXCustomerData {
   FirstName: string;
   LastName: string;
@@ -440,11 +458,11 @@ export class EPXServerPostService {
 export async function getEPXService() {
   const environment = await paymentEnvironment.getEnvironment();
   const config: EPXServerPostConfig = {
-    apiKey: process.env.EPX_MAC || process.env.EPX_MAC_KEY || '',
-    custNbr: process.env.EPX_CUST_NBR || '',
-    merchNbr: process.env.EPX_MERCH_NBR || '',
-    dbaNbr: process.env.EPX_DBA_NBR || '',
-    terminalNbr: process.env.EPX_TERMINAL_NBR || '',
+    apiKey: resolveEnvScopedValue(environment, ['EPX_MAC', 'EPX_MAC_KEY']),
+    custNbr: resolveEnvScopedValue(environment, ['EPX_CUST_NBR']),
+    merchNbr: resolveEnvScopedValue(environment, ['EPX_MERCH_NBR']),
+    dbaNbr: resolveEnvScopedValue(environment, ['EPX_DBA_NBR']),
+    terminalNbr: resolveEnvScopedValue(environment, ['EPX_TERMINAL_NBR']),
     environment,
     apiUrl: environment === 'production'
       ? 'https://billing.epx.com'
@@ -517,11 +535,11 @@ type ServerPostCredentials = {
 
 async function ensureServerPostCredentials(): Promise<ServerPostCredentials> {
   const environment = await paymentEnvironment.getEnvironment();
-  const custNbr = process.env.EPX_CUST_NBR || '';
-  const merchNbr = process.env.EPX_MERCH_NBR || '';
-  const dbaNbr = process.env.EPX_DBA_NBR || '';
-  const terminalNbr = process.env.EPX_TERMINAL_NBR || '';
-  const serverPostUrl = process.env.EPX_SERVER_POST_URL
+  const custNbr = resolveEnvScopedValue(environment, ['EPX_CUST_NBR']);
+  const merchNbr = resolveEnvScopedValue(environment, ['EPX_MERCH_NBR']);
+  const dbaNbr = resolveEnvScopedValue(environment, ['EPX_DBA_NBR']);
+  const terminalNbr = resolveEnvScopedValue(environment, ['EPX_TERMINAL_NBR']);
+  const serverPostUrl = resolveEnvScopedValue(environment, ['EPX_SERVER_POST_URL'])
     || (environment === 'production' ? SERVER_POST_ENDPOINTS.production : SERVER_POST_ENDPOINTS.sandbox);
 
   if (!custNbr || !merchNbr || !dbaNbr || !terminalNbr) {
@@ -738,6 +756,7 @@ export async function submitServerPostRecurringPayment(
         authGuidVisibility,
         authGuid: authGuidLogValue,
         tranType: resolvedTranType,
+        paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown',
         request: maskedFields
       }
     });
@@ -776,6 +795,7 @@ export async function submitServerPostRecurringPayment(
       data: {
         transactionId: requestFields.TRAN_NBR,
         tranType: resolvedTranType,
+        paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown',
         authResp: responseFields.AUTH_RESP,
         authCode: responseFields.AUTH_CODE,
         message: responseFields.AUTH_RESP_TEXT || responseFields.RESPONSE_TEXT
@@ -837,7 +857,8 @@ export async function submitServerPostRecurringPayment(
       data: {
         error: error.message,
         transactionId: requestFields.TRAN_NBR,
-        tranType: resolvedTranType
+        tranType: resolvedTranType,
+        paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown'
       }
     });
 

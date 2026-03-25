@@ -240,9 +240,12 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
 
 function loadHostedConfig(): { config: EPXHostedCheckoutConfig; source: string } {
   const cachedEnvironment = paymentEnvironment.getCachedEnvironment();
+  const envSuffix = cachedEnvironment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+  const scopedPublicKey = process.env[`EPX_PUBLIC_KEY_${envSuffix}`];
+  const scopedTerminalProfileId = process.env[`EPX_TERMINAL_PROFILE_ID_${envSuffix}`];
   const envConfig: Partial<EPXHostedCheckoutConfig> = {
-    publicKey: process.env.EPX_PUBLIC_KEY || undefined,
-    terminalProfileId: process.env.EPX_TERMINAL_PROFILE_ID || undefined,
+    publicKey: scopedPublicKey || process.env.EPX_PUBLIC_KEY || undefined,
+    terminalProfileId: scopedTerminalProfileId || process.env.EPX_TERMINAL_PROFILE_ID || undefined,
     environment: cachedEnvironment
   };
 
@@ -301,7 +304,10 @@ function loadHostedConfig(): { config: EPXHostedCheckoutConfig; source: string }
     }
   }
 
-  throw new Error('EPX Hosted Checkout configuration missing. Set EPX_PUBLIC_KEY and EPX_TERMINAL_PROFILE_ID.');
+  throw new Error(
+    `EPX Hosted Checkout configuration missing for ${cachedEnvironment}. ` +
+    'Set EPX_PUBLIC_KEY/EPX_TERMINAL_PROFILE_ID or env-scoped variants.'
+  );
 }
 
 function initializeService(force = false) {

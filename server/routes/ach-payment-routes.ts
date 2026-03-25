@@ -7,8 +7,16 @@ import { Router } from 'express';
 import { submitACHRecurringPayment } from '../services/epx-payment-service';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { storage } from '../storage';
+import { logEPX } from '../services/epx-payment-logger';
 
 const router = Router();
+
+function maskLastFour(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
+}
 
 /**
  * POST /api/payments/ach/initial
@@ -80,15 +88,35 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
       });
     }
 
+    logEPX({
+      level: 'info',
+      phase: 'recurring',
+      message: 'ACH initial setup requested',
+      data: {
+        memberId: member.id,
+        amount: parsedAmount,
+        paymentMethodType: 'ACH',
+        accountType,
+        routingNumberMasked: maskLastFour(routingNumber),
+        accountNumberMasked: maskLastFour(accountNumber)
+      }
+    });
+
     // TODO: Implement EPX initial ACH setup based on their documentation
     // This is a placeholder - update after EPX confirms the approach
     
     // PLACEHOLDER RESPONSE - Remove after implementation
-    console.log('[ACH Payment] Initial ACH setup requested for member:', {
-      memberId: member.id,
-      customerNumber: member.customerNumber,
-      amount: parsedAmount,
-      accountType
+    logEPX({
+      level: 'warn',
+      phase: 'recurring',
+      message: 'ACH initial setup not implemented',
+      data: {
+        memberId: member.id,
+        amount: parsedAmount,
+        paymentMethodType: 'ACH',
+        accountType,
+        action: 'returning_501_placeholder'
+      }
     });
 
     return res.status(501).json({
@@ -146,6 +174,14 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
     */
   } catch (error: any) {
     console.error('[ACH Payment] Initial setup error:', error);
+    logEPX({
+      level: 'error',
+      phase: 'recurring',
+      message: 'ACH initial setup route failed',
+      data: {
+        error: error.message
+      }
+    });
     return res.status(500).json({
       success: false,
       error: 'Internal server error processing ACH payment',
@@ -212,6 +248,22 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
     }
 
     // Submit recurring ACH payment
+    const achTransactionId = `ACH-REC-${member.id}-${Date.now()}`;
+    logEPX({
+      level: 'info',
+      phase: 'recurring',
+      message: 'Submitting ACH recurring payment request',
+      data: {
+        memberId: member.id,
+        amount: parsedAmount,
+        paymentMethodType: 'ACH',
+        accountType: member.bankAccountType || 'Checking',
+        routingNumberMasked: maskLastFour(member.bankRoutingNumber),
+        accountNumberMasked: maskLastFour(member.bankAccountNumber),
+        transactionId: achTransactionId
+      }
+    });
+
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
       authGuid: member.paymentToken, // AUTH_GUID from initial setup
@@ -222,13 +274,26 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         accountType: (member.bankAccountType || 'Checking') as 'Checking' | 'Savings',
         accountHolderName: member.bankAccountHolderName || `${member.firstName} ${member.lastName}`
       },
-      transactionId: `ACH-REC-${member.id}-${Date.now()}`,
+      transactionId: achTransactionId,
       description: description || `Recurring ACH payment for ${member.firstName} ${member.lastName}`
     });
 
     if (result.success) {
       // Log payment in database
       // TODO: Create payment record in payments table
+      logEPX({
+        level: 'info',
+        phase: 'recurring',
+        message: 'ACH recurring payment approved',
+        data: {
+          memberId: member.id,
+          paymentMethodType: 'ACH',
+          transactionId: result.responseFields.TRAN_NBR || achTransactionId,
+          authCode: result.responseFields.AUTH_CODE,
+          responseCode: result.responseFields.AUTH_RESP,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || null
+        }
+      });
       
       return res.json({
         success: true,
@@ -238,6 +303,18 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         settlementNote: 'ACH payments typically settle in 3-5 business days'
       });
     } else {
+      logEPX({
+        level: 'warn',
+        phase: 'recurring',
+        message: 'ACH recurring payment declined',
+        data: {
+          memberId: member.id,
+          paymentMethodType: 'ACH',
+          transactionId: achTransactionId,
+          responseCode: result.responseFields.AUTH_RESP,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || result.error || null
+        }
+      });
       return res.status(400).json({
         success: false,
         error: result.error || 'ACH recurring payment failed',
@@ -246,6 +323,14 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
     }
   } catch (error: any) {
     console.error('[ACH Payment] Recurring payment error:', error);
+    logEPX({
+      level: 'error',
+      phase: 'recurring',
+      message: 'ACH recurring payment route failed',
+      data: {
+        error: error.message
+      }
+    });
     return res.status(500).json({
       success: false,
       error: 'Internal server error processing recurring ACH payment',

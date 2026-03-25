@@ -2265,9 +2265,15 @@ router.get(
           routingNumber: user.routingNumber,
           accountType: user.accountType,
           accountHolderName: user.accountHolderName,
-          // Mask account number for security (show only last 4 digits)
-          accountNumber: user.accountNumber ? 
-            `****${user.accountNumber.slice(-4)}` : null,
+          // Admin/super-admin views should include full values.
+          // Keep masked helpers for optional safer rendering in UI.
+          accountNumber: user.accountNumber || null,
+          accountNumberMasked: user.accountNumber
+            ? `****${String(user.accountNumber).slice(-4)}`
+            : null,
+          routingNumberMasked: user.routingNumber
+            ? `****${String(user.routingNumber).slice(-4)}`
+            : null,
           updatedAt: user.updatedAt
         }));
 
@@ -6916,6 +6922,10 @@ export async function registerRoutes(app: any) {
           },
           bankInfo: {
             routingNumber: member.bankRoutingNumber || null,
+            routingNumberMasked: member.bankRoutingNumber
+              ? `****${String(member.bankRoutingNumber).slice(-4)}`
+              : null,
+            accountNumber: member.bankAccountNumber || null,
             accountLastFour: member.bankAccountLastFour || null,
             accountType: member.bankAccountType || null,
             accountHolderName: member.bankAccountHolderName || null

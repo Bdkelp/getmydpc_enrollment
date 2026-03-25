@@ -594,7 +594,7 @@ export interface IStorage {
   ): Promise<Member>;
 
   // Family member operations
-  getFamilyMembers(primary_user_id: string): Promise<FamilyMember[]>;
+  getFamilyMembers(primaryMemberOrUserId: string | number): Promise<FamilyMember[]>;
   addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember>;
 
   // Admin operations
@@ -4650,10 +4650,58 @@ export async function getStalePendingBillingLogs(
 }
 
 // Family member operations (add missing ones)
+export async function getFamilyMembers(primaryMemberOrUserId: string | number): Promise<FamilyMember[]> {
+  const numericId = Number(primaryMemberOrUserId);
+  const isMemberId = Number.isFinite(numericId);
+
+  let queryBuilder = supabase
+    .from('family_members')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (isMemberId) {
+    queryBuilder = queryBuilder.eq('primary_member_id', numericId);
+  } else {
+    queryBuilder = queryBuilder.eq('primary_user_id', String(primaryMemberOrUserId));
+  }
+
+  const { data, error } = await queryBuilder;
+
+  if (error) {
+    console.error('Error fetching family members:', error);
+    throw new Error(`Failed to fetch family members: ${error.message}`);
+  }
+
+  return (data || []).map((row: any) => mapFamilyMemberRowToRecord(row));
+}
+
 export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
+  const payload: Record<string, any> = {
+    primary_member_id: member.primaryMemberId ?? null,
+    primary_user_id: member.primaryUserId ?? null,
+    first_name: member.firstName,
+    last_name: member.lastName,
+    middle_name: member.middleName ?? null,
+    date_of_birth: member.dateOfBirth ?? null,
+    gender: member.gender ?? null,
+    ssn: member.ssn ?? null,
+    email: member.email ?? null,
+    phone: member.phone ?? null,
+    relationship: member.relationship ?? null,
+    member_type: member.memberType,
+    address: member.address ?? null,
+    address2: member.address2 ?? null,
+    city: member.city ?? null,
+    state: member.state ?? null,
+    zip_code: member.zipCode ?? null,
+    plan_start_date: member.planStartDate ?? null,
+    is_active: member.isActive ?? true,
+    created_at: new Date().toISOString(),
+  };
+
   const { data, error } = await supabase
     .from('family_members')
-    .insert([{ ...member, created_at: new Date(), updated_at: new Date() }])
+    .insert([payload])
     .select()
     .single();
 
@@ -4661,7 +4709,7 @@ export async function addFamilyMember(member: InsertFamilyMember): Promise<Famil
     console.error('Error adding family member:', error);
     throw new Error(`Failed to add family member: ${error.message}`);
   }
-  return data;
+  return mapFamilyMemberRowToRecord(data as any) as FamilyMember;
 }
 
 // Clear test data function (as provided in the snippet)
@@ -5878,8 +5926,8 @@ export const storage = {
   getUnresolvedNotifications,
   resolveAdminNotification,
 
-  getFamilyMembers: async () => [],
-  addFamilyMember: async (member: any) => member,
+  getFamilyMembers,
+  addFamilyMember,
 
   createLead,
   updateLead,
