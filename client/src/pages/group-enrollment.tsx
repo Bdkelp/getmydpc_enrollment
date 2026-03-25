@@ -196,6 +196,13 @@ type CensusImportRow = {
   totalAmount?: string;
 };
 
+type BulkImportFailedRow = {
+  row: number;
+  email?: string;
+  reason: string;
+  sourceRow?: CensusImportRow;
+};
+
 const defaultGroupProfileForm: GroupProfile = {
   ein: "",
   responsiblePersonName: "",
@@ -406,6 +413,67 @@ const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
     .filter((row) => row.firstName || row.lastName || row.email);
 };
 
+const escapeCsvCell = (value: unknown): string => {
+  const raw = String(value ?? "");
+  if (raw.includes('"') || raw.includes(",") || raw.includes("\n") || raw.includes("\r")) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+};
+
+const buildFailedRowsCsv = (failedRows: BulkImportFailedRow[]): string => {
+  const headers = [
+    "row",
+    "reason",
+    "email",
+    "firstName",
+    "lastName",
+    "tier",
+    "payorType",
+    "status",
+    "phone",
+    "dateOfBirth",
+    "employerAmount",
+    "memberAmount",
+    "discountAmount",
+    "totalAmount",
+  ];
+
+  const lines = [headers.join(",")];
+  for (const failed of failedRows) {
+    const source = failed.sourceRow;
+    lines.push(
+      [
+        failed.row,
+        failed.reason,
+        failed.email || source?.email || "",
+        source?.firstName || "",
+        source?.lastName || "",
+        source?.tier || "",
+        source?.payorType || "",
+        source?.status || "",
+        source?.phone || "",
+        source?.dateOfBirth || "",
+        source?.employerAmount || "",
+        source?.memberAmount || "",
+        source?.discountAmount || "",
+        source?.totalAmount || "",
+      ]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  }
+
+  return lines.join("\n");
+};
+
+const buildFailedRowsFileName = (sourceFileName: string): string => {
+  const baseName = sourceFileName.replace(/\.[^/.]+$/, "") || "group-census";
+  const safeBase = baseName.replace(/[^a-zA-Z0-9-_]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${safeBase || "group-census"}-failed-rows-${timestamp}.csv`;
+};
+
 export default function GroupEnrollment() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
@@ -446,6 +514,8 @@ export default function GroupEnrollment() {
   const [importFileName, setImportFileName] = useState("");
   const [importRows, setImportRows] = useState<CensusImportRow[]>([]);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [lastImportSourceFileName, setLastImportSourceFileName] = useState("");
+  const [lastImportFailedRows, setLastImportFailedRows] = useState<BulkImportFailedRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
@@ -543,6 +613,8 @@ export default function GroupEnrollment() {
     setImportFileName("");
     setImportRows([]);
     setImportWarnings([]);
+    setLastImportSourceFileName("");
+    setLastImportFailedRows([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -591,6 +663,8 @@ export default function GroupEnrollment() {
     setImportFileName(fileName);
     setImportRows(parsedRows);
     setImportWarnings(warnings.slice(0, 5));
+    setLastImportSourceFileName("");
+    setLastImportFailedRows([]);
   };
 
   const handleCensusFile = async (file: File) => {
@@ -609,6 +683,8 @@ export default function GroupEnrollment() {
       setImportFileName("");
       setImportRows([]);
       setImportWarnings([]);
+      setLastImportSourceFileName("");
+      setLastImportFailedRows([]);
       toast({
         title: "Unable to read file",
         description: err?.message || "Please check file format and try again",
@@ -702,14 +778,32 @@ export default function GroupEnrollment() {
       });
     },
     onSuccess: async (result: any) => {
+      const failedRows: BulkImportFailedRow[] = Array.isArray(result?.failed)
+        ? result.failed.map((failed: any) => {
+            const rowNumber = Number(failed?.row);
+            const sourceIndex = Number.isFinite(rowNumber) ? Math.max(0, rowNumber - 2) : -1;
+            return {
+              row: Number.isFinite(rowNumber) ? rowNumber : 0,
+              email: typeof failed?.email === "string" ? failed.email : undefined,
+              reason: typeof failed?.reason === "string" ? failed.reason : "Failed to import row",
+              sourceRow: sourceIndex >= 0 ? importRows[sourceIndex] : undefined,
+            };
+          })
+        : [];
+
       if (selectedGroup?.data?.id) {
         await fetchGroupDetail(selectedGroup.data.id);
       }
       refreshGroups();
       const summary = result?.summary;
+      setLastImportSourceFileName(importFileName || "group-census.csv");
+      setLastImportFailedRows(failedRows);
       toast({
         title: "Census import complete",
-        description: `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows`,
+        description:
+          failedRows.length > 0
+            ? `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows. ${failedRows.length} rows failed.`
+            : `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows`,
         variant: summary?.failed ? "destructive" : undefined,
       });
       setImportFileName("");
@@ -727,6 +821,27 @@ export default function GroupEnrollment() {
       });
     },
   });
+
+  const handleDownloadFailedRows = () => {
+    if (lastImportFailedRows.length === 0) {
+      toast({
+        title: "No failed rows",
+        description: "There are no failed rows to download.",
+      });
+      return;
+    }
+
+    const csv = buildFailedRowsCsv(lastImportFailedRows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = buildFailedRowsFileName(lastImportSourceFileName || "group-census.csv");
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
 
   const completeGroupMutation = useMutation({
     mutationFn: async () => {
@@ -953,6 +1068,7 @@ export default function GroupEnrollment() {
     (selectedIsDefault || effectiveDateReason.trim().length >= 5)
   );
   const canRunBulkImport = importRows.length > 0 && !bulkImportMembersMutation.isPending;
+  const canDownloadFailedRows = lastImportFailedRows.length > 0;
   const canCreateGroup = Boolean(
     newGroupForm.name.trim().length > 0 &&
     (!canAccessAdminViews || newGroupAssignedAgentId)
@@ -1896,6 +2012,20 @@ export default function GroupEnrollment() {
                     <p className="text-xs text-amber-700">
                       Potential issues found: {importWarnings.join("; ")}
                     </p>
+                  )}
+                  {canDownloadFailedRows && (
+                    <Alert className="border-amber-200 bg-amber-50">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Import completed with failed rows</AlertTitle>
+                      <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <span className="text-xs sm:text-sm">
+                          {lastImportFailedRows.length} rows failed validation or save. Download them to correct and re-upload.
+                        </span>
+                        <Button type="button" size="sm" variant="outline" onClick={handleDownloadFailedRows}>
+                          Download Failed Rows
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
                   )}
                 </div>
                 <div className="border rounded-lg divide-y bg-white">
