@@ -36,6 +36,23 @@ interface MemberLookupResponse {
   error?: string;
 }
 
+interface EnrollmentDetailsResponse {
+  id?: string | number;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  planId?: number;
+  planName?: string;
+  totalMonthlyPrice?: string | number | null;
+  subscriptionId?: number | null;
+}
+
 const parseBooleanParam = (value: string | null): boolean => {
   if (!value) {
     return false;
@@ -99,11 +116,35 @@ export default function AdminPaymentCheckoutPage() {
     queryKey: ["/api/admin/members", memberId],
     enabled: isAuthenticated && isAgentOrAbove && Number.isFinite(memberId) && !validationError,
     queryFn: async () => {
-      const response = await apiRequest(`/api/admin/members/${memberId}`);
-      if (!response?.success || !response?.member) {
-        throw new Error(response?.error || "Member lookup failed");
+      const response = await apiRequest(`/api/admin/enrollment/${memberId}`) as EnrollmentDetailsResponse;
+      if (!response?.id) {
+        throw new Error("Member lookup failed");
       }
-      return response;
+
+      const parsedId = Number(response.id);
+      return {
+        success: true,
+        member: {
+          id: Number.isFinite(parsedId) ? parsedId : memberId,
+          firstName: response.firstName,
+          lastName: response.lastName,
+          email: response.email || "",
+          phone: response.phone,
+          address: response.address,
+          address2: response.address2,
+          city: response.city,
+          state: response.state,
+          zipCode: response.zipCode,
+          planId: response.planId,
+          totalMonthlyPrice: response.totalMonthlyPrice,
+        },
+        subscription: response.subscriptionId
+          ? {
+              id: response.subscriptionId,
+              planName: response.planName,
+            }
+          : null,
+      };
     },
     retry: false,
   });
