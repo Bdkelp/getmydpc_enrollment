@@ -495,7 +495,7 @@ type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9' | 'CKC2' | 'CKC7' | 'CKC9' | 
 
 interface ServerPostRecurringOptions {
   amount?: number;
-  authGuid: string;
+  authGuid?: string;
   transactionId?: string | null;
   member?: Record<string, any> | null;
   description?: string;
@@ -668,8 +668,9 @@ export async function submitServerPostRecurringPayment(
     }
 
     const authGuid = typeof options.authGuid === 'string' ? options.authGuid.trim() : '';
-    if (!authGuid) {
-      throw new Error('Missing EPX auth GUID (ORIG_AUTH_GUID) for Server Post MIT transaction.');
+    const requiresAuthGuid = !isACHTransaction || resolvedTranType === 'CKC7' || resolvedTranType === 'CKC9';
+    if (requiresAuthGuid && !authGuid) {
+      throw new Error('Missing EPX auth GUID (ORIG_AUTH_GUID) for this Server Post transaction type.');
     }
 
     const member = options.member || undefined;
@@ -702,10 +703,13 @@ export async function submitServerPostRecurringPayment(
       AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
-      ORIG_AUTH_GUID: authGuid,
       CARD_ENT_METH: options.cardEntryMethod || 'Z',
       INDUSTRY_TYPE: options.industryType || 'E'
     };
+
+    if (authGuid) {
+      requestFields.ORIG_AUTH_GUID = authGuid;
+    }
 
     // Add ACH-specific fields for CKC2, CKC7, CKC9 transactions
     if (isACHTransaction && options.bankAccountData) {

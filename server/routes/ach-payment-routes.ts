@@ -3,11 +3,13 @@
  * Handles bank account payment processing via EPX Server POST API (CKC2 transactions)
  */
 
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { submitACHRecurringPayment } from '../services/epx-payment-service';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
+import { hasAtLeastRole } from '../auth/roles';
 import { storage } from '../storage';
 import { logEPX } from '../services/epx-payment-logger';
+import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 
@@ -16,6 +18,55 @@ function maskLastFour(value?: string | null): string | null {
   const trimmed = String(value).trim();
   if (!trimmed) return null;
   return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
+}
+
+async function enforceACHCertificationAccess(req: AuthRequest, res: Response): Promise<boolean> {
+  if (!req.user) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+    return false;
+  }
+
+  if (!hasAtLeastRole(req.user.role, 'super_admin')) {
+    logEPX({
+      level: 'warn',
+      phase: 'recurring',
+      message: 'Blocked ACH access for non-super-admin user',
+      data: {
+        userId: req.user.id,
+        role: req.user.role
+      }
+    });
+    res.status(403).json({
+      success: false,
+      error: 'ACH testing is currently restricted to super admins only'
+    });
+    return false;
+  }
+
+  const environment = await paymentEnvironment.getEnvironment();
+  if (environment !== 'sandbox') {
+    logEPX({
+      level: 'warn',
+      phase: 'recurring',
+      message: 'Blocked ACH access because payment environment is not sandbox',
+      data: {
+        userId: req.user.id,
+        role: req.user.role,
+        paymentEnvironment: environment
+      }
+    });
+    res.status(409).json({
+      success: false,
+      error: 'ACH certification mode is disabled in production payment environment',
+      paymentEnvironment: environment
+    });
+    return false;
+  }
+
+  return true;
 }
 
 /**
@@ -29,6 +80,10 @@ function maskLastFour(value?: string | null): string | null {
  */
 router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    if (!(await enforceACHCertificationAccess(req, res))) {
+      return;
+    }
+
     const {
       memberId,
       amount,
@@ -43,6 +98,14 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: memberId, amount, routingNumber, accountNumber, accountType, accountHolderName'
+      });
+    }
+
+    const numericMemberId = parseInt(String(memberId), 10);
+    if (!Number.isFinite(numericMemberId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid memberId'
       });
     }
 
@@ -80,7 +143,7 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
     }
 
     // Get member data
-    const member = await storage.getMember(parseInt(memberId, 10));
+    const member = await storage.getMember(numericMemberId);
     if (!member) {
       return res.status(404).json({
         success: false,
@@ -102,36 +165,12 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
 
-    // TODO: Implement EPX initial ACH setup based on their documentation
-    // This is a placeholder - update after EPX confirms the approach
-    
-    // PLACEHOLDER RESPONSE - Remove after implementation
-    logEPX({
-      level: 'warn',
-      phase: 'recurring',
-      message: 'ACH initial setup not implemented',
-      data: {
-        memberId: member.id,
-        amount: parsedAmount,
-        paymentMethodType: 'ACH',
-        accountType,
-        action: 'returning_501_placeholder'
-      }
-    });
+    const achTransactionId = `ACH-INIT-${member.id}-${Date.now()}`;
 
-    return res.status(501).json({
-      success: false,
-      error: 'ACH initial setup not yet implemented - awaiting EPX documentation',
-      message: 'Please contact support for assistance with ACH payments',
-      technicalNote: 'Implementation pending EPX confirmation on initial ACH authorization flow'
-    });
-
-    // FUTURE IMPLEMENTATION (uncomment after EPX guidance):
-    /*
-    // Submit initial ACH payment to EPX
+    // Submit initial ACH payment to EPX (CKC2)
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
-      authGuid: '', // For initial payment, this may be empty or require different flow
+      authGuid: member.paymentToken || '',
       member: member,
       bankAccountData: {
         routingNumber,
@@ -139,39 +178,69 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         accountType: accountType as 'Checking' | 'Savings',
         accountHolderName
       },
-      transactionId: `ACH-INIT-${member.id}-${Date.now()}`,
+      transactionId: achTransactionId,
       description: `Initial ACH setup for ${member.firstName} ${member.lastName}`
     });
 
     if (result.success) {
-      // Extract AUTH_GUID from EPX response
-      const authGuid = result.responseFields.AUTH_GUID;
-      
-      // Store bank account details and AUTH_GUID in member record
+      const authGuid = result.responseFields.AUTH_GUID
+        || result.responseFields.ORIG_AUTH_GUID
+        || null;
       const lastFour = accountNumber.slice(-4);
+
       await storage.updateMember(member.id, {
         paymentToken: authGuid,
         paymentMethodType: 'ACH',
         bankRoutingNumber: routingNumber,
-        bankAccountNumber: accountNumber, // Should be encrypted
+        bankAccountNumber: accountNumber,
         bankAccountType: accountType,
         bankAccountHolderName: accountHolderName,
         bankAccountLastFour: lastFour
       });
 
+      logEPX({
+        level: 'info',
+        phase: 'recurring',
+        message: 'ACH initial setup approved',
+        data: {
+          memberId: member.id,
+          paymentMethodType: 'ACH',
+          transactionId: result.responseFields.TRAN_NBR || achTransactionId,
+          authCode: result.responseFields.AUTH_CODE,
+          responseCode: result.responseFields.AUTH_RESP,
+          hasAuthGuid: Boolean(authGuid)
+        }
+      });
+
       return res.json({
         success: true,
-        transactionId: result.responseFields.TRAN_NBR,
-        authGuid: authGuid,
+        transactionId: result.responseFields.TRAN_NBR || achTransactionId,
+        authGuid,
+        hasAuthGuid: Boolean(authGuid),
+        authCode: result.responseFields.AUTH_CODE || null,
         message: 'ACH payment authorized successfully'
       });
     } else {
+      logEPX({
+        level: 'warn',
+        phase: 'recurring',
+        message: 'ACH initial setup declined',
+        data: {
+          memberId: member.id,
+          paymentMethodType: 'ACH',
+          transactionId: achTransactionId,
+          responseCode: result.responseFields.AUTH_RESP,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || result.error || null
+        }
+      });
+
       return res.status(400).json({
         success: false,
-        error: result.error || 'ACH payment authorization failed'
+        error: result.error || 'ACH payment authorization failed',
+        responseCode: result.responseFields.AUTH_RESP || null,
+        responseMessage: result.responseFields.AUTH_RESP_TEXT || null
       });
     }
-    */
   } catch (error: any) {
     console.error('[ACH Payment] Initial setup error:', error);
     logEPX({
@@ -197,6 +266,10 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
  */
 router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    if (!(await enforceACHCertificationAccess(req, res))) {
+      return;
+    }
+
     const {
       memberId,
       amount,
@@ -230,7 +303,7 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
     }
 
     // Verify member has ACH payment method set up
-    if (member.paymentMethodType !== 'ACH' || !member.paymentToken) {
+    if (member.paymentMethodType !== 'ACH') {
       return res.status(400).json({
         success: false,
         error: 'Member does not have ACH payment method configured',
@@ -266,7 +339,7 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
 
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
-      authGuid: member.paymentToken, // AUTH_GUID from initial setup
+      authGuid: member.paymentToken || '', // AUTH_GUID when available
       member: member,
       bankAccountData: {
         routingNumber: member.bankRoutingNumber,
@@ -345,6 +418,10 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
  */
 router.get('/member/:memberId', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    if (!(await enforceACHCertificationAccess(req, res))) {
+      return;
+    }
+
     const memberId = parseInt(req.params.memberId, 10);
     
     if (!Number.isFinite(memberId)) {
@@ -363,11 +440,12 @@ router.get('/member/:memberId', authenticateToken, async (req: AuthRequest, res)
     }
 
     // Only return safe data (no full account numbers)
-    const hasACH = member.paymentMethodType === 'ACH' && !!member.paymentToken;
+    const hasACH = member.paymentMethodType === 'ACH' && !!member.bankAccountLastFour;
     
     return res.json({
       success: true,
       hasACH,
+      hasAuthGuid: hasACH ? Boolean(member.paymentToken) : false,
       paymentMethod: member.paymentMethodType || 'none',
       bankAccountLastFour: hasACH ? member.bankAccountLastFour : null,
       bankAccountType: hasACH ? member.bankAccountType : null,

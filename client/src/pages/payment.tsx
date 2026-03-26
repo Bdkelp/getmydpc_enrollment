@@ -17,7 +17,7 @@ import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 // import { EPXPayment } from "@/components/EPXPayment"; // Browser Post (commented out)
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
 import BankAccountForm from "@/components/BankAccountForm"; // ACH payment option
-import { isAdminOrAbove } from "@/lib/roles";
+import { isAdminOrAbove, isSuperAdmin } from "@/lib/roles";
 
 export default function Payment() {
   const [, setLocation] = useLocation();
@@ -56,6 +56,7 @@ export default function Payment() {
     enabled: isAuthenticated,
   });
   const canOverrideAmount = isAdminOrAbove(user?.role);
+  const canUseACH = isSuperAdmin(user?.role);
 
   // Load stored plan ID and member data from registration
   useEffect(() => {
@@ -113,6 +114,12 @@ export default function Payment() {
       setOverrideReasonInput("");
     }
   }, [canOverrideAmount, isOverrideEnabled]);
+
+  useEffect(() => {
+    if (!canUseACH && paymentMethod === 'ach') {
+      setPaymentMethod('card');
+    }
+  }, [canUseACH, paymentMethod]);
 
 
 
@@ -448,7 +455,7 @@ export default function Payment() {
                       
                       {/* Quiet ACH option - not prominently displayed */}
                       <div className="text-center text-xs text-gray-500 mt-2">
-                        {paymentMethod === 'card' ? (
+                        {paymentMethod === 'card' && canUseACH ? (
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('ach')}
@@ -456,7 +463,7 @@ export default function Payment() {
                           >
                             Don't have a card? Pay with bank account
                           </button>
-                        ) : (
+                        ) : paymentMethod === 'ach' ? (
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('card')}
@@ -464,6 +471,8 @@ export default function Payment() {
                           >
                             Use credit/debit card instead
                           </button>
+                        ) : (
+                          <span>ACH testing is currently limited to super admins in sandbox mode.</span>
                         )}
                       </div>
                       
@@ -671,7 +680,7 @@ export default function Payment() {
               });
               
               // Render payment form based on selected method
-              if (paymentMethod === 'ach') {
+              if (paymentMethod === 'ach' && canUseACH) {
                 return (
                   <BankAccountForm
                     key={epxRetryKey}

@@ -167,21 +167,11 @@ export default function BankAccountForm({
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        // Handle expected "not yet implemented" response
-        if (response.status === 501) {
-          toast({
-            title: "Feature Coming Soon",
-            description: data.message || "ACH payment processing is being finalized. Please contact support for assistance.",
-            variant: "default"
-          });
-        } else {
-          throw new Error(data.error || 'ACH payment failed');
-        }
-        
+        const backendError = data.error || data.responseMessage || 'ACH payment failed';
         if (onError) {
-          onError(data.error || "ACH payment processing is not yet available");
+          onError(backendError);
         }
-        return;
+        throw new Error(backendError);
       }
 
       // Success!
