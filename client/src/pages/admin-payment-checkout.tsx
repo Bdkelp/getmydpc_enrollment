@@ -282,28 +282,37 @@ export default function AdminPaymentCheckoutPage() {
                 </AlertDescription>
               </Alert>
 
-              {/* Quiet ACH option - not prominently displayed */}
-              {!hasLaunchedPayment && (
-                <div className="text-center text-xs text-gray-500">
-                  {paymentMethod === 'card' ? (
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod('ach')}
-                      className="underline hover:text-gray-700"
-                    >
-                      Member doesn't have a card? Use bank account
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod('card')}
-                      className="underline hover:text-gray-700"
-                    >
-                      Use credit/debit card instead
-                    </button>
-                  )}
+              <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-semibold uppercase text-gray-500">Payment Method</p>
+                  <p className="text-sm text-gray-600">
+                    Choose how you want to collect this payment.
+                  </p>
                 </div>
-              )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={paymentMethod === 'card' ? 'default' : 'outline'}
+                    onClick={() => setPaymentMethod('card')}
+                    disabled={hasLaunchedPayment}
+                  >
+                    Card
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paymentMethod === 'ach' ? 'default' : 'outline'}
+                    onClick={() => setPaymentMethod('ach')}
+                    disabled={hasLaunchedPayment}
+                  >
+                    ACH / Bank Account
+                  </Button>
+                </div>
+                {hasLaunchedPayment && (
+                  <p className="text-xs text-gray-500">
+                    Click Cancel to switch methods after checkout is launched.
+                  </p>
+                )}
+              </div>
 
               <div className="flex flex-wrap items-center gap-3">
                 <Button onClick={handleLaunch} disabled={hasLaunchedPayment}>

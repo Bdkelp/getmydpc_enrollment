@@ -88,6 +88,23 @@ export default function EPXHostedPayment({
     ? amountOverrideReason.trim()
     : null;
 
+  const parseApiErrorPayload = (rawError: unknown): Record<string, any> | null => {
+    if (!(rawError instanceof Error) || !rawError.message) {
+      return null;
+    }
+
+    const jsonStart = rawError.message.indexOf('{');
+    if (jsonStart < 0) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(rawError.message.slice(jsonStart));
+    } catch {
+      return null;
+    }
+  };
+
   useEffect(() => {
     setSessionData(null);
     setError(null);
@@ -228,7 +245,39 @@ export default function EPXHostedPayment({
           payload.retryMemberId = retryMemberId;
         }
 
-        const response = await apiClient.post('/api/epx/hosted/create-payment', payload);
+        let response: any;
+
+        try {
+          response = await apiClient.post('/api/epx/hosted/create-payment', payload);
+        } catch (postError: any) {
+          const apiError = parseApiErrorPayload(postError);
+          const existingPaymentId = apiError?.existingPaymentId;
+
+          if (
+            !retryPaymentId
+            && apiError?.code === 'PAYMENT_INTENT_ACTIVE'
+            && Number.isFinite(Number(existingPaymentId))
+          ) {
+            const resumePayload = {
+              ...payload,
+              retryPaymentId: String(existingPaymentId),
+              retryMemberId: retryMemberId || customerId,
+              retryReason: 'resume-active-payment-intent',
+              retryInitiatedBy: customerId,
+            };
+
+            toast({
+              title: 'Resuming active payment session',
+              description: apiError?.existingTransactionId
+                ? `Using existing EPX session ${apiError.existingTransactionId}.`
+                : 'Using the existing pending payment session for this member.',
+            });
+
+            response = await apiClient.post('/api/epx/hosted/create-payment', resumePayload);
+          } else {
+            throw postError;
+          }
+        }
 
         if (!response.success) {
           throw new Error(response.error || 'Failed to create payment session');
