@@ -198,6 +198,17 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         bankAccountLastFour: lastFour
       });
 
+      if (authGuid) {
+        await storage.upsertMemberPaymentToken({
+          memberId: member.id,
+          paymentMethodType: 'ACH',
+          token: authGuid,
+          bankRoutingNumber: routingNumber,
+          bankAccountLastFour: lastFour,
+          bankAccountType: accountType,
+        });
+      }
+
       logEPX({
         level: 'info',
         phase: 'recurring',

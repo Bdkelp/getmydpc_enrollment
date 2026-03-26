@@ -147,6 +147,12 @@ const formatCoverageLabel = (value?: string | null) => {
   return value.replace(/[-_]/g, " ");
 };
 
+const formatDateForInput = (value?: string | null) => {
+  const parsed = parseFlexibleDate(value);
+  if (!parsed) return "";
+  return format(parsed, "yyyy-MM-dd");
+};
+
 const canManageFamilyMembers = (value?: string | null) => {
   if (!value) return false;
   const normalized = value.toLowerCase();
@@ -167,8 +173,10 @@ export default function EnrollmentDetails() {
   // Edit states
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [isEditingPersonal, setIsEditingPersonal] = useState(false);
   const [editedContact, setEditedContact] = useState<any>({});
   const [editedAddress, setEditedAddress] = useState<any>({});
+  const [editedPersonal, setEditedPersonal] = useState<any>({});
   const [showScheduleCommissionDialog, setShowScheduleCommissionDialog] = useState(false);
   const [scheduledCommissionDate, setScheduledCommissionDate] = useState('');
   const [showAddFamilyDialog, setShowAddFamilyDialog] = useState(false);
@@ -235,6 +243,31 @@ export default function EnrollmentDetails() {
     setLocation(`/admin/payments/checkout?${params.toString()}`);
   };
   
+  // Update contact info mutation
+  const updatePersonalMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return apiRequest(`/api/admin/enrollment/${enrollmentId}/personal`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Personal Info Updated",
+        description: "Member profile information has been successfully updated.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      setIsEditingPersonal(false);
+    },
+    onError: () => {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update personal information.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Update contact info mutation
   const updateContactMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -622,6 +655,31 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
       zipCode: editedAddress.zipCode.replace(/-/g, ''),
     });
   };
+
+  const startEditingPersonal = () => {
+    setEditedPersonal({
+      firstName: enrollment.firstName || '',
+      lastName: enrollment.lastName || '',
+      middleName: enrollment.middleName || '',
+      dateOfBirth: formatDateForInput(enrollment.dateOfBirth),
+      gender: enrollment.gender || '',
+      employerName: enrollment.employerName || '',
+      divisionName: enrollment.divisionName || '',
+      dateOfHire: formatDateForInput(enrollment.dateOfHire),
+    });
+    setIsEditingPersonal(true);
+  };
+
+  const savePersonal = () => {
+    updatePersonalMutation.mutate({
+      ...editedPersonal,
+      firstName: (editedPersonal.firstName || '').trim(),
+      lastName: (editedPersonal.lastName || '').trim(),
+      middleName: (editedPersonal.middleName || '').trim(),
+      employerName: (editedPersonal.employerName || '').trim(),
+      divisionName: (editedPersonal.divisionName || '').trim(),
+    });
+  };
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -703,26 +761,125 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
               {/* Personal Information */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <User className="h-5 w-5 mr-2 text-blue-600" />
-                    Personal Information
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center">
+                      <User className="h-5 w-5 mr-2 text-blue-600" />
+                      Personal Information
+                    </span>
+                    {!isEditingPersonal ? (
+                      <Button size="sm" variant="outline" onClick={startEditingPersonal}>
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <div className="flex space-x-2">
+                        <Button size="sm" onClick={savePersonal} disabled={updatePersonalMutation.isPending}>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setIsEditingPersonal(false)}>
+                          <X className="h-4 w-4 mr-2" />
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-gray-600">Full Name</Label>
-                    <p className="font-semibold">
-                      {enrollment.firstName} {enrollment.middleName} {enrollment.lastName}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-gray-600">Date of Birth</Label>
-                    <p className="font-semibold">{dateOfBirthLabel}</p>
-                  </div>
-                  <div>
-                    <Label className="text-gray-600">Gender</Label>
-                    <p className="font-semibold capitalize">{enrollment.gender || 'Not specified'}</p>
-                  </div>
+                  {!isEditingPersonal ? (
+                    <>
+                      <div>
+                        <Label className="text-gray-600">Full Name</Label>
+                        <p className="font-semibold">
+                          {enrollment.firstName} {enrollment.middleName} {enrollment.lastName}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Date of Birth</Label>
+                        <p className="font-semibold">{dateOfBirthLabel}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Gender</Label>
+                        <p className="font-semibold capitalize">{enrollment.gender || 'Not specified'}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label>First Name</Label>
+                          <Input
+                            value={editedPersonal.firstName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, firstName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Middle Name</Label>
+                          <Input
+                            value={editedPersonal.middleName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, middleName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Last Name</Label>
+                          <Input
+                            value={editedPersonal.lastName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, lastName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>Date of Birth</Label>
+                          <Input
+                            type="date"
+                            value={editedPersonal.dateOfBirth || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, dateOfBirth: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Gender</Label>
+                          <Select
+                            value={editedPersonal.gender || ''}
+                            onValueChange={(value) => setEditedPersonal({ ...editedPersonal, gender: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select gender" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="M">Male</SelectItem>
+                              <SelectItem value="F">Female</SelectItem>
+                              <SelectItem value="O">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>Employer Name</Label>
+                          <Input
+                            value={editedPersonal.employerName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, employerName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Division Name</Label>
+                          <Input
+                            value={editedPersonal.divisionName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, divisionName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Date of Hire</Label>
+                        <Input
+                          type="date"
+                          value={editedPersonal.dateOfHire || ''}
+                          onChange={(e) => setEditedPersonal({ ...editedPersonal, dateOfHire: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
                     <Label className="text-gray-600">SSN</Label>
                     {!isEditingSSN ? (
@@ -800,7 +957,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                       </div>
                     )}
                   </div>
-                  {enrollment.employerName && (
+                  {!isEditingPersonal && enrollment.employerName && (
                     <div>
                       <Label className="text-gray-600">Employer</Label>
                       <p className="font-semibold">{enrollment.employerName}</p>

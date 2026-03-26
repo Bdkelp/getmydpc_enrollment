@@ -566,6 +566,7 @@ export interface IStorage {
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
+  upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }>;
   getUserPayments(user_Id: string): Promise<Payment[]>;
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
 
@@ -4546,6 +4547,97 @@ export interface RecurringBillingLogEntry {
   processedAt?: string | null;
 }
 
+export interface UpsertPaymentTokenInput {
+  memberId: number;
+  paymentMethodType: 'CreditCard' | 'ACH' | 'BankAccount';
+  token: string;
+  cardLastFour?: string | null;
+  cardType?: string | null;
+  expiryMonth?: string | null;
+  expiryYear?: string | null;
+  originalNetworkTransId?: string | null;
+  bankRoutingNumber?: string | null;
+  bankAccountLastFour?: string | null;
+  bankAccountType?: string | null;
+  bankName?: string | null;
+}
+
+export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }> {
+  const encryptedToken = encryptPaymentToken(input.token);
+
+  // Keep one active primary token per member + payment method type.
+  await query(
+    `
+      UPDATE payment_tokens
+      SET is_active = false,
+          is_primary = false,
+          last_used_at = NOW()
+      WHERE member_id = $1
+        AND payment_method_type = $2
+        AND is_active = true
+    `,
+    [input.memberId, input.paymentMethodType]
+  );
+
+  const result = await query(
+    `
+      INSERT INTO payment_tokens (
+        member_id,
+        payment_method_type,
+        bric_token,
+        card_last_four,
+        card_type,
+        expiry_month,
+        expiry_year,
+        original_network_trans_id,
+        bank_routing_number,
+        bank_account_last_four,
+        bank_account_type,
+        bank_name,
+        is_active,
+        is_primary,
+        created_at,
+        last_used_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW()
+      )
+      ON CONFLICT (bric_token)
+      DO UPDATE SET
+        member_id = EXCLUDED.member_id,
+        payment_method_type = EXCLUDED.payment_method_type,
+        card_last_four = EXCLUDED.card_last_four,
+        card_type = EXCLUDED.card_type,
+        expiry_month = EXCLUDED.expiry_month,
+        expiry_year = EXCLUDED.expiry_year,
+        original_network_trans_id = EXCLUDED.original_network_trans_id,
+        bank_routing_number = EXCLUDED.bank_routing_number,
+        bank_account_last_four = EXCLUDED.bank_account_last_four,
+        bank_account_type = EXCLUDED.bank_account_type,
+        bank_name = EXCLUDED.bank_name,
+        is_active = true,
+        is_primary = true,
+        last_used_at = NOW()
+      RETURNING id
+    `,
+    [
+      input.memberId,
+      input.paymentMethodType,
+      encryptedToken,
+      input.cardLastFour ?? null,
+      input.cardType ?? null,
+      input.expiryMonth ?? null,
+      input.expiryYear ?? null,
+      input.originalNetworkTransId ?? null,
+      input.bankRoutingNumber ?? null,
+      input.bankAccountLastFour ?? null,
+      input.bankAccountType ?? null,
+      input.bankName ?? null,
+    ]
+  );
+
+  return { id: Number(result.rows[0]?.id) };
+}
+
 export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry): Promise<number> {
   const { data, error } = await supabase
     .from('recurring_billing_log')
@@ -5989,6 +6081,8 @@ export const storage = {
     };
   },
   getActiveSubscriptions,  // Use real function defined above
+
+  upsertMemberPaymentToken,
 
   createPayment,
 

@@ -3160,6 +3160,72 @@ router.patch(
 );
 
 router.patch(
+  "/api/admin/enrollment/:enrollmentId/personal",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    const {
+      firstName,
+      lastName,
+      middleName,
+      dateOfBirth,
+      gender,
+      employerName,
+      divisionName,
+      dateOfHire,
+    } = req.body || {};
+
+    const updates: Record<string, any> = {};
+
+    if (typeof firstName === "string") {
+      updates.firstName = firstName.trim();
+    }
+    if (typeof lastName === "string") {
+      updates.lastName = lastName.trim();
+    }
+    if (typeof middleName === "string") {
+      updates.middleName = middleName.trim();
+    }
+    if (typeof dateOfBirth === "string") {
+      updates.dateOfBirth = dateOfBirth.trim();
+    }
+    if (typeof gender === "string") {
+      updates.gender = gender.trim();
+    }
+    if (typeof employerName === "string") {
+      updates.employerName = employerName.trim();
+    }
+    if (typeof divisionName === "string") {
+      updates.divisionName = divisionName.trim();
+    }
+    if (typeof dateOfHire === "string") {
+      updates.dateOfHire = dateOfHire.trim();
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: "No personal fields provided" });
+    }
+
+    try {
+      await storage.updateMember(enrollmentId, updates);
+      const enrollment = await storage.getEnrollmentDetails(enrollmentId);
+      res.json({ success: true, enrollment });
+    } catch (error: any) {
+      console.error("Error updating enrollment personal info:", error);
+      res.status(500).json({ message: "Failed to update personal info", error: error.message });
+    }
+  },
+);
+
+router.patch(
   "/api/admin/enrollment/:enrollmentId/address",
   authenticateToken,
   async (req: AuthRequest, res) => {
