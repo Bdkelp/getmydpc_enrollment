@@ -214,6 +214,8 @@ type BulkImportFailedRow = {
   sourceRow?: CensusImportRow;
 };
 
+const IN_HOUSE_AGENT_OPTION_VALUE = "__in_house_admin_serviced__";
+
 const defaultGroupProfileForm: GroupProfile = {
   ein: "",
   responsiblePersonName: "",
@@ -300,6 +302,14 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
 const getAssignedAgentIdFromMetadata = (metadata?: Record<string, any> | null): string => {
   const assigned = metadata?.assignedAgentId;
   return typeof assigned === "string" ? assigned : "";
+};
+
+const toAssignedAgentPayload = (selection: string): string | null | undefined => {
+  if (!selection || selection === IN_HOUSE_AGENT_OPTION_VALUE) {
+    return null;
+  }
+
+  return selection;
 };
 
 const getGroupDocumentsFromMetadata = (metadata?: Record<string, any> | null): GroupDocumentRecord[] => {
@@ -517,7 +527,7 @@ export default function GroupEnrollment() {
     groupType: "",
     discountCode: "",
   });
-  const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState("");
+  const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState(IN_HOUSE_AGENT_OPTION_VALUE);
   const [newGroupCensusFileName, setNewGroupCensusFileName] = useState("");
   const [newGroupCensusRows, setNewGroupCensusRows] = useState<CensusImportRow[]>([]);
   const [newGroupPaymentFormFile, setNewGroupPaymentFormFile] = useState<File | null>(null);
@@ -629,7 +639,7 @@ export default function GroupEnrollment() {
         payorType: derivePayorTypeFromMode(newGroupProfileForm.payorMixMode),
         discountCode,
         groupProfile: buildGroupProfilePayload(newGroupProfileForm),
-        assignedAgentId: canAccessAdminViews ? (newGroupAssignedAgentId || undefined) : undefined,
+        assignedAgentId: canAccessAdminViews ? toAssignedAgentPayload(newGroupAssignedAgentId) : undefined,
       };
       return apiRequest("/api/groups", {
         method: "POST",
@@ -682,7 +692,7 @@ export default function GroupEnrollment() {
       });
       setNewGroupOpen(false);
       setNewGroupForm({ name: "", groupType: "", discountCode: "" });
-      setNewGroupAssignedAgentId("");
+      setNewGroupAssignedAgentId(IN_HOUSE_AGENT_OPTION_VALUE);
       setNewGroupCensusFileName("");
       setNewGroupCensusRows([]);
       setNewGroupPaymentFormFile(null);
@@ -717,7 +727,7 @@ export default function GroupEnrollment() {
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-    setGroupAssignedAgentId(getAssignedAgentIdFromMetadata(typed.data?.metadata));
+    setGroupAssignedAgentId(getAssignedAgentIdFromMetadata(typed.data?.metadata) || IN_HOUSE_AGENT_OPTION_VALUE);
     setEffectiveDateSelection(typed.effectiveDateContext?.selectedEffectiveDate || "");
     setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
     setGroupProfileForm(mapGroupProfileContextToForm(typed.groupProfileContext));
@@ -1088,7 +1098,7 @@ export default function GroupEnrollment() {
         body: JSON.stringify({
           payorType: derivePayorTypeFromMode(groupProfileForm.payorMixMode),
           groupProfile: buildGroupProfilePayload(groupProfileForm),
-          assignedAgentId: canAccessAdminViews ? (groupAssignedAgentId || null) : undefined,
+          assignedAgentId: canAccessAdminViews ? toAssignedAgentPayload(groupAssignedAgentId) : undefined,
         }),
       });
     },
@@ -1259,10 +1269,7 @@ export default function GroupEnrollment() {
   const canDownloadFailedRows = lastImportFailedRows.length > 0;
   const groupDocuments = getGroupDocumentsFromMetadata(selectedGroup?.data?.metadata);
   const latestPaymentForm = groupDocuments.find((doc) => doc.type === "authorized_payment_form");
-  const canCreateGroup = Boolean(
-    newGroupForm.name.trim().length > 0 &&
-    (!canAccessAdminViews || newGroupAssignedAgentId)
-  );
+  const canCreateGroup = Boolean(newGroupForm.name.trim().length > 0);
 
   if (authLoading || isLoading) {
     return (
@@ -1477,6 +1484,9 @@ export default function GroupEnrollment() {
                     <SelectValue placeholder="Select an agent" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value={IN_HOUSE_AGENT_OPTION_VALUE}>
+                      In-house (Admin serviced)
+                    </SelectItem>
                     {agentOptions.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.agentNumber ? `${agent.agentNumber} - ` : ""}
@@ -1485,9 +1495,7 @@ export default function GroupEnrollment() {
                     ))}
                   </SelectContent>
                 </Select>
-                {!newGroupAssignedAgentId && (
-                  <p className="text-xs text-amber-700 mt-1">Required for admin and super admin group creation.</p>
-                )}
+                <p className="text-xs text-slate-600 mt-1">Use In-house when no specific agent/user owns servicing.</p>
               </div>
             )}
             <div>
@@ -1835,6 +1843,9 @@ export default function GroupEnrollment() {
                         <SelectValue placeholder="Select an agent" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value={IN_HOUSE_AGENT_OPTION_VALUE}>
+                          In-house (Admin serviced)
+                        </SelectItem>
                         {agentOptions.map((agent) => (
                           <SelectItem key={agent.id} value={agent.id}>
                             {agent.agentNumber ? `${agent.agentNumber} - ` : ""}
