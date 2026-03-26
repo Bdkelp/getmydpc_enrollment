@@ -42,6 +42,8 @@ interface SensitiveMemberResponse {
     ssn?: {
       decrypted?: string | null;
       masked?: string | null;
+      status?: 'decrypted' | 'masked_only' | 'not_available';
+      reason?: string | null;
     };
   };
 }
@@ -378,10 +380,17 @@ export default function EnrollmentDetails() {
     onSuccess: (response) => {
       const decrypted = response?.sensitiveData?.ssn?.decrypted || null;
       const masked = response?.sensitiveData?.ssn?.masked || null;
+      const status = response?.sensitiveData?.ssn?.status;
+      const reason = response?.sensitiveData?.ssn?.reason;
       setRevealedSSN(decrypted || masked);
       setIsSSNVisible(true);
 
-      if (!decrypted && masked) {
+      if (status === 'masked_only') {
+        toast({
+          title: 'Limited SSN view',
+          description: reason || 'Full SSN is unavailable for this record. Showing masked value only.',
+        });
+      } else if (!decrypted && masked) {
         toast({
           title: 'Limited SSN view',
           description: 'Full SSN is unavailable for this record. Showing masked value only.',

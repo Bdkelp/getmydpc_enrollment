@@ -6841,26 +6841,34 @@ export async function registerRoutes(app: any) {
       // Decrypt sensitive data
       let decryptedSSN = null;
       let maskedSSN = null;
+      let ssnStatus: 'decrypted' | 'masked_only' | 'not_available' = 'not_available';
+      let ssnReason: string | null = null;
       if (member.ssn) {
-        const { decryptSSN, maskSSN, formatSSN, isValidSSN } = await import('./utils/encryption');
+        const { decryptSSN, maskSSN, formatSSN } = await import('./utils/encryption');
 
         const storedRaw = String(member.ssn);
         const decryptedCandidate = decryptSSN(storedRaw);
         const decryptedDigits = String(decryptedCandidate || '').replace(/\D/g, '');
         const storedDigits = storedRaw.replace(/\D/g, '');
 
-        if (isValidSSN(decryptedDigits)) {
+        if (decryptedDigits.length === 9) {
           decryptedSSN = formatSSN(decryptedDigits);
           maskedSSN = maskSSN(decryptedDigits);
-        } else if (isValidSSN(storedDigits)) {
+          ssnStatus = 'decrypted';
+        } else if (storedDigits.length === 9) {
           // Legacy plaintext support
           decryptedSSN = formatSSN(storedDigits);
           maskedSSN = maskSSN(storedDigits);
+          ssnStatus = 'decrypted';
         } else {
           // Irrecoverable values (e.g. already-masked-only or malformed)
           maskedSSN = storedRaw.includes('*')
             ? storedRaw
             : storedRaw.replace(/\d(?=\d{4})/g, '*');
+          ssnStatus = 'masked_only';
+          ssnReason = storedRaw.includes(':')
+            ? 'Encrypted SSN could not be decrypted with configured keys'
+            : 'Only masked/partial SSN is available for this record';
         }
       }
 
@@ -6918,6 +6926,8 @@ export async function registerRoutes(app: any) {
           ssn: {
             decrypted: decryptedSSN,
             masked: maskedSSN,
+            status: ssnStatus,
+            reason: ssnReason,
             warning: 'This data is logged and monitored'
           },
           bankInfo: {

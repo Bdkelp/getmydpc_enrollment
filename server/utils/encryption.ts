@@ -6,11 +6,56 @@
 import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const SECRET_KEY = process.env.SSN_ENCRYPTION_KEY 
-  ? Buffer.from(process.env.SSN_ENCRYPTION_KEY, 'hex')
-  : crypto.randomBytes(32); // Generate random key if not set (for dev only!)
 
-const PSEUDO_SSN_SECRET = process.env.PSEUDO_SSN_SECRET || 'default-pseudo-secret-change-in-production';
+const parseHexKey = (raw: string | undefined): Buffer | null => {
+  if (!raw) return null;
+
+  const trimmed = raw.trim();
+  if (!/^[a-fA-F0-9]{64}$/.test(trimmed)) {
+    console.warn('[Encryption] Ignoring invalid key format. Expected 64-char hex key.');
+    return null;
+  }
+
+  return Buffer.from(trimmed, 'hex');
+};
+
+const buildKeyRing = (): Buffer[] => {
+  const keys: Buffer[] = [];
+  const seen = new Set<string>();
+
+  const addKey = (raw: string | undefined) => {
+    const parsed = parseHexKey(raw);
+    if (!parsed) return;
+    const fingerprint = parsed.toString('hex');
+    if (seen.has(fingerprint)) return;
+    seen.add(fingerprint);
+    keys.push(parsed);
+  };
+
+  // Preferred key for SSN encryption/decryption.
+  addKey(process.env.SSN_ENCRYPTION_KEY);
+
+  // Optional fallback to existing encryption key for environments not yet split.
+  addKey(process.env.ENCRYPTION_KEY);
+
+  // Optional list of retired keys for decrypt-only support during key rotation.
+  const previous = (process.env.SSN_ENCRYPTION_PREVIOUS_KEYS || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  previous.forEach(addKey);
+
+  if (keys.length === 0) {
+    console.error('[Encryption] No valid SSN encryption keys configured. Set SSN_ENCRYPTION_KEY (preferred) or ENCRYPTION_KEY.');
+  }
+
+  return keys;
+};
+
+const SSN_KEY_RING = buildKeyRing();
+const PRIMARY_SSN_KEY = SSN_KEY_RING[0] || null;
+
+const PSEUDO_SSN_SECRET = process.env.PSEUDO_SSN_SECRET || process.env.ENCRYPTION_KEY || 'development-only-pseudo-secret';
 
 /**
  * Encrypt SSN for secure storage
@@ -18,6 +63,10 @@ const PSEUDO_SSN_SECRET = process.env.PSEUDO_SSN_SECRET || 'default-pseudo-secre
  */
 export function encryptSSN(ssn: string): string {
   if (!ssn) return '';
+
+  if (!PRIMARY_SSN_KEY) {
+    throw new Error('SSN encryption key is not configured. Set SSN_ENCRYPTION_KEY.');
+  }
   
   // Remove formatting and validate
   const cleanSSN = ssn.replace(/\D/g, '');
@@ -26,7 +75,7 @@ export function encryptSSN(ssn: string): string {
   }
 
   const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, SECRET_KEY, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, PRIMARY_SSN_KEY, iv);
   
   let encrypted = cipher.update(cleanSSN, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -45,17 +94,22 @@ export function decryptSSN(encryptedSSN: string): string {
     return encryptedSSN; // Return as-is if not encrypted (legacy data)
   }
 
-  try {
-    const parts = encryptedSSN.split(':');
-    if (parts.length !== 3) {
-      return encryptedSSN; // Return as-is if invalid format
-    }
+  if (SSN_KEY_RING.length === 0) {
+    return '';
+  }
 
-    const [ivHex, authTagHex, encrypted] = parts;
-    
+  const parts = encryptedSSN.split(':');
+  if (parts.length !== 3) {
+    return encryptedSSN; // Return as-is if invalid format
+  }
+
+  const [ivHex, authTagHex, encrypted] = parts;
+
+  for (const key of SSN_KEY_RING) {
+    try {
     const decipher = crypto.createDecipheriv(
       ALGORITHM,
-      SECRET_KEY,
+        key,
       Buffer.from(ivHex, 'hex')
     );
     decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
@@ -64,10 +118,13 @@ export function decryptSSN(encryptedSSN: string): string {
     decrypted += decipher.final('utf8');
     
     return decrypted;
-  } catch (error) {
-    console.error('[Encryption] Failed to decrypt SSN:', error);
-    return ''; // Return empty on decrypt failure
+    } catch (_error) {
+      // Continue trying additional keys in key ring.
+    }
   }
+
+  console.error('[Encryption] Failed to decrypt SSN with all configured keys');
+  return ''; // Return empty on decrypt failure
 }
 
 /**
