@@ -65,7 +65,7 @@ export function encryptSSN(ssn: string): string {
   if (!ssn) return '';
 
   if (!PRIMARY_SSN_KEY) {
-    throw new Error('SSN encryption key is not configured. Set SSN_ENCRYPTION_KEY.');
+    throw new Error('SSN encryption key is not configured. Set SSN_ENCRYPTION_KEY (preferred) or ENCRYPTION_KEY.');
   }
   
   // Remove formatting and validate

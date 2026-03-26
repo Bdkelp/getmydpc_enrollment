@@ -188,7 +188,12 @@ async function canManageMemberForUser(
     return true;
   }
 
-  const member = await storage.getUser(memberId);
+  const parsedMemberId = Number(memberId);
+  if (!Number.isFinite(parsedMemberId)) {
+    return false;
+  }
+
+  const member = await storage.getMember(parsedMemberId);
   if (!member) {
     return false;
   }
@@ -3332,7 +3337,7 @@ router.patch(
     }
 
     try {
-      const existingMember = await storage.getUser(memberId);
+      const existingMember = await storage.getMember(parsedMemberId);
       if (!existingMember) {
         return res.status(404).json({ message: "Member not found" });
       }
