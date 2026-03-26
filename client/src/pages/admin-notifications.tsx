@@ -180,7 +180,7 @@ export default function AdminNotifications() {
       autoLaunch: "true"
     });
 
-    setLocation(`/admin/payment-checkout?${params.toString()}`);
+    setLocation(`/admin/payments/checkout?${params.toString()}`);
   };
 
   const unresolvedCount = notifications.filter(n => !n.resolved).length;

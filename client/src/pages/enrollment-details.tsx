@@ -210,6 +210,30 @@ export default function EnrollmentDetails() {
     enabled: !!enrollmentId,
     select: (data) => data?.payments || []
   });
+
+  const latestPayment = Array.isArray(paymentHistory) && paymentHistory.length > 0
+    ? paymentHistory[0]
+    : null;
+  const latestPaymentStatus = String(latestPayment?.status || '').toLowerCase();
+  const hasCompletedPayment = ['succeeded', 'success', 'completed'].includes(latestPaymentStatus);
+
+  const launchHostedCheckout = () => {
+    if (!enrollment) return;
+
+    const params = new URLSearchParams({
+      memberId: enrollment.id.toString(),
+      amount: String(enrollment.totalMonthlyPrice || 0),
+      description: `Enrollment payment for member #${enrollment.id}`,
+      autoLaunch: '1',
+    });
+
+    if (latestPayment?.id) {
+      params.set('retryPaymentId', String(latestPayment.id));
+      params.set('retryMemberId', enrollment.id.toString());
+    }
+
+    setLocation(`/admin/payments/checkout?${params.toString()}`);
+  };
   
   // Update contact info mutation
   const updateContactMutation = useMutation({
@@ -1193,9 +1217,16 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
           <TabsContent value="payment" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <CreditCard className="h-5 w-5 mr-2 text-blue-600" />
-                  Payment Information
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <CreditCard className="h-5 w-5 mr-2 text-blue-600" />
+                    Payment Information
+                  </span>
+                  {!hasCompletedPayment && (
+                    <Button size="sm" onClick={launchHostedCheckout}>
+                      {latestPaymentStatus === 'failed' ? 'Retry Payment' : 'Start Payment'}
+                    </Button>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>

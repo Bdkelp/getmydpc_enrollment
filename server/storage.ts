@@ -4855,6 +4855,29 @@ export async function getPaymentById(id: number): Promise<Payment | undefined> {
   }
 }
 
+export async function getLatestEnrollmentPayment(memberId: number): Promise<Payment | undefined> {
+  try {
+    const result = await query(
+      `
+        SELECT *
+        FROM payments
+        WHERE member_id = $1
+          AND (
+            (metadata->>'paymentType') = 'hosted-checkout'
+            OR payment_method IN ('card', 'ach')
+          )
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [memberId]
+    );
+    return result.rows[0] || undefined;
+  } catch (error: any) {
+    console.error('Error fetching latest enrollment payment:', error);
+    return undefined;
+  }
+}
+
 export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
   try {
     // Use direct Neon query instead of Supabase. Match either the stored transaction_id
@@ -5106,6 +5129,61 @@ export async function getUnresolvedNotifications(limit = 50): Promise<any[]> {
 
   const result = await query(sql, [limit]);
   return result.rows || [];
+}
+
+/**
+ * Create unresolved notifications for members who are still pending without any payment attempt.
+ * This fills the "never attempted" payment lifecycle state for admin follow-up.
+ */
+export async function createNeverAttemptedPaymentNotifications(limit = 100): Promise<number> {
+  const sql = `
+    INSERT INTO admin_notifications (
+      type,
+      member_id,
+      subscription_id,
+      error_message,
+      metadata,
+      resolved,
+      created_at
+    )
+    SELECT
+      'payment_not_started' AS type,
+      m.id AS member_id,
+      NULL AS subscription_id,
+      'Enrollment has no payment attempt yet' AS error_message,
+      jsonb_build_object(
+        'memberEmail', m.email,
+        'memberName', trim(coalesce(m.first_name, '') || ' ' || coalesce(m.last_name, '')),
+        'memberStatus', m.status,
+        'memberCreatedAt', m.created_at,
+        'recommendedAction', 'Start or resume hosted checkout from enrollment record'
+      ) AS metadata,
+      false AS resolved,
+      NOW() AS created_at
+    FROM members m
+    LEFT JOIN payments p ON p.member_id = m.id
+    WHERE m.status IN ('pending', 'pending_activation')
+      AND p.id IS NULL
+      AND m.created_at < NOW() - INTERVAL '15 minutes'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM admin_notifications n
+        WHERE n.member_id = m.id
+          AND n.type = 'payment_not_started'
+          AND n.resolved = false
+      )
+    ORDER BY m.created_at ASC
+    LIMIT $1
+    RETURNING id
+  `;
+
+  try {
+    const result = await query(sql, [limit]);
+    return result.rows?.length || 0;
+  } catch (error: any) {
+    console.error('[Storage] Failed to create never-attempted payment notifications:', error);
+    return 0;
+  }
 }
 
 /**
@@ -5917,12 +5995,14 @@ export const storage = {
   getUserPayments,
   getPaymentById,
   getPaymentByTransactionId,
+  getLatestEnrollmentPayment,
   getLatestPaymentWithAuthGuid,
   updatePayment,
   getPaymentsWithFilters,
   getAgentFailedPayments,
   
   createAdminNotification,
+  createNeverAttemptedPaymentNotifications,
   getUnresolvedNotifications,
   resolveAdminNotification,
 

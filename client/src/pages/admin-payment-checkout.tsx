@@ -51,7 +51,7 @@ const formatCurrency = (amount: number): string => amount.toLocaleString(undefin
 
 export default function AdminPaymentCheckoutPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
-  const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
+  const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [hasLaunchedPayment, setHasLaunchedPayment] = useState(false);
@@ -62,6 +62,8 @@ export default function AdminPaymentCheckoutPage() {
   const amountParam = searchParams.get("amount");
   const descriptionParam = searchParams.get("description") || undefined;
   const transactionIdParam = searchParams.get("transactionId") || searchParams.get("orderId") || undefined;
+  const retryPaymentIdParam = searchParams.get("retryPaymentId") || undefined;
+  const retryMemberIdParam = searchParams.get("retryMemberId") || undefined;
   const autoLaunch = parseBooleanParam(searchParams.get("autoLaunch"));
 
   const memberId = memberIdParam ? Number(memberIdParam) : NaN;
@@ -87,15 +89,15 @@ export default function AdminPaymentCheckoutPage() {
     if (!isLoading) {
       if (!isAuthenticated) {
         setLocation("/login");
-      } else if (!isSuperAdmin) {
+      } else if (!isAgentOrAbove) {
         setLocation("/no-access");
       }
     }
-  }, [isAuthenticated, isLoading, isSuperAdmin, setLocation]);
+  }, [isAuthenticated, isLoading, isAgentOrAbove, setLocation]);
 
   const memberQuery = useQuery<MemberLookupResponse, Error>({
     queryKey: ["/api/admin/members", memberId],
-    enabled: isAuthenticated && isSuperAdmin && Number.isFinite(memberId) && !validationError,
+    enabled: isAuthenticated && isAgentOrAbove && Number.isFinite(memberId) && !validationError,
     queryFn: async () => {
       const response = await apiRequest(`/api/admin/members/${memberId}`);
       if (!response?.success || !response?.member) {
@@ -140,7 +142,7 @@ export default function AdminPaymentCheckoutPage() {
     ? (memberDisplayName === `Member #${member.id}` ? member.email : memberDisplayName)
     : member?.email || "Member";
 
-  if (isLoading || (isAuthenticated && isSuperAdmin && memberQuery.isLoading)) {
+  if (isLoading || (isAuthenticated && isAgentOrAbove && memberQuery.isLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <LoadingSpinner />
@@ -148,7 +150,7 @@ export default function AdminPaymentCheckoutPage() {
     );
   }
 
-  if (!isAuthenticated || !isSuperAdmin) {
+  if (!isAuthenticated || !isAgentOrAbove) {
     return null;
   }
 
@@ -157,14 +159,14 @@ export default function AdminPaymentCheckoutPage() {
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-medical-blue-600 uppercase tracking-wide">Admin Hosted Checkout</p>
+            <p className="text-sm font-semibold text-medical-blue-600 uppercase tracking-wide">Staff Hosted Checkout</p>
             <h1 className="text-3xl font-bold text-gray-900 mt-1">Collect Payment for Member #{memberIdParam}</h1>
             <p className="text-gray-600 mt-1">
               This flow is isolated from registration and intended for one-off captures or troubleshooting existing memberships.
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => setLocation("/admin")}>Back to Admin</Button>
+            <Button variant="outline" onClick={() => setLocation(hasAtLeastRole(user?.role, "admin") ? "/admin" : "/agent")}>Back</Button>
           </div>
         </div>
 
@@ -312,6 +314,8 @@ export default function AdminPaymentCheckoutPage() {
                       customerEmail={member.email}
                       customerName={customerName}
                       planId={member.planId ? String(member.planId) : undefined}
+                      retryPaymentId={retryPaymentIdParam}
+                      retryMemberId={retryMemberIdParam || String(member.id)}
                       description={descriptionParam || `Manual admin checkout for member #${member.id}`}
                       billingAddress={{
                         streetAddress: member.address || undefined,

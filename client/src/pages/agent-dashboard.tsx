@@ -60,6 +60,8 @@ interface Enrollment {
   subscriptionId?: number;
   memberPublicId?: string | null;
   customerNumber?: string | null;
+  payment_status?: string | null;
+  payment_id?: number | null;
 }
 
 type GoalPeriodKey = "weekly" | "monthly" | "quarterly";
@@ -214,6 +216,27 @@ export default function AgentDashboard() {
   
   const handleLeadClick = (leadId: number) => {
     setLocation(`/agent/leads/${leadId}`);
+  };
+
+  const hasSuccessfulPayment = (paymentStatus?: string | null) => {
+    const normalized = (paymentStatus || '').toLowerCase();
+    return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
+  };
+
+  const openEnrollmentCheckout = (enrollment: Enrollment) => {
+    const params = new URLSearchParams({
+      memberId: String(enrollment.id),
+      amount: String(enrollment.totalMonthlyPrice || 0),
+      description: `Enrollment payment for member #${enrollment.id}`,
+      autoLaunch: '1',
+    });
+
+    if (enrollment.payment_id) {
+      params.set('retryPaymentId', String(enrollment.payment_id));
+      params.set('retryMemberId', String(enrollment.id));
+    }
+
+    setLocation(`/admin/payments/checkout?${params.toString()}`);
   };
 
   const handleResolvePending = async () => {
@@ -684,6 +707,7 @@ export default function AgentDashboard() {
                     <th className="text-left py-2">Commission</th>
                     <th className="text-left py-2">Enrolled By</th>
                     <th className="text-left py-2">Status</th>
+                    <th className="text-left py-2">Payment</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -732,6 +756,21 @@ export default function AgentDashboard() {
                             <span className="ml-1">ⓘ</span>
                           )}
                         </span>
+                      </td>
+                      <td className="py-2">
+                        {!hasSuccessfulPayment(enrollment.payment_status) && (enrollment.status === 'pending' || enrollment.payment_status?.toLowerCase() === 'failed') && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEnrollmentCheckout(enrollment);
+                            }}
+                          >
+                            {enrollment.payment_status?.toLowerCase() === 'failed' ? 'Retry' : 'Start'}
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}

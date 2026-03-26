@@ -100,7 +100,7 @@ export default function AgentFailedPayments() {
         autoLaunch: "true"
       });
 
-      setLocation(`/admin/payment-checkout?${params.toString()}`);
+      setLocation(`/admin/payments/checkout?${params.toString()}`);
     } catch (error: any) {
       toast({
         title: "Retry Failed",

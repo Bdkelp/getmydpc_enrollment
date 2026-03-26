@@ -484,6 +484,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       reason?: string | null;
     } | null = null;
     let retrySourceMetadata: Record<string, any> | null = null;
+    let memberId: number | null = null;
+    let userId: string | null = null;
 
     if (hasAmountOverride) {
       overrideApprovedBy = authenticatedUser;
@@ -610,6 +612,61 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       return res.status(400).json({ success: false, error: 'Unable to resolve customer email for payment' });
     }
 
+    // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
+    memberId = derivedMemberId;
+    userId = derivedUserId;
+
+    if (!memberId) {
+      if (typeof customerId === 'number') {
+        memberId = customerId;
+      } else if (typeof customerId === 'string') {
+        if (/^\d+$/.test(customerId)) {
+          memberId = parseInt(customerId, 10);
+        } else if (customerId.includes('-')) {
+          userId = customerId;
+        }
+      }
+    }
+
+    // Guardrails to avoid duplicate charges from repeated checkout launches.
+    if (memberId) {
+      const latestEnrollmentPayment = await storage.getLatestEnrollmentPayment(memberId);
+
+      if (latestEnrollmentPayment) {
+        const latestStatus = String(latestEnrollmentPayment.status || '').toLowerCase();
+        const latestTransactionId = latestEnrollmentPayment.transaction_id || null;
+
+        if (!isRetryRequest && ['succeeded', 'success', 'completed'].includes(latestStatus)) {
+          return res.status(409).json({
+            success: false,
+            code: 'PAYMENT_ALREADY_COMPLETED',
+            message: 'This enrollment already has a successful payment. Open payment history before creating a new charge.',
+            existingPaymentId: latestEnrollmentPayment.id,
+            existingTransactionId: latestTransactionId,
+          });
+        }
+
+        if (['pending', 'processing'].includes(latestStatus)) {
+          const createdAtMs = latestEnrollmentPayment.created_at
+            ? new Date(latestEnrollmentPayment.created_at as unknown as string).getTime()
+            : NaN;
+          const withinIntentWindow = Number.isFinite(createdAtMs)
+            ? (Date.now() - createdAtMs) < (20 * 60 * 1000)
+            : true;
+
+          if (withinIntentWindow) {
+            return res.status(409).json({
+              success: false,
+              code: 'PAYMENT_INTENT_ACTIVE',
+              message: 'A payment session is already in progress for this enrollment. Please complete or fail that attempt before starting another.',
+              existingPaymentId: latestEnrollmentPayment.id,
+              existingTransactionId: latestTransactionId,
+            });
+          }
+        }
+      }
+    }
+
     logEPX({
       level: 'info',
       phase: 'create-payment',
@@ -652,22 +709,6 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     if (!sessionResponse.success) {
       logEPX({ level: 'error', phase: 'create-payment', message: 'Session creation failed', data: { error: sessionResponse.error } });
       return res.status(400).json(sessionResponse);
-    }
-
-    // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
-    let memberId: number | null = derivedMemberId;
-    let userId: string | null = derivedUserId;
-
-    if (!memberId) {
-      if (typeof customerId === 'number') {
-        memberId = customerId;
-      } else if (typeof customerId === 'string') {
-        if (/^\d+$/.test(customerId)) {
-          memberId = parseInt(customerId, 10);
-        } else if (customerId.includes('-')) {
-          userId = customerId;
-        }
-      }
     }
 
     // Store payment record in pending state
@@ -735,6 +776,21 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       });
 
       const createdPayment = await storage.createPayment(paymentData);
+
+      if (memberId) {
+        await storage.createAdminNotification({
+          type: 'payment_initiated',
+          title: 'Payment Session Started',
+          message: `Hosted checkout started for member #${memberId} (${effectiveCustomerName || effectiveCustomerEmail}).`,
+          memberId,
+          metadata: {
+            paymentId: createdPayment?.id,
+            transactionId: orderNumber,
+            amount: effectiveAmount,
+            retryContext,
+          },
+        });
+      }
 
       logEPX({
         level: 'info',
@@ -1391,6 +1447,38 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       paymentRecordForLogging = persistResult.paymentRecord;
       maskedAuthGuid = persistResult.maskedAuthGuid;
+
+      if (paymentRecordForLogging?.member_id) {
+        try {
+          const memberId = Number(paymentRecordForLogging.member_id);
+          const memberRecord = await storage.getMember(memberId);
+
+          await storage.createAdminNotification({
+            type: 'payment_succeeded',
+            memberId,
+            subscriptionId: paymentRecordForLogging.subscription_id || null,
+            metadata: {
+              paymentId: paymentRecordForLogging.id,
+              transactionId: result.transactionId,
+              amount: result.amount,
+              memberEmail: memberRecord?.email,
+              memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
+              callbackStatus: req.body?.status || 'Success',
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } catch (successNotificationError: any) {
+          logEPX({
+            level: 'warn',
+            phase: 'callback',
+            message: 'Failed to create admin notification for successful payment',
+            data: {
+              error: successNotificationError?.message,
+              paymentId: paymentRecordForLogging.id,
+            }
+          });
+        }
+      }
 
       if (!authGuid) {
         logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });

@@ -690,6 +690,27 @@ export default function AdminEnrollments() {
     }
   };
 
+  const hasSuccessfulPayment = (paymentStatus?: string | null) => {
+    const normalized = (paymentStatus || '').toLowerCase();
+    return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
+  };
+
+  const openHostedCheckout = (enrollment: Enrollment) => {
+    const params = new URLSearchParams({
+      memberId: enrollment.id.toString(),
+      amount: String(enrollment.totalMonthlyPrice || 0),
+      description: `Enrollment payment for member #${enrollment.id}`,
+      autoLaunch: '1',
+    });
+
+    if (enrollment.payment_id) {
+      params.set('retryPaymentId', String(enrollment.payment_id));
+      params.set('retryMemberId', enrollment.id.toString());
+    }
+
+    setLocation(`/admin/payments/checkout?${params.toString()}`);
+  };
+
   // Filter enrollments based on search and status
   const filteredEnrollments = React.useMemo(() => {
     // Safe array check
@@ -1298,15 +1319,26 @@ export default function AdminEnrollments() {
                       </TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setLocation(`/admin/enrollment/${enrollment.id}`)
-                          }
-                        >
-                          <FileEdit className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {!hasSuccessfulPayment(enrollment.payment_status) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openHostedCheckout(enrollment)}
+                            >
+                              {enrollment.payment_status?.toLowerCase() === 'failed' ? 'Retry Payment' : 'Start Payment'}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setLocation(`/admin/enrollment/${enrollment.id}`)
+                            }
+                          >
+                            <FileEdit className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

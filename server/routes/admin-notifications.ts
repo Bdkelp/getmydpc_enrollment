@@ -17,6 +17,9 @@ const router = Router();
 router.get("/api/admin/notifications", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     const { filter = 'unresolved', limit = '50' } = req.query;
+
+    // Ensure "never attempted" payment notifications are available in the feed.
+    await storage.createNeverAttemptedPaymentNotifications(100);
     
     if (filter === 'unresolved') {
       const notifications = await storage.getUnresolvedNotifications(parseInt(String(limit)));
@@ -94,6 +97,7 @@ router.post("/api/admin/notifications/:id/resolve", authenticateToken, async (re
  */
 router.get("/api/admin/notifications/count", authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    await storage.createNeverAttemptedPaymentNotifications(100);
     const notifications = await storage.getUnresolvedNotifications(1000);
     res.json({
       success: true,

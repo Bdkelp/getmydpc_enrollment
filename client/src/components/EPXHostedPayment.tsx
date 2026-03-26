@@ -28,6 +28,8 @@ interface EPXHostedPaymentProps {
   planId?: string;
   subscriptionId?: string;
   description?: string;
+  retryPaymentId?: string;
+  retryMemberId?: string;
   billingAddress?: {
     streetAddress?: string;
     city?: string;
@@ -58,6 +60,8 @@ export default function EPXHostedPayment({
   planId,
   subscriptionId,
   description,
+  retryPaymentId,
+  retryMemberId,
   billingAddress = {},
   onSuccess,
   onError,
@@ -214,6 +218,14 @@ export default function EPXHostedPayment({
           if (overrideReasonValue) {
             payload.amountOverrideReason = overrideReasonValue;
           }
+        }
+
+        if (retryPaymentId) {
+          payload.retryPaymentId = retryPaymentId;
+        }
+
+        if (retryMemberId) {
+          payload.retryMemberId = retryMemberId;
         }
 
         const response = await apiClient.post('/api/epx/hosted/create-payment', payload);
