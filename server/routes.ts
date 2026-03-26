@@ -176,6 +176,31 @@ const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
   return role === "agent" || hasAtLeastRole(role, "admin");
 };
 
+async function canManageMemberForUser(
+  memberId: string,
+  user: AuthRequest["user"],
+): Promise<boolean> {
+  if (!user) {
+    return false;
+  }
+
+  if (isAdmin(user.role)) {
+    return true;
+  }
+
+  const member = await storage.getUser(memberId);
+  if (!member) {
+    return false;
+  }
+
+  if (member.enrolledByAgentId === user.id) {
+    return true;
+  }
+
+  const commissionAccess = await storage.getCommissionByUserId(memberId, user.id);
+  return Boolean(commissionAccess);
+}
+
 // Public routes (no authentication required)
 router.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -3268,6 +3293,173 @@ router.patch(
     } catch (error: any) {
       console.error("Error updating enrollment address:", error);
       res.status(500).json({ message: "Failed to update address", error: error.message });
+    }
+  },
+);
+
+router.patch(
+  "/api/members/:memberId/membership",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!hasAgentOrAdminAccess(req.user?.role)) {
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+
+    const { memberId } = req.params;
+    const parsedMemberId = Number(memberId);
+    if (!Number.isFinite(parsedMemberId)) {
+      return res.status(400).json({ message: "Invalid member ID" });
+    }
+
+    const hasAccess = await canManageMemberForUser(memberId, req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+
+    const {
+      action = "change",
+      planId,
+      memberType,
+      reason,
+    } = req.body || {};
+
+    const normalizedAction = String(action || "change").toLowerCase();
+    if (!["change", "cancel", "reactivate"].includes(normalizedAction)) {
+      return res.status(400).json({
+        message: "Invalid action",
+        allowedActions: ["change", "cancel", "reactivate"],
+      });
+    }
+
+    try {
+      const existingMember = await storage.getUser(memberId);
+      if (!existingMember) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      const existingSubscription = await storage.getUserSubscription(memberId);
+
+      if (normalizedAction === "cancel") {
+        const cancellationReason =
+          typeof reason === "string" && reason.trim().length > 0
+            ? reason.trim()
+            : `Membership cancelled by ${req.user?.email || "authorized user"}`;
+
+        const member = await storage.updateMemberStatus(memberId, "cancelled", {
+          reason: cancellationReason,
+        });
+
+        let subscription = existingSubscription;
+        if (existingSubscription && existingSubscription.status !== "cancelled") {
+          subscription = await storage.updateSubscription(existingSubscription.id, {
+            status: "cancelled",
+            pendingReason: "member_cancelled",
+            pendingDetails: cancellationReason,
+            updatedAt: new Date(),
+          });
+        }
+
+        const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
+
+        return res.json({
+          success: true,
+          action: normalizedAction,
+          message: "Membership cancelled successfully",
+          member,
+          subscription,
+          enrollment,
+        });
+      }
+
+      if (normalizedAction === "reactivate") {
+        const member = await storage.updateMemberStatus(memberId, "active", {
+          reason: typeof reason === "string" ? reason.trim() : undefined,
+        });
+
+        let subscription = existingSubscription;
+        if (existingSubscription && existingSubscription.status === "cancelled") {
+          subscription = await storage.updateSubscription(existingSubscription.id, {
+            status: "active",
+            pendingReason: null,
+            pendingDetails: null,
+            updatedAt: new Date(),
+          });
+        }
+
+        const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
+
+        return res.json({
+          success: true,
+          action: normalizedAction,
+          message: "Membership reactivated successfully",
+          member,
+          subscription,
+          enrollment,
+        });
+      }
+
+      const parsedPlanId =
+        planId === undefined || planId === null || planId === ""
+          ? null
+          : Number(planId);
+      const normalizedMemberType =
+        typeof memberType === "string" ? memberType.trim() : undefined;
+
+      if (!parsedPlanId && !normalizedMemberType) {
+        return res.status(400).json({
+          message: "Provide at least one of planId or memberType for membership changes",
+        });
+      }
+
+      let resolvedPlan: any = null;
+      if (parsedPlanId) {
+        resolvedPlan = await storage.getPlan(parsedPlanId);
+        if (!resolvedPlan) {
+          return res.status(404).json({ message: "Plan not found" });
+        }
+      }
+
+      const memberUpdates: Record<string, any> = {
+        updatedAt: new Date(),
+      };
+
+      if (resolvedPlan) {
+        memberUpdates.planId = resolvedPlan.id;
+        memberUpdates.totalMonthlyPrice = resolvedPlan.price;
+      }
+
+      if (normalizedMemberType) {
+        memberUpdates.memberType = normalizedMemberType;
+      }
+
+      const member = await storage.updateMember(parsedMemberId, memberUpdates);
+
+      let subscription = existingSubscription;
+      if (existingSubscription && resolvedPlan) {
+        subscription = await storage.updateSubscription(existingSubscription.id, {
+          planId: resolvedPlan.id,
+          amount: resolvedPlan.price,
+          updatedAt: new Date(),
+        });
+      }
+
+      const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
+
+      res.json({
+        success: true,
+        action: normalizedAction,
+        message: "Membership updated successfully",
+        member,
+        subscription,
+        plan: resolvedPlan,
+        enrollment,
+      });
+    } catch (error: any) {
+      console.error("Error updating membership:", error);
+      res.status(500).json({
+        message: "Failed to update membership",
+        error: error.message,
+      });
     }
   },
 );

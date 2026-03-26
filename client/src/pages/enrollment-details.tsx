@@ -109,6 +109,13 @@ interface FamilyMember {
   isActive: boolean;
 }
 
+interface PlanOption {
+  id: number;
+  name: string;
+  price: number | string;
+  isActive: boolean;
+}
+
 const parseFlexibleDate = (value?: string | null): Date | null => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -198,6 +205,9 @@ export default function EnrollmentDetails() {
   const [isEditingSSN, setIsEditingSSN] = useState(false);
   const [editedSSN, setEditedSSN] = useState('');
   const [ssnUpdateReason, setSsnUpdateReason] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [selectedMemberType, setSelectedMemberType] = useState<string>('');
+  const [membershipReason, setMembershipReason] = useState('');
 
   const getMaskedSSN = (value?: string | null): string => {
     if (!value) return '***-**-****';
@@ -217,6 +227,14 @@ export default function EnrollmentDetails() {
     queryKey: [`/api/admin/payments/member/${enrollmentId}`],
     enabled: !!enrollmentId,
     select: (data) => data?.payments || []
+  });
+
+  const { data: availablePlans = [] } = useQuery<PlanOption[]>({
+    queryKey: ['/api/plans'],
+    queryFn: async () => {
+      const data = await apiRequest('/api/plans');
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const latestPayment = Array.isArray(paymentHistory) && paymentHistory.length > 0
@@ -493,6 +511,43 @@ export default function EnrollmentDetails() {
       });
     },
   });
+
+  const updateMembershipMutation = useMutation({
+    mutationFn: async (payload: {
+      action: 'change' | 'cancel' | 'reactivate';
+      planId?: number;
+      memberType?: string;
+      reason?: string;
+    }) => {
+      return apiRequest(`/api/members/${enrollmentId}/membership`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (_data, payload) => {
+      const actionLabel = payload.action === 'cancel'
+        ? 'Membership cancelled'
+        : payload.action === 'reactivate'
+          ? 'Membership reactivated'
+          : 'Membership updated';
+
+      toast({
+        title: actionLabel,
+        description: 'Member subscription changes have been applied successfully.',
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/payments/member/${enrollmentId}`] });
+      setMembershipReason('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Membership update failed',
+        description: error?.message || 'Unable to apply membership changes.',
+        variant: 'destructive',
+      });
+    },
+  });
   
   // Export enrollment summary
   const exportSummary = () => {
@@ -680,6 +735,40 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
       divisionName: (editedPersonal.divisionName || '').trim(),
     });
   };
+
+  const submitMembershipChange = () => {
+    const payload: {
+      action: 'change' | 'cancel' | 'reactivate';
+      planId?: number;
+      memberType?: string;
+      reason?: string;
+    } = {
+      action: 'change',
+    };
+
+    if (selectedPlanId) {
+      payload.planId = Number(selectedPlanId);
+    }
+
+    if (selectedMemberType && selectedMemberType.trim() !== enrollment.memberType) {
+      payload.memberType = selectedMemberType.trim();
+    }
+
+    if (membershipReason.trim()) {
+      payload.reason = membershipReason.trim();
+    }
+
+    if (!payload.planId && !payload.memberType) {
+      toast({
+        title: 'No change selected',
+        description: 'Choose a different plan or coverage type before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    updateMembershipMutation.mutate(payload);
+  };
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -754,6 +843,87 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     <Badge className={enrollment.status === 'active' ? 'bg-green-100 text-green-800' : ''}>
                       {enrollment.status}
                     </Badge>
+                  </div>
+                  <div className="border-t pt-4 space-y-3">
+                    <Label className="text-gray-600">Membership Actions</Label>
+                    <div>
+                      <Label>Plan</Label>
+                      <Select
+                        value={selectedPlanId || String(enrollment.planId || '')}
+                        onValueChange={setSelectedPlanId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePlans.map((plan) => (
+                            <SelectItem key={plan.id} value={String(plan.id)}>
+                              {plan.name} (${Number(plan.price || 0).toFixed(2)})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Coverage Type</Label>
+                      <Select
+                        value={selectedMemberType || enrollment.memberType || ''}
+                        onValueChange={setSelectedMemberType}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select coverage type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="member-only">Member Only</SelectItem>
+                          <SelectItem value="member-spouse">Member + Spouse</SelectItem>
+                          <SelectItem value="member-children">Member + Children</SelectItem>
+                          <SelectItem value="family">Family</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Reason (optional)</Label>
+                      <Input
+                        value={membershipReason}
+                        onChange={(e) => setMembershipReason(e.target.value)}
+                        placeholder="Document caller request or consent details"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={submitMembershipChange}
+                        disabled={updateMembershipMutation.isPending}
+                      >
+                        {updateMembershipMutation.isPending ? 'Saving...' : 'Apply Change'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updateMembershipMutation.isPending}
+                        onClick={() =>
+                          updateMembershipMutation.mutate({
+                            action: 'cancel',
+                            reason: membershipReason.trim() || 'Cancelled per member request',
+                          })
+                        }
+                      >
+                        Cancel Membership
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updateMembershipMutation.isPending}
+                        onClick={() =>
+                          updateMembershipMutation.mutate({
+                            action: 'reactivate',
+                            reason: membershipReason.trim() || 'Reactivated per member request',
+                          })
+                        }
+                      >
+                        Reactivate
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

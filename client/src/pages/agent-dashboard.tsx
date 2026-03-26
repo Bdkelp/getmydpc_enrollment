@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { hasAtLeastRole, normalizeRole } from "@/lib/roles";
 
 interface AgentStats {
@@ -50,6 +51,7 @@ interface Enrollment {
   createdAt: string;
   firstName: string;
   lastName: string;
+  planId?: number;
   planName: string;
   memberType: string;
   totalMonthlyPrice: number;
@@ -62,6 +64,12 @@ interface Enrollment {
   customerNumber?: string | null;
   payment_status?: string | null;
   payment_id?: number | null;
+}
+
+interface PlanOption {
+  id: number;
+  name: string;
+  price: number | string;
 }
 
 type GoalPeriodKey = "weekly" | "monthly" | "quarterly";
@@ -103,6 +111,11 @@ export default function AgentDashboard() {
   const [showPendingDialog, setShowPendingDialog] = useState(false);
   const [consentType, setConsentType] = useState<string>("");
   const [consentNotes, setConsentNotes] = useState<string>("");
+  const [showMembershipDialog, setShowMembershipDialog] = useState(false);
+  const [membershipTarget, setMembershipTarget] = useState<Enrollment | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [selectedMemberType, setSelectedMemberType] = useState<string>('');
+  const [membershipReason, setMembershipReason] = useState<string>('');
 
   // For admin/super_admin: fetch all agents for selector
   const { data: allAgents } = useQuery({
@@ -145,6 +158,14 @@ export default function AgentDashboard() {
       return [];
     },
     enabled: !!viewingAgentId,
+  });
+
+  const { data: availablePlans = [] } = useQuery<PlanOption[]>({
+    queryKey: ["/api/plans"],
+    queryFn: async () => {
+      const plans = await apiRequest('/api/plans');
+      return Array.isArray(plans) ? plans : [];
+    },
   });
 
   // Log errors for debugging
@@ -217,6 +238,47 @@ export default function AgentDashboard() {
   const handleLeadClick = (leadId: number) => {
     setLocation(`/agent/leads/${leadId}`);
   };
+
+  const openMembershipDialog = (enrollment: Enrollment) => {
+    setMembershipTarget(enrollment);
+    setSelectedPlanId(String(enrollment.planId || ''));
+    setSelectedMemberType(enrollment.memberType || 'member-only');
+    setMembershipReason('');
+    setShowMembershipDialog(true);
+  };
+
+  const membershipMutation = useMutation({
+    mutationFn: async (payload: {
+      memberId: string;
+      action: 'change' | 'cancel' | 'reactivate';
+      planId?: number;
+      memberType?: string;
+      reason?: string;
+    }) => {
+      const { memberId, ...body } = payload;
+      return apiRequest(`/api/members/${memberId}/membership`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Membership updated',
+        description: 'The membership change has been applied.',
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agent/stats", viewingAgentId] });
+      setShowMembershipDialog(false);
+      setMembershipTarget(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Membership update failed',
+        description: error?.message || 'Unable to update membership.',
+        variant: 'destructive',
+      });
+    },
+  });
 
   const hasSuccessfulPayment = (paymentStatus?: string | null) => {
     const normalized = (paymentStatus || '').toLowerCase();
@@ -708,6 +770,7 @@ export default function AgentDashboard() {
                     <th className="text-left py-2">Enrolled By</th>
                     <th className="text-left py-2">Status</th>
                     <th className="text-left py-2">Payment</th>
+                    <th className="text-left py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -771,6 +834,19 @@ export default function AgentDashboard() {
                             {enrollment.payment_status?.toLowerCase() === 'failed' ? 'Retry' : 'Start'}
                           </Button>
                         )}
+                      </td>
+                      <td className="py-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openMembershipDialog(enrollment);
+                          }}
+                        >
+                          Manage
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -924,6 +1000,135 @@ export default function AgentDashboard() {
               className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
             >
               Resolve with Consent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMembershipDialog} onOpenChange={setShowMembershipDialog}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Change Membership</DialogTitle>
+            <DialogDescription>
+              Apply upgrade, downgrade, cancellation, or reactivation based on member request.
+            </DialogDescription>
+          </DialogHeader>
+
+          {membershipTarget && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded p-3 text-sm">
+                <div className="font-medium">{membershipTarget.firstName} {membershipTarget.lastName}</div>
+                <div className="text-gray-600">Current plan: {membershipTarget.planName}</div>
+                <div className="text-gray-600">Current type: {membershipTarget.memberType}</div>
+              </div>
+
+              <div>
+                <Label>Plan</Label>
+                <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePlans.map((plan) => (
+                      <SelectItem key={plan.id} value={String(plan.id)}>
+                        {plan.name} (${Number(plan.price || 0).toFixed(2)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Coverage Type</Label>
+                <Select value={selectedMemberType} onValueChange={setSelectedMemberType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select coverage type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member-only">Member Only</SelectItem>
+                    <SelectItem value="member-spouse">Member + Spouse</SelectItem>
+                    <SelectItem value="member-children">Member + Children</SelectItem>
+                    <SelectItem value="family">Family</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Reason / Consent Notes</Label>
+                <Input
+                  value={membershipReason}
+                  onChange={(e) => setMembershipReason(e.target.value)}
+                  placeholder="Document caller request"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-wrap gap-2 sm:justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setShowMembershipDialog(false)}
+              disabled={membershipMutation.isPending}
+            >
+              Close
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!membershipTarget || membershipMutation.isPending}
+              onClick={() =>
+                membershipTarget &&
+                membershipMutation.mutate({
+                  memberId: membershipTarget.id,
+                  action: 'cancel',
+                  reason: membershipReason.trim() || 'Cancelled per member request',
+                })
+              }
+            >
+              Cancel Membership
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!membershipTarget || membershipMutation.isPending}
+              onClick={() =>
+                membershipTarget &&
+                membershipMutation.mutate({
+                  memberId: membershipTarget.id,
+                  action: 'reactivate',
+                  reason: membershipReason.trim() || 'Reactivated per member request',
+                })
+              }
+            >
+              Reactivate
+            </Button>
+            <Button
+              disabled={!membershipTarget || membershipMutation.isPending}
+              onClick={() => {
+                if (!membershipTarget) return;
+                const requestedPlanId = selectedPlanId ? Number(selectedPlanId) : undefined;
+                const requestedMemberType =
+                  selectedMemberType && selectedMemberType !== membershipTarget.memberType
+                    ? selectedMemberType
+                    : undefined;
+
+                if (!requestedPlanId && !requestedMemberType) {
+                  toast({
+                    title: 'No change selected',
+                    description: 'Choose a different plan or coverage type.',
+                    variant: 'destructive',
+                  });
+                  return;
+                }
+
+                membershipMutation.mutate({
+                  memberId: membershipTarget.id,
+                  action: 'change',
+                  planId: requestedPlanId,
+                  memberType: requestedMemberType,
+                  reason: membershipReason.trim() || undefined,
+                });
+              }}
+            >
+              Apply Change
             </Button>
           </DialogFooter>
         </DialogContent>

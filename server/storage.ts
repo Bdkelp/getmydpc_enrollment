@@ -6044,6 +6044,7 @@ export const storage = {
     const dbUpdates: any = {};
 
     // Map the fields that might be updated
+    if (updates.planId !== undefined) dbUpdates.plan_id = updates.planId;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.pendingReason !== undefined) dbUpdates.pending_reason = updates.pendingReason;
     if (updates.pendingDetails !== undefined) dbUpdates.pending_details = updates.pendingDetails;
