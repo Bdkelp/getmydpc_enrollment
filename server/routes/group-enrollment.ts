@@ -3,6 +3,7 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
 import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
 import { supabase } from '../lib/supabaseClient';
+import { decryptSSN, encryptSSN, formatSSN, isValidSSN, maskSSN } from '../utils/encryption';
 import {
   addGroupMember,
   completeGroupRegistration,
@@ -43,6 +44,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
 const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered']);
 const ALLOWED_PAYOR_TYPES = new Set(['full', 'member']);
+const SSN_FIELD_ALIASES = ['ssn', 'socialSecurityNumber', 'social_security_number'] as const;
 const GROUP_DOCUMENTS_BUCKET = 'group-documents';
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
@@ -314,6 +316,167 @@ const normalizeMemberPayorType = (value: unknown, fallbackPayorType: string): st
   return ALLOWED_PAYOR_TYPES.has(normalized) ? normalized : 'full';
 };
 
+const hasOwn = (value: Record<string, any>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+const toObjectOrNull = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return { ...(value as Record<string, any>) };
+};
+
+const stripSensitiveSsnFields = (value: unknown): Record<string, any> | null => {
+  const objectValue = toObjectOrNull(value);
+  if (!objectValue) {
+    return null;
+  }
+
+  for (const alias of SSN_FIELD_ALIASES) {
+    delete objectValue[alias];
+  }
+
+  delete objectValue.ssnEncrypted;
+  delete objectValue.ssnLast4;
+  return objectValue;
+};
+
+const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: string | null } => {
+  for (const source of sources) {
+    const objectValue = toObjectOrNull(source);
+    if (!objectValue) {
+      continue;
+    }
+
+    for (const alias of SSN_FIELD_ALIASES) {
+      if (!hasOwn(objectValue, alias)) {
+        continue;
+      }
+
+      const raw = objectValue[alias];
+      if (raw === null || raw === undefined) {
+        return { provided: true, value: null };
+      }
+
+      if (typeof raw !== 'string') {
+        return { provided: true, value: null };
+      }
+
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        return { provided: true, value: null };
+      }
+
+      return { provided: true, value: trimmed };
+    }
+  }
+
+  return { provided: false, value: null };
+};
+
+const upsertEncryptedSsn = (
+  metadataValue: Record<string, any> | null,
+  ssn: string | null,
+): Record<string, any> | null => {
+  if (ssn === null) {
+    if (!metadataValue) {
+      return null;
+    }
+
+    delete metadataValue.ssnEncrypted;
+    delete metadataValue.ssnLast4;
+    return metadataValue;
+  }
+
+  const normalized = ssn.replace(/\D/g, '');
+  if (!isValidSSN(normalized)) {
+    throw new Error('Invalid SSN format');
+  }
+
+  const nextMetadata = metadataValue || {};
+  nextMetadata.ssnEncrypted = encryptSSN(normalized);
+  nextMetadata.ssnLast4 = normalized.slice(-4);
+  return nextMetadata;
+};
+
+const resolveMemberSsnDigits = (member: any): string | null => {
+  const metadata = toObjectOrNull(member?.metadata);
+  const registrationPayload = toObjectOrNull(member?.registrationPayload);
+  const candidates: Array<string | null | undefined> = [
+    metadata?.ssnEncrypted,
+    metadata?.ssn,
+    registrationPayload?.ssn,
+    registrationPayload?.socialSecurityNumber,
+    registrationPayload?.social_security_number,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate.trim()) {
+      continue;
+    }
+
+    const decrypted = decryptSSN(candidate);
+    const decryptedDigits = String(decrypted || '').replace(/\D/g, '');
+    if (isValidSSN(decryptedDigits)) {
+      return decryptedDigits;
+    }
+
+    const rawDigits = candidate.replace(/\D/g, '');
+    if (isValidSSN(rawDigits)) {
+      return rawDigits;
+    }
+  }
+
+  return null;
+};
+
+const canViewFullMemberSsn = (req: AuthRequest): boolean =>
+  Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
+
+const toMemberResponse = (member: any, includeFullSsn: boolean) => {
+  const ssnDigits = resolveMemberSsnDigits(member);
+  const formatted = ssnDigits ? formatSSN(ssnDigits) : null;
+  const masked = ssnDigits ? maskSSN(ssnDigits) : null;
+
+  return {
+    ...member,
+    metadata: stripSensitiveSsnFields(member?.metadata),
+    registrationPayload: stripSensitiveSsnFields(member?.registrationPayload),
+    ssn: ssnDigits ? (includeFullSsn ? formatted : masked) : null,
+    ssnMasked: masked,
+    hasSsn: Boolean(ssnDigits),
+  };
+};
+
+const auditGroupMemberSsnAction = async (
+  req: AuthRequest,
+  memberId: number,
+  action: 'update_group_member_ssn' | 'delete_group_member_ssn',
+  reason: string | null,
+  metadata: Record<string, any>,
+) => {
+  try {
+    await supabase.from('admin_logs').insert({
+      log_type: 'sensitive_data_update',
+      admin_id: req.user?.id,
+      admin_email: req.user?.email,
+      member_id: null,
+      action,
+      reason,
+      metadata: {
+        ...metadata,
+        groupMemberId: memberId,
+      },
+      ip_address: req.ip,
+      user_agent: req.get('user-agent'),
+      created_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.warn('[Group Enrollment] Failed to write SSN audit log:', error);
+  }
+};
+
 const sanitizeStorageFileName = (fileName: string): string => {
   const trimmed = fileName.trim();
   if (!trimmed) {
@@ -444,9 +607,15 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
     }
 
     const members = await listGroupMembers({ groupId });
+    const includeFullSsn = canViewFullMemberSsn(req);
     const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
     const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
-    return res.json({ data: group, members, effectiveDateContext, groupProfileContext });
+    return res.json({
+      data: group,
+      members: members.map((member) => toMemberResponse(member, includeFullSsn)),
+      effectiveDateContext,
+      groupProfileContext,
+    });
   } catch (error) {
     console.error('[Group Enrollment] Failed to fetch group:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch group';
@@ -605,6 +774,13 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       return res.status(400).json({ message: 'Tier, first name, last name, and email are required' });
     }
 
+    const ssnIntent = extractSsnIntent(req.body, metadata, registrationPayload);
+    const sanitizedMetadata = stripSensitiveSsnFields(metadata);
+    const sanitizedRegistrationPayload = stripSensitiveSsnFields(registrationPayload || req.body);
+    const nextMetadata = ssnIntent.provided
+      ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
+      : sanitizedMetadata;
+
     const memberRecord = await addGroupMember(groupId, {
       tier,
       payorType: payorType || group.payorType,
@@ -617,15 +793,18 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       memberAmount: parseAmount(memberAmount),
       discountAmount: parseAmount(discountAmount),
       totalAmount: parseAmount(totalAmount),
-      metadata,
-      registrationPayload: registrationPayload || req.body,
+      metadata: nextMetadata,
+      registrationPayload: sanitizedRegistrationPayload,
       status: status || 'draft',
     });
 
-    return res.status(201).json({ data: memberRecord });
+    return res.status(201).json({ data: toMemberResponse(memberRecord, canViewFullMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to add group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to add group member';
+    if (message === 'Invalid SSN format') {
+      return res.status(400).json({ message });
+    }
     return res.status(500).json({ message });
   }
 });
@@ -664,6 +843,13 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
       }
 
       try {
+        const ssnIntent = extractSsnIntent(source, source?.metadata, source?.registrationPayload);
+        const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
+        const sanitizedRegistrationPayload = stripSensitiveSsnFields(source.registrationPayload || source);
+        const nextMetadata = ssnIntent.provided
+          ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
+          : sanitizedMetadata;
+
         const memberRecord = await addGroupMember(groupId, {
           tier: normalizeMemberTier(source.tier),
           payorType: normalizeMemberPayorType(source.payorType, group.payorType),
@@ -676,12 +862,12 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           memberAmount: parseAmount(source.memberAmount),
           discountAmount: parseAmount(source.discountAmount),
           totalAmount: parseAmount(source.totalAmount),
-          metadata: source.metadata,
-          registrationPayload: source.registrationPayload || source,
+          metadata: nextMetadata,
+          registrationPayload: sanitizedRegistrationPayload,
           status: normalizeMemberStatus(source.status),
         });
 
-        created.push(memberRecord);
+        created.push(toMemberResponse(memberRecord, canViewFullMemberSsn(req)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to add row';
         failed.push({ row: rowNumber, email, reason: message });
@@ -807,7 +993,7 @@ router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Respons
       status: typeof req.query.status === 'string' ? req.query.status : undefined,
     });
 
-    return res.json({ data: members });
+    return res.json({ data: members.map((member) => toMemberResponse(member, canViewFullMemberSsn(req))) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to list group members:', error);
     const message = error instanceof Error ? error.message : 'Failed to list group members';
@@ -833,18 +1019,111 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       return res.status(404).json({ message: 'Group member not found' });
     }
 
-    const updated = await updateGroupMember(numericMemberId, {
-      ...req.body,
+    const includeSsnIntent = extractSsnIntent(req.body, req.body?.metadata, req.body?.registrationPayload);
+    const canEditSsn = canViewFullMemberSsn(req);
+    if (includeSsnIntent.provided && !canEditSsn) {
+      return res.status(403).json({ message: 'Only admins can edit SSN values' });
+    }
+
+    const incomingBody = (req.body && typeof req.body === 'object') ? req.body : {};
+    const { metadata, registrationPayload, ssn, socialSecurityNumber, social_security_number, ...otherUpdates } = incomingBody;
+    void ssn;
+    void socialSecurityNumber;
+    void social_security_number;
+
+    const metadataProvided = hasOwn(incomingBody, 'metadata');
+    const registrationPayloadProvided = hasOwn(incomingBody, 'registrationPayload');
+    const baseMetadata = metadataProvided ? stripSensitiveSsnFields(metadata) : stripSensitiveSsnFields(existingMember.metadata);
+    const baseRegistrationPayload = registrationPayloadProvided
+      ? stripSensitiveSsnFields(registrationPayload)
+      : stripSensitiveSsnFields(existingMember.registrationPayload);
+
+    const nextMetadata = includeSsnIntent.provided
+      ? upsertEncryptedSsn(baseMetadata, includeSsnIntent.value)
+      : baseMetadata;
+
+    const updatePayload: Record<string, any> = {
+      ...otherUpdates,
       employerAmount: parseAmount(req.body?.employerAmount ?? existingMember.employerAmount),
       memberAmount: parseAmount(req.body?.memberAmount ?? existingMember.memberAmount),
       discountAmount: parseAmount(req.body?.discountAmount ?? existingMember.discountAmount),
       totalAmount: parseAmount(req.body?.totalAmount ?? existingMember.totalAmount),
-    });
+    };
 
-    return res.json({ data: updated });
+    if (metadataProvided || includeSsnIntent.provided) {
+      updatePayload.metadata = nextMetadata;
+    }
+
+    if (registrationPayloadProvided || includeSsnIntent.provided) {
+      updatePayload.registrationPayload = baseRegistrationPayload;
+    }
+
+    const updated = await updateGroupMember(numericMemberId, updatePayload);
+
+    if (includeSsnIntent.provided && canEditSsn) {
+      await auditGroupMemberSsnAction(
+        req,
+        numericMemberId,
+        includeSsnIntent.value ? 'update_group_member_ssn' : 'delete_group_member_ssn',
+        typeof req.body?.reason === 'string' ? req.body.reason : null,
+        {
+          maskedSsn: includeSsnIntent.value ? maskSSN(includeSsnIntent.value) : null,
+        },
+      );
+    }
+
+    return res.json({ data: toMemberResponse(updated, canViewFullMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to update group member';
+    if (message === 'Invalid SSN format') {
+      return res.status(400).json({ message });
+    }
+    return res.status(500).json({ message });
+  }
+});
+
+router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!canViewFullMemberSsn(req)) {
+      return res.status(403).json({ message: 'Only admins can delete SSN values' });
+    }
+
+    const { groupId, memberId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const numericMemberId = Number(memberId);
+    if (Number.isNaN(numericMemberId)) {
+      return res.status(400).json({ message: 'Invalid member id' });
+    }
+
+    const existingMember = await getGroupMemberById(numericMemberId);
+    if (!existingMember || existingMember.groupId !== groupId) {
+      return res.status(404).json({ message: 'Group member not found' });
+    }
+
+    const nextMetadata = upsertEncryptedSsn(stripSensitiveSsnFields(existingMember.metadata), null);
+    const nextRegistrationPayload = stripSensitiveSsnFields(existingMember.registrationPayload);
+    const updated = await updateGroupMember(numericMemberId, {
+      metadata: nextMetadata,
+      registrationPayload: nextRegistrationPayload,
+    });
+
+    await auditGroupMemberSsnAction(
+      req,
+      numericMemberId,
+      'delete_group_member_ssn',
+      typeof req.query.reason === 'string' ? req.query.reason : null,
+      { maskedSsn: null },
+    );
+
+    return res.json({ data: toMemberResponse(updated, true) });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to delete group member SSN:', error);
+    const message = error instanceof Error ? error.message : 'Failed to delete group member SSN';
     return res.status(500).json({ message });
   }
 });
