@@ -7028,21 +7028,26 @@ export const storage = {
         return date.toISOString();
       };
 
+      // Prevent camelCase timestamp aliases from becoming invalid SQL columns.
+      const sanitizedData = { ...data } as Record<string, any>;
+      delete sanitizedData.updatedAt;
+      delete sanitizedData.createdAt;
+
       // Format fields if provided
       const formattedData = {
-        ...data,
-        phone: data.phone ? formatPhoneNumber(data.phone) : undefined,
-        emergencyContactPhone: data.emergencyContactPhone ? formatPhoneNumber(data.emergencyContactPhone) : undefined,
-        dateOfBirth: data.dateOfBirth ? formatDateMMDDYYYY(data.dateOfBirth) : undefined,
-        dateOfHire: data.dateOfHire ? formatDateMMDDYYYY(data.dateOfHire) : undefined,
-        planStartDate: data.planStartDate ? formatDateMMDDYYYY(data.planStartDate) : undefined,
-        ssn: data.ssn ? encryptSSN(data.ssn) : undefined,
-        zipCode: data.zipCode ? formatZipCode(data.zipCode) : undefined,
-        state: data.state?.toUpperCase().slice(0, 2),
-        gender: data.gender?.toUpperCase().slice(0, 1),
-        firstPaymentDate: normalizeTimestamp(data.firstPaymentDate ?? undefined),
-        membershipStartDate: normalizeTimestamp(data.membershipStartDate ?? undefined),
-        enrollmentDate: normalizeTimestamp(data.enrollmentDate ?? undefined)
+        ...sanitizedData,
+        phone: sanitizedData.phone ? formatPhoneNumber(sanitizedData.phone) : undefined,
+        emergencyContactPhone: sanitizedData.emergencyContactPhone ? formatPhoneNumber(sanitizedData.emergencyContactPhone) : undefined,
+        dateOfBirth: sanitizedData.dateOfBirth ? formatDateMMDDYYYY(sanitizedData.dateOfBirth) : undefined,
+        dateOfHire: sanitizedData.dateOfHire ? formatDateMMDDYYYY(sanitizedData.dateOfHire) : undefined,
+        planStartDate: sanitizedData.planStartDate ? formatDateMMDDYYYY(sanitizedData.planStartDate) : undefined,
+        ssn: sanitizedData.ssn ? encryptSSN(sanitizedData.ssn) : undefined,
+        zipCode: sanitizedData.zipCode ? formatZipCode(sanitizedData.zipCode) : undefined,
+        state: sanitizedData.state?.toUpperCase().slice(0, 2),
+        gender: sanitizedData.gender?.toUpperCase().slice(0, 1),
+        firstPaymentDate: normalizeTimestamp(sanitizedData.firstPaymentDate ?? undefined),
+        membershipStartDate: normalizeTimestamp(sanitizedData.membershipStartDate ?? undefined),
+        enrollmentDate: normalizeTimestamp(sanitizedData.enrollmentDate ?? undefined)
       } as Record<string, any>;
 
       const columnMapping: Record<string, string> = {
