@@ -100,6 +100,73 @@ const toDigitsOrNull = (value: unknown): string | null => {
   return digits.length > 0 ? digits : null;
 };
 
+const sanitizeEmailLocalPart = (value: string | null): string => {
+  if (!value) {
+    return 'member';
+  }
+
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '.')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.|\.$/g, '');
+
+  return normalized || 'member';
+};
+
+const buildBulkImportFallbackEmail = (
+  firstName: string,
+  lastName: string,
+  rowNumber: number,
+  groupId: string,
+): string => {
+  const first = sanitizeEmailLocalPart(firstName);
+  const last = sanitizeEmailLocalPart(lastName);
+  const groupToken = groupId.replace(/-/g, '').slice(0, 8) || 'group';
+  return `${first}.${last}.row${rowNumber}.${groupToken}@group-import.local`;
+};
+
+const formatDateAsMMDDYYYY = (date: Date): string => {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const year = String(date.getFullYear());
+  return `${month}${day}${year}`;
+};
+
+const normalizeGroupMemberDateOfBirth = (value: unknown): string | null => {
+  const normalized = toTrimmedOrNull(value);
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(normalized)) {
+    const [monthRaw, dayRaw, yearRaw] = normalized.split('/');
+    const month = monthRaw.padStart(2, '0');
+    const day = dayRaw.padStart(2, '0');
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+    if (/^\d{4}$/.test(year)) {
+      return `${month}${day}${year}`;
+    }
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const [year, month, day] = normalized.split('-');
+    return `${month}${day}${year}`;
+  }
+
+  const dateFromValue = new Date(normalized);
+  if (!Number.isNaN(dateFromValue.getTime())) {
+    return formatDateAsMMDDYYYY(dateFromValue);
+  }
+
+  const digits = normalized.replace(/\D/g, '');
+  if (/^\d{8}$/.test(digits)) {
+    return digits;
+  }
+
+  return null;
+};
+
 const toNumberOrNull = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -788,7 +855,7 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       lastName,
       email,
       phone,
-      dateOfBirth,
+      dateOfBirth: normalizeGroupMemberDateOfBirth(dateOfBirth),
       employerAmount: parseAmount(employerAmount),
       memberAmount: parseAmount(memberAmount),
       discountAmount: parseAmount(discountAmount),
@@ -830,17 +897,19 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
       const rowNumber = index + 2;
       const firstName = toTrimmedOrNull(source.firstName);
       const lastName = toTrimmedOrNull(source.lastName);
-      const email = toTrimmedOrNull(source.email)?.toLowerCase() || null;
+      const providedEmail = toTrimmedOrNull(source.email)?.toLowerCase() || null;
 
-      if (!firstName || !lastName || !email) {
-        failed.push({ row: rowNumber, email: email || undefined, reason: 'Missing firstName, lastName, or email' });
+      if (!firstName || !lastName) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Missing firstName or lastName' });
         continue;
       }
 
-      if (!EMAIL_REGEX.test(email)) {
-        failed.push({ row: rowNumber, email, reason: 'Invalid email format' });
+      if (providedEmail && !EMAIL_REGEX.test(providedEmail)) {
+        failed.push({ row: rowNumber, email: providedEmail, reason: 'Invalid email format' });
         continue;
       }
+
+      const email = providedEmail || buildBulkImportFallbackEmail(firstName, lastName, rowNumber, groupId);
 
       try {
         const ssnIntent = extractSsnIntent(source, source?.metadata, source?.registrationPayload);
@@ -857,7 +926,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           lastName,
           email,
           phone: toDigitsOrNull(source.phone),
-          dateOfBirth: toTrimmedOrNull(source.dateOfBirth),
+          dateOfBirth: normalizeGroupMemberDateOfBirth(source.dateOfBirth),
           employerAmount: parseAmount(source.employerAmount),
           memberAmount: parseAmount(source.memberAmount),
           discountAmount: parseAmount(source.discountAmount),
