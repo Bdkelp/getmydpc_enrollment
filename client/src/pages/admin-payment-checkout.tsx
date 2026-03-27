@@ -82,6 +82,7 @@ export default function AdminPaymentCheckoutPage() {
   const retryPaymentIdParam = searchParams.get("retryPaymentId") || undefined;
   const retryMemberIdParam = searchParams.get("retryMemberId") || undefined;
   const autoLaunch = parseBooleanParam(searchParams.get("autoLaunch"));
+  const [autoLaunchConsumed, setAutoLaunchConsumed] = useState(!autoLaunch);
 
   const memberId = memberIdParam ? Number(memberIdParam) : NaN;
   const amount = amountParam ? Number(amountParam) : NaN;
@@ -150,10 +151,11 @@ export default function AdminPaymentCheckoutPage() {
   });
 
   useEffect(() => {
-    if (!hasLaunchedPayment && autoLaunch && memberQuery.data?.member) {
+    if (!autoLaunchConsumed && !hasLaunchedPayment && memberQuery.data?.member) {
       setHasLaunchedPayment(true);
+      setAutoLaunchConsumed(true);
     }
-  }, [autoLaunch, hasLaunchedPayment, memberQuery.data]);
+  }, [autoLaunchConsumed, hasLaunchedPayment, memberQuery.data]);
 
   const handleLaunch = () => {
     if (!memberQuery.data?.member) {
@@ -165,6 +167,20 @@ export default function AdminPaymentCheckoutPage() {
       return;
     }
     setHasLaunchedPayment(true);
+    setAutoLaunchConsumed(true);
+  };
+
+  const handlePaymentMethodChange = (method: 'card' | 'ach') => {
+    if (paymentMethod === method) {
+      return;
+    }
+
+    // Tear down any active checkout instance before switching methods.
+    if (hasLaunchedPayment) {
+      setHasLaunchedPayment(false);
+    }
+
+    setPaymentMethod(method);
   };
 
   const resetAndExit = () => {
@@ -293,23 +309,21 @@ export default function AdminPaymentCheckoutPage() {
                   <Button
                     type="button"
                     variant={paymentMethod === 'card' ? 'default' : 'outline'}
-                    onClick={() => setPaymentMethod('card')}
-                    disabled={hasLaunchedPayment}
+                    onClick={() => handlePaymentMethodChange('card')}
                   >
                     Card
                   </Button>
                   <Button
                     type="button"
                     variant={paymentMethod === 'ach' ? 'default' : 'outline'}
-                    onClick={() => setPaymentMethod('ach')}
-                    disabled={hasLaunchedPayment}
+                    onClick={() => handlePaymentMethodChange('ach')}
                   >
                     ACH / Bank Account
                   </Button>
                 </div>
                 {hasLaunchedPayment && (
                   <p className="text-xs text-gray-500">
-                    Click Cancel to switch methods after checkout is launched.
+                    Switching methods closes the current checkout so you can relaunch the selected method.
                   </p>
                 )}
               </div>

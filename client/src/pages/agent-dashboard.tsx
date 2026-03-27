@@ -290,7 +290,6 @@ export default function AgentDashboard() {
       memberId: String(enrollment.id),
       amount: String(enrollment.totalMonthlyPrice || 0),
       description: `Enrollment payment for member #${enrollment.id}`,
-      autoLaunch: '1',
     });
 
     if (enrollment.payment_id) {

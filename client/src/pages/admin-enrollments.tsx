@@ -701,7 +701,6 @@ export default function AdminEnrollments() {
       memberId: enrollment.id.toString(),
       amount: String(enrollment.totalMonthlyPrice || 0),
       description: `Enrollment payment for member #${enrollment.id}`,
-      autoLaunch: '1',
     });
 
     if (enrollment.payment_id) {
