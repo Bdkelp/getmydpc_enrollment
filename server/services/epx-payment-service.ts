@@ -636,9 +636,27 @@ function generateBatchId(): string {
   return new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
+const EPX_TRAN_NBR_MAX_LENGTH = 16;
+
+function normalizeTranNbr(value: string): string {
+  const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!cleaned) {
+    return `MIT${Date.now()}`.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
+  }
+
+  if (cleaned.length <= EPX_TRAN_NBR_MAX_LENGTH) {
+    return cleaned;
+  }
+
+  // Keep the right side so timestamp/id suffix uniqueness is preserved.
+  return cleaned.slice(-EPX_TRAN_NBR_MAX_LENGTH);
+}
+
 function generateTranNbr(transactionId?: string | null): string {
-  if (transactionId) return transactionId;
-  return `MIT${Date.now()}`;
+  if (transactionId) {
+    return normalizeTranNbr(transactionId);
+  }
+  return normalizeTranNbr(`MIT${Date.now()}`);
 }
 
 function isApprovedResponse(code?: string): boolean {
