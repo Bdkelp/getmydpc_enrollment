@@ -402,33 +402,131 @@ const readFileAsDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-const getRecordValue = (record: Record<string, unknown>, keys: string[]): string => {
+const getRawRecordValue = (record: Record<string, unknown>, keys: string[]): unknown => {
   const entries = Object.entries(record);
   for (const key of keys) {
     const found = entries.find(([entryKey]) => normalizeHeader(entryKey) === normalizeHeader(key));
     if (found && found[1] !== undefined && found[1] !== null) {
-      const value = String(found[1]).trim();
-      if (value) {
-        return value;
+      if (typeof found[1] === "string") {
+        const value = found[1].trim();
+        if (value) {
+          return value;
+        }
+      } else {
+        return found[1];
       }
     }
   }
   return "";
 };
 
+const getRecordValue = (record: Record<string, unknown>, keys: string[]): string => {
+  const raw = getRawRecordValue(record, keys);
+  if (raw === null || raw === undefined) {
+    return "";
+  }
+  const value = String(raw).trim();
+  if (value) {
+    return value;
+  }
+  return "";
+};
+
+const IMPORT_EMPTY_MARKERS = new Set(["n/a", "na", "none", "null", "undefined"]);
+const IMPORT_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const sanitizeImportValue = (value: unknown): string => {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return "";
+  return IMPORT_EMPTY_MARKERS.has(trimmed.toLowerCase()) ? "" : trimmed;
+};
+
+const formatImportedDate = (value: unknown): string => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  const raw = sanitizeImportValue(value);
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw)) {
+    const [monthRaw, dayRaw, yearRaw] = raw.split("/");
+    const month = monthRaw.padStart(2, "0");
+    const day = dayRaw.padStart(2, "0");
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+    return `${year}-${month}-${day}`;
+  }
+
+  const excelSerial = Number.parseFloat(raw);
+  if (Number.isFinite(excelSerial) && excelSerial > 10000 && excelSerial < 90000) {
+    const epoch = Date.UTC(1899, 11, 30);
+    const date = new Date(epoch + Math.round(excelSerial) * 24 * 60 * 60 * 1000);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().slice(0, 10);
+    }
+  }
+
+  return raw;
+};
+
+const inferTierFromRelationship = (record: Record<string, unknown>): string => {
+  const relationship = sanitizeImportValue(getRecordValue(record, ["relationship", "dependentRelationship", "memberRelationship"])).toLowerCase();
+  if (!relationship) return "member";
+
+  if (relationship.includes("spouse") || relationship.includes("wife") || relationship.includes("husband")) {
+    return "spouse";
+  }
+
+  if (
+    relationship.includes("child")
+    || relationship.includes("son")
+    || relationship.includes("daughter")
+    || relationship.includes("dependent")
+  ) {
+    return "child";
+  }
+
+  if (relationship.includes("family")) {
+    return "family";
+  }
+
+  return "member";
+};
+
+const resolveImportedEmail = (record: Record<string, unknown>): string => {
+  const candidates = [
+    getRecordValue(record, ["email", "emailAddress", "email_address"]),
+    getRecordValue(record, ["personalEmail", "personal_email"]),
+    getRecordValue(record, ["workEmail", "work_email"]),
+  ];
+
+  for (const candidate of candidates) {
+    const value = sanitizeImportValue(candidate).toLowerCase();
+    if (value && IMPORT_EMAIL_REGEX.test(value)) {
+      return value;
+    }
+  }
+
+  return "";
+};
+
 const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => ({
-  firstName: getRecordValue(record, ["firstName", "first_name", "firstname"]),
-  lastName: getRecordValue(record, ["lastName", "last_name", "lastname"]),
-  email: getRecordValue(record, ["email", "emailAddress", "email_address"]),
-  phone: getRecordValue(record, ["phone", "phoneNumber", "phone_number"]),
-  dateOfBirth: getRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"]),
-  tier: getRecordValue(record, ["tier", "memberType", "member_type"]) || "member",
-  payorType: getRecordValue(record, ["payorType", "payor_type", "payor"]),
-  status: getRecordValue(record, ["status"]),
-  employerAmount: getRecordValue(record, ["employerAmount", "employer_amount"]),
-  memberAmount: getRecordValue(record, ["memberAmount", "member_amount"]),
-  discountAmount: getRecordValue(record, ["discountAmount", "discount_amount"]),
-  totalAmount: getRecordValue(record, ["totalAmount", "total_amount"]),
+  firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname"])),
+  lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname"])),
+  email: resolveImportedEmail(record),
+  phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone"])),
+  dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
+  tier: sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record),
+  payorType: sanitizeImportValue(getRecordValue(record, ["payorType", "payor_type", "payor"])),
+  status: sanitizeImportValue(getRecordValue(record, ["status"])),
+  employerAmount: sanitizeImportValue(getRecordValue(record, ["employerAmount", "employer_amount"])),
+  memberAmount: sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"])),
+  discountAmount: sanitizeImportValue(getRecordValue(record, ["discountAmount", "discount_amount"])),
+  totalAmount: sanitizeImportValue(getRecordValue(record, ["totalAmount", "total_amount"])),
 });
 
 const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
@@ -752,7 +850,7 @@ export default function GroupEnrollment() {
     if (extension === "xls" || extension === "xlsx") {
       const XLSX = (await import("xlsx")) as any;
       const buffer = await readFileAsArrayBuffer(file);
-      const workbook = XLSX.read(buffer, { type: "array" });
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const firstSheetName = workbook.SheetNames[0];
       if (!firstSheetName) {
         return [];

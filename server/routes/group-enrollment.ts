@@ -432,7 +432,7 @@ const resolveMemberSsnDigits = (member: any): string | null => {
 };
 
 const canViewFullMemberSsn = (req: AuthRequest): boolean =>
-  Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
+  Boolean(req.user);
 
 const toMemberResponse = (member: any, includeFullSsn: boolean) => {
   const ssnDigits = resolveMemberSsnDigits(member);
