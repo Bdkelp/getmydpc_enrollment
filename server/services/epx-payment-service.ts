@@ -636,15 +636,24 @@ function generateBatchId(): string {
   return new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-const EPX_TRAN_NBR_MAX_LENGTH = Math.max(
-  6,
-  Math.min(16, Number.parseInt(process.env.EPX_TRAN_NBR_MAX_LENGTH || '12', 10) || 12)
+const EPX_TRAN_NBR_LENGTH = Math.max(
+  2,
+  Math.min(8, Number.parseInt(process.env.EPX_TRAN_NBR_LENGTH || '6', 10) || 6)
 );
 
+function toDeterministicNumericId(input: string, length: number): string {
+  const digest = crypto.createHash('sha256').update(input).digest('hex');
+  const digits = digest
+    .split('')
+    .map((char) => (parseInt(char, 16) % 10).toString())
+    .join('');
+
+  return digits.slice(0, length).padEnd(length, '0');
+}
+
 function buildFallbackTranNbr(): string {
-  const timestampPortion = Date.now().toString().slice(-9);
-  const fallback = `MIT${timestampPortion}`;
-  return fallback.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
+  const nowDigits = Date.now().toString().replace(/\D/g, '');
+  return nowDigits.slice(-EPX_TRAN_NBR_LENGTH).padStart(EPX_TRAN_NBR_LENGTH, '0');
 }
 
 function normalizeTranNbr(value: string): string {
@@ -653,16 +662,7 @@ function normalizeTranNbr(value: string): string {
     return buildFallbackTranNbr();
   }
 
-  // Keep a stable alpha prefix while preserving suffix uniqueness.
-  const bounded = cleaned.length <= EPX_TRAN_NBR_MAX_LENGTH
-    ? cleaned
-    : `${cleaned.slice(0, 3)}${cleaned.slice(-(EPX_TRAN_NBR_MAX_LENGTH - 3))}`;
-
-  if (/^[A-Z]/.test(bounded)) {
-    return bounded;
-  }
-
-  return `M${bounded}`.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
+  return toDeterministicNumericId(cleaned, EPX_TRAN_NBR_LENGTH);
 }
 
 function generateTranNbr(transactionId?: string | null): string {

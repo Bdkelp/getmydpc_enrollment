@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 export interface CertificationRequestInfo {
   timestamp: string;
@@ -45,11 +46,36 @@ class CertificationLogger {
   private summaryDir: string;
 
   constructor() {
-    this.baseDir = process.env.CERTIFICATION_LOG_DIR || path.join(process.cwd(), 'logs', 'certification');
+    this.baseDir = this.resolveBaseDir();
     this.rawDir = path.join(this.baseDir, 'raw-requests');
     this.summaryDir = path.join(this.baseDir, 'summaries');
     this.ensureDir(this.rawDir);
     this.ensureDir(this.summaryDir);
+  }
+
+  private resolveBaseDir(): string {
+    const configured = process.env.CERTIFICATION_LOG_DIR;
+    const candidates = [
+      configured,
+      path.join(process.cwd(), 'logs', 'certification'),
+      path.join(os.tmpdir(), 'certification-logs')
+    ].filter((candidate): candidate is string => Boolean(candidate && candidate.trim()));
+
+    for (const candidate of candidates) {
+      try {
+        if (!fs.existsSync(candidate)) {
+          fs.mkdirSync(candidate, { recursive: true });
+        }
+        return candidate;
+      } catch (error: any) {
+        console.warn('[CertificationLogger] Unable to use log directory candidate', {
+          candidate,
+          error: error?.message || error
+        });
+      }
+    }
+
+    return process.cwd();
   }
 
   private readEntries(limit?: number): CertificationLogEntry[] {
