@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useToast } from '@/hooks/use-toast';
+import { apiRequest } from '@/lib/queryClient';
 
 interface BankAccountFormProps {
   amount: number;
@@ -147,13 +148,9 @@ export default function BankAccountForm({
     setError(null);
 
     try {
-      // Call backend ACH payment endpoint
-      const response = await fetch('/api/payments/ach/initial', {
+      // Use shared API helper so Supabase access token is attached automatically.
+      const data = await apiRequest('/api/payments/ach/initial', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
         body: JSON.stringify({
           memberId: customerId,
           amount,
@@ -162,11 +159,14 @@ export default function BankAccountForm({
           accountType: formData.accountType,
           accountHolderName: formData.accountHolderName
         })
-      });
+      }) as {
+        success?: boolean;
+        transactionId?: string;
+        error?: string;
+        responseMessage?: string;
+      };
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
+      if (!data?.success) {
         const backendError = data.error || data.responseMessage || 'ACH payment failed';
         if (onError) {
           onError(backendError);

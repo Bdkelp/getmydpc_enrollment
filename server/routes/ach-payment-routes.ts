@@ -9,6 +9,7 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
 import { storage } from '../storage';
 import { logEPX } from '../services/epx-payment-logger';
+import { certificationLogger } from '../services/certification-logger';
 import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
@@ -20,8 +21,64 @@ function maskLastFour(value?: string | null): string | null {
   return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
 }
 
+function logAchCertificationEntry(options: {
+  req: AuthRequest;
+  purpose: string;
+  endpoint: string;
+  transactionId?: string;
+  memberId?: number;
+  amount?: number;
+  requestBody?: Record<string, any>;
+  responseStatus: number;
+  responseBody?: Record<string, any>;
+  metadata?: Record<string, any>;
+}) {
+  certificationLogger.logCertificationEntry({
+    transactionId: options.transactionId,
+    customerId: typeof options.memberId === 'number' ? String(options.memberId) : undefined,
+    amount: options.amount,
+    purpose: options.purpose,
+    request: {
+      timestamp: new Date().toISOString(),
+      method: 'POST',
+      endpoint: options.endpoint,
+      url: options.req.originalUrl,
+      headers: {
+        'user-agent': options.req.get('user-agent') || null
+      },
+      body: options.requestBody,
+      ipAddress: options.req.ip,
+      userAgent: options.req.get('user-agent') || undefined
+    },
+    response: {
+      statusCode: options.responseStatus,
+      body: options.responseBody
+    },
+    sensitiveFieldsMasked: ['routingNumber', 'accountNumber', 'ORIG_AUTH_GUID'],
+    metadata: {
+      userId: options.req.user?.id || null,
+      userRole: options.req.user?.role || null,
+      ...options.metadata
+    }
+  });
+}
+
 async function enforceACHCertificationAccess(req: AuthRequest, res: Response): Promise<boolean> {
   if (!req.user) {
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-access-blocked',
+      endpoint: req.originalUrl,
+      responseStatus: 401,
+      responseBody: {
+        success: false,
+        error: 'Authentication required'
+      },
+      metadata: {
+        reason: 'missing-auth-user'
+      }
+    });
+
     res.status(401).json({
       success: false,
       error: 'Authentication required'
@@ -37,6 +94,19 @@ async function enforceACHCertificationAccess(req: AuthRequest, res: Response): P
       data: {
         userId: req.user.id,
         role: req.user.role
+      }
+    });
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-access-blocked',
+      endpoint: req.originalUrl,
+      responseStatus: 403,
+      responseBody: {
+        success: false,
+        error: 'ACH testing is currently restricted to super admins only'
+      },
+      metadata: {
+        reason: 'insufficient-role'
       }
     });
     res.status(403).json({
@@ -55,6 +125,21 @@ async function enforceACHCertificationAccess(req: AuthRequest, res: Response): P
       data: {
         userId: req.user.id,
         role: req.user.role,
+        paymentEnvironment: environment
+      }
+    });
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-access-blocked',
+      endpoint: req.originalUrl,
+      responseStatus: 409,
+      responseBody: {
+        success: false,
+        error: 'ACH certification mode is disabled in production payment environment',
+        paymentEnvironment: environment
+      },
+      metadata: {
+        reason: 'non-sandbox-environment',
         paymentEnvironment: environment
       }
     });
@@ -167,6 +252,31 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
 
     const achTransactionId = `ACH-INIT-${member.id}-${Date.now()}`;
 
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-initial-request',
+      endpoint: '/api/payments/ach/initial',
+      transactionId: achTransactionId,
+      memberId: member.id,
+      amount: parsedAmount,
+      requestBody: {
+        memberId: member.id,
+        amount: parsedAmount,
+        accountType,
+        accountHolderName,
+        routingNumber: maskLastFour(routingNumber),
+        accountNumber: maskLastFour(accountNumber)
+      },
+      responseStatus: 202,
+      responseBody: {
+        success: true,
+        message: 'ACH initial request submitted to EPX'
+      },
+      metadata: {
+        flow: 'ach-initial'
+      }
+    });
+
     // Submit initial ACH payment to EPX (CKC2)
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
@@ -223,6 +333,31 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         }
       });
 
+      logAchCertificationEntry({
+        req,
+        purpose: 'ach-initial-approved',
+        endpoint: '/api/payments/ach/initial',
+        transactionId: result.responseFields.TRAN_NBR || achTransactionId,
+        memberId: member.id,
+        amount: parsedAmount,
+        requestBody: {
+          accountType,
+          routingNumber: maskLastFour(routingNumber),
+          accountNumber: maskLastFour(accountNumber)
+        },
+        responseStatus: 200,
+        responseBody: {
+          success: true,
+          authCode: result.responseFields.AUTH_CODE || null,
+          responseCode: result.responseFields.AUTH_RESP || null,
+          hasAuthGuid: Boolean(authGuid)
+        },
+        metadata: {
+          paymentMethodType: 'ACH',
+          flow: 'ach-initial'
+        }
+      });
+
       return res.json({
         success: true,
         transactionId: result.responseFields.TRAN_NBR || achTransactionId,
@@ -245,6 +380,31 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         }
       });
 
+      logAchCertificationEntry({
+        req,
+        purpose: 'ach-initial-declined',
+        endpoint: '/api/payments/ach/initial',
+        transactionId: achTransactionId,
+        memberId: member.id,
+        amount: parsedAmount,
+        requestBody: {
+          accountType,
+          routingNumber: maskLastFour(routingNumber),
+          accountNumber: maskLastFour(accountNumber)
+        },
+        responseStatus: 400,
+        responseBody: {
+          success: false,
+          error: result.error || 'ACH payment authorization failed',
+          responseCode: result.responseFields.AUTH_RESP || null,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || null
+        },
+        metadata: {
+          paymentMethodType: 'ACH',
+          flow: 'ach-initial'
+        }
+      });
+
       return res.status(400).json({
         success: false,
         error: result.error || 'ACH payment authorization failed',
@@ -262,6 +422,30 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         error: error.message
       }
     });
+
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-initial-error',
+      endpoint: '/api/payments/ach/initial',
+      transactionId: req.body?.transactionId,
+      memberId: Number.isFinite(parseInt(String(req.body?.memberId), 10)) ? parseInt(String(req.body?.memberId), 10) : undefined,
+      amount: Number.isFinite(parseFloat(String(req.body?.amount))) ? parseFloat(String(req.body?.amount)) : undefined,
+      requestBody: {
+        accountType: req.body?.accountType || null,
+        routingNumber: maskLastFour(req.body?.routingNumber),
+        accountNumber: maskLastFour(req.body?.accountNumber)
+      },
+      responseStatus: 500,
+      responseBody: {
+        success: false,
+        error: 'Internal server error processing ACH payment',
+        details: error.message
+      },
+      metadata: {
+        flow: 'ach-initial'
+      }
+    });
+
     return res.status(500).json({
       success: false,
       error: 'Internal server error processing ACH payment',
@@ -348,6 +532,30 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
 
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-recurring-request',
+      endpoint: '/api/payments/ach/recurring',
+      transactionId: achTransactionId,
+      memberId: member.id,
+      amount: parsedAmount,
+      requestBody: {
+        memberId: member.id,
+        amount: parsedAmount,
+        accountType: member.bankAccountType || 'Checking',
+        routingNumber: maskLastFour(member.bankRoutingNumber),
+        accountNumber: maskLastFour(member.bankAccountNumber)
+      },
+      responseStatus: 202,
+      responseBody: {
+        success: true,
+        message: 'ACH recurring request submitted to EPX'
+      },
+      metadata: {
+        flow: 'ach-recurring'
+      }
+    });
+
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
       authGuid: member.paymentToken || '', // AUTH_GUID when available
@@ -378,6 +586,31 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
           responseMessage: result.responseFields.AUTH_RESP_TEXT || null
         }
       });
+
+      logAchCertificationEntry({
+        req,
+        purpose: 'ach-recurring-approved',
+        endpoint: '/api/payments/ach/recurring',
+        transactionId: result.responseFields.TRAN_NBR || achTransactionId,
+        memberId: member.id,
+        amount: parsedAmount,
+        requestBody: {
+          accountType: member.bankAccountType || 'Checking',
+          routingNumber: maskLastFour(member.bankRoutingNumber),
+          accountNumber: maskLastFour(member.bankAccountNumber)
+        },
+        responseStatus: 200,
+        responseBody: {
+          success: true,
+          authCode: result.responseFields.AUTH_CODE || null,
+          responseCode: result.responseFields.AUTH_RESP || null,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || null
+        },
+        metadata: {
+          paymentMethodType: 'ACH',
+          flow: 'ach-recurring'
+        }
+      });
       
       return res.json({
         success: true,
@@ -399,6 +632,32 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
           responseMessage: result.responseFields.AUTH_RESP_TEXT || result.error || null
         }
       });
+
+      logAchCertificationEntry({
+        req,
+        purpose: 'ach-recurring-declined',
+        endpoint: '/api/payments/ach/recurring',
+        transactionId: achTransactionId,
+        memberId: member.id,
+        amount: parsedAmount,
+        requestBody: {
+          accountType: member.bankAccountType || 'Checking',
+          routingNumber: maskLastFour(member.bankRoutingNumber),
+          accountNumber: maskLastFour(member.bankAccountNumber)
+        },
+        responseStatus: 400,
+        responseBody: {
+          success: false,
+          error: result.error || 'ACH recurring payment failed',
+          responseCode: result.responseFields.AUTH_RESP || null,
+          responseMessage: result.responseFields.AUTH_RESP_TEXT || null
+        },
+        metadata: {
+          paymentMethodType: 'ACH',
+          flow: 'ach-recurring'
+        }
+      });
+
       return res.status(400).json({
         success: false,
         error: result.error || 'ACH recurring payment failed',
@@ -415,6 +674,28 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         error: error.message
       }
     });
+
+    logAchCertificationEntry({
+      req,
+      purpose: 'ach-recurring-error',
+      endpoint: '/api/payments/ach/recurring',
+      transactionId: req.body?.transactionId,
+      memberId: Number.isFinite(parseInt(String(req.body?.memberId), 10)) ? parseInt(String(req.body?.memberId), 10) : undefined,
+      amount: Number.isFinite(parseFloat(String(req.body?.amount))) ? parseFloat(String(req.body?.amount)) : undefined,
+      requestBody: {
+        memberId: req.body?.memberId || null
+      },
+      responseStatus: 500,
+      responseBody: {
+        success: false,
+        error: 'Internal server error processing recurring ACH payment',
+        details: error.message
+      },
+      metadata: {
+        flow: 'ach-recurring'
+      }
+    });
+
     return res.status(500).json({
       success: false,
       error: 'Internal server error processing recurring ACH payment',

@@ -489,9 +489,23 @@ const SERVER_POST_ENDPOINTS = {
 // CCE7 = Credit Card Reversal
 // CCE9 = Credit Card Refund
 // CKC2 = ACH MIT (Merchant Initiated Transaction)
-// CKC7 = ACH Reversal
-// CKC9 = ACH Refund
-type ServerPostTranType = 'CCE1' | 'CCE7' | 'CCE9' | 'CKC2' | 'CKC7' | 'CKC9' | 'TEST';
+// CKS2 = ACH MIT (Savings)
+// CKC3 / CKS3 = ACH Credit / Refund
+// CKCX / CKSX = ACH Void
+// CKC7 / CKC9 are retained for backward compatibility with existing workflows
+type ServerPostTranType =
+  | 'CCE1'
+  | 'CCE7'
+  | 'CCE9'
+  | 'CKC2'
+  | 'CKS2'
+  | 'CKC3'
+  | 'CKS3'
+  | 'CKCX'
+  | 'CKSX'
+  | 'CKC7'
+  | 'CKC9'
+  | 'TEST';
 
 interface ServerPostRecurringOptions {
   amount?: number;
@@ -631,6 +645,25 @@ function isApprovedResponse(code?: string): boolean {
   return code === '00' || code === '000';
 }
 
+function isAchRefundOrVoidTranType(tranType: ServerPostTranType): boolean {
+  return tranType === 'CKC3'
+    || tranType === 'CKS3'
+    || tranType === 'CKCX'
+    || tranType === 'CKSX'
+    || tranType === 'CKC7'
+    || tranType === 'CKC9';
+}
+
+function resolveAchTranType(accountType: 'Checking' | 'Savings', operation: 'debit' | 'refund' | 'void'): ServerPostTranType {
+  if (operation === 'debit') {
+    return accountType === 'Savings' ? 'CKS2' : 'CKC2';
+  }
+  if (operation === 'refund') {
+    return accountType === 'Savings' ? 'CKS3' : 'CKC3';
+  }
+  return accountType === 'Savings' ? 'CKSX' : 'CKCX';
+}
+
 export async function submitServerPostRecurringPayment(
   options: ServerPostRecurringOptions
 ): Promise<ServerPostRecurringResult> {
@@ -645,12 +678,12 @@ export async function submitServerPostRecurringPayment(
   let rawResponse = '';
   const resolvedTranType: ServerPostTranType = options.tranType || 'CCE1';
   const networkTranType = resolvedTranType === 'TEST' ? 'CCE1' : resolvedTranType;
-  const isACHTransaction = networkTranType.startsWith('CKC'); // CKC2, CKC7, CKC9
+  const isACHTransaction = networkTranType.startsWith('CK'); // CKC*/CKS*
   const isCreditCardTransaction = networkTranType.startsWith('CCE'); // CCE1, CCE7, CCE9
   const certificationPurpose =
-    resolvedTranType === 'CCE7' || resolvedTranType === 'CKC7'
+    resolvedTranType === 'CCE7' || resolvedTranType === 'CKCX' || resolvedTranType === 'CKSX' || resolvedTranType === 'CKC7'
       ? 'server-post-reversal'
-      : resolvedTranType === 'CCE9' || resolvedTranType === 'CKC9'
+      : resolvedTranType === 'CCE9' || resolvedTranType === 'CKC3' || resolvedTranType === 'CKS3' || resolvedTranType === 'CKC9'
         ? 'server-post-refund'
         : 'server-post-mit';
 
@@ -663,12 +696,12 @@ export async function submitServerPostRecurringPayment(
     const amountIsProvided = typeof options.amount === 'number' && Number.isFinite(options.amount) && options.amount > 0;
     const amount = amountIsProvided ? Number(options.amount) : undefined;
 
-    if (!amountIsProvided && resolvedTranType !== 'CCE7') {
+    if (!amountIsProvided && resolvedTranType !== 'CCE7' && resolvedTranType !== 'CKCX' && resolvedTranType !== 'CKSX') {
       throw new Error('Invalid amount for Server Post transaction.');
     }
 
     const authGuid = typeof options.authGuid === 'string' ? options.authGuid.trim() : '';
-    const requiresAuthGuid = !isACHTransaction || resolvedTranType === 'CKC7' || resolvedTranType === 'CKC9';
+    const requiresAuthGuid = !isACHTransaction || isAchRefundOrVoidTranType(resolvedTranType);
     if (requiresAuthGuid && !authGuid) {
       throw new Error('Missing EPX auth GUID (ORIG_AUTH_GUID) for this Server Post transaction type.');
     }
@@ -711,7 +744,7 @@ export async function submitServerPostRecurringPayment(
       requestFields.ORIG_AUTH_GUID = authGuid;
     }
 
-    // Add ACH-specific fields for CKC2, CKC7, CKC9 transactions
+    // Add ACH-specific fields for CKC*/CKS* transactions.
     if (isACHTransaction && options.bankAccountData) {
       const bankData = options.bankAccountData;
       requestFields.ROUTING_NBR = bankData.routingNumber;
@@ -722,7 +755,7 @@ export async function submitServerPostRecurringPayment(
       // ACH transactions don't use CARD_ENT_METH, remove it
       delete requestFields.CARD_ENT_METH;
     } else if (isACHTransaction && !options.bankAccountData) {
-      throw new Error('Bank account data is required for ACH transactions (CKC2, CKC7, CKC9).');
+      throw new Error('Bank account data is required for ACH transactions (CKC*/CKS*).');
     }
 
     if (resolvedAciExt) {
@@ -931,19 +964,22 @@ export async function submitACHRecurringPayment(options: {
   transactionId?: string | null;
   description?: string;
 }): Promise<ServerPostRecurringResult> {
+  const achTranType = resolveAchTranType(options.bankAccountData.accountType, 'debit');
+
   return submitServerPostRecurringPayment({
     amount: options.amount,
     authGuid: options.authGuid,
     transactionId: options.transactionId,
     member: options.member,
     description: options.description,
-    tranType: 'CKC2', // ACH MIT (Merchant Initiated Transaction)
+    tranType: achTranType,
     bankAccountData: options.bankAccountData,
     cardEntryMethod: undefined, // Not applicable for ACH
     industryType: 'E', // Commerce
     metadata: {
       paymentMethodType: 'ACH',
-      accountType: options.bankAccountData.accountType
+      accountType: options.bankAccountData.accountType,
+      resolvedTranType: achTranType
     }
   });
 }
@@ -964,16 +1000,19 @@ export async function submitACHReversal(options: {
   transactionId?: string | null;
   description?: string;
 }): Promise<ServerPostRecurringResult> {
+  const achTranType = resolveAchTranType(options.bankAccountData.accountType, 'void');
+
   return submitServerPostRecurringPayment({
     authGuid: options.authGuid,
     transactionId: options.transactionId,
     member: options.member,
     description: options.description,
-    tranType: 'CKC7', // ACH Reversal
+    tranType: achTranType,
     bankAccountData: options.bankAccountData,
     metadata: {
       paymentMethodType: 'ACH',
-      operationType: 'reversal'
+      operationType: 'reversal',
+      resolvedTranType: achTranType
     }
   });
 }
@@ -995,17 +1034,20 @@ export async function submitACHRefund(options: {
   transactionId?: string | null;
   description?: string;
 }): Promise<ServerPostRecurringResult> {
+  const achTranType = resolveAchTranType(options.bankAccountData.accountType, 'refund');
+
   return submitServerPostRecurringPayment({
     amount: options.amount,
     authGuid: options.authGuid,
     transactionId: options.transactionId,
     member: options.member,
     description: options.description,
-    tranType: 'CKC9', // ACH Refund
+    tranType: achTranType,
     bankAccountData: options.bankAccountData,
     metadata: {
       paymentMethodType: 'ACH',
-      operationType: 'refund'
+      operationType: 'refund',
+      resolvedTranType: achTranType
     }
   });
 }
