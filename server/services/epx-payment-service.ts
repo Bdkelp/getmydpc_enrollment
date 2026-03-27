@@ -636,20 +636,33 @@ function generateBatchId(): string {
   return new Date().toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-const EPX_TRAN_NBR_MAX_LENGTH = 16;
+const EPX_TRAN_NBR_MAX_LENGTH = Math.max(
+  6,
+  Math.min(16, Number.parseInt(process.env.EPX_TRAN_NBR_MAX_LENGTH || '12', 10) || 12)
+);
+
+function buildFallbackTranNbr(): string {
+  const timestampPortion = Date.now().toString().slice(-9);
+  const fallback = `MIT${timestampPortion}`;
+  return fallback.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
+}
 
 function normalizeTranNbr(value: string): string {
   const cleaned = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!cleaned) {
-    return `MIT${Date.now()}`.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
+    return buildFallbackTranNbr();
   }
 
-  if (cleaned.length <= EPX_TRAN_NBR_MAX_LENGTH) {
-    return cleaned;
+  // Keep a stable alpha prefix while preserving suffix uniqueness.
+  const bounded = cleaned.length <= EPX_TRAN_NBR_MAX_LENGTH
+    ? cleaned
+    : `${cleaned.slice(0, 3)}${cleaned.slice(-(EPX_TRAN_NBR_MAX_LENGTH - 3))}`;
+
+  if (/^[A-Z]/.test(bounded)) {
+    return bounded;
   }
 
-  // Keep the right side so timestamp/id suffix uniqueness is preserved.
-  return cleaned.slice(-EPX_TRAN_NBR_MAX_LENGTH);
+  return `M${bounded}`.slice(0, EPX_TRAN_NBR_MAX_LENGTH);
 }
 
 function generateTranNbr(transactionId?: string | null): string {
