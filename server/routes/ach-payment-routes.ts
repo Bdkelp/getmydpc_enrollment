@@ -21,6 +21,37 @@ function maskLastFour(value?: string | null): string | null {
   return trimmed.length > 4 ? `****${trimmed.slice(-4)}` : '****';
 }
 
+function maskAuthGuid(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= 8) {
+    return `****${trimmed.slice(-4)}`;
+  }
+  return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`;
+}
+
+function maskEpxFields(fields?: Record<string, string>): Record<string, string> | undefined {
+  if (!fields) return undefined;
+
+  const masked: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (key === 'ACCOUNT_NBR' || key === 'ROUTING_NBR') {
+      masked[key] = maskLastFour(value) || '****';
+      continue;
+    }
+
+    if (key === 'ORIG_AUTH_GUID' || key === 'AUTH_GUID') {
+      masked[key] = maskAuthGuid(value) || '****';
+      continue;
+    }
+
+    masked[key] = value;
+  }
+
+  return masked;
+}
+
 function logAchCertificationEntry(options: {
   req: AuthRequest;
   purpose: string;
@@ -354,7 +385,12 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         },
         metadata: {
           paymentMethodType: 'ACH',
-          flow: 'ach-initial'
+          flow: 'ach-initial',
+          epxTransaction: {
+            requestFields: maskEpxFields(result.requestFields),
+            responseFields: maskEpxFields(result.responseFields),
+            rawResponse: result.rawResponse || null
+          }
         }
       });
 
@@ -401,7 +437,12 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         },
         metadata: {
           paymentMethodType: 'ACH',
-          flow: 'ach-initial'
+          flow: 'ach-initial',
+          epxTransaction: {
+            requestFields: maskEpxFields(result.requestFields),
+            responseFields: maskEpxFields(result.responseFields),
+            rawResponse: result.rawResponse || null
+          }
         }
       });
 
@@ -608,7 +649,12 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         },
         metadata: {
           paymentMethodType: 'ACH',
-          flow: 'ach-recurring'
+          flow: 'ach-recurring',
+          epxTransaction: {
+            requestFields: maskEpxFields(result.requestFields),
+            responseFields: maskEpxFields(result.responseFields),
+            rawResponse: result.rawResponse || null
+          }
         }
       });
       
@@ -654,7 +700,12 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         },
         metadata: {
           paymentMethodType: 'ACH',
-          flow: 'ach-recurring'
+          flow: 'ach-recurring',
+          epxTransaction: {
+            requestFields: maskEpxFields(result.requestFields),
+            responseFields: maskEpxFields(result.responseFields),
+            rawResponse: result.rawResponse || null
+          }
         }
       });
 

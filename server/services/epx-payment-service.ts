@@ -753,7 +753,7 @@ export async function submitServerPostRecurringPayment(
       TRAN_TYPE: networkTranType,
       AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
-      TRAN_NBR: options.tranNbr || generateTranNbr(options.transactionId),
+      TRAN_NBR: generateTranNbr(options.tranNbr || options.transactionId),
       CARD_ENT_METH: options.cardEntryMethod || 'Z',
       INDUSTRY_TYPE: options.industryType || 'E'
     };
