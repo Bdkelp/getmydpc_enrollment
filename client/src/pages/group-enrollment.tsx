@@ -1942,52 +1942,109 @@ export default function GroupEnrollment() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="space-y-2">
-            {canAccessAdminViews && (
-              <Button
-                variant="ghost"
-                onClick={() => setLocation("/admin")}
-                className="w-fit px-0 text-sm text-gray-600 hover:text-gray-900"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Admin View
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="space-y-2">
+              {canAccessAdminViews && (
+                <Button
+                  variant="ghost"
+                  onClick={() => setLocation("/admin")}
+                  className="w-fit px-0 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Admin View
+                </Button>
+              )}
+              <p className="text-sm text-gray-500 uppercase tracking-wide">Stage 1 Manual Workflow</p>
+              <h1 className="text-3xl font-bold text-gray-900">Enrollment Records</h1>
+              <p className="text-gray-600 mt-1">Groups view: groups are pre-configured outside this app. Use this workspace for member enrollment and activation.</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button onClick={() => setNewGroupOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Enroll a Group
               </Button>
-            )}
-            <p className="text-sm text-gray-500 uppercase tracking-wide">Stage 1 Manual Workflow</p>
-            <h1 className="text-3xl font-bold text-gray-900">Enrollment Records</h1>
-            <p className="text-gray-600 mt-1">Groups are pre-configured outside this app. Use this workspace for member enrollment and activation.</p>
-            {canAccessAdminViews && (
-              <div className="w-fit rounded-lg border border-gray-200 p-1 bg-gray-50 mt-3">
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="text-gray-600 hover:text-gray-900"
-                    onClick={() => {
-                      window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "people");
-                      setLocation("/admin/enrollments");
-                    }}
-                  >
-                    People
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="bg-white text-gray-900 shadow-sm hover:bg-white"
-                  >
-                    Groups
-                  </Button>
+              <Button variant="outline" onClick={refreshGroups}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+
+          {canAccessAdminViews && (
+            <div className="w-fit rounded-lg border border-gray-200 p-1 bg-gray-50">
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-gray-600 hover:text-gray-900"
+                  onClick={() => {
+                    window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "people");
+                    setLocation("/admin/enrollments");
+                  }}
+                >
+                  People
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-white text-gray-900 shadow-sm hover:bg-white"
+                >
+                  Groups
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {canAccessAdminViews && (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">Group Filters</p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <Label className="text-xs uppercase text-gray-500">Current Agent</Label>
+                  <Select value={groupCurrentAgentFilter} onValueChange={setGroupCurrentAgentFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All current agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All current agents</SelectItem>
+                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
+                      {agentOptions.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {getAgentLabel(agent.id)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs uppercase text-gray-500">Original Agent</Label>
+                  <Select value={groupOriginalAgentFilter} onValueChange={setGroupOriginalAgentFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All original agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All original agents</SelectItem>
+                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
+                      {agentOptions.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {getAgentLabel(agent.id)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 mt-6 md:mt-0">
+                  <Checkbox
+                    id="reassigned-only"
+                    checked={groupReassignedOnlyFilter}
+                    onCheckedChange={(value) => setGroupReassignedOnlyFilter(Boolean(value))}
+                  />
+                  <Label htmlFor="reassigned-only">Reassigned groups only</Label>
                 </div>
               </div>
-            )}
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/groups"] })}>
-              Refresh
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -2074,52 +2131,6 @@ export default function GroupEnrollment() {
                 </div>
               </div>
             </div>
-            {canAccessAdminViews && (
-              <div className="grid gap-3 md:grid-cols-3 mt-3">
-                <div>
-                  <Label className="text-xs uppercase text-gray-500">Current Agent</Label>
-                  <Select value={groupCurrentAgentFilter} onValueChange={setGroupCurrentAgentFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All current agents" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All current agents</SelectItem>
-                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
-                      {agentOptions.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {getAgentLabel(agent.id)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs uppercase text-gray-500">Original Agent</Label>
-                  <Select value={groupOriginalAgentFilter} onValueChange={setGroupOriginalAgentFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All original agents" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All original agents</SelectItem>
-                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
-                      {agentOptions.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {getAgentLabel(agent.id)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2 mt-6 md:mt-0">
-                  <Checkbox
-                    id="reassigned-only"
-                    checked={groupReassignedOnlyFilter}
-                    onCheckedChange={(value) => setGroupReassignedOnlyFilter(Boolean(value))}
-                  />
-                  <Label htmlFor="reassigned-only">Reassigned groups only</Label>
-                </div>
-              </div>
-            )}
           </CardHeader>
           <CardContent>
             {groups.length === 0 ? (

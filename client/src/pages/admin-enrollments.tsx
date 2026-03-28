@@ -827,17 +827,17 @@ export default function AdminEnrollments() {
                     Enrollment Records
                   </h1>
                   <p className="text-gray-600 mt-1">
-                    View and manage people enrollments and group workspaces
+                    People view: manage individual enrollment records across all agents
                   </p>
                 </div>
               </div>
               <div className="flex items-center space-x-4">
-                <Button variant="outline" onClick={handleNewEnrollment}>
+                <Button onClick={handleNewEnrollment}>
                   <Plus className="h-4 w-4 mr-2" />
                   New Enrollment
                 </Button>
                 <Button
-                  className="bg-green-600 hover:bg-green-700 text-white"
+                  variant="outline"
                   onClick={() => exportMutation.mutate()}
                   disabled={exportMutation.isPending}
                 >
@@ -870,6 +870,105 @@ export default function AdminEnrollments() {
                 </Button>
               </div>
             </div>
+
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">People Filters</p>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div>
+                  <label htmlFor="admin-enrollments-search" className="block text-sm font-medium text-gray-700 mb-1">
+                    Search
+                  </label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="admin-enrollments-search"
+                      name="enrollmentSearch"
+                      type="text"
+                      placeholder="Name or email..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Agent
+                  </label>
+                  <Select
+                    value={selectedAgentId}
+                    onValueChange={setSelectedAgentId}
+                    name="enrollmentAgentFilter"
+                  >
+                    <SelectTrigger id="admin-enrollments-agent-filter">
+                      <SelectValue placeholder="All Agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Agents</SelectItem>
+                      {safeAgents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {agent.firstName} {agent.lastName}
+                          {agent.agentNumber && ` (${agent.agentNumber})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-status-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter} name="enrollmentStatusFilter">
+                    <SelectTrigger id="admin-enrollments-status-filter">
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Status</SelectItem>
+                      {statusOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-start-date" className="block text-sm font-medium text-gray-700 mb-1">
+                    Start Date
+                  </label>
+                  <Input
+                    id="admin-enrollments-start-date"
+                    name="enrollmentStartDate"
+                    type="date"
+                    value={dateFilter.startDate}
+                    onChange={(e) =>
+                      setDateFilter({ ...dateFilter, startDate: e.target.value })
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-end-date" className="block text-sm font-medium text-gray-700 mb-1">
+                    End Date
+                  </label>
+                  <Input
+                    id="admin-enrollments-end-date"
+                    name="enrollmentEndDate"
+                    type="date"
+                    value={dateFilter.endDate}
+                    onChange={(e) =>
+                      setDateFilter({ ...dateFilter, endDate: e.target.value })
+                    }
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -885,7 +984,7 @@ export default function AdminEnrollments() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">
-                    Total Enrollments
+                    Total People Records
                   </p>
                   <p className="text-2xl font-bold text-gray-900">
                     {safeFilteredEnrollments.length}
@@ -903,7 +1002,7 @@ export default function AdminEnrollments() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">
-                    Monthly Revenue
+                    Monthly People Revenue
                   </p>
                   <p className="text-2xl font-bold text-gray-900">
                     ${totalRevenue.toFixed(2)}
@@ -967,110 +1066,6 @@ export default function AdminEnrollments() {
                   This panel runs duplicate and summary queries. Load it only when needed.
                 </p>
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowMembershipOversight(true)}
-                >
-                  Load Oversight Data
-                </Button>
-              </div>
-            ) : (
-              <>
-            {membershipSummaryLoading ? (
-              <div className="flex items-center justify-center py-6">
-                <LoadingSpinner />
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/70">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-emerald-100">
-                      <ShieldCheck className="h-5 w-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase text-slate-500 tracking-wide">Active Members</p>
-                      <p className="text-2xl font-semibold text-emerald-700">{membershipStats.active}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4 bg-amber-50/70">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-amber-100">
-                      <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase text-slate-500 tracking-wide">Test Memberships</p>
-                      <p className="text-2xl font-semibold text-amber-700">{membershipStats.test}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4 bg-slate-100/70">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-slate-200">
-                      <Archive className="h-5 w-5 text-slate-700" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase text-slate-500 tracking-wide">Archived Records</p>
-                      <p className="text-2xl font-semibold text-slate-800">{membershipStats.archived}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4 bg-blue-50/70">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-blue-100">
-                      <Users className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase text-slate-500 tracking-wide">All Memberships</p>
-                      <p className="text-2xl font-semibold text-blue-700">{membershipStats.total}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-8">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Duplicate Candidates</h3>
-                  <p className="text-sm text-gray-600">
-                    Groups share the same first/last name and date of birth. Archive or flag as test without deleting data.
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={invalidateMembershipInsights}
-                  disabled={duplicatesLoading}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" /> Refresh List
-                </Button>
-              </div>
-
-              {duplicatesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <LoadingSpinner />
-                </div>
-              ) : duplicateGroups.length === 0 ? (
-                <p className="mt-4 text-sm text-gray-600">
-                  No duplicate signals detected with the current heuristic.
-                </p>
-              ) : (
-                <div className="space-y-4 mt-4">
-                  {duplicateGroups.map((group, index) => {
-                    const groupKey = `${group.matchFields.firstName}-${group.matchFields.lastName}-${group.matchFields.dateOfBirth || 'na'}-${index}`;
-                    return (
-                      <div
-                        key={groupKey}
-                        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                          <div>
-                            <p className="text-xs uppercase text-slate-500 tracking-wide">Match Group</p>
-                            <p className="text-lg font-semibold text-gray-900">
-                              {group.matchFields.firstName} {group.matchFields.lastName}
-                            </p>
-                            <p className="text-sm text-gray-600">
                               DOB: {formatDob(group.matchFields.dateOfBirth)}
                             </p>
                           </div>
