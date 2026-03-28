@@ -1066,196 +1066,95 @@ export default function AdminEnrollments() {
                   This panel runs duplicate and summary queries. Load it only when needed.
                 </p>
                 <Button
-                              DOB: {formatDob(group.matchFields.dateOfBirth)}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs uppercase text-slate-500">Records</p>
-                            <p className="text-3xl font-bold text-gray-900">{group.count}</p>
-                          </div>
-                        </div>
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowMembershipOversight(true)}
+                >
+                  Load Oversight Data
+                </Button>
+              </div>
+            ) : (
+              <>
+                {membershipSummaryLoading ? (
+                  <div className="flex items-center justify-center py-6">
+                    <LoadingSpinner />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/70">
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Active Members</p>
+                      <p className="text-2xl font-semibold text-emerald-700">{membershipStats.active}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4 bg-amber-50/70">
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Test Memberships</p>
+                      <p className="text-2xl font-semibold text-amber-700">{membershipStats.test}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4 bg-slate-100/70">
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">Archived Records</p>
+                      <p className="text-2xl font-semibold text-slate-800">{membershipStats.archived}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 p-4 bg-blue-50/70">
+                      <p className="text-xs uppercase text-slate-500 tracking-wide">All Memberships</p>
+                      <p className="text-2xl font-semibold text-blue-700">{membershipStats.total}</p>
+                    </div>
+                  </div>
+                )}
 
-                        <div className="mt-4 divide-y divide-slate-200">
-                          {group.members.map((member) => (
-                            <div
-                              key={member.id}
-                              className="py-3 grid grid-cols-1 lg:grid-cols-[2fr_1fr_1fr] gap-4"
-                            >
+                <div className="mt-8">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Duplicate Candidates</h3>
+                      <p className="text-sm text-gray-600">
+                        Groups share the same first/last name and date of birth. Archive or flag as test without deleting data.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={invalidateMembershipInsights}
+                      disabled={duplicatesLoading}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" /> Refresh List
+                    </Button>
+                  </div>
+
+                  {duplicatesLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <LoadingSpinner />
+                    </div>
+                  ) : duplicateGroups.length === 0 ? (
+                    <p className="mt-4 text-sm text-gray-600">
+                      No duplicate signals detected with the current heuristic.
+                    </p>
+                  ) : (
+                    <div className="space-y-3 mt-4">
+                      {duplicateGroups.map((group, index) => {
+                        const groupKey = `${group.matchFields.firstName}-${group.matchFields.lastName}-${group.matchFields.dateOfBirth || "na"}-${index}`;
+                        return (
+                          <div key={groupKey} className="rounded-xl border border-slate-200 bg-white p-4">
+                            <div className="flex items-start justify-between gap-4">
                               <div>
-                                <p className="font-semibold text-gray-900">
-                                  {member.firstName} {member.lastName}
+                                <p className="text-xs uppercase text-slate-500 tracking-wide">Match Group</p>
+                                <p className="text-lg font-semibold text-gray-900">
+                                  {group.matchFields.firstName} {group.matchFields.lastName}
                                 </p>
                                 <p className="text-sm text-gray-600">
-                                  {member.email || "No email on file"}
-                                </p>
-                                <div className="text-xs text-gray-500 flex flex-wrap gap-3 mt-1">
-                                  {member.customerNumber && <span>Customer #{member.customerNumber}</span>}
-                                  {member.memberPublicId && <span>Member #{member.memberPublicId}</span>}
-                                </div>
-                              </div>
-                              <div className="flex flex-col gap-2">
-                                <div className="flex flex-wrap gap-2">
-                                  {member.status && getStatusBadge(member.status)}
-                                  {member.isTestMember && (
-                                    <Badge className="bg-indigo-100 text-indigo-700">Test</Badge>
-                                  )}
-                                  {member.archivedAt && (
-                                    <Badge className="bg-slate-200 text-slate-700">Archived</Badge>
-                                  )}
-                                </div>
-                                <p className="text-xs text-gray-500">
-                                  Added {member.createdAt ? format(new Date(member.createdAt), "MMM d, yyyy") : "N/A"}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  Billing {formatCurrency(member.totalMonthlyPrice)}
+                                  DOB: {formatDob(group.matchFields.dateOfBirth)}
                                 </p>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleToggleTestFlag(member)}
-                                  disabled={toggleTestFlagMutation.isPending}
-                                >
-                                  {member.isTestMember ? "Clear Test Flag" : "Mark Test"}
-                                </Button>
-                                {!member.archivedAt ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="border-red-200 text-red-600 hover:bg-red-50"
-                                    onClick={() => handleArchiveMemberRecord(member)}
-                                    disabled={archiveMembershipMutation.isPending}
-                                  >
-                                    Archive
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="border-slate-200 text-slate-700 hover:bg-slate-50"
-                                    onClick={() => handleRestoreMemberRecord(member)}
-                                    disabled={restoreMembershipMutation.isPending}
-                                  >
-                                    <Undo2 className="h-4 w-4 mr-2" /> Restore
-                                  </Button>
-                                )}
+                              <div className="text-right">
+                                <p className="text-xs uppercase text-slate-500">Records</p>
+                                <p className="text-3xl font-bold text-gray-900">{group.count}</p>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
               </>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Filters */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div>
-                <label htmlFor="admin-enrollments-search" className="block text-sm font-medium text-gray-700 mb-1">
-                  Search
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="admin-enrollments-search"
-                    name="enrollmentSearch"
-                    type="text"
-                    placeholder="Name or email..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="admin-enrollments-agent-filter" className="block text-sm font-medium text-gray-700 mb-1">
-                  Agent
-                </label>
-                <Select
-                  value={selectedAgentId}
-                  onValueChange={setSelectedAgentId}
-                  name="enrollmentAgentFilter"
-                >
-                  <SelectTrigger id="admin-enrollments-agent-filter">
-                    <SelectValue placeholder="All Agents" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Agents</SelectItem>
-                    {safeAgents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.firstName} {agent.lastName}
-                        {agent.agentNumber && ` (${agent.agentNumber})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label htmlFor="admin-enrollments-status-filter" className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <Select value={statusFilter} onValueChange={setStatusFilter} name="enrollmentStatusFilter">
-                  <SelectTrigger id="admin-enrollments-status-filter">
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    {statusOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <label htmlFor="admin-enrollments-start-date" className="block text-sm font-medium text-gray-700 mb-1">
-                  Start Date
-                </label>
-                <Input
-                  id="admin-enrollments-start-date"
-                  name="enrollmentStartDate"
-                  type="date"
-                  value={dateFilter.startDate}
-                  onChange={(e) =>
-                    setDateFilter({ ...dateFilter, startDate: e.target.value })
-                  }
-                  autoComplete="off"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="admin-enrollments-end-date" className="block text-sm font-medium text-gray-700 mb-1">
-                  End Date
-                </label>
-                <Input
-                  id="admin-enrollments-end-date"
-                  name="enrollmentEndDate"
-                  type="date"
-                  value={dateFilter.endDate}
-                  onChange={(e) =>
-                    setDateFilter({ ...dateFilter, endDate: e.target.value })
-                  }
-                  autoComplete="off"
-                />
-              </div>
-            </div>
           </CardContent>
         </Card>
 
