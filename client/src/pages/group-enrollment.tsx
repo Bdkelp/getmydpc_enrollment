@@ -1413,13 +1413,39 @@ export default function GroupEnrollment() {
       }
       refreshGroups();
       toast({
-        title: "Marked ready",
-        description: "Group registration marked ready for hosted checkout.",
+        title: "Enrollment completed",
+        description: "Group enrollment was completed. Activate the group when you are ready.",
       });
     },
     onError: (err: any) => {
       toast({
-        title: "Unable to mark ready",
+        title: "Unable to complete enrollment",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const activateGroupMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedGroup?.data?.id) throw new Error("Select a group first");
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/activate`, {
+        method: "POST",
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Group activated",
+        description: "This group is now active. Payment can be processed on a separate timeline.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to activate group",
         description: err?.message || "Please try again",
         variant: "destructive",
       });
@@ -1654,13 +1680,15 @@ export default function GroupEnrollment() {
   const memberCount = selectedGroup?.members?.length ?? 0;
   const groupProfileContext = selectedGroup?.groupProfileContext;
   const profileComplete = Boolean(groupProfileContext?.isComplete);
-  const canMarkReady = activeMemberCount > 0 && profileComplete && selectedGroup?.data?.status !== "registered";
-  const hostedStatusLabel = selectedGroup?.data?.status === "registered"
-    ? "ready"
-    : selectedGroup?.data?.hostedCheckoutStatus || "not-started";
-  const hostedStatusBadgeClass = hostedStatusLabel === "ready"
+  const groupStatus = selectedGroup?.data?.status || "draft";
+  const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
+  const isGroupActive = groupStatus === "active";
+  const canCompleteEnrollment = activeMemberCount > 0 && profileComplete && !isEnrollmentComplete;
+  const canActivateGroup = activeMemberCount > 0 && profileComplete && isEnrollmentComplete && !isGroupActive;
+  const paymentHandoffStatusLabel = selectedGroup?.data?.hostedCheckoutStatus || "not-started";
+  const paymentHandoffBadgeClass = paymentHandoffStatusLabel === "ready"
     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-    : hostedStatusLabel === "in-progress"
+    : paymentHandoffStatusLabel === "in-progress"
       ? "bg-amber-50 text-amber-700 border-amber-200"
       : "bg-slate-50 text-slate-600 border-slate-200";
   const effectiveDateContext = selectedGroup?.effectiveDateContext;
@@ -1680,10 +1708,10 @@ export default function GroupEnrollment() {
   const canCreateGroup = Boolean(newGroupForm.name.trim().length > 0);
   const setupComplete = Boolean(groupSetupForm.name.trim().length > 0);
   const membersComplete = activeMemberCount > 0;
-  const readinessComplete = selectedGroup?.data?.status === "registered";
-  const canOpenProfileStep = setupComplete;
-  const canOpenMembersStep = setupComplete && profileComplete;
-  const canOpenReadinessStep = setupComplete && profileComplete && (membersComplete || readinessComplete);
+  const readinessComplete = isEnrollmentComplete;
+  const canOpenProfileStep = true;
+  const canOpenMembersStep = true;
+  const canOpenReadinessStep = profileComplete && (membersComplete || readinessComplete);
   const navigateDetailStep = (nextStep: DetailStep) => {
     if (nextStep === "setup") {
       setDetailStep("setup");
@@ -1692,24 +1720,24 @@ export default function GroupEnrollment() {
 
     if (nextStep === "profile" && !canOpenProfileStep) {
       toast({
-        title: "Complete setup first",
-        description: "Save group setup details before moving to Group Profile.",
+        title: "Profile step is locked",
+        description: "Complete required prerequisites before opening Group Profile.",
       });
       return;
     }
 
     if (nextStep === "members" && !canOpenMembersStep) {
       toast({
-        title: "Profile required",
-        description: "Finish Group Profile before opening the Members step.",
+        title: "Members step is locked",
+        description: "Complete required prerequisites before opening Members.",
       });
       return;
     }
 
     if (nextStep === "readiness" && !canOpenReadinessStep) {
       toast({
-        title: "Readiness is locked",
-        description: "Complete setup, profile, and at least one active member before opening Readiness.",
+        title: "Enrollment step is locked",
+        description: "Complete Group Profile and add at least one active member first.",
       });
       return;
     }
@@ -1778,15 +1806,11 @@ export default function GroupEnrollment() {
             )}
             <p className="text-sm text-gray-500 uppercase tracking-wide">Stage 1 Manual Workflow</p>
             <h1 className="text-3xl font-bold text-gray-900">Group Enrollment</h1>
-            <p className="text-gray-600 mt-1">Create employer groups, review payor types, and track hosted checkout readiness.</p>
+            <p className="text-gray-600 mt-1">Groups are pre-configured outside this app. Use this workspace for member enrollment and activation.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/groups"] })}>
               Refresh
-            </Button>
-            <Button onClick={() => setNewGroupOpen(true)} className="bg-blue-600 text-white hover:bg-blue-700">
-              <Plus className="h-4 w-4 mr-2" />
-              Enroll a Group
             </Button>
           </div>
         </div>
@@ -1808,7 +1832,7 @@ export default function GroupEnrollment() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold">{groups.length}</p>
-              <p className="text-sm text-gray-500">Groups staged for hosted checkout</p>
+              <p className="text-sm text-gray-500">Groups currently in enrollment workflow</p>
             </CardContent>
           </Card>
           <Card>
@@ -1836,10 +1860,8 @@ export default function GroupEnrollment() {
               <CardTitle className="text-sm text-gray-500 uppercase">Next Step</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <p className="text-gray-700">Capture group info, add members manually, then launch hosted checkout.</p>
-              <Button variant="outline" onClick={() => setNewGroupOpen(true)} className="w-full">
-                Start New Group
-              </Button>
+              <p className="text-gray-700">Add employee records, complete enrollment, then activate when the group is ready.</p>
+              <p className="text-xs text-gray-500">Payment collection can be completed later on a separate timeline.</p>
             </CardContent>
           </Card>
         </section>
@@ -1943,8 +1965,10 @@ export default function GroupEnrollment() {
                         )}
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {group.status === 'registered' ? (
+                            {group.status === 'active' ? (
                               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            ) : group.status === 'registered' ? (
+                              <CheckCircle2 className="h-4 w-4 text-blue-600" />
                             ) : (
                               <Layers className="h-4 w-4 text-amber-500" />
                             )}
@@ -2428,12 +2452,12 @@ export default function GroupEnrollment() {
                     onClick={() => navigateDetailStep("readiness")}
                     disabled={!canOpenReadinessStep}
                   >
-                    4. Readiness {readinessComplete ? "✓" : ""}
+                    4. Enrollment {readinessComplete ? "✓" : ""}
                   </Button>
                 </div>
                 {(!canOpenMembersStep || !canOpenReadinessStep) && (
                   <p className="mt-2 text-xs text-slate-600">
-                    Follow the sequence: Setup → Profile → Members → Readiness.
+                    Complete profile and add at least one active member before finishing enrollment.
                   </p>
                 )}
               </div>
@@ -2492,15 +2516,16 @@ export default function GroupEnrollment() {
               <div className="border rounded-lg p-4 bg-white space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base font-semibold text-slate-900">Group Setup</h3>
-                  <Badge variant="secondary">Editable</Badge>
+                  <Badge variant="secondary">Managed Upstream</Badge>
                 </div>
+                <p className="text-xs text-slate-600">Group setup fields are read-only in enrollment and maintained in the Group Setup workflow.</p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="detail-group-name">Group Name</Label>
                     <Input
                       id="detail-group-name"
                       value={groupSetupForm.name}
-                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, name: event.target.value }))}
+                      disabled
                     />
                   </div>
                   <div>
@@ -2508,7 +2533,7 @@ export default function GroupEnrollment() {
                     <Input
                       id="detail-group-type"
                       value={groupSetupForm.groupType}
-                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, groupType: event.target.value }))}
+                      disabled
                     />
                   </div>
                 </div>
@@ -2517,21 +2542,8 @@ export default function GroupEnrollment() {
                     <Label htmlFor="detail-group-industry">Industry</Label>
                     <Select
                       value={detailIndustrySelectValue}
-                      onValueChange={(value) => {
-                        if (value === INDUSTRY_NOT_SET_VALUE) {
-                          setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
-                          return;
-                        }
-
-                        if (value === INDUSTRY_OTHER_VALUE) {
-                          if (!detailIndustryIsCustom) {
-                            setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
-                          }
-                          return;
-                        }
-
-                        setGroupSetupForm((prev) => ({ ...prev, industry: value }));
-                      }}
+                      onValueChange={() => {}}
+                      disabled
                     >
                       <SelectTrigger id="detail-group-industry">
                         <SelectValue placeholder="Select industry" />
@@ -2550,7 +2562,7 @@ export default function GroupEnrollment() {
                         className="mt-2"
                         placeholder="Enter custom industry"
                         value={groupSetupForm.industry}
-                        onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, industry: event.target.value }))}
+                        disabled
                       />
                     )}
                   </div>
@@ -2560,20 +2572,9 @@ export default function GroupEnrollment() {
                       id="detail-group-discount-code"
                       placeholder="Optional"
                       value={groupSetupForm.discountCode}
-                      onChange={(event) =>
-                        setGroupSetupForm((prev) => ({ ...prev, discountCode: event.target.value.toUpperCase() }))
-                      }
+                      disabled
                     />
                   </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    variant="outline"
-                    disabled={updateGroupSetupMutation.isPending || !groupSetupForm.name.trim()}
-                    onClick={() => updateGroupSetupMutation.mutate()}
-                  >
-                    {updateGroupSetupMutation.isPending ? "Saving..." : "Save Group Setup"}
-                  </Button>
                 </div>
               </div>
 
@@ -3098,18 +3099,20 @@ export default function GroupEnrollment() {
                 <>
               <div className="border rounded-lg p-4 bg-slate-50 flex flex-col gap-4">
                 <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-600 uppercase">
-                  <ClipboardCheck className="h-4 w-4 text-blue-600" /> Hosted Checkout Readiness
+                  <ClipboardCheck className="h-4 w-4 text-blue-600" /> Enrollment + Activation
                 </div>
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-2">
                     <p className="text-sm text-slate-600">
                       {memberCount === 0
-                        ? 'Add at least one member before handing off to payments.'
+                        ? 'Add at least one member before completing enrollment.'
                         : !profileComplete
-                          ? 'Complete the group profile (EIN, contacts, payor mix, payment preference) before marking ready.'
-                        : selectedGroup.data.status === 'registered'
-                          ? 'This group is already marked ready for hosted checkout.'
-                          : 'Review member details, then mark ready to generate the hosted checkout link.'}
+                          ? 'Complete the group profile (EIN, contacts, payor mix, payment preference) before completing enrollment.'
+                        : isGroupActive
+                          ? 'This group is active. Payment can be processed separately when needed.'
+                        : isEnrollmentComplete
+                          ? 'Enrollment is complete. Activate the group when operations is ready.'
+                          : 'Review member details, then complete enrollment.'}
                     </p>
                     <div className="flex flex-wrap items-center gap-3 text-sm">
                       <div className="flex items-center gap-2">
@@ -3117,9 +3120,15 @@ export default function GroupEnrollment() {
                         <Badge variant="secondary">{activeMemberCount}</Badge>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-500">Status</span>
-                        <Badge variant="outline" className={`capitalize ${hostedStatusBadgeClass}`}>
-                          {hostedStatusLabel}
+                        <span className="text-slate-500">Enrollment</span>
+                        <Badge variant="outline" className="capitalize">
+                          {groupStatus}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500">Payment handoff</span>
+                        <Badge variant="outline" className={`capitalize ${paymentHandoffBadgeClass}`}>
+                          {paymentHandoffStatusLabel}
                         </Badge>
                       </div>
                       {selectedGroup.data.registrationCompletedAt && (
@@ -3140,20 +3149,34 @@ export default function GroupEnrollment() {
                     )}
                   </div>
                   <div className="w-full md:w-auto">
-                    <Button
-                      className="w-full"
-                      onClick={() => completeGroupMutation.mutate()}
-                      disabled={!canMarkReady || completeGroupMutation.isPending}
-                    >
-                      {selectedGroup.data.status === 'registered'
-                        ? 'Ready'
-                        : completeGroupMutation.isPending
-                          ? 'Marking...'
-                          : 'Mark Ready'}
-                    </Button>
-                    {!canMarkReady && selectedGroup.data.status !== 'registered' && (
+                    <div className="space-y-2">
+                      <Button
+                        className="w-full"
+                        onClick={() => completeGroupMutation.mutate()}
+                        disabled={!canCompleteEnrollment || completeGroupMutation.isPending}
+                      >
+                        {isEnrollmentComplete
+                          ? 'Enrollment Complete'
+                          : completeGroupMutation.isPending
+                            ? 'Completing...'
+                            : 'Complete Enrollment'}
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => activateGroupMutation.mutate()}
+                        disabled={!canActivateGroup || activateGroupMutation.isPending || isGroupActive}
+                      >
+                        {isGroupActive
+                          ? 'Active'
+                          : activateGroupMutation.isPending
+                            ? 'Activating...'
+                            : 'Set Active'}
+                      </Button>
+                    </div>
+                    {!canCompleteEnrollment && !isEnrollmentComplete && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
-                        {activeMemberCount === 0 ? 'Add at least one non-terminated member before marking the group ready.' : 'Complete group profile before marking ready.'}
+                        {activeMemberCount === 0 ? 'Add at least one non-terminated member before completing enrollment.' : 'Complete group profile before completing enrollment.'}
                       </p>
                     )}
                   </div>
@@ -3162,9 +3185,9 @@ export default function GroupEnrollment() {
 
               <Alert>
                 <AlertTriangle className="h-4 w-4" />
-                <AlertTitle>Manual registration</AlertTitle>
+                <AlertTitle>Enrollment workflow</AlertTitle>
                 <AlertDescription>
-                  Add all members, confirm payor amounts, then trigger hosted checkout from this workspace. Payment automation hooks into the existing EPX hosted checkout service.
+                  Use this workspace to capture members and complete enrollment. Activation and payment handoff can happen at different times.
                 </AlertDescription>
               </Alert>
                 </>

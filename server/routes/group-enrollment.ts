@@ -1957,4 +1957,45 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
   }
 });
 
+router.post('/api/groups/:groupId/activate', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
+    if (!['registered', 'active'].includes(group.status)) {
+      return res.status(400).json({
+        message: 'Complete enrollment before activating this group.',
+      });
+    }
+
+    const members = await listGroupMembers({ groupId });
+    const activeMemberCount = members.filter((member) => member.status !== 'terminated').length;
+    if (activeMemberCount <= 0) {
+      return res.status(400).json({ message: 'At least one active member is required before activation.' });
+    }
+
+    if (group.status === 'active') {
+      return res.json({ data: group });
+    }
+
+    const updatedGroup = await updateGroup(groupId, {
+      status: 'active',
+      updatedBy: req.user?.id,
+    });
+
+    return res.json({ data: updatedGroup });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to activate group:', error);
+    const message = error instanceof Error ? error.message : 'Failed to activate group';
+    return res.status(500).json({ message });
+  }
+});
+
 export default router;
