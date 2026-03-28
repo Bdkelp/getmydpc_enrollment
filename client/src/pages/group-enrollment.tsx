@@ -1153,6 +1153,34 @@ export default function GroupEnrollment() {
 
   const refreshGroups = () => queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
 
+  const recoverFromMissingGroup = async () => {
+    setDetailOpen(false);
+    setMemberDialogOpen(false);
+    setReassignDialogOpen(false);
+    setSelectedGroup(null);
+    setEditingMember(null);
+    resetMemberForm();
+    await refreshGroups();
+    toast({
+      title: "Group no longer available",
+      description: "This group was not found. The list has been refreshed.",
+      variant: "destructive",
+    });
+  };
+
+  const handleGroupMutationError = async (err: any, title: string) => {
+    if (isGroupNotFoundError(err)) {
+      await recoverFromMissingGroup();
+      return;
+    }
+
+    toast({
+      title,
+      description: err?.message || "Please try again",
+      variant: "destructive",
+    });
+  };
+
   const parseCensusFile = async (file: File): Promise<CensusImportRow[]> => {
     const extension = file.name.split(".").pop()?.toLowerCase() || "";
 
@@ -1300,11 +1328,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to save member",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to save member");
     },
   });
 
@@ -1326,11 +1350,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to terminate member",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to terminate member");
     },
   });
 
@@ -1352,11 +1372,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to restore member",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to restore member");
     },
   });
 
@@ -1398,11 +1414,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to reassign group",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to reassign group");
     },
   });
 
@@ -1453,11 +1465,7 @@ export default function GroupEnrollment() {
       }
     },
     onError: (err: any) => {
-      toast({
-        title: "Census import failed",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Census import failed");
     },
   });
 
@@ -1503,11 +1511,7 @@ export default function GroupEnrollment() {
       }
     },
     onError: (err: any) => {
-      toast({
-        title: "Payment form upload failed",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Payment form upload failed");
     },
   });
 
@@ -1537,11 +1541,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to complete enrollment",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to complete enrollment");
     },
   });
 
@@ -1563,11 +1563,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to activate group",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to activate group");
     },
   });
 
@@ -1595,11 +1591,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to update effective date",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to update effective date");
     },
   });
 
@@ -1628,11 +1620,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to update group profile",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to update group profile");
     },
   });
 
@@ -1664,11 +1652,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to update group setup",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to update group setup");
     },
   });
 
@@ -1695,11 +1679,7 @@ export default function GroupEnrollment() {
       });
     },
     onError: (err: any) => {
-      toast({
-        title: "Unable to save assignment",
-        description: err?.message || "Please try again",
-        variant: "destructive",
-      });
+      void handleGroupMutationError(err, "Unable to save assignment");
     },
   });
 
@@ -1760,14 +1740,7 @@ export default function GroupEnrollment() {
       setDetailOpen(true);
     } catch (err: any) {
       if (isGroupNotFoundError(err)) {
-        setDetailOpen(false);
-        setSelectedGroup(null);
-        await refreshGroups();
-        toast({
-          title: "Group no longer available",
-          description: "This group was not found. The list has been refreshed.",
-          variant: "destructive",
-        });
+        await recoverFromMissingGroup();
         return;
       }
 
