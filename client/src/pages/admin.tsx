@@ -1104,7 +1104,7 @@ export default function Admin() {
               <p className="text-gray-600 mt-1">Manage users, plans, and system settings</p>
             </div>
             
-            {/* Responsive Navigation Grid - 4x2 layout (8 buttons) */}
+            {/* Responsive navigation grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Button 
                 variant="outline"
@@ -1130,7 +1130,7 @@ export default function Admin() {
                       className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
                       onClick={() => setLocation(getEnrollmentRecordsRoute())}>
                 <Users className="h-5 w-5 mb-1" />
-                <span className="text-sm font-medium">Enrollments</span>
+                <span className="text-sm font-medium">Enrollment Records</span>
               </Button>
               <Button variant="outline" 
                       className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center relative"
@@ -1173,12 +1173,6 @@ export default function Admin() {
                 <Button variant="outline" className="w-full border-fuchsia-500 text-fuchsia-600 hover:bg-fuchsia-50 h-20 flex flex-col items-center justify-center">
                   <Target className="h-5 w-5 mb-1" />
                   <span className="text-sm font-medium">Performance Goals</span>
-                </Button>
-              </Link>
-              <Link href="/admin/groups">
-                <Button variant="outline" className="w-full border-cyan-500 text-cyan-600 hover:bg-cyan-50 h-20 flex flex-col items-center justify-center">
-                  <Users className="h-5 w-5 mb-1" />
-                  <span className="text-sm font-medium">Group Enrollment</span>
                 </Button>
               </Link>
               <Link href="/admin/payments/recent">
