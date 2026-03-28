@@ -195,6 +195,18 @@ const buildBulkImportFallbackEmail = (
   return `${first}.${last}.row${rowNumber}.${groupToken}@group-import.local`;
 };
 
+const buildDependentMemberFallbackEmail = (
+  firstName: string,
+  lastName: string,
+  groupId: string,
+  seed: number,
+): string => {
+  const first = sanitizeEmailLocalPart(firstName);
+  const last = sanitizeEmailLocalPart(lastName);
+  const groupToken = groupId.replace(/-/g, '').slice(0, 8) || 'group';
+  return `${first}.${last}.dep${seed}.${groupToken}@group-import.local`;
+};
+
 const formatDateAsMMDDYYYY = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -622,6 +634,9 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
   return 'primary';
 };
 
+const isPrimaryMemberRelationship = (value: unknown, fallbackTier?: string): boolean =>
+  normalizeMemberRelationship(value, fallbackTier) === 'primary';
+
 const normalizeDependentSuffix = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -767,17 +782,18 @@ const canViewFullMemberSsn = (req: AuthRequest): boolean =>
   Boolean(req.user);
 
 const toMemberResponse = (member: any, includeFullSsn: boolean) => {
+  const isPrimaryMember = isPrimaryMemberRelationship(member?.relationship, member?.tier);
   const ssnDigits = resolveMemberSsnDigits(member);
-  const formatted = ssnDigits ? formatSSN(ssnDigits) : null;
-  const masked = ssnDigits ? maskSSN(ssnDigits) : null;
+  const formatted = ssnDigits && isPrimaryMember ? formatSSN(ssnDigits) : null;
+  const masked = ssnDigits && isPrimaryMember ? maskSSN(ssnDigits) : null;
 
   return {
     ...member,
     metadata: stripSensitiveSsnFields(member?.metadata),
     registrationPayload: stripSensitiveSsnFields(member?.registrationPayload),
-    ssn: ssnDigits ? (includeFullSsn ? formatted : masked) : null,
+    ssn: ssnDigits && isPrimaryMember ? (includeFullSsn ? formatted : masked) : null,
     ssnMasked: masked,
-    hasSsn: Boolean(ssnDigits),
+    hasSsn: Boolean(ssnDigits && isPrimaryMember),
   };
 };
 
@@ -1373,15 +1389,30 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       status,
     } = req.body || {};
 
-    if (!tier || !firstName || !lastName || !email) {
-      return res.status(400).json({ message: 'Tier, first name, last name, and email are required' });
+    const normalizedTier = normalizeMemberTier(tier);
+    const normalizedRelationship = normalizeMemberRelationship(req.body?.relationship, normalizedTier);
+    const isPrimaryMember = normalizedRelationship === 'primary';
+    const providedEmail = toTrimmedOrNull(email)?.toLowerCase() || null;
+
+    if (!tier || !firstName || !lastName) {
+      return res.status(400).json({ message: 'Tier, first name, and last name are required' });
     }
 
-    if (!EMAIL_REGEX.test(String(email).trim().toLowerCase())) {
+    if (isPrimaryMember && !providedEmail) {
+      return res.status(400).json({ message: 'Primary member email is required' });
+    }
+
+    if (isPrimaryMember && providedEmail && !EMAIL_REGEX.test(providedEmail)) {
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    const ssnIntent = extractSsnIntent(req.body, metadata, registrationPayload);
+    const persistedEmail = isPrimaryMember
+      ? (providedEmail as string)
+      : buildDependentMemberFallbackEmail(String(firstName), String(lastName), groupId, Date.now());
+
+    const ssnIntent = isPrimaryMember
+      ? extractSsnIntent(req.body, metadata, registrationPayload)
+      : { provided: true, value: null as string | null };
     const sanitizedMetadata = stripSensitiveSsnFields(metadata);
     const sanitizedRegistrationPayload = stripSensitiveSsnFields(registrationPayload || req.body);
     const nextMetadata = ssnIntent.provided
@@ -1389,15 +1420,15 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       : sanitizedMetadata;
 
     const memberRecord = await addGroupMember(groupId, {
-      tier,
-      relationship: normalizeMemberRelationship(req.body?.relationship, tier),
+      tier: normalizedTier,
+      relationship: normalizedRelationship,
       householdBaseNumber: toTrimmedOrNull(req.body?.householdBaseNumber),
       householdMemberNumber: toTrimmedOrNull(req.body?.householdMemberNumber),
       dependentSuffix: normalizeDependentSuffix(req.body?.dependentSuffix),
       payorType: payorType || group.payorType,
       firstName,
       lastName,
-      email,
+      email: persistedEmail,
       phone,
       dateOfBirth: normalizeGroupMemberDateOfBirth(dateOfBirth),
       employerAmount: parseAmount(employerAmount),
@@ -1445,6 +1476,9 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
       const rowNumber = index + 2;
       const firstName = toTrimmedOrNull(source.firstName);
       const lastName = toTrimmedOrNull(source.lastName);
+      const normalizedTier = normalizeMemberTier(source.tier);
+      const normalizedRelationship = normalizeMemberRelationship(source.relationship ?? source.memberRelationship, normalizedTier);
+      const isPrimaryMember = normalizedRelationship === 'primary';
       const providedEmail = toTrimmedOrNull(source.email)?.toLowerCase() || null;
 
       if (!firstName || !lastName) {
@@ -1452,15 +1486,24 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
         continue;
       }
 
-      if (providedEmail && !EMAIL_REGEX.test(providedEmail)) {
+      if (isPrimaryMember && !providedEmail) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Primary member email is required' });
+        continue;
+      }
+
+      if (isPrimaryMember && providedEmail && !EMAIL_REGEX.test(providedEmail)) {
         failed.push({ row: rowNumber, email: providedEmail, reason: 'Invalid email format' });
         continue;
       }
 
-      const email = providedEmail || buildBulkImportFallbackEmail(firstName, lastName, rowNumber, groupId);
+      const email = isPrimaryMember
+        ? (providedEmail as string)
+        : buildDependentMemberFallbackEmail(firstName, lastName, groupId, rowNumber);
 
       try {
-        const ssnIntent = extractSsnIntent(source, source?.metadata, source?.registrationPayload);
+        const ssnIntent = isPrimaryMember
+          ? extractSsnIntent(source, source?.metadata, source?.registrationPayload)
+          : { provided: true, value: null as string | null };
         const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
         const sanitizedRegistrationPayload = stripSensitiveSsnFields(source.registrationPayload || source);
         const nextMetadata = ssnIntent.provided
@@ -1468,8 +1511,8 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           : sanitizedMetadata;
 
         const memberRecord = await addGroupMember(groupId, {
-          tier: normalizeMemberTier(source.tier),
-          relationship: normalizeMemberRelationship(source.relationship ?? source.memberRelationship, source.tier),
+          tier: normalizedTier,
+          relationship: normalizedRelationship,
           householdBaseNumber: toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber),
           householdMemberNumber: toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber),
           dependentSuffix: normalizeDependentSuffix(source.dependentSuffix),
@@ -1652,9 +1695,21 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       return res.status(404).json({ message: 'Group member not found' });
     }
 
-    const includeSsnIntent = extractSsnIntent(req.body, req.body?.metadata, req.body?.registrationPayload);
+    const requestedTier = hasOwn(req.body || {}, 'tier')
+      ? normalizeMemberTier(req.body?.tier)
+      : normalizeMemberTier(existingMember.tier);
+    const requestedRelationship = normalizeMemberRelationship(
+      hasOwn(req.body || {}, 'relationship') ? req.body?.relationship : existingMember.relationship,
+      requestedTier,
+    );
+    const isPrimaryMember = requestedRelationship === 'primary';
+
+    const includeSsnIntentRaw = extractSsnIntent(req.body, req.body?.metadata, req.body?.registrationPayload);
+    const includeSsnIntent = isPrimaryMember
+      ? includeSsnIntentRaw
+      : { provided: true, value: null as string | null };
     const canEditSsn = canViewFullMemberSsn(req);
-    if (includeSsnIntent.provided && !canEditSsn) {
+    if (includeSsnIntentRaw.provided && isPrimaryMember && !canEditSsn) {
       return res.status(403).json({ message: 'Only admins can edit SSN values' });
     }
 
@@ -1677,11 +1732,36 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
 
     const updatePayload: Record<string, any> = {
       ...otherUpdates,
+      tier: requestedTier,
+      relationship: requestedRelationship,
       employerAmount: parseAmount(req.body?.employerAmount ?? existingMember.employerAmount),
       memberAmount: parseAmount(req.body?.memberAmount ?? existingMember.memberAmount),
       discountAmount: parseAmount(req.body?.discountAmount ?? existingMember.discountAmount),
       totalAmount: parseAmount(req.body?.totalAmount ?? existingMember.totalAmount),
     };
+
+    const effectiveFirstName = toTrimmedOrNull(otherUpdates?.firstName) || existingMember.firstName;
+    const effectiveLastName = toTrimmedOrNull(otherUpdates?.lastName) || existingMember.lastName;
+
+    if (isPrimaryMember) {
+      if (hasOwn(incomingBody, 'email')) {
+        const normalizedEmail = toTrimmedOrNull(otherUpdates?.email)?.toLowerCase() || null;
+        if (!normalizedEmail) {
+          return res.status(400).json({ message: 'Primary member email is required' });
+        }
+        if (!EMAIL_REGEX.test(normalizedEmail)) {
+          return res.status(400).json({ message: 'Invalid email format' });
+        }
+        updatePayload.email = normalizedEmail;
+      }
+    } else {
+      updatePayload.email = buildDependentMemberFallbackEmail(
+        effectiveFirstName,
+        effectiveLastName,
+        groupId,
+        numericMemberId,
+      );
+    }
 
     if (metadataProvided || includeSsnIntent.provided) {
       updatePayload.metadata = nextMetadata;
@@ -1693,14 +1773,14 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
 
     const updated = await updateGroupMember(numericMemberId, updatePayload);
 
-    if (includeSsnIntent.provided && canEditSsn) {
+    if (includeSsnIntentRaw.provided && isPrimaryMember && canEditSsn) {
       await auditGroupMemberSsnAction(
         req,
         numericMemberId,
-        includeSsnIntent.value ? 'update_group_member_ssn' : 'delete_group_member_ssn',
+        includeSsnIntentRaw.value ? 'update_group_member_ssn' : 'delete_group_member_ssn',
         typeof req.body?.reason === 'string' ? req.body.reason : null,
         {
-          maskedSsn: includeSsnIntent.value ? maskSSN(includeSsnIntent.value) : null,
+          maskedSsn: includeSsnIntentRaw.value ? maskSSN(includeSsnIntentRaw.value) : null,
         },
       );
     }

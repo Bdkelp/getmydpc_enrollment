@@ -84,6 +84,19 @@ const tierLabels: Record<string, string> = {
   family: "Member + Family",
 };
 
+const doesTierRequirePrimaryEmail = (tier: string | undefined | null): boolean => {
+  const normalized = String(tier || "").trim().toLowerCase();
+  return normalized !== "spouse" && normalized !== "child";
+};
+
+const isPrimaryRelationshipValue = (relationship: string | undefined | null): boolean => {
+  const normalized = String(relationship || "").trim().toLowerCase();
+  if (!normalized) return true;
+  if (normalized === "primary") return true;
+  if (normalized === "spouse" || normalized === "dependent" || normalized === "child") return false;
+  return true;
+};
+
 const formatRelationshipLabel = (value?: string | null): string => {
   if (!value) return "Primary";
   const normalized = value.trim().toLowerCase();
@@ -97,6 +110,47 @@ const formatHouseholdMemberNumber = (member: GroupMemberRecord): string => {
     return `${member.householdBaseNumber}-${member.dependentSuffix}`;
   }
   return member.householdBaseNumber || "-";
+};
+
+const formatMemberPhone = (value?: string | null): string => {
+  if (!value) return "-";
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return value;
+};
+
+const formatMemberDateOfBirth = (value?: string | null): string => {
+  if (!value) return "-";
+
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 8) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+    const day = `${parsed.getDate()}`.padStart(2, "0");
+    const year = parsed.getFullYear();
+    return `${month}/${day}/${year}`;
+  }
+
+  return value;
+};
+
+const formatCurrencyDisplay = (value?: string | null): string => {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return value;
+  }
+
+  return `$${numeric.toFixed(2)}`;
 };
 
 type GroupRecord = {
@@ -218,6 +272,8 @@ type GroupMemberRecord = {
   firstName: string;
   lastName: string;
   email: string;
+  phone?: string | null;
+  dateOfBirth?: string | null;
   tier: string;
   relationship?: string | null;
   householdBaseNumber?: string | null;
@@ -1117,8 +1173,13 @@ export default function GroupEnrollment() {
   const setParsedImportRows = (fileName: string, parsedRows: CensusImportRow[]) => {
     const warnings: string[] = [];
     parsedRows.forEach((row, index) => {
-      if (!row.firstName || !row.lastName || !row.email) {
-        warnings.push(`Row ${index + 2} missing firstName, lastName, or email`);
+      const requiresEmail = isPrimaryRelationshipValue(row.relationship) && doesTierRequirePrimaryEmail(row.tier);
+      if (!row.firstName || !row.lastName || (requiresEmail && !row.email)) {
+        warnings.push(
+          requiresEmail
+            ? `Row ${index + 2} missing firstName, lastName, or primary-member email`
+            : `Row ${index + 2} missing firstName or lastName`,
+        );
       }
     });
 
@@ -1751,7 +1812,7 @@ export default function GroupEnrollment() {
   const isMemberFormValid =
     memberForm.firstName.trim().length > 1 &&
     memberForm.lastName.trim().length > 1 &&
-    memberForm.email.trim().length > 5;
+    (!doesTierRequirePrimaryEmail(memberForm.tier) || memberForm.email.trim().length > 5);
 
   const memberDialogTitle = editingMember ? "Edit Group Member" : "Add Group Member";
   const memberDialogDescription = editingMember
@@ -3172,7 +3233,15 @@ export default function GroupEnrollment() {
                           <TableHead>Member</TableHead>
                           <TableHead>Relationship</TableHead>
                           <TableHead>Household #</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>DOB</TableHead>
                           <TableHead>Tier</TableHead>
+                          <TableHead>Payor</TableHead>
+                          <TableHead>Employer $</TableHead>
+                          <TableHead>Member $</TableHead>
+                          <TableHead>Discount $</TableHead>
+                          <TableHead>Total $</TableHead>
+                          <TableHead>Payment</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -3192,7 +3261,15 @@ export default function GroupEnrollment() {
                               </TableCell>
                               <TableCell>{formatRelationshipLabel(member.relationship)}</TableCell>
                               <TableCell>{formatHouseholdMemberNumber(member)}</TableCell>
+                              <TableCell>{formatMemberPhone(member.phone)}</TableCell>
+                              <TableCell>{formatMemberDateOfBirth(member.dateOfBirth)}</TableCell>
                               <TableCell>{tierLabels[member.tier] || member.tier}</TableCell>
+                              <TableCell className="capitalize">{member.payorType || "-"}</TableCell>
+                              <TableCell>{formatCurrencyDisplay(member.employerAmount)}</TableCell>
+                              <TableCell>{formatCurrencyDisplay(member.memberAmount)}</TableCell>
+                              <TableCell>{formatCurrencyDisplay(member.discountAmount)}</TableCell>
+                              <TableCell>{formatCurrencyDisplay(member.totalAmount)}</TableCell>
+                              <TableCell className="capitalize">{member.paymentStatus || "pending"}</TableCell>
                               <TableCell>
                                 <Badge variant="outline" className="capitalize">{member.status || "draft"}</Badge>
                                 <p className="mt-1 text-xs text-gray-500">
