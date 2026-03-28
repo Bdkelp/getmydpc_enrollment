@@ -841,6 +841,20 @@ export default function GroupEnrollment() {
   });
 
   const groups: GroupRecord[] = useMemo(() => data?.data ?? [], [data]);
+  const unassignedQueueCount = useMemo(
+    () => groups.filter((group) => !group.currentAssignedAgentId && !getAssignedAgentIdFromMetadata(group.metadata)).length,
+    [groups],
+  );
+  const myAssignedQueueCount = useMemo(() => {
+    if (!user?.id) {
+      return 0;
+    }
+
+    return groups.filter((group) => {
+      const assignedAgentId = group.currentAssignedAgentId || getAssignedAgentIdFromMetadata(group.metadata);
+      return assignedAgentId === user.id;
+    }).length;
+  }, [groups, user?.id]);
   const agentOptions: AgentOption[] = useMemo(() => {
     if (!Array.isArray(agentsData)) {
       return [];
@@ -1862,6 +1876,26 @@ export default function GroupEnrollment() {
             <CardContent className="space-y-2">
               <p className="text-gray-700">Add employee records, complete enrollment, then activate when the group is ready.</p>
               <p className="text-xs text-gray-500">Payment collection can be completed later on a separate timeline.</p>
+              {canAccessAdminViews && (
+                <div className="pt-2 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant="secondary">Unassigned queue: {unassignedQueueCount}</Badge>
+                    <Badge variant="outline">My assigned queue: {myAssignedQueueCount}</Badge>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => {
+                      setGroupCurrentAgentFilter("unassigned");
+                      setGroupOriginalAgentFilter("all");
+                      setGroupReassignedOnlyFilter(false);
+                    }}
+                  >
+                    Open Unassigned Queue
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </section>
