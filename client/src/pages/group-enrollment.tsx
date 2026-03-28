@@ -864,11 +864,25 @@ export default function GroupEnrollment() {
     }).length;
   }, [groups, user?.id]);
   const agentOptions: AgentOption[] = useMemo(() => {
-    if (!Array.isArray(agentsData)) {
-      return [];
-    }
+    const rawAgents = Array.isArray(agentsData)
+      ? agentsData
+      : Array.isArray((agentsData as any)?.data)
+        ? (agentsData as any).data
+        : Array.isArray((agentsData as any)?.agents)
+          ? (agentsData as any).agents
+          : [];
 
-    return agentsData.filter((agent: AgentOption) => agent?.isActive !== false);
+    return rawAgents
+      .filter((agent: any) => (agent?.isActive ?? agent?.is_active) !== false)
+      .map((agent: any) => ({
+        id: agent.id,
+        firstName: agent.firstName ?? agent.first_name ?? "",
+        lastName: agent.lastName ?? agent.last_name ?? "",
+        email: agent.email ?? null,
+        role: agent.role,
+        agentNumber: agent.agentNumber ?? agent.agent_number ?? null,
+        isActive: agent.isActive ?? agent.is_active ?? true,
+      }));
   }, [agentsData]);
 
   const getAgentLabel = (agentId?: string | null): string => {
