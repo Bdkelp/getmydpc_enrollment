@@ -2910,15 +2910,17 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
     const agents = await storage.getAgents();
     
     // Return basic agent info for selection dropdowns
-    const agentList = agents.map(agent => ({
-      id: agent.id,
-      firstName: agent.firstName,
-      lastName: agent.lastName,
-      role: agent.role,
-      agentNumber: agent.agentNumber,
-      email: agent.email,
-      isActive: agent.isActive
-    })).filter(agent => agent.isActive); // Only return active agents
+    const agentList = agents
+      .map((agent: any) => ({
+        id: agent.id,
+        firstName: agent.firstName ?? agent.first_name ?? "",
+        lastName: agent.lastName ?? agent.last_name ?? "",
+        role: agent.role,
+        agentNumber: agent.agentNumber ?? agent.agent_number ?? null,
+        email: agent.email ?? null,
+        isActive: agent.isActive ?? agent.is_active ?? true,
+      }))
+      .filter((agent) => agent.isActive); // Only return active agents
 
     res.json(agentList);
   } catch (error: any) {
@@ -3717,16 +3719,6 @@ router.get(
     }
   },
 );
-
-router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const agents = await storage.getAgents();
-    res.json(agents);
-  } catch (error) {
-    console.error("Error fetching agents:", error);
-    res.status(500).json({ message: "Failed to fetch agents" });
-  }
-});
 
 router.post(
   "/api/admin/reports/export",

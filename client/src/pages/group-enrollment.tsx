@@ -1603,6 +1603,37 @@ export default function GroupEnrollment() {
     },
   });
 
+  const updateGroupAssignmentMutation = useMutation({
+    mutationFn: async () => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) throw new Error("Select a group first");
+
+      return apiRequest(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          assignedAgentId: canAccessAdminViews ? toAssignedAgentPayload(groupAssignedAgentId) : undefined,
+        }),
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Assignment updated",
+        description: "Agent of record was saved.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to save assignment",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
     const handleValidateDiscount = async () => {
       const normalized = newGroupForm.discountCode.trim().toUpperCase();
       if (!normalized) {
@@ -2591,16 +2622,19 @@ export default function GroupEnrollment() {
               <div className="border rounded-lg p-4 bg-white space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base font-semibold text-slate-900">Group Setup</h3>
-                  <Badge variant="secondary">Managed Upstream</Badge>
+                  <Badge variant="secondary">Admin Editable</Badge>
                 </div>
-                <p className="text-xs text-slate-600">Group setup fields are read-only in enrollment and maintained in the Group Setup workflow.</p>
+                <p className="text-xs text-slate-600">
+                  Group setup can be edited by admins here. Payor Matrix Option is configured in the Profile step.
+                </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="detail-group-name">Group Name</Label>
                     <Input
                       id="detail-group-name"
                       value={groupSetupForm.name}
-                      disabled
+                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, name: event.target.value }))}
+                      disabled={!canAccessAdminViews}
                     />
                   </div>
                   <div>
@@ -2608,7 +2642,8 @@ export default function GroupEnrollment() {
                     <Input
                       id="detail-group-type"
                       value={groupSetupForm.groupType}
-                      disabled
+                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, groupType: event.target.value }))}
+                      disabled={!canAccessAdminViews}
                     />
                   </div>
                 </div>
@@ -2617,8 +2652,22 @@ export default function GroupEnrollment() {
                     <Label htmlFor="detail-group-industry">Industry</Label>
                     <Select
                       value={detailIndustrySelectValue}
-                      onValueChange={() => {}}
-                      disabled
+                      onValueChange={(value) => {
+                        if (value === INDUSTRY_NOT_SET_VALUE) {
+                          setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
+                          return;
+                        }
+
+                        if (value === INDUSTRY_OTHER_VALUE) {
+                          if (!detailIndustryIsCustom) {
+                            setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
+                          }
+                          return;
+                        }
+
+                        setGroupSetupForm((prev) => ({ ...prev, industry: value }));
+                      }}
+                      disabled={!canAccessAdminViews}
                     >
                       <SelectTrigger id="detail-group-industry">
                         <SelectValue placeholder="Select industry" />
@@ -2637,7 +2686,8 @@ export default function GroupEnrollment() {
                         className="mt-2"
                         placeholder="Enter custom industry"
                         value={groupSetupForm.industry}
-                        disabled
+                        onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, industry: event.target.value }))}
+                        disabled={!canAccessAdminViews}
                       />
                     )}
                   </div>
@@ -2647,10 +2697,37 @@ export default function GroupEnrollment() {
                       id="detail-group-discount-code"
                       placeholder="Optional"
                       value={groupSetupForm.discountCode}
-                      disabled
+                      onChange={(event) =>
+                        setGroupSetupForm((prev) => ({ ...prev, discountCode: event.target.value.toUpperCase() }))
+                      }
+                      disabled={!canAccessAdminViews}
                     />
                   </div>
                 </div>
+                {canAccessAdminViews && (
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setDetailStep("profile")}
+                    >
+                      Go To Profile Step
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={updateGroupAssignmentMutation.isPending}
+                      onClick={() => updateGroupAssignmentMutation.mutate()}
+                    >
+                      {updateGroupAssignmentMutation.isPending ? "Saving..." : "Save Agent Assignment"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={updateGroupSetupMutation.isPending || !groupSetupForm.name.trim()}
+                      onClick={() => updateGroupSetupMutation.mutate()}
+                    >
+                      {updateGroupSetupMutation.isPending ? "Saving..." : "Save Group Setup"}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {effectiveDateContext && (
