@@ -150,6 +150,7 @@ const PARTNER_LEAD_STATUS_BADGE_CLASSES: Record<PartnerLeadStatus, string> = {
   enrolled: 'bg-emerald-100 text-emerald-700',
   closed_lost: 'bg-gray-200 text-gray-700',
 };
+const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
 
 const isPartnerLeadStatus = (value: string): value is PartnerLeadStatus =>
   PARTNER_LEAD_STATUS_VALUES.includes(value as PartnerLeadStatus);
@@ -198,6 +199,11 @@ export default function Admin() {
   const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
   const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
   const [partnerLeadNote, setPartnerLeadNote] = useState('');
+
+  const getEnrollmentRecordsRoute = () => {
+    const savedView = window.localStorage.getItem(ENROLLMENT_RECORD_VIEW_KEY);
+    return savedView === "groups" ? "/admin/groups" : "/admin/enrollments";
+  };
 
   const ensureSuperAdminAccess = (actionLabel: string): boolean => {
     if (isSuperAdmin) {
@@ -1122,7 +1128,7 @@ export default function Admin() {
               </Button>
               <Button variant="outline" 
                       className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
-                      onClick={() => setLocation('/admin/enrollments')}>
+                      onClick={() => setLocation(getEnrollmentRecordsRoute())}>
                 <Users className="h-5 w-5 mb-1" />
                 <span className="text-sm font-medium">Enrollments</span>
               </Button>

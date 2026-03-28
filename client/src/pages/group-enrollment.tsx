@@ -789,6 +789,8 @@ const buildFailedRowsFileName = (sourceFileName: string): string => {
 
 type DetailStep = "setup" | "profile" | "members" | "readiness";
 
+const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
+
 export default function GroupEnrollment() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
@@ -979,6 +981,12 @@ export default function GroupEnrollment() {
       });
     }
   }, [isAuthorized, authLoading, toast]);
+
+  useEffect(() => {
+    if (!authLoading && isAuthorized && canAccessAdminViews) {
+      window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "groups");
+    }
+  }, [authLoading, isAuthorized, canAccessAdminViews]);
 
   useEffect(() => {
     if (!selectedGroup?.data) {
@@ -1947,8 +1955,33 @@ export default function GroupEnrollment() {
               </Button>
             )}
             <p className="text-sm text-gray-500 uppercase tracking-wide">Stage 1 Manual Workflow</p>
-            <h1 className="text-3xl font-bold text-gray-900">Group Enrollment</h1>
+            <h1 className="text-3xl font-bold text-gray-900">Enrollment Records</h1>
             <p className="text-gray-600 mt-1">Groups are pre-configured outside this app. Use this workspace for member enrollment and activation.</p>
+            {canAccessAdminViews && (
+              <div className="w-fit rounded-lg border border-gray-200 p-1 bg-gray-50 mt-3">
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-gray-600 hover:text-gray-900"
+                    onClick={() => {
+                      window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "people");
+                      setLocation("/admin/enrollments");
+                    }}
+                  >
+                    People
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-white text-gray-900 shadow-sm hover:bg-white"
+                  >
+                    Groups
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/groups"] })}>

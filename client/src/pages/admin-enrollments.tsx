@@ -150,6 +150,8 @@ const formatDob = (dob?: string | null) => {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 };
 
+const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
+
 export default function AdminEnrollments() {
   const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
   const [, setLocation] = useLocation();
@@ -183,6 +185,12 @@ export default function AdminEnrollments() {
       }
     }
   }, [user, authLoading, setLocation, isAdminUser]);
+
+  useEffect(() => {
+    if (!authLoading && user && isAdminUser) {
+      window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "people");
+    }
+  }, [authLoading, user, isAdminUser]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState({
@@ -804,8 +812,9 @@ export default function AdminEnrollments() {
       {/* Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
               <Button
                 variant="ghost"
                 className="mr-4"
@@ -813,28 +822,53 @@ export default function AdminEnrollments() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  All Enrollments
-                </h1>
-                <p className="text-gray-600 mt-1">
-                  View and manage all member enrollments across all agents
-                </p>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    Enrollment Records
+                  </h1>
+                  <p className="text-gray-600 mt-1">
+                    View and manage people enrollments and group workspaces
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                <Button variant="outline" onClick={handleNewEnrollment}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  New Enrollment
+                </Button>
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => exportMutation.mutate()}
+                  disabled={exportMutation.isPending}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export All
+                </Button>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              <Button variant="outline" onClick={handleNewEnrollment}>
-                <Plus className="h-4 w-4 mr-2" />
-                New Enrollment
-              </Button>
-              <Button
-                className="bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => exportMutation.mutate()}
-                disabled={exportMutation.isPending}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Export All
-              </Button>
+
+            <div className="w-fit rounded-lg border border-gray-200 p-1 bg-gray-50">
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-white text-gray-900 shadow-sm hover:bg-white"
+                >
+                  People
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="text-gray-600 hover:text-gray-900"
+                  onClick={() => {
+                    window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "groups");
+                    setLocation("/admin/groups");
+                  }}
+                >
+                  Groups
+                </Button>
+              </div>
             </div>
           </div>
         </div>
