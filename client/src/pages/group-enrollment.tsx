@@ -840,7 +840,21 @@ export default function GroupEnrollment() {
     staleTime: 1000 * 60,
   });
 
-  const groups: GroupRecord[] = useMemo(() => data?.data ?? [], [data]);
+  const groups: GroupRecord[] = useMemo(() => {
+    if (Array.isArray(data)) {
+      return data as GroupRecord[];
+    }
+
+    if (Array.isArray((data as any)?.data)) {
+      return (data as any).data as GroupRecord[];
+    }
+
+    if (Array.isArray((data as any)?.groups)) {
+      return (data as any).groups as GroupRecord[];
+    }
+
+    return [];
+  }, [data]);
   const unassignedQueueCount = useMemo(
     () => groups.filter((group) => !group.currentAssignedAgentId && !getAssignedAgentIdFromMetadata(group.metadata)).length,
     [groups],
