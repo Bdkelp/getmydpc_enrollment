@@ -871,7 +871,14 @@ export default function GroupEnrollment() {
   };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/groups", groupCurrentAgentFilter, groupOriginalAgentFilter, groupReassignedOnlyFilter],
+    queryKey: [
+      "/api/groups",
+      user?.id || "anonymous",
+      user?.role || "unknown",
+      groupCurrentAgentFilter,
+      groupOriginalAgentFilter,
+      groupReassignedOnlyFilter,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (canAccessAdminViews) {
@@ -988,6 +995,16 @@ export default function GroupEnrollment() {
       window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "groups");
     }
   }, [authLoading, isAuthorized, canAccessAdminViews]);
+
+  useEffect(() => {
+    // Prevent stale group state when switching between user profiles in the same browser session.
+    setDetailOpen(false);
+    setMemberDialogOpen(false);
+    setReassignDialogOpen(false);
+    setSelectedGroup(null);
+    setEditingMember(null);
+    resetMemberForm();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!selectedGroup?.data) {
