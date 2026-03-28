@@ -845,6 +845,14 @@ export default function GroupEnrollment() {
     () => groups.filter((group) => !group.currentAssignedAgentId && !getAssignedAgentIdFromMetadata(group.metadata)).length,
     [groups],
   );
+  const statusSummary = useMemo(
+    () => ({
+      draft: groups.filter((group) => group.status === "draft").length,
+      registered: groups.filter((group) => group.status === "registered").length,
+      active: groups.filter((group) => group.status === "active").length,
+    }),
+    [groups],
+  );
   const myAssignedQueueCount = useMemo(() => {
     if (!user?.id) {
       return 0;
@@ -1906,6 +1914,11 @@ export default function GroupEnrollment() {
               <div>
                 <CardTitle>Group Pipeline</CardTitle>
                 <p className="text-sm text-gray-500">Monitor each employer group before payment handoff.</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="outline">Draft: {statusSummary.draft}</Badge>
+                  <Badge variant="outline">Enrolled: {statusSummary.registered}</Badge>
+                  <Badge variant="outline">Active: {statusSummary.active}</Badge>
+                </div>
               </div>
             </div>
             {canAccessAdminViews && (
