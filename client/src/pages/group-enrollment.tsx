@@ -272,6 +272,10 @@ type GroupMemberRecord = {
   firstName: string;
   lastName: string;
   email: string;
+  middleName?: string | null;
+  suffix?: string | null;
+  preferredName?: string | null;
+  sex?: string | null;
   phone?: string | null;
   dateOfBirth?: string | null;
   tier: string;
@@ -288,6 +292,10 @@ type GroupMemberRecord = {
   memberAmount?: string | null;
   discountAmount?: string | null;
   totalAmount?: string | null;
+  metadata?: Record<string, any> | null;
+  registrationPayload?: Record<string, any> | null;
+  ssn?: string | null;
+  hasSsn?: boolean;
 };
 
 type GroupDocumentRecord = {
@@ -312,12 +320,212 @@ type AgentOption = {
 
 type MemberFormState = {
   id?: number;
+  relationship: string;
   firstName: string;
+  middleName: string;
   lastName: string;
-  email: string;
+  suffix: string;
+  preferredName: string;
+  dateOfBirth: string;
+  sex: string;
+  hireDate: string;
+  className: string;
+  department: string;
+  division: string;
+  businessUnit: string;
+  workEmail: string;
+  personalEmail: string;
+  payrollGroup: string;
+  annualBaseSalary: string;
+  hoursPerWeek: string;
+  salaryEffectiveDate: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  county: string;
+  country: string;
+  homePhone: string;
+  mobilePhone: string;
+  workPhone: string;
+  employmentType: string;
+  jobTitle: string;
+  retireDate: string;
+  originalHireDate: string;
+  terminationDate: string;
+  terminationReason: string;
+  rehireDate: string;
+  ssn: string;
   tier: string;
   payorType: string;
   status: string;
+};
+
+type EmploymentProfileState = {
+  middleName: string;
+  suffix: string;
+  preferredName: string;
+  sex: string;
+  hireDate: string;
+  className: string;
+  department: string;
+  division: string;
+  businessUnit: string;
+  workEmail: string;
+  personalEmail: string;
+  payrollGroup: string;
+  annualBaseSalary: string;
+  hoursPerWeek: string;
+  salaryEffectiveDate: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  county: string;
+  country: string;
+  homePhone: string;
+  mobilePhone: string;
+  workPhone: string;
+  employmentType: string;
+  jobTitle: string;
+  retireDate: string;
+  originalHireDate: string;
+  terminationDate: string;
+  terminationReason: string;
+  rehireDate: string;
+};
+
+const REQUIRED_MEMBER_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
+  "sex",
+  "hireDate",
+  "className",
+  "division",
+  "workEmail",
+  "personalEmail",
+  "payrollGroup",
+  "annualBaseSalary",
+  "hoursPerWeek",
+  "salaryEffectiveDate",
+  "address1",
+  "address2",
+  "city",
+  "state",
+  "zipCode",
+  "mobilePhone",
+  "employmentType",
+  "originalHireDate",
+];
+
+const REQUIRED_MEMBER_BASE_FIELDS: Array<keyof Pick<MemberFormState, "relationship" | "firstName" | "lastName" | "dateOfBirth">> = [
+  "relationship",
+  "firstName",
+  "lastName",
+  "dateOfBirth",
+];
+
+const emptyEmploymentProfile: EmploymentProfileState = {
+  middleName: "",
+  suffix: "",
+  preferredName: "",
+  sex: "",
+  hireDate: "",
+  className: "",
+  department: "",
+  division: "",
+  businessUnit: "",
+  workEmail: "",
+  personalEmail: "",
+  payrollGroup: "",
+  annualBaseSalary: "",
+  hoursPerWeek: "",
+  salaryEffectiveDate: "",
+  address1: "",
+  address2: "",
+  city: "",
+  state: "",
+  zipCode: "",
+  county: "",
+  country: "",
+  homePhone: "",
+  mobilePhone: "",
+  workPhone: "",
+  employmentType: "",
+  jobTitle: "",
+  retireDate: "",
+  originalHireDate: "",
+  terminationDate: "",
+  terminationReason: "",
+  rehireDate: "",
+};
+
+const toEmploymentProfile = (member: GroupMemberRecord | null | undefined): EmploymentProfileState => {
+  const source = (member?.metadata?.employmentProfile || member?.registrationPayload?.employmentProfile || {}) as Record<string, unknown>;
+  return {
+    ...emptyEmploymentProfile,
+    middleName: String(source.middleName || ""),
+    suffix: String(source.suffix || ""),
+    preferredName: String(source.preferredName || ""),
+    sex: String(source.sex || ""),
+    hireDate: String(source.hireDate || ""),
+    className: String(source.className || ""),
+    department: String(source.department || ""),
+    division: String(source.division || ""),
+    businessUnit: String(source.businessUnit || ""),
+    workEmail: String(source.workEmail || ""),
+    personalEmail: String(source.personalEmail || ""),
+    payrollGroup: String(source.payrollGroup || ""),
+    annualBaseSalary: String(source.annualBaseSalary || ""),
+    hoursPerWeek: String(source.hoursPerWeek || ""),
+    salaryEffectiveDate: String(source.salaryEffectiveDate || ""),
+    address1: String(source.address1 || ""),
+    address2: String(source.address2 || ""),
+    city: String(source.city || ""),
+    state: String(source.state || ""),
+    zipCode: String(source.zipCode || ""),
+    county: String(source.county || ""),
+    country: String(source.country || ""),
+    homePhone: String(source.homePhone || ""),
+    mobilePhone: String(source.mobilePhone || ""),
+    workPhone: String(source.workPhone || ""),
+    employmentType: String(source.employmentType || ""),
+    jobTitle: String(source.jobTitle || ""),
+    retireDate: String(source.retireDate || ""),
+    originalHireDate: String(source.originalHireDate || ""),
+    terminationDate: String(source.terminationDate || ""),
+    terminationReason: String(source.terminationReason || ""),
+    rehireDate: String(source.rehireDate || ""),
+  };
+};
+
+const collectMissingMemberFields = (form: MemberFormState): string[] => {
+  const missing: string[] = [];
+
+  REQUIRED_MEMBER_BASE_FIELDS.forEach((fieldName) => {
+    if (!String(form[fieldName] || "").trim()) {
+      missing.push(fieldName);
+    }
+  });
+
+  REQUIRED_MEMBER_PROFILE_FIELDS.forEach((fieldName) => {
+    if (!String(form[fieldName] || "").trim()) {
+      missing.push(fieldName);
+    }
+  });
+
+  return missing;
+};
+
+const isMemberCompleteForEnrollment = (member: GroupMemberRecord): boolean => {
+  const employment = toEmploymentProfile(member);
+
+  if (!String(member.relationship || "").trim()) return false;
+  if (!String(member.firstName || "").trim()) return false;
+  if (!String(member.lastName || "").trim()) return false;
+  if (!String(member.dateOfBirth || "").trim()) return false;
+
+  return REQUIRED_MEMBER_PROFILE_FIELDS.every((fieldName) => String(employment[fieldName] || "").trim().length > 0);
 };
 
 type DiscountValidationState = {
@@ -839,9 +1047,43 @@ export default function GroupEnrollment() {
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<GroupMemberRecord | null>(null);
   const defaultMemberForm: MemberFormState = {
+    relationship: "primary",
     firstName: "",
+    middleName: "",
     lastName: "",
-    email: "",
+    suffix: "",
+    preferredName: "",
+    dateOfBirth: "",
+    sex: "",
+    hireDate: "",
+    className: "",
+    department: "",
+    division: "",
+    businessUnit: "",
+    workEmail: "",
+    personalEmail: "",
+    payrollGroup: "",
+    annualBaseSalary: "",
+    hoursPerWeek: "",
+    salaryEffectiveDate: "",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    county: "",
+    country: "",
+    homePhone: "",
+    mobilePhone: "",
+    workPhone: "",
+    employmentType: "",
+    jobTitle: "",
+    retireDate: "",
+    originalHireDate: "",
+    terminationDate: "",
+    terminationReason: "",
+    rehireDate: "",
+    ssn: "",
     tier: "member",
     payorType: "full",
     status: "draft",
@@ -1325,12 +1567,89 @@ export default function GroupEnrollment() {
       if (!groupId) throw new Error("Select a group first");
 
       const payload = {
+        relationship: memberForm.relationship,
         firstName: memberForm.firstName.trim(),
+        middleName: memberForm.middleName.trim() || null,
         lastName: memberForm.lastName.trim(),
-        email: memberForm.email.trim().toLowerCase(),
+        dateOfBirth: memberForm.dateOfBirth,
+        phone: memberForm.mobilePhone.trim() || null,
+        email: memberForm.workEmail.trim().toLowerCase(),
+        ssn: memberForm.ssn.trim() || null,
         tier: memberForm.tier,
         payorType: memberForm.payorType,
         status: memberForm.status,
+        metadata: {
+          employmentProfile: {
+            middleName: memberForm.middleName,
+            suffix: memberForm.suffix,
+            preferredName: memberForm.preferredName,
+            sex: memberForm.sex,
+            hireDate: memberForm.hireDate,
+            className: memberForm.className,
+            department: memberForm.department,
+            division: memberForm.division,
+            businessUnit: memberForm.businessUnit,
+            workEmail: memberForm.workEmail,
+            personalEmail: memberForm.personalEmail,
+            payrollGroup: memberForm.payrollGroup,
+            annualBaseSalary: memberForm.annualBaseSalary,
+            hoursPerWeek: memberForm.hoursPerWeek,
+            salaryEffectiveDate: memberForm.salaryEffectiveDate,
+            address1: memberForm.address1,
+            address2: memberForm.address2,
+            city: memberForm.city,
+            state: memberForm.state,
+            zipCode: memberForm.zipCode,
+            county: memberForm.county,
+            country: memberForm.country,
+            homePhone: memberForm.homePhone,
+            mobilePhone: memberForm.mobilePhone,
+            workPhone: memberForm.workPhone,
+            employmentType: memberForm.employmentType,
+            jobTitle: memberForm.jobTitle,
+            retireDate: memberForm.retireDate,
+            originalHireDate: memberForm.originalHireDate,
+            terminationDate: memberForm.terminationDate,
+            terminationReason: memberForm.terminationReason,
+            rehireDate: memberForm.rehireDate,
+          },
+        },
+        registrationPayload: {
+          employmentProfile: {
+            middleName: memberForm.middleName,
+            suffix: memberForm.suffix,
+            preferredName: memberForm.preferredName,
+            sex: memberForm.sex,
+            hireDate: memberForm.hireDate,
+            className: memberForm.className,
+            department: memberForm.department,
+            division: memberForm.division,
+            businessUnit: memberForm.businessUnit,
+            workEmail: memberForm.workEmail,
+            personalEmail: memberForm.personalEmail,
+            payrollGroup: memberForm.payrollGroup,
+            annualBaseSalary: memberForm.annualBaseSalary,
+            hoursPerWeek: memberForm.hoursPerWeek,
+            salaryEffectiveDate: memberForm.salaryEffectiveDate,
+            address1: memberForm.address1,
+            address2: memberForm.address2,
+            city: memberForm.city,
+            state: memberForm.state,
+            zipCode: memberForm.zipCode,
+            county: memberForm.county,
+            country: memberForm.country,
+            homePhone: memberForm.homePhone,
+            mobilePhone: memberForm.mobilePhone,
+            workPhone: memberForm.workPhone,
+            employmentType: memberForm.employmentType,
+            jobTitle: memberForm.jobTitle,
+            retireDate: memberForm.retireDate,
+            originalHireDate: memberForm.originalHireDate,
+            terminationDate: memberForm.terminationDate,
+            terminationReason: memberForm.terminationReason,
+            rehireDate: memberForm.rehireDate,
+          },
+        },
       };
 
       if (editingMember) {
@@ -1808,12 +2127,47 @@ export default function GroupEnrollment() {
   };
 
   const handleEditMemberClick = (member: GroupMemberRecord) => {
+    const employment = toEmploymentProfile(member);
     setEditingMember(member);
     resetMemberForm({
       id: member.id,
+      relationship: member.relationship || "primary",
       firstName: member.firstName,
+      middleName: employment.middleName,
       lastName: member.lastName,
-      email: member.email,
+      suffix: employment.suffix,
+      preferredName: employment.preferredName,
+      dateOfBirth: member.dateOfBirth || "",
+      sex: employment.sex,
+      hireDate: employment.hireDate,
+      className: employment.className,
+      department: employment.department,
+      division: employment.division,
+      businessUnit: employment.businessUnit,
+      workEmail: employment.workEmail || member.email,
+      personalEmail: employment.personalEmail,
+      payrollGroup: employment.payrollGroup,
+      annualBaseSalary: employment.annualBaseSalary,
+      hoursPerWeek: employment.hoursPerWeek,
+      salaryEffectiveDate: employment.salaryEffectiveDate,
+      address1: employment.address1,
+      address2: employment.address2,
+      city: employment.city,
+      state: employment.state,
+      zipCode: employment.zipCode,
+      county: employment.county,
+      country: employment.country,
+      homePhone: employment.homePhone,
+      mobilePhone: employment.mobilePhone || member.phone || "",
+      workPhone: employment.workPhone,
+      employmentType: employment.employmentType,
+      jobTitle: employment.jobTitle,
+      retireDate: employment.retireDate,
+      originalHireDate: employment.originalHireDate,
+      terminationDate: employment.terminationDate,
+      terminationReason: employment.terminationReason,
+      rehireDate: employment.rehireDate,
+      ssn: member.ssn || "",
       tier: member.tier,
       payorType: member.payorType || selectedGroup?.data?.payorType || "full",
       status: member.status || "draft",
@@ -1821,10 +2175,8 @@ export default function GroupEnrollment() {
     setMemberDialogOpen(true);
   };
 
-  const isMemberFormValid =
-    memberForm.firstName.trim().length > 1 &&
-    memberForm.lastName.trim().length > 1 &&
-    (!doesTierRequirePrimaryEmail(memberForm.tier) || memberForm.email.trim().length > 5);
+  const missingMemberFields = collectMissingMemberFields(memberForm);
+  const isMemberFormValid = missingMemberFields.length === 0;
 
   const memberDialogTitle = editingMember ? "Edit Group Member" : "Add Group Member";
   const memberDialogDescription = editingMember
@@ -1838,6 +2190,10 @@ export default function GroupEnrollment() {
   const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
   const isGroupActive = groupStatus === "active";
   const canCompleteEnrollment = activeMemberCount > 0 && profileComplete && !isEnrollmentComplete;
+  const activeMembersMissingRequired = selectedGroup?.members?.filter((member) =>
+    member.status !== "terminated" && !isMemberCompleteForEnrollment(member)
+  ).length ?? 0;
+  const canCompleteEnrollmentWithRequiredFields = canCompleteEnrollment && activeMembersMissingRequired === 0;
   const canActivateGroup = activeMemberCount > 0 && profileComplete && isEnrollmentComplete && !isGroupActive;
   const paymentHandoffStatusLabel = selectedGroup?.data?.hostedCheckoutStatus || "not-started";
   const paymentHandoffBadgeClass = paymentHandoffStatusLabel === "ready"
@@ -3447,7 +3803,7 @@ export default function GroupEnrollment() {
                       <Button
                         className="w-full"
                         onClick={() => completeGroupMutation.mutate()}
-                        disabled={!canCompleteEnrollment || completeGroupMutation.isPending}
+                        disabled={!canCompleteEnrollmentWithRequiredFields || completeGroupMutation.isPending}
                       >
                         {isEnrollmentComplete
                           ? 'Enrollment Complete'
@@ -3468,9 +3824,15 @@ export default function GroupEnrollment() {
                             : 'Set Active'}
                       </Button>
                     </div>
-                    {!canCompleteEnrollment && !isEnrollmentComplete && (
+                    {!canCompleteEnrollmentWithRequiredFields && !isEnrollmentComplete && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
-                        {activeMemberCount === 0 ? 'Add at least one non-terminated member before completing enrollment.' : 'Complete group profile before completing enrollment.'}
+                        {activeMemberCount === 0
+                          ? 'Add at least one non-terminated member before completing enrollment.'
+                          : !profileComplete
+                            ? 'Complete group profile before completing enrollment.'
+                            : activeMembersMissingRequired > 0
+                              ? `Complete all required employee fields for ${activeMembersMissingRequired} active member(s).`
+                              : 'Complete required member data before completing enrollment.'}
                       </p>
                     )}
                   </div>
@@ -3633,6 +3995,34 @@ export default function GroupEnrollment() {
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
+                <Label>Relationship</Label>
+                <Select
+                  value={memberForm.relationship}
+                  onValueChange={(value) => setMemberForm((prev) => ({ ...prev, relationship: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Relationship" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="primary">Primary</SelectItem>
+                    <SelectItem value="spouse">Spouse</SelectItem>
+                    <SelectItem value="dependent">Dependent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="member-date-of-birth">Date of Birth</Label>
+                <Input
+                  id="member-date-of-birth"
+                  type="date"
+                  value={memberForm.dateOfBirth}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, dateOfBirth: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
                 <Label htmlFor="member-first-name">First Name</Label>
                 <Input
                   id="member-first-name"
@@ -3650,16 +4040,306 @@ export default function GroupEnrollment() {
                   placeholder="Knope"
                 />
               </div>
+              <div>
+                <Label htmlFor="member-middle-name">Middle Name</Label>
+                <Input
+                  id="member-middle-name"
+                  value={memberForm.middleName}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, middleName: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-suffix">Suffix</Label>
+                <Input
+                  id="member-suffix"
+                  value={memberForm.suffix}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, suffix: event.target.value }))}
+                  placeholder="Jr"
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-preferred-name">Preferred Name</Label>
+                <Input
+                  id="member-preferred-name"
+                  value={memberForm.preferredName}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, preferredName: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-sex">Sex</Label>
+                <Input
+                  id="member-sex"
+                  value={memberForm.sex}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, sex: event.target.value }))}
+                  placeholder="M/F/X"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="member-employee-ssn">Employee SSN (optional)</Label>
+                <Input
+                  id="member-employee-ssn"
+                  value={memberForm.ssn}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, ssn: event.target.value }))}
+                  placeholder="###-##-####"
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-mobile-phone">Mobile Phone</Label>
+                <Input
+                  id="member-mobile-phone"
+                  value={memberForm.mobilePhone}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, mobilePhone: event.target.value }))}
+                  placeholder="(555) 123-4567"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="member-work-email">Work Email</Label>
+                <Input
+                  id="member-work-email"
+                  type="email"
+                  value={memberForm.workEmail}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, workEmail: event.target.value }))}
+                  placeholder="employee@company.com"
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-personal-email">Personal Email</Label>
+                <Input
+                  id="member-personal-email"
+                  type="email"
+                  value={memberForm.personalEmail}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, personalEmail: event.target.value }))}
+                  placeholder="person@email.com"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label htmlFor="member-hire-date">Hire Date</Label>
+                <Input
+                  id="member-hire-date"
+                  type="date"
+                  value={memberForm.hireDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, hireDate: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-original-hire-date">Original Hire Date</Label>
+                <Input
+                  id="member-original-hire-date"
+                  type="date"
+                  value={memberForm.originalHireDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, originalHireDate: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-employment-type">Employment Type</Label>
+                <Input
+                  id="member-employment-type"
+                  value={memberForm.employmentType}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, employmentType: event.target.value }))}
+                  placeholder="Full-time"
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-class">Class</Label>
+                <Input
+                  id="member-class"
+                  value={memberForm.className}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, className: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-division">Division</Label>
+                <Input
+                  id="member-division"
+                  value={memberForm.division}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, division: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-payroll-group">Payroll Group</Label>
+                <Input
+                  id="member-payroll-group"
+                  value={memberForm.payrollGroup}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, payrollGroup: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-annual-base-salary">Annual Base Salary</Label>
+                <Input
+                  id="member-annual-base-salary"
+                  value={memberForm.annualBaseSalary}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, annualBaseSalary: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-hours-per-week">Hours Per Week</Label>
+                <Input
+                  id="member-hours-per-week"
+                  value={memberForm.hoursPerWeek}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, hoursPerWeek: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-salary-effective-date">Salary Effective Date</Label>
+                <Input
+                  id="member-salary-effective-date"
+                  type="date"
+                  value={memberForm.salaryEffectiveDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, salaryEffectiveDate: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="member-address-1">Address 1</Label>
+                <Input
+                  id="member-address-1"
+                  value={memberForm.address1}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, address1: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-address-2">Address 2</Label>
+                <Input
+                  id="member-address-2"
+                  value={memberForm.address2}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, address2: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label htmlFor="member-city">City</Label>
+                <Input
+                  id="member-city"
+                  value={memberForm.city}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, city: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-state">State</Label>
+                <Input
+                  id="member-state"
+                  value={memberForm.state}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, state: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-zip">Zip Code</Label>
+                <Input
+                  id="member-zip"
+                  value={memberForm.zipCode}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, zipCode: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label htmlFor="member-department">Department</Label>
+                <Input
+                  id="member-department"
+                  value={memberForm.department}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, department: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-business-unit">Business Unit</Label>
+                <Input
+                  id="member-business-unit"
+                  value={memberForm.businessUnit}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, businessUnit: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-job-title">Job Title</Label>
+                <Input
+                  id="member-job-title"
+                  value={memberForm.jobTitle}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, jobTitle: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-county">County</Label>
+                <Input
+                  id="member-county"
+                  value={memberForm.county}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, county: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-country">Country</Label>
+                <Input
+                  id="member-country"
+                  value={memberForm.country}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, country: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-home-phone">Home Phone</Label>
+                <Input
+                  id="member-home-phone"
+                  value={memberForm.homePhone}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, homePhone: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-work-phone">Work Phone</Label>
+                <Input
+                  id="member-work-phone"
+                  value={memberForm.workPhone}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, workPhone: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label htmlFor="member-retire-date">Retire Date</Label>
+                <Input
+                  id="member-retire-date"
+                  type="date"
+                  value={memberForm.retireDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, retireDate: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-termination-date">Termination Date</Label>
+                <Input
+                  id="member-termination-date"
+                  type="date"
+                  value={memberForm.terminationDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, terminationDate: event.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="member-rehire-date">Rehire Date</Label>
+                <Input
+                  id="member-rehire-date"
+                  type="date"
+                  value={memberForm.rehireDate}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, rehireDate: event.target.value }))}
+                />
+              </div>
             </div>
 
             <div>
-              <Label htmlFor="member-email">Email</Label>
+              <Label htmlFor="member-termination-reason">Termination Reason</Label>
               <Input
-                id="member-email"
-                type="email"
-                value={memberForm.email}
-                onChange={(event) => setMemberForm((prev) => ({ ...prev, email: event.target.value }))}
-                placeholder="leslie@example.com"
+                id="member-termination-reason"
+                value={memberForm.terminationReason}
+                onChange={(event) => setMemberForm((prev) => ({ ...prev, terminationReason: event.target.value }))}
               />
             </div>
 
@@ -3727,6 +4407,12 @@ export default function GroupEnrollment() {
                 <p className="text-xs text-gray-500 mt-1">Payor mirrors the group setting.</p>
               )}
             </div>
+
+            {missingMemberFields.length > 0 && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Missing required fields: {missingMemberFields.join(", ")}
+              </p>
+            )}
           </div>
 
           <DialogFooter>

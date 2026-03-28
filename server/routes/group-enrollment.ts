@@ -64,6 +64,26 @@ const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
 const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
+const REQUIRED_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
+  'sex',
+  'hireDate',
+  'className',
+  'division',
+  'workEmail',
+  'personalEmail',
+  'payrollGroup',
+  'annualBaseSalary',
+  'hoursPerWeek',
+  'salaryEffectiveDate',
+  'address1',
+  'address2',
+  'city',
+  'state',
+  'zipCode',
+  'mobilePhone',
+  'employmentType',
+  'originalHireDate',
+] as const;
 
 let groupDocumentsBucketReady = false;
 
@@ -105,6 +125,48 @@ const toTrimmedOrNull = (value: unknown): string | null => {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const getEmploymentProfileFromMember = (member: any): Record<string, any> => {
+  const metadata = toObjectOrNull(member?.metadata);
+  const registrationPayload = toObjectOrNull(member?.registrationPayload);
+
+  const fromMetadata = toObjectOrNull(metadata?.employmentProfile);
+  const fromPayload = toObjectOrNull(registrationPayload?.employmentProfile);
+
+  return {
+    ...(fromPayload || {}),
+    ...(fromMetadata || {}),
+  };
+};
+
+const getMissingRequiredMemberFields = (member: any): string[] => {
+  const missing: string[] = [];
+  const profile = getEmploymentProfileFromMember(member);
+
+  if (!toTrimmedOrNull(member?.relationship)) {
+    missing.push('relationship');
+  }
+
+  if (!toTrimmedOrNull(member?.firstName)) {
+    missing.push('firstName');
+  }
+
+  if (!toTrimmedOrNull(member?.lastName)) {
+    missing.push('lastName');
+  }
+
+  if (!toTrimmedOrNull(member?.dateOfBirth)) {
+    missing.push('dateOfBirth');
+  }
+
+  for (const fieldName of REQUIRED_MEMBER_EMPLOYMENT_PROFILE_FIELDS) {
+    if (!toTrimmedOrNull(profile[fieldName])) {
+      missing.push(fieldName);
+    }
+  }
+
+  return missing;
 };
 
 const toTitleCase = (value: string): string =>
@@ -2018,9 +2080,28 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
     }
 
     const members = await listGroupMembers({ groupId });
-    const activeMemberCount = members.filter((member) => member.status !== 'terminated').length;
+    const activeMembers = members.filter((member) => member.status !== 'terminated');
+    const activeMemberCount = activeMembers.length;
     if (activeMemberCount <= 0) {
       return res.status(400).json({ message: 'At least one active member is required before marking ready.' });
+    }
+
+    const missingMemberRequirements = activeMembers
+      .map((member) => {
+        const missingFields = getMissingRequiredMemberFields(member);
+        return {
+          memberId: member.id,
+          memberName: `${member.firstName || ''} ${member.lastName || ''}`.trim() || `Member ${member.id}`,
+          missingFields,
+        };
+      })
+      .filter((entry) => entry.missingFields.length > 0);
+
+    if (missingMemberRequirements.length > 0) {
+      return res.status(400).json({
+        message: 'All active members must have required enrollment fields completed before final enrollment.',
+        missingMemberRequirements,
+      });
     }
 
     const completed = await completeGroupRegistration(groupId, {
