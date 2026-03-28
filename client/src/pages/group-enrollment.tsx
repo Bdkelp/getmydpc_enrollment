@@ -731,6 +731,8 @@ const buildFailedRowsFileName = (sourceFileName: string): string => {
   return `${safeBase || "group-census"}-failed-rows-${timestamp}.csv`;
 };
 
+type DetailStep = "setup" | "profile" | "members" | "readiness";
+
 export default function GroupEnrollment() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
@@ -765,7 +767,7 @@ export default function GroupEnrollment() {
   const [groupCurrentAgentFilter, setGroupCurrentAgentFilter] = useState("all");
   const [groupOriginalAgentFilter, setGroupOriginalAgentFilter] = useState("all");
   const [groupReassignedOnlyFilter, setGroupReassignedOnlyFilter] = useState(false);
-  const [detailStep, setDetailStep] = useState<"setup" | "profile" | "members" | "readiness">("setup");
+  const [detailStep, setDetailStep] = useState<DetailStep>("setup");
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [reassignmentForm, setReassignmentForm] = useState<GroupReassignmentFormState>({
     newAgentId: IN_HOUSE_AGENT_OPTION_VALUE,
@@ -1679,6 +1681,41 @@ export default function GroupEnrollment() {
   const setupComplete = Boolean(groupSetupForm.name.trim().length > 0);
   const membersComplete = activeMemberCount > 0;
   const readinessComplete = selectedGroup?.data?.status === "registered";
+  const canOpenProfileStep = setupComplete;
+  const canOpenMembersStep = setupComplete && profileComplete;
+  const canOpenReadinessStep = setupComplete && profileComplete && (membersComplete || readinessComplete);
+  const navigateDetailStep = (nextStep: DetailStep) => {
+    if (nextStep === "setup") {
+      setDetailStep("setup");
+      return;
+    }
+
+    if (nextStep === "profile" && !canOpenProfileStep) {
+      toast({
+        title: "Complete setup first",
+        description: "Save group setup details before moving to Group Profile.",
+      });
+      return;
+    }
+
+    if (nextStep === "members" && !canOpenMembersStep) {
+      toast({
+        title: "Profile required",
+        description: "Finish Group Profile before opening the Members step.",
+      });
+      return;
+    }
+
+    if (nextStep === "readiness" && !canOpenReadinessStep) {
+      toast({
+        title: "Readiness is locked",
+        description: "Complete setup, profile, and at least one active member before opening Readiness.",
+      });
+      return;
+    }
+
+    setDetailStep(nextStep);
+  };
   const newGroupIndustryIsCustom = Boolean(newGroupForm.industry.trim()) && !isPresetIndustryValue(newGroupForm.industry);
   const newGroupIndustrySelectValue = newGroupIndustryIsCustom
     ? INDUSTRY_OTHER_VALUE
@@ -2362,7 +2399,7 @@ export default function GroupEnrollment() {
                     type="button"
                     variant={detailStep === "setup" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setDetailStep("setup")}
+                    onClick={() => navigateDetailStep("setup")}
                   >
                     1. Setup {setupComplete ? "✓" : ""}
                   </Button>
@@ -2370,7 +2407,8 @@ export default function GroupEnrollment() {
                     type="button"
                     variant={detailStep === "profile" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setDetailStep("profile")}
+                    onClick={() => navigateDetailStep("profile")}
+                    disabled={!canOpenProfileStep}
                   >
                     2. Profile {profileComplete ? "✓" : ""}
                   </Button>
@@ -2378,7 +2416,8 @@ export default function GroupEnrollment() {
                     type="button"
                     variant={detailStep === "members" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setDetailStep("members")}
+                    onClick={() => navigateDetailStep("members")}
+                    disabled={!canOpenMembersStep}
                   >
                     3. Members {membersComplete ? "✓" : ""}
                   </Button>
@@ -2386,11 +2425,17 @@ export default function GroupEnrollment() {
                     type="button"
                     variant={detailStep === "readiness" ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setDetailStep("readiness")}
+                    onClick={() => navigateDetailStep("readiness")}
+                    disabled={!canOpenReadinessStep}
                   >
                     4. Readiness {readinessComplete ? "✓" : ""}
                   </Button>
                 </div>
+                {(!canOpenMembersStep || !canOpenReadinessStep) && (
+                  <p className="mt-2 text-xs text-slate-600">
+                    Follow the sequence: Setup → Profile → Members → Readiness.
+                  </p>
+                )}
               </div>
 
               {detailStep === "setup" && (
