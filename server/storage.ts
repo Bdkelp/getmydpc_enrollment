@@ -206,6 +206,9 @@ const mapGoalRow = (row: any): AgentPerformanceGoalOverrideRecord => ({
 
 type FamilyMemberRow = {
   id: number;
+  household_base_number?: string | null;
+  customer_number?: string | null;
+  dependent_suffix?: number | null;
   first_name: string;
   last_name: string;
   middle_name?: string | null;
@@ -222,6 +225,9 @@ type FamilyMemberRow = {
 
 const mapFamilyMemberRowToRecord = (row: FamilyMemberRow) => ({
   id: row.id?.toString(),
+  householdBaseNumber: row.household_base_number || undefined,
+  customerNumber: row.customer_number || undefined,
+  dependentSuffix: row.dependent_suffix ?? undefined,
   firstName: row.first_name,
   lastName: row.last_name,
   middleName: row.middle_name || undefined,
@@ -4768,9 +4774,53 @@ export async function getFamilyMembers(primaryMemberOrUserId: string | number): 
 }
 
 export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
+  const normalizedRelationship = String(member.relationship || member.memberType || 'dependent').trim().toLowerCase();
+  const normalizedMemberType = String(member.memberType || '').trim().toLowerCase();
+  const isSpouse = normalizedRelationship === 'spouse' || normalizedMemberType === 'spouse';
+  const relationship = isSpouse ? 'spouse' : 'dependent';
+
+  let householdBaseNumber: string | null = null;
+  let customerNumber: string | null = null;
+  let dependentSuffix: number | null = null;
+
+  if (member.primaryMemberId) {
+    const primaryResult = await query(
+      'SELECT customer_number FROM members WHERE id = $1 LIMIT 1',
+      [member.primaryMemberId]
+    );
+    householdBaseNumber = primaryResult.rows?.[0]?.customer_number || null;
+
+    if (!householdBaseNumber) {
+      throw new Error(`Primary member ${member.primaryMemberId} is missing customer number`);
+    }
+
+    if (isSpouse) {
+      dependentSuffix = 1;
+      const spouseExists = await query(
+        'SELECT id FROM family_members WHERE primary_member_id = $1 AND dependent_suffix = 1 LIMIT 1',
+        [member.primaryMemberId]
+      );
+      if (spouseExists.rows?.length) {
+        throw new Error('A spouse already exists for this household and must retain suffix -1.');
+      }
+    } else {
+      const maxSuffixResult = await query(
+        'SELECT COALESCE(MAX(dependent_suffix), 1) AS max_suffix FROM family_members WHERE primary_member_id = $1 AND dependent_suffix IS NOT NULL',
+        [member.primaryMemberId]
+      );
+      const maxSuffix = Number(maxSuffixResult.rows?.[0]?.max_suffix || 1);
+      dependentSuffix = Math.max(2, maxSuffix + 1);
+    }
+
+    customerNumber = `${householdBaseNumber}-${dependentSuffix}`;
+  }
+
   const payload: Record<string, any> = {
     primary_member_id: member.primaryMemberId ?? null,
     primary_user_id: member.primaryUserId ?? null,
+    household_base_number: householdBaseNumber,
+    customer_number: customerNumber,
+    dependent_suffix: dependentSuffix,
     first_name: member.firstName,
     last_name: member.lastName,
     middle_name: member.middleName ?? null,
@@ -4779,8 +4829,8 @@ export async function addFamilyMember(member: InsertFamilyMember): Promise<Famil
     ssn: member.ssn ?? null,
     email: member.email ?? null,
     phone: member.phone ?? null,
-    relationship: member.relationship ?? null,
-    member_type: member.memberType,
+    relationship,
+    member_type: member.memberType || relationship,
     address: member.address ?? null,
     address2: member.address2 ?? null,
     city: member.city ?? null,
@@ -5563,6 +5613,10 @@ const mapGroupMemberFromDB = (record: any): GroupMember => ({
   id: record.id,
   groupId: record.group_id ?? record.groupId,
   memberId: record.member_id ?? record.memberId ?? null,
+  relationship: record.relationship ?? null,
+  householdBaseNumber: record.household_base_number ?? record.householdBaseNumber ?? null,
+  householdMemberNumber: record.household_member_number ?? record.householdMemberNumber ?? null,
+  dependentSuffix: record.dependent_suffix ?? record.dependentSuffix ?? null,
   tier: record.tier,
   payorType: record.payor_type ?? record.payorType,
   employerAmount: record.employer_amount ?? record.employerAmount ?? null,
@@ -5581,6 +5635,7 @@ const mapGroupMemberFromDB = (record: any): GroupMember => ({
   registeredAt: record.registered_at ?? record.registeredAt ?? null,
   updatedAt: record.updated_at ?? record.updatedAt ?? null,
   enrollmentCompletedAt: record.enrollment_completed_at ?? record.enrollmentCompletedAt ?? null,
+  terminatedAt: record.terminated_at ?? record.terminatedAt ?? null,
   notes: record.notes ?? null,
 });
 
@@ -5612,6 +5667,10 @@ const mapGroupMemberToDBPayload = (
 
   if (member.groupId !== undefined) payload.group_id = member.groupId;
   if (member.memberId !== undefined) payload.member_id = member.memberId;
+  if ((member as any).relationship !== undefined) payload.relationship = (member as any).relationship;
+  if ((member as any).householdBaseNumber !== undefined) payload.household_base_number = (member as any).householdBaseNumber;
+  if ((member as any).householdMemberNumber !== undefined) payload.household_member_number = (member as any).householdMemberNumber;
+  if ((member as any).dependentSuffix !== undefined) payload.dependent_suffix = (member as any).dependentSuffix;
   if (member.tier !== undefined) payload.tier = member.tier;
   if (member.payorType !== undefined) payload.payor_type = member.payorType;
   if (member.employerAmount !== undefined) payload.employer_amount = member.employerAmount;
@@ -5630,6 +5689,7 @@ const mapGroupMemberToDBPayload = (
   if (member.registeredAt !== undefined) payload.registered_at = member.registeredAt;
   if (member.updatedAt !== undefined) payload.updated_at = member.updatedAt;
   if (member.enrollmentCompletedAt !== undefined) payload.enrollment_completed_at = member.enrollmentCompletedAt;
+  if ((member as any).terminatedAt !== undefined) payload.terminated_at = (member as any).terminatedAt;
   if (member.notes !== undefined) payload.notes = member.notes;
 
   return payload;

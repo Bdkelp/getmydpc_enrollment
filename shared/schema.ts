@@ -271,6 +271,10 @@ export const groupMembers = pgTable("group_members", {
   id: serial("id").primaryKey(),
   groupId: uuid("group_id").references(() => groups.id).notNull(),
   memberId: integer("member_id").references(() => members.id),
+  relationship: varchar("relationship", { length: 20 }).default("primary"), // primary, spouse, dependent
+  householdBaseNumber: varchar("household_base_number", { length: 24 }), // Shared household/member base number
+  householdMemberNumber: varchar("household_member_number", { length: 32 }), // Full member number (with dependent suffix)
+  dependentSuffix: integer("dependent_suffix"),
   tier: varchar("tier", { length: 48 }).notNull(),
   payorType: varchar("payor_type", { length: 32 }).notNull(),
   employerAmount: decimal("employer_amount", { precision: 10, scale: 2 }).default("0"),
@@ -289,10 +293,13 @@ export const groupMembers = pgTable("group_members", {
   registeredAt: timestamp("registered_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   enrollmentCompletedAt: timestamp("enrollment_completed_at"),
+  terminatedAt: timestamp("terminated_at"),
   notes: text("notes"),
 }, (table) => [
   index("idx_group_members_group_id").on(table.groupId),
   index("idx_group_members_member_id").on(table.memberId),
+  index("idx_group_members_household_base_number").on(table.householdBaseNumber),
+  index("idx_group_members_household_member_number").on(table.householdMemberNumber),
   index("idx_group_members_status").on(table.status),
 ]);
   source: varchar("source", { length: 50 }).default("contact_form"),
@@ -334,6 +341,9 @@ export const familyMembers = pgTable("family_members", {
   id: serial("id").primaryKey(),
   primaryUserId: varchar("primary_user_id").references(() => users.id), // For staff (nullable)
   primaryMemberId: integer("primary_member_id").references(() => members.id), // For members (nullable)
+  householdBaseNumber: varchar("household_base_number", { length: 24 }), // Primary member base number
+  customerNumber: varchar("customer_number", { length: 32 }), // Full household member number
+  dependentSuffix: integer("dependent_suffix"),
   // Note: Either primaryUserId OR primaryMemberId must be set, enforced by CHECK constraint in migration
   firstName: varchar("first_name").notNull(),
   lastName: varchar("last_name").notNull(),
@@ -355,6 +365,7 @@ export const familyMembers = pgTable("family_members", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table: any) => [
   index("idx_family_members_primary_member_id").on(table.primaryMemberId),
+  index("idx_family_members_customer_number").on(table.customerNumber),
 ]);
 
 // ============================================================

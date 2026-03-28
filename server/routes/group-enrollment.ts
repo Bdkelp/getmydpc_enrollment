@@ -8,7 +8,6 @@ import {
   addGroupMember,
   completeGroupRegistration,
   createGroup,
-  deleteGroupMember,
   getGroupById,
   getGroupMemberById,
   listGroupMembers,
@@ -42,10 +41,26 @@ const parseAmount = (value: unknown): string | null => {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
-const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered']);
+const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered', 'terminated']);
+const ALLOWED_MEMBER_RELATIONSHIPS = new Set(['primary', 'spouse', 'dependent']);
 const ALLOWED_PAYOR_TYPES = new Set(['full', 'member']);
+const GROUP_INDUSTRY_CANONICAL_MAP: Record<string, string> = {
+  healthcare: 'Healthcare',
+  logistics: 'Logistics',
+  retail: 'Retail',
+  manufacturing: 'Manufacturing',
+  construction: 'Construction',
+  hospitality: 'Hospitality',
+  'professional services': 'Professional Services',
+  technology: 'Technology',
+  education: 'Education',
+  nonprofit: 'Nonprofit',
+  government: 'Government',
+};
 const SSN_FIELD_ALIASES = ['ssn', 'socialSecurityNumber', 'social_security_number'] as const;
 const GROUP_DOCUMENTS_BUCKET = 'group-documents';
+const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
+const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
 
@@ -89,6 +104,27 @@ const toTrimmedOrNull = (value: unknown): string | null => {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+};
+
+const toTitleCase = (value: string): string =>
+  value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+
+const normalizeGroupIndustry = (value: unknown): string | null => {
+  const trimmed = toTrimmedOrNull(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  const canonical = GROUP_INDUSTRY_CANONICAL_MAP[trimmed.toLowerCase()];
+  if (canonical) {
+    return canonical;
+  }
+
+  return toTitleCase(trimmed);
 };
 
 const toDigitsOrNull = (value: unknown): string | null => {
@@ -352,6 +388,172 @@ const normalizeAssignedAgentId = (value: unknown): string | null | undefined => 
   return trimmed.length > 0 ? trimmed : null;
 };
 
+const normalizeBoolean = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  }
+  return false;
+};
+
+const normalizeStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const uniqueValues = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+
+    const trimmed = item.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    uniqueValues.add(trimmed);
+  }
+
+  return Array.from(uniqueValues);
+};
+
+type GroupAssignmentState = {
+  currentAssignedAgentId: string | null;
+  originalAssignedAgentId: string | null;
+  readOnlyAgentIds: string[];
+  reassignmentCount: number;
+};
+
+const getGroupAssignmentState = (metadata: unknown): GroupAssignmentState => {
+  const safeMetadata = (metadata && typeof metadata === 'object' && !Array.isArray(metadata))
+    ? (metadata as Record<string, any>)
+    : {};
+  const assignment = (safeMetadata.assignment && typeof safeMetadata.assignment === 'object' && !Array.isArray(safeMetadata.assignment))
+    ? (safeMetadata.assignment as Record<string, any>)
+    : {};
+
+  const currentAssignedAgentId = normalizeAssignedAgentId(
+    assignment.currentAssignedAgentId ?? safeMetadata.assignedAgentId,
+  ) ?? null;
+  const originalAssignedAgentId = normalizeAssignedAgentId(
+    assignment.originalAssignedAgentId ?? safeMetadata.originalAssignedAgentId ?? currentAssignedAgentId,
+  ) ?? null;
+  const readOnlyAgentIds = normalizeStringArray(
+    assignment.readOnlyAgentIds ?? safeMetadata.readOnlyAgentIds,
+  ).filter((agentId) => agentId !== currentAssignedAgentId);
+
+  const reassignmentCountRaw = assignment.reassignmentCount ?? safeMetadata.reassignmentCount;
+  const reassignmentCountNumeric = typeof reassignmentCountRaw === 'number'
+    ? reassignmentCountRaw
+    : parseInt(String(reassignmentCountRaw ?? '0'), 10);
+
+  return {
+    currentAssignedAgentId,
+    originalAssignedAgentId,
+    readOnlyAgentIds,
+    reassignmentCount: Number.isFinite(reassignmentCountNumeric) && reassignmentCountNumeric > 0
+      ? reassignmentCountNumeric
+      : 0,
+  };
+};
+
+const setGroupAssignmentMetadata = (
+  existingMetadata: unknown,
+  updates: {
+    currentAssignedAgentId: string | null;
+    originalAssignedAgentId?: string | null;
+    readOnlyAgentIds?: string[];
+    reassignmentCount?: number;
+    lastReassignedAt?: string | null;
+    lastReassignmentEffectiveDate?: string | null;
+    previousAssignedAgentId?: string | null;
+    previousAgentKeepsReadOnlyAccess?: boolean;
+  },
+): Record<string, any> => {
+  const safeMetadata = (existingMetadata && typeof existingMetadata === 'object' && !Array.isArray(existingMetadata))
+    ? { ...(existingMetadata as Record<string, any>) }
+    : {};
+  const existingState = getGroupAssignmentState(safeMetadata);
+  const previousAssignment = (safeMetadata.assignment && typeof safeMetadata.assignment === 'object' && !Array.isArray(safeMetadata.assignment))
+    ? { ...(safeMetadata.assignment as Record<string, any>) }
+    : {};
+
+  const currentAssignedAgentId = updates.currentAssignedAgentId;
+  const originalAssignedAgentId =
+    updates.originalAssignedAgentId
+    ?? existingState.originalAssignedAgentId
+    ?? existingState.currentAssignedAgentId
+    ?? currentAssignedAgentId;
+  const readOnlyAgentIds = normalizeStringArray(
+    updates.readOnlyAgentIds ?? existingState.readOnlyAgentIds,
+  ).filter((agentId) => agentId !== currentAssignedAgentId);
+  const reassignmentCount = typeof updates.reassignmentCount === 'number'
+    ? updates.reassignmentCount
+    : existingState.reassignmentCount;
+
+  safeMetadata.assignedAgentId = currentAssignedAgentId;
+  safeMetadata.originalAssignedAgentId = originalAssignedAgentId;
+  safeMetadata.reassignmentCount = reassignmentCount;
+  safeMetadata.hasReassignmentHistory = reassignmentCount > 0;
+  safeMetadata.readOnlyAgentIds = readOnlyAgentIds;
+
+  safeMetadata.assignment = {
+    ...previousAssignment,
+    currentAssignedAgentId,
+    originalAssignedAgentId,
+    readOnlyAgentIds,
+    reassignmentCount,
+    hasReassignmentHistory: reassignmentCount > 0,
+    lastReassignedAt: updates.lastReassignedAt ?? previousAssignment.lastReassignedAt ?? null,
+    lastReassignmentEffectiveDate:
+      updates.lastReassignmentEffectiveDate
+      ?? previousAssignment.lastReassignmentEffectiveDate
+      ?? null,
+    previousAssignedAgentId:
+      updates.previousAssignedAgentId
+      ?? previousAssignment.previousAssignedAgentId
+      ?? null,
+    previousAgentKeepsReadOnlyAccess:
+      typeof updates.previousAgentKeepsReadOnlyAccess === 'boolean'
+        ? updates.previousAgentKeepsReadOnlyAccess
+        : previousAssignment.previousAgentKeepsReadOnlyAccess ?? false,
+  };
+
+  return safeMetadata;
+};
+
+const canAccessGroupByAssignment = (req: AuthRequest, groupMetadata: unknown): boolean => {
+  if (!req.user) {
+    return false;
+  }
+
+  if (hasAtLeastRole(req.user.role, 'admin')) {
+    return true;
+  }
+
+  const assignmentState = getGroupAssignmentState(groupMetadata);
+  return assignmentState.currentAssignedAgentId === req.user.id
+    || assignmentState.readOnlyAgentIds.includes(req.user.id);
+};
+
+const fetchGroupAssignmentHistory = async (groupId: string): Promise<any[]> => {
+  const { data, error } = await supabase
+    .from(GROUP_ASSIGNMENT_HISTORY_TABLE)
+    .select('*')
+    .eq('group_id', groupId)
+    .order('changed_at', { ascending: false });
+
+  if (error) {
+    console.warn('[Group Enrollment] Failed to fetch group assignment history:', error);
+    return [];
+  }
+
+  return data || [];
+};
+
 const normalizeMemberTier = (value: unknown): string => {
   if (typeof value !== 'string') {
     return 'member';
@@ -368,6 +570,36 @@ const normalizeMemberStatus = (value: unknown): string => {
 
   const normalized = value.trim().toLowerCase();
   return ALLOWED_MEMBER_STATUSES.has(normalized) ? normalized : 'draft';
+};
+
+const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): string => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (ALLOWED_MEMBER_RELATIONSHIPS.has(normalized)) {
+      return normalized;
+    }
+    if (normalized === 'child') {
+      return 'dependent';
+    }
+  }
+
+  const normalizedTier = normalizeMemberTier(fallbackTier);
+  if (normalizedTier === 'spouse') return 'spouse';
+  if (normalizedTier === 'child') return 'dependent';
+  return 'primary';
+};
+
+const normalizeDependentSuffix = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return null;
+  }
+
+  return parsed;
 };
 
 const normalizeMemberPayorType = (value: unknown, fallbackPayorType: string): string => {
@@ -587,9 +819,13 @@ router.use('/api/groups', authenticateToken, ensureGroupEnrollmentAccess);
 
 router.get('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
-    const { status, payorType, search } = req.query;
+    const { status, payorType, search, currentAgentId, originalAgentId, reassignedOnly } = req.query;
     const limit = Number(req.query.limit ?? 50);
     const offset = Number(req.query.offset ?? 0);
+    const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
+    const normalizedCurrentAgentFilter = typeof currentAgentId === 'string' ? currentAgentId.trim() : '';
+    const normalizedOriginalAgentFilter = typeof originalAgentId === 'string' ? originalAgentId.trim() : '';
+    const filterReassignedOnly = normalizeBoolean(reassignedOnly);
 
     const { groups, count } = await listGroups({
       status: typeof status === 'string' ? status : undefined,
@@ -601,13 +837,43 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
 
     const groupsWithContext = groups.map((group) => {
       const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+      const assignmentState = getGroupAssignmentState(group.metadata);
       return {
         ...group,
         groupProfileComplete: groupProfileContext.isComplete,
+        currentAssignedAgentId: assignmentState.currentAssignedAgentId,
+        originalAssignedAgentId: assignmentState.originalAssignedAgentId,
+        hasReassignmentHistory: assignmentState.reassignmentCount > 0,
       };
     });
 
-    return res.json({ data: groupsWithContext, count });
+    let filteredGroups = groupsWithContext;
+
+    if (!isAdminOrHigher) {
+      filteredGroups = filteredGroups.filter((group) => canAccessGroupByAssignment(req, group.metadata));
+    } else {
+      if (normalizedCurrentAgentFilter) {
+        if (normalizedCurrentAgentFilter === 'unassigned') {
+          filteredGroups = filteredGroups.filter((group) => !group.currentAssignedAgentId);
+        } else {
+          filteredGroups = filteredGroups.filter((group) => group.currentAssignedAgentId === normalizedCurrentAgentFilter);
+        }
+      }
+
+      if (normalizedOriginalAgentFilter) {
+        if (normalizedOriginalAgentFilter === 'unassigned') {
+          filteredGroups = filteredGroups.filter((group) => !group.originalAssignedAgentId);
+        } else {
+          filteredGroups = filteredGroups.filter((group) => group.originalAssignedAgentId === normalizedOriginalAgentFilter);
+        }
+      }
+
+      if (filterReassignedOnly) {
+        filteredGroups = filteredGroups.filter((group) => Boolean(group.hasReassignmentHistory));
+      }
+    }
+
+    return res.json({ data: filteredGroups, count: filteredGroups.length ?? count ?? 0 });
   } catch (error) {
     console.error('[Group Enrollment] Failed to list groups:', error);
     const message = error instanceof Error ? error.message : 'Failed to list groups';
@@ -623,25 +889,35 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Group name and payor type are required' });
     }
 
-    const existingMetadata = (metadata && typeof metadata === 'object') ? metadata : {};
+    const existingMetadata = (metadata && typeof metadata === 'object') ? { ...metadata } : {};
+    const normalizedIndustry = normalizeGroupIndustry(
+      existingMetadata.groupIndustry ?? existingMetadata.industry,
+    );
+    existingMetadata.groupIndustry = normalizedIndustry;
+    delete existingMetadata.industry;
     const normalizedProfile = normalizeGroupProfile(groupProfile, typeof payorType === 'string' ? payorType : undefined);
     const normalizedPayorType = typeof payorType === 'string'
       ? payorType
       : payorMixModeToPayorType(normalizedProfile.payorMix.mode);
     const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
     const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
-    const nextMetadata = {
+    let nextMetadata = {
       ...existingMetadata,
       groupProfile: normalizedProfile,
     };
 
+    let currentAssignedAgentId: string | null = null;
+
     if (isAdminOrHigher) {
-      if (selectedAssignedAgentId) {
-        nextMetadata.assignedAgentId = selectedAssignedAgentId;
-      }
+      currentAssignedAgentId = selectedAssignedAgentId ?? null;
     } else if (req.user?.id) {
-      nextMetadata.assignedAgentId = req.user.id;
+      currentAssignedAgentId = req.user.id;
     }
+
+    nextMetadata = setGroupAssignmentMetadata(nextMetadata, {
+      currentAssignedAgentId,
+      originalAssignedAgentId: currentAssignedAgentId,
+    });
 
     const group = await createGroup({
       name,
@@ -673,13 +949,25 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const members = await listGroupMembers({ groupId });
+    const assignmentHistory = await fetchGroupAssignmentHistory(groupId);
     const includeFullSsn = canViewFullMemberSsn(req);
     const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
     const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+    const assignmentState = getGroupAssignmentState(group.metadata);
     return res.json({
-      data: group,
+      data: {
+        ...group,
+        currentAssignedAgentId: assignmentState.currentAssignedAgentId,
+        originalAssignedAgentId: assignmentState.originalAssignedAgentId,
+        hasReassignmentHistory: assignmentState.reassignmentCount > 0,
+      },
       members: members.map((member) => toMemberResponse(member, includeFullSsn)),
+      assignmentHistory,
       effectiveDateContext,
       groupProfileContext,
     });
@@ -771,7 +1059,14 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
 
     const { groupProfile, metadata, assignedAgentId, ...otherFields } = req.body || {};
     const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
-    const incomingMetadata = (metadata && typeof metadata === 'object') ? metadata : {};
+    const incomingMetadata = (metadata && typeof metadata === 'object') ? { ...metadata } : {};
+    if (Object.prototype.hasOwnProperty.call(incomingMetadata, 'groupIndustry')
+      || Object.prototype.hasOwnProperty.call(incomingMetadata, 'industry')) {
+      incomingMetadata.groupIndustry = normalizeGroupIndustry(
+        incomingMetadata.groupIndustry ?? incomingMetadata.industry,
+      );
+    }
+    delete incomingMetadata.industry;
     const mergedMetadata = { ...existingMetadata, ...incomingMetadata } as Record<string, any>;
     const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
     const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
@@ -784,22 +1079,32 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       normalizedPayorType = payorMixModeToPayorType(normalizedProfile.payorMix.mode);
     }
 
+    const existingAssignmentState = getGroupAssignmentState(existingMetadata);
+    let nextCurrentAssignedAgentId = existingAssignmentState.currentAssignedAgentId;
+
     if (selectedAssignedAgentId !== undefined && isAdminOrHigher) {
-      if (selectedAssignedAgentId) {
-        mergedMetadata.assignedAgentId = selectedAssignedAgentId;
-      } else {
-        delete mergedMetadata.assignedAgentId;
-      }
+      nextCurrentAssignedAgentId = selectedAssignedAgentId ?? null;
     }
 
-    if (!mergedMetadata.assignedAgentId && req.user?.id && !isAdminOrHigher) {
-      mergedMetadata.assignedAgentId = req.user.id;
+    if (!nextCurrentAssignedAgentId && req.user?.id && !isAdminOrHigher) {
+      nextCurrentAssignedAgentId = req.user.id;
     }
+
+    const nextOriginalAssignedAgentId = existingAssignmentState.originalAssignedAgentId
+      ?? existingAssignmentState.currentAssignedAgentId
+      ?? nextCurrentAssignedAgentId;
+
+    const normalizedMetadata = setGroupAssignmentMetadata(mergedMetadata, {
+      currentAssignedAgentId: nextCurrentAssignedAgentId,
+      originalAssignedAgentId: nextOriginalAssignedAgentId,
+      readOnlyAgentIds: existingAssignmentState.readOnlyAgentIds,
+      reassignmentCount: existingAssignmentState.reassignmentCount,
+    });
 
     const updated = await updateGroup(groupId, {
       ...otherFields,
       payorType: normalizedPayorType,
-      metadata: mergedMetadata,
+      metadata: normalizedMetadata,
       updatedBy: req.user?.id,
     });
 
@@ -808,6 +1113,185 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group:', error);
     const message = error instanceof Error ? error.message : 'Failed to update group';
+    return res.status(500).json({ message });
+  }
+});
+
+router.get('/api/groups/:groupId/assignment-history', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
+    const history = await fetchGroupAssignmentHistory(groupId);
+    return res.json({ data: history });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to fetch assignment history:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch assignment history';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/reassign', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can reassign groups' });
+    }
+
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const assignmentState = getGroupAssignmentState(group.metadata);
+    const oldAgentId = assignmentState.currentAssignedAgentId;
+    const normalizedNewAgentId = normalizeAssignedAgentId(req.body?.newAgentId);
+    if (!normalizedNewAgentId) {
+      return res.status(400).json({ message: 'A new agent is required for reassignment' });
+    }
+
+    if (oldAgentId && normalizedNewAgentId === oldAgentId) {
+      return res.status(400).json({ message: 'The new agent matches the current assigned agent' });
+    }
+
+    const reason = toTrimmedOrNull(req.body?.reason);
+    if (!reason || reason.length < 3) {
+      return res.status(400).json({ message: 'Reason is required and must be at least 3 characters' });
+    }
+
+    const notes = toTrimmedOrNull(req.body?.notes);
+    const effectiveDate = (typeof req.body?.effectiveDate === 'string' && isISODateString(req.body.effectiveDate))
+      ? req.body.effectiveDate
+      : new Date().toISOString().slice(0, 10);
+    const transferLinkedEmployees = true;
+    const transferOpenWorkflows = normalizeBoolean(req.body?.transferOpenWorkflows);
+    const previousAgentReadOnly = normalizeBoolean(req.body?.previousAgentReadOnly);
+
+    const nextReadOnlyAgents = previousAgentReadOnly && oldAgentId
+      ? normalizeStringArray([...assignmentState.readOnlyAgentIds, oldAgentId]).filter((agentId) => agentId !== normalizedNewAgentId)
+      : assignmentState.readOnlyAgentIds.filter((agentId) => agentId !== normalizedNewAgentId);
+
+    const nowIso = new Date().toISOString();
+    const updatedMetadata = setGroupAssignmentMetadata(group.metadata, {
+      currentAssignedAgentId: normalizedNewAgentId,
+      originalAssignedAgentId: assignmentState.originalAssignedAgentId || oldAgentId || normalizedNewAgentId,
+      readOnlyAgentIds: nextReadOnlyAgents,
+      reassignmentCount: assignmentState.reassignmentCount + 1,
+      lastReassignedAt: nowIso,
+      lastReassignmentEffectiveDate: effectiveDate,
+      previousAssignedAgentId: oldAgentId,
+      previousAgentKeepsReadOnlyAccess: previousAgentReadOnly,
+    });
+
+    let linkedEmployeesTransferred = 0;
+    let openWorkflowsTransferred = 0;
+
+    const groupMembers = await listGroupMembers({ groupId });
+
+    const linkedMemberIds = Array.from(
+      new Set(
+        groupMembers
+          .map((member) => member.memberId)
+          .filter((memberId): memberId is number => typeof memberId === 'number' && Number.isFinite(memberId)),
+      ),
+    );
+
+    if (linkedMemberIds.length > 0) {
+      const { data: transferredMembers, error: transferError } = await supabase
+        .from('members')
+        .update({
+          enrolled_by_agent_id: normalizedNewAgentId,
+          updated_at: nowIso,
+        })
+        .in('id', linkedMemberIds)
+        .in('status', Array.from(GROUP_WORKFLOW_OPEN_STATUSES))
+        .select('id');
+
+      if (transferError) {
+        console.warn('[Group Enrollment] Failed to transfer linked employees:', transferError);
+      } else {
+        linkedEmployeesTransferred = transferredMembers?.length || 0;
+      }
+    }
+
+    if (transferOpenWorkflows) {
+      const openMembers = groupMembers.filter((member) => {
+        const memberStatus = typeof member.status === 'string' ? member.status.toLowerCase() : 'draft';
+        return GROUP_WORKFLOW_OPEN_STATUSES.has(memberStatus);
+      });
+
+      for (const member of openMembers) {
+        const existingMetadata = member.metadata && typeof member.metadata === 'object'
+          ? (member.metadata as Record<string, any>)
+          : {};
+
+        const nextMetadata = {
+          ...existingMetadata,
+          workflowAssignment: {
+            ...(existingMetadata.workflowAssignment || {}),
+            currentAssignedAgentId: normalizedNewAgentId,
+            previousAssignedAgentId: oldAgentId,
+            transferredAt: nowIso,
+            transferredBy: req.user.id,
+          },
+        };
+
+        await updateGroupMember(member.id, {
+          metadata: nextMetadata,
+        });
+      }
+
+      openWorkflowsTransferred = openMembers.length;
+    }
+
+    const updatedGroup = await updateGroup(groupId, {
+      metadata: updatedMetadata,
+      updatedBy: req.user.id,
+    });
+
+    const { error: historyError } = await supabase
+      .from(GROUP_ASSIGNMENT_HISTORY_TABLE)
+      .insert({
+        group_id: groupId,
+        old_agent_id: oldAgentId,
+        new_agent_id: normalizedNewAgentId,
+        changed_by: req.user.id,
+        changed_at: nowIso,
+        effective_date: effectiveDate,
+        reason,
+        notes,
+        transfer_linked_employees: transferLinkedEmployees,
+        transfer_open_workflows: transferOpenWorkflows,
+        previous_agent_read_only: previousAgentReadOnly,
+        cascade_summary: {
+          linkedEmployeesTransferred,
+          openWorkflowsTransferred,
+        },
+      });
+
+    if (historyError) {
+      console.warn('[Group Enrollment] Failed to persist assignment history:', historyError);
+    }
+
+    const assignmentHistory = await fetchGroupAssignmentHistory(groupId);
+    return res.json({
+      data: updatedGroup,
+      assignmentHistory,
+      transferSummary: {
+        linkedEmployeesTransferred,
+        openWorkflowsTransferred,
+      },
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to reassign group:', error);
+    const message = error instanceof Error ? error.message : 'Failed to reassign group';
     return res.status(500).json({ message });
   }
 });
@@ -850,6 +1334,10 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
 
     const memberRecord = await addGroupMember(groupId, {
       tier,
+      relationship: normalizeMemberRelationship(req.body?.relationship, tier),
+      householdBaseNumber: toTrimmedOrNull(req.body?.householdBaseNumber),
+      householdMemberNumber: toTrimmedOrNull(req.body?.householdMemberNumber),
+      dependentSuffix: normalizeDependentSuffix(req.body?.dependentSuffix),
       payorType: payorType || group.payorType,
       firstName,
       lastName,
@@ -921,6 +1409,10 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
 
         const memberRecord = await addGroupMember(groupId, {
           tier: normalizeMemberTier(source.tier),
+          relationship: normalizeMemberRelationship(source.relationship ?? source.memberRelationship, source.tier),
+          householdBaseNumber: toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber),
+          householdMemberNumber: toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber),
+          dependentSuffix: normalizeDependentSuffix(source.dependentSuffix),
           payorType: normalizeMemberPayorType(source.payorType, group.payorType),
           firstName,
           lastName,
@@ -1215,11 +1707,92 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
       return res.status(404).json({ message: 'Group member not found' });
     }
 
-    await deleteGroupMember(numericMemberId);
-    return res.status(204).send();
+    const nextMetadata = {
+      ...((existingMember.metadata && typeof existingMember.metadata === 'object') ? existingMember.metadata : {}),
+      lifecycle: {
+        ...(existingMember?.metadata?.lifecycle || {}),
+        previousStatus: existingMember.status || 'draft',
+        terminatedAt: new Date().toISOString(),
+        terminatedBy: req.user?.id || null,
+        terminationReason: typeof req.query.reason === 'string' ? req.query.reason : null,
+      },
+    };
+
+    const terminated = await updateGroupMember(numericMemberId, {
+      status: 'terminated',
+      terminatedAt: new Date().toISOString(),
+      metadata: nextMetadata,
+    });
+
+    return res.status(200).json({
+      message: 'Group member terminated and retained for history',
+      data: toMemberResponse(terminated, canViewFullMemberSsn(req)),
+    });
   } catch (error) {
     console.error('[Group Enrollment] Failed to delete group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete group member';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId, memberId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const numericMemberId = Number(memberId);
+    if (Number.isNaN(numericMemberId)) {
+      return res.status(400).json({ message: 'Invalid member id' });
+    }
+
+    const existingMember = await getGroupMemberById(numericMemberId);
+    if (!existingMember || existingMember.groupId !== groupId) {
+      return res.status(404).json({ message: 'Group member not found' });
+    }
+
+    const existingMetadata =
+      existingMember.metadata && typeof existingMember.metadata === 'object'
+        ? (existingMember.metadata as Record<string, any>)
+        : {};
+    const existingLifecycle =
+      existingMetadata.lifecycle && typeof existingMetadata.lifecycle === 'object'
+        ? (existingMetadata.lifecycle as Record<string, any>)
+        : {};
+
+    const preferredStatus = typeof existingLifecycle.previousStatus === 'string'
+      ? normalizeMemberStatus(existingLifecycle.previousStatus)
+      : 'draft';
+
+    const nextLifecycle = {
+      ...existingLifecycle,
+      restoredAt: new Date().toISOString(),
+      restoredBy: req.user?.id || null,
+    } as Record<string, any>;
+
+    delete nextLifecycle.terminatedAt;
+    delete nextLifecycle.terminatedBy;
+    delete nextLifecycle.terminationReason;
+    delete nextLifecycle.previousStatus;
+
+    const restored = await updateGroupMember(numericMemberId, {
+      status: preferredStatus,
+      terminatedAt: null,
+      metadata: {
+        ...existingMetadata,
+        lifecycle: nextLifecycle,
+      },
+    });
+
+    return res.status(200).json({
+      message: 'Group member restored',
+      data: toMemberResponse(restored, canViewFullMemberSsn(req)),
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to restore group member:', error);
+    const message = error instanceof Error ? error.message : 'Failed to restore group member';
     return res.status(500).json({ message });
   }
 });

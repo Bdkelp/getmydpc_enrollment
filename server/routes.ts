@@ -5663,7 +5663,7 @@ export async function registerRoutes(app: any) {
       if (addedMembers.length > 0 && primaryMember.coverageType === 'member-only') {
         try {
           const hasSpouse = addedMembers.some(m => m.relationship === 'spouse');
-          const hasChildren = addedMembers.some(m => m.relationship === 'child');
+          const hasChildren = addedMembers.some(m => m.relationship === 'child' || m.relationship === 'dependent');
           
           let newCoverageType = primaryMember.coverageType;
           if (hasSpouse && hasChildren) {

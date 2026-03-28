@@ -515,6 +515,7 @@ interface ServerPostRecurringOptions {
   description?: string;
   aciExt?: string;
   cardEntryMethod?: string;
+  stdEntryClass?: string;
   industryType?: string;
   tranType?: ServerPostTranType;
   tranNbr?: string;
@@ -767,7 +768,7 @@ export async function submitServerPostRecurringPayment(
       AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: generateTranNbr(options.tranNbr || options.transactionId),
-      CARD_ENT_METH: options.cardEntryMethod || 'Z',
+      CARD_ENT_METH: options.cardEntryMethod || 'X',
       INDUSTRY_TYPE: options.industryType || 'E'
     };
 
@@ -782,6 +783,10 @@ export async function submitServerPostRecurringPayment(
       requestFields.ACCOUNT_NBR = bankData.accountNumber;
       requestFields.RECV_NAME = bankData.accountHolderName;
       requestFields.ACCOUNT_TYPE = bankData.accountType === 'Checking' ? 'C' : 'S'; // C=Checking, S=Savings
+      const stdEntryClass = (options.stdEntryClass || process.env.EPX_STD_ENTRY_CLASS || '').trim().toUpperCase();
+      if (stdEntryClass) {
+        requestFields.STD_ENTRY_CLASS = stdEntryClass;
+      }
       
       // ACH transactions don't use CARD_ENT_METH, remove it
       delete requestFields.CARD_ENT_METH;

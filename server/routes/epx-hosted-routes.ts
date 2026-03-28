@@ -1486,12 +1486,19 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       if (result.bricToken && paymentRecordForLogging?.member_id) {
         try {
+          const paymentMethodType = req.body?.paymentMethodType || 'CreditCard';
           await storage.updateMember(Number(paymentRecordForLogging.member_id), {
             paymentToken: result.bricToken,
-            paymentMethodType: req.body?.paymentMethodType || 'CreditCard',
+            paymentMethodType,
             status: 'active',
             isActive: true,
             firstPaymentDate: new Date().toISOString()
+          });
+
+          await storage.upsertMemberPaymentToken({
+            memberId: Number(paymentRecordForLogging.member_id),
+            paymentMethodType: paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard',
+            token: result.bricToken,
           });
         } catch (memberError: any) {
           logEPX({
@@ -2866,29 +2873,20 @@ router.post('/api/admin/members/:id/add-family-member', authenticateToken, async
       return res.status(404).json({ success: false, error: 'Primary member not found' });
     }
 
-    // Insert family member
-    const { data: newFamilyMember, error: insertError } = await supabase
-      .from('family_members')
-      .insert({
-        primary_member_id: primaryMemberId,
-        first_name: firstName,
-        last_name: lastName,
-        middle_name: middleName || null,
-        date_of_birth: dateOfBirth || null,
-        gender: gender || null,
-        ssn: ssn || null,
-        email: email || null,
-        phone: phone || null,
-        relationship: relationship,
-        member_type: memberType || 'SP',
-        is_active: true
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      throw insertError;
-    }
+    const newFamilyMember = await storage.addFamilyMember({
+      primaryMemberId,
+      firstName,
+      lastName,
+      middleName: middleName || null,
+      dateOfBirth: dateOfBirth || null,
+      gender: gender || null,
+      ssn: ssn || null,
+      email: email || null,
+      phone: phone || null,
+      relationship,
+      memberType: memberType || relationship,
+      isActive: true,
+    });
 
     logEPX({
       level: 'info',

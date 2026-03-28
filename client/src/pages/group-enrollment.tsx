@@ -13,6 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { formatDistanceToNow } from "date-fns";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -42,6 +43,26 @@ const preferredPaymentMethodOptions = [
   { value: "ach", label: "ACH" },
 ];
 
+const INDUSTRY_NOT_SET_VALUE = "__not_set__";
+const INDUSTRY_OTHER_VALUE = "__other__";
+const industryOptions = [
+  { value: "Healthcare", label: "Healthcare" },
+  { value: "Logistics", label: "Logistics" },
+  { value: "Retail", label: "Retail" },
+  { value: "Manufacturing", label: "Manufacturing" },
+  { value: "Construction", label: "Construction" },
+  { value: "Hospitality", label: "Hospitality" },
+  { value: "Professional Services", label: "Professional Services" },
+  { value: "Technology", label: "Technology" },
+  { value: "Education", label: "Education" },
+  { value: "Nonprofit", label: "Nonprofit" },
+  { value: "Government", label: "Government" },
+  { value: "Other", label: "Other" },
+];
+
+const isPresetIndustryValue = (value: string): boolean =>
+  industryOptions.some((option) => option.value.toLowerCase() === value.trim().toLowerCase());
+
 const tierOptions = [
   { value: "member", label: "Member Only" },
   { value: "spouse", label: "Member + Spouse" },
@@ -53,6 +74,7 @@ const statusOptions = [
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
   { value: "registered", label: "Registered" },
+  { value: "terminated", label: "Terminated" },
 ];
 
 const tierLabels: Record<string, string> = {
@@ -60,6 +82,21 @@ const tierLabels: Record<string, string> = {
   spouse: "Member + Spouse",
   child: "Member + Child(ren)",
   family: "Member + Family",
+};
+
+const formatRelationshipLabel = (value?: string | null): string => {
+  if (!value) return "Primary";
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "Primary";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const formatHouseholdMemberNumber = (member: GroupMemberRecord): string => {
+  if (member.householdMemberNumber) return member.householdMemberNumber;
+  if (member.householdBaseNumber && member.dependentSuffix !== null && member.dependentSuffix !== undefined) {
+    return `${member.householdBaseNumber}-${member.dependentSuffix}`;
+  }
+  return member.householdBaseNumber || "-";
 };
 
 type GroupRecord = {
@@ -76,6 +113,27 @@ type GroupRecord = {
   registrationCompletedAt?: string | null;
   metadata?: Record<string, any> | null;
   groupProfileComplete?: boolean;
+  currentAssignedAgentId?: string | null;
+  originalAssignedAgentId?: string | null;
+  hasReassignmentHistory?: boolean;
+};
+
+type GroupAssignmentHistoryRecord = {
+  id: number;
+  old_agent_id?: string | null;
+  new_agent_id?: string | null;
+  changed_by?: string | null;
+  changed_at?: string | null;
+  effective_date?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  transfer_linked_employees?: boolean;
+  transfer_open_workflows?: boolean;
+  previous_agent_read_only?: boolean;
+  cascade_summary?: {
+    linkedEmployeesTransferred?: number;
+    openWorkflowsTransferred?: number;
+  } | null;
 };
 
 type GroupProfile = {
@@ -125,8 +183,25 @@ type GroupProfileContext = {
 type GroupDetailResponse = {
   data: GroupRecord;
   members?: GroupMemberRecord[];
+  assignmentHistory?: GroupAssignmentHistoryRecord[];
   effectiveDateContext?: GroupEffectiveDateContext;
   groupProfileContext?: GroupProfileContext;
+};
+
+type GroupReassignmentFormState = {
+  newAgentId: string;
+  effectiveDate: string;
+  reason: string;
+  notes: string;
+  transferOpenWorkflows: boolean;
+  previousAgentReadOnly: boolean;
+};
+
+type GroupSetupFormState = {
+  name: string;
+  groupType: string;
+  industry: string;
+  discountCode: string;
 };
 
 type GroupEffectiveDateContext = {
@@ -144,6 +219,11 @@ type GroupMemberRecord = {
   lastName: string;
   email: string;
   tier: string;
+  relationship?: string | null;
+  householdBaseNumber?: string | null;
+  householdMemberNumber?: string | null;
+  dependentSuffix?: number | null;
+  terminatedAt?: string | null;
   status?: string | null;
   paymentStatus?: string | null;
   registeredAt?: string | null;
@@ -196,6 +276,10 @@ type CensusImportRow = {
   firstName: string;
   lastName: string;
   email: string;
+  relationship?: string;
+  householdBaseNumber?: string;
+  householdMemberNumber?: string;
+  dependentSuffix?: string;
   phone?: string;
   dateOfBirth?: string;
   tier: string;
@@ -300,8 +384,33 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
 });
 
 const getAssignedAgentIdFromMetadata = (metadata?: Record<string, any> | null): string => {
+  const assignment = metadata?.assignment;
+  const currentAssigned = assignment && typeof assignment === "object"
+    ? (assignment as Record<string, unknown>).currentAssignedAgentId
+    : null;
+  if (typeof currentAssigned === "string") {
+    return currentAssigned;
+  }
+
   const assigned = metadata?.assignedAgentId;
   return typeof assigned === "string" ? assigned : "";
+};
+
+const getOriginalAssignedAgentIdFromMetadata = (metadata?: Record<string, any> | null): string => {
+  const assignment = metadata?.assignment;
+  const originalAssigned = assignment && typeof assignment === "object"
+    ? (assignment as Record<string, unknown>).originalAssignedAgentId
+    : null;
+  if (typeof originalAssigned === "string") {
+    return originalAssigned;
+  }
+
+  const original = metadata?.originalAssignedAgentId;
+  if (typeof original === "string") {
+    return original;
+  }
+
+  return getAssignedAgentIdFromMetadata(metadata);
 };
 
 const toAssignedAgentPayload = (selection: string): string | null | undefined => {
@@ -317,6 +426,16 @@ const getGroupDocumentsFromMetadata = (metadata?: Record<string, any> | null): G
     return [];
   }
   return metadata.groupDocuments as GroupDocumentRecord[];
+};
+
+const getGroupIndustryFromMetadata = (metadata?: Record<string, any> | null): string => {
+  const groupIndustry = metadata?.groupIndustry;
+  if (typeof groupIndustry === "string") {
+    return groupIndustry;
+  }
+
+  const industry = metadata?.industry;
+  return typeof industry === "string" ? industry : "";
 };
 
 const normalizeHeader = (value: unknown): string =>
@@ -518,6 +637,10 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
   firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname"])),
   lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname"])),
   email: resolveImportedEmail(record),
+  relationship: sanitizeImportValue(getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship"])),
+  householdBaseNumber: sanitizeImportValue(getRecordValue(record, ["householdBaseNumber", "baseMemberNumber", "householdNumber"])),
+  householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber"])),
+  dependentSuffix: sanitizeImportValue(getRecordValue(record, ["dependentSuffix"])),
   phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone"])),
   dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
   tier: sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record),
@@ -623,6 +746,7 @@ export default function GroupEnrollment() {
   const [newGroupForm, setNewGroupForm] = useState({
     name: "",
     groupType: "",
+    industry: "",
     discountCode: "",
   });
   const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState(IN_HOUSE_AGENT_OPTION_VALUE);
@@ -631,7 +755,25 @@ export default function GroupEnrollment() {
   const [newGroupPaymentFormFile, setNewGroupPaymentFormFile] = useState<File | null>(null);
   const [newGroupProfileForm, setNewGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [groupProfileForm, setGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
+  const [groupSetupForm, setGroupSetupForm] = useState<GroupSetupFormState>({
+    name: "",
+    groupType: "",
+    industry: "",
+    discountCode: "",
+  });
   const [groupAssignedAgentId, setGroupAssignedAgentId] = useState("");
+  const [groupCurrentAgentFilter, setGroupCurrentAgentFilter] = useState("all");
+  const [groupOriginalAgentFilter, setGroupOriginalAgentFilter] = useState("all");
+  const [groupReassignedOnlyFilter, setGroupReassignedOnlyFilter] = useState(false);
+  const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
+  const [reassignmentForm, setReassignmentForm] = useState<GroupReassignmentFormState>({
+    newAgentId: IN_HOUSE_AGENT_OPTION_VALUE,
+    effectiveDate: new Date().toISOString().slice(0, 10),
+    reason: "",
+    notes: "",
+    transferOpenWorkflows: true,
+    previousAgentReadOnly: true,
+  });
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<GroupMemberRecord | null>(null);
   const defaultMemberForm: MemberFormState = {
@@ -667,8 +809,24 @@ export default function GroupEnrollment() {
   };
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/groups"],
-    queryFn: async () => apiRequest("/api/groups"),
+    queryKey: ["/api/groups", groupCurrentAgentFilter, groupOriginalAgentFilter, groupReassignedOnlyFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (canAccessAdminViews) {
+        if (groupCurrentAgentFilter !== "all") {
+          params.set("currentAgentId", groupCurrentAgentFilter);
+        }
+        if (groupOriginalAgentFilter !== "all") {
+          params.set("originalAgentId", groupOriginalAgentFilter);
+        }
+        if (groupReassignedOnlyFilter) {
+          params.set("reassignedOnly", "true");
+        }
+      }
+
+      const queryString = params.toString();
+      return apiRequest(queryString ? `/api/groups?${queryString}` : "/api/groups");
+    },
     enabled: !authLoading && isAuthorized,
   });
 
@@ -688,6 +846,21 @@ export default function GroupEnrollment() {
     return agentsData.filter((agent: AgentOption) => agent?.isActive !== false);
   }, [agentsData]);
 
+  const getAgentLabel = (agentId?: string | null): string => {
+    if (!agentId) {
+      return "In-house (Admin serviced)";
+    }
+
+    const agent = agentOptions.find((item) => item.id === agentId);
+    if (!agent) {
+      return agentId;
+    }
+
+    const name = `${agent.firstName || ""} ${agent.lastName || ""}`.trim();
+    const base = name || agent.email || agent.id;
+    return agent.agentNumber ? `${agent.agentNumber} - ${base}` : base;
+  };
+
   useEffect(() => {
     if (!isAuthorized && !authLoading) {
       toast({
@@ -697,6 +870,21 @@ export default function GroupEnrollment() {
       });
     }
   }, [isAuthorized, authLoading, toast]);
+
+  useEffect(() => {
+    if (!selectedGroup?.data) {
+      return;
+    }
+
+    const currentAssigned = getAssignedAgentIdFromMetadata(selectedGroup.data.metadata) || IN_HOUSE_AGENT_OPTION_VALUE;
+    setReassignmentForm((prev) => ({
+      ...prev,
+      newAgentId: currentAssigned,
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      reason: "",
+      notes: "",
+    }));
+  }, [selectedGroup?.data?.id]);
 
   const uploadGroupDocument = async (groupId: string, file: File, documentType: string) => {
     const dataUrl = await readFileAsDataUrl(file);
@@ -737,6 +925,9 @@ export default function GroupEnrollment() {
         payorType: derivePayorTypeFromMode(newGroupProfileForm.payorMixMode),
         discountCode,
         groupProfile: buildGroupProfilePayload(newGroupProfileForm),
+        metadata: {
+          groupIndustry: newGroupForm.industry.trim() || null,
+        },
         assignedAgentId: canAccessAdminViews ? toAssignedAgentPayload(newGroupAssignedAgentId) : undefined,
       };
       return apiRequest("/api/groups", {
@@ -789,7 +980,7 @@ export default function GroupEnrollment() {
         description: "Group record saved. You can start adding members now.",
       });
       setNewGroupOpen(false);
-      setNewGroupForm({ name: "", groupType: "", discountCode: "" });
+      setNewGroupForm({ name: "", groupType: "", industry: "", discountCode: "" });
       setNewGroupAssignedAgentId(IN_HOUSE_AGENT_OPTION_VALUE);
       setNewGroupCensusFileName("");
       setNewGroupCensusRows([]);
@@ -826,6 +1017,12 @@ export default function GroupEnrollment() {
       fileInputRef.current.value = "";
     }
     setGroupAssignedAgentId(getAssignedAgentIdFromMetadata(typed.data?.metadata) || IN_HOUSE_AGENT_OPTION_VALUE);
+    setGroupSetupForm({
+      name: typed.data?.name || "",
+      groupType: typed.data?.groupType || "",
+      industry: getGroupIndustryFromMetadata(typed.data?.metadata),
+      discountCode: typed.data?.discountCode || "",
+    });
     setEffectiveDateSelection(typed.effectiveDateContext?.selectedEffectiveDate || "");
     setEffectiveDateReason(typed.effectiveDateContext?.overrideReason || "");
     setGroupProfileForm(mapGroupProfileContextToForm(typed.groupProfileContext));
@@ -1002,13 +1199,85 @@ export default function GroupEnrollment() {
       }
       refreshGroups();
       toast({
-        title: "Member removed",
-        description: "The member was removed from this group.",
+        title: "Member terminated",
+        description: "The member was marked terminated and retained for history.",
       });
     },
     onError: (err: any) => {
       toast({
-        title: "Unable to remove member",
+        title: "Unable to terminate member",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const restoreMemberMutation = useMutation({
+    mutationFn: async (member: GroupMemberRecord) => {
+      if (!selectedGroup?.data?.id) throw new Error("Select a group first");
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/members/${member.id}/restore`, {
+        method: "POST",
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Member restored",
+        description: "The member was restored to an active lifecycle state.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to restore member",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const reassignGroupMutation = useMutation({
+    mutationFn: async () => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) throw new Error("Select a group first");
+      if (!reassignmentForm.newAgentId || reassignmentForm.newAgentId === IN_HOUSE_AGENT_OPTION_VALUE) {
+        throw new Error("Select a destination agent");
+      }
+      if (!reassignmentForm.reason.trim() || reassignmentForm.reason.trim().length < 3) {
+        throw new Error("Reason must be at least 3 characters");
+      }
+
+      return apiRequest(`/api/groups/${groupId}/reassign`, {
+        method: "POST",
+        body: JSON.stringify({
+          newAgentId: reassignmentForm.newAgentId,
+          effectiveDate: reassignmentForm.effectiveDate,
+          reason: reassignmentForm.reason.trim(),
+          notes: reassignmentForm.notes.trim() || null,
+          transferOpenWorkflows: reassignmentForm.transferOpenWorkflows,
+          previousAgentReadOnly: reassignmentForm.previousAgentReadOnly,
+        }),
+      });
+    },
+    onSuccess: async (result: any) => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      setReassignDialogOpen(false);
+
+      const linkedTransferred = result?.transferSummary?.linkedEmployeesTransferred ?? 0;
+      const workflowsTransferred = result?.transferSummary?.openWorkflowsTransferred ?? 0;
+      toast({
+        title: "Group reassigned",
+        description: `Transferred ${linkedTransferred} linked employees and ${workflowsTransferred} open workflows.`,
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to reassign group",
         description: err?.message || "Please try again",
         variant: "destructive",
       });
@@ -1219,6 +1488,42 @@ export default function GroupEnrollment() {
     },
   });
 
+  const updateGroupSetupMutation = useMutation({
+    mutationFn: async () => {
+      const groupId = selectedGroup?.data?.id;
+      if (!groupId) throw new Error("Select a group first");
+
+      return apiRequest(`/api/groups/${groupId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: groupSetupForm.name.trim(),
+          groupType: groupSetupForm.groupType.trim() || null,
+          discountCode: groupSetupForm.discountCode.trim().toUpperCase() || null,
+          metadata: {
+            groupIndustry: groupSetupForm.industry.trim() || null,
+          },
+        }),
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Group setup updated",
+        description: "Saved group info, industry, and discount settings.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Unable to update group setup",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
     const handleValidateDiscount = async () => {
       const normalized = newGroupForm.discountCode.trim().toUpperCase();
       if (!normalized) {
@@ -1341,10 +1646,11 @@ export default function GroupEnrollment() {
   const memberDialogDescription = editingMember
     ? "Update this record before sending the hosted checkout link."
     : "Enter each enrollee before triggering hosted checkout.";
+  const activeMemberCount = selectedGroup?.members?.filter((member) => member.status !== "terminated").length ?? 0;
   const memberCount = selectedGroup?.members?.length ?? 0;
   const groupProfileContext = selectedGroup?.groupProfileContext;
   const profileComplete = Boolean(groupProfileContext?.isComplete);
-  const canMarkReady = memberCount > 0 && profileComplete && selectedGroup?.data?.status !== "registered";
+  const canMarkReady = activeMemberCount > 0 && profileComplete && selectedGroup?.data?.status !== "registered";
   const hostedStatusLabel = selectedGroup?.data?.status === "registered"
     ? "ready"
     : selectedGroup?.data?.hostedCheckoutStatus || "not-started";
@@ -1368,6 +1674,24 @@ export default function GroupEnrollment() {
   const groupDocuments = getGroupDocumentsFromMetadata(selectedGroup?.data?.metadata);
   const latestPaymentForm = groupDocuments.find((doc) => doc.type === "authorized_payment_form");
   const canCreateGroup = Boolean(newGroupForm.name.trim().length > 0);
+  const newGroupIndustryIsCustom = Boolean(newGroupForm.industry.trim()) && !isPresetIndustryValue(newGroupForm.industry);
+  const newGroupIndustrySelectValue = newGroupIndustryIsCustom
+    ? INDUSTRY_OTHER_VALUE
+    : (newGroupForm.industry || INDUSTRY_NOT_SET_VALUE);
+  const detailIndustryIsCustom = Boolean(groupSetupForm.industry.trim()) && !isPresetIndustryValue(groupSetupForm.industry);
+  const detailIndustrySelectValue = detailIndustryIsCustom
+    ? INDUSTRY_OTHER_VALUE
+    : (groupSetupForm.industry || INDUSTRY_NOT_SET_VALUE);
+  const selectedGroupCurrentAgentId = getAssignedAgentIdFromMetadata(selectedGroup?.data?.metadata) || "";
+  const selectedGroupOriginalAgentId = getOriginalAssignedAgentIdFromMetadata(selectedGroup?.data?.metadata) || "";
+  const canSubmitReassignment = Boolean(
+    selectedGroup?.data?.id
+    && reassignmentForm.newAgentId
+    && reassignmentForm.newAgentId !== IN_HOUSE_AGENT_OPTION_VALUE
+    && reassignmentForm.newAgentId !== selectedGroupCurrentAgentId
+    && reassignmentForm.reason.trim().length >= 3
+    && reassignmentForm.effectiveDate,
+  );
 
   if (authLoading || isLoading) {
     return (
@@ -1486,6 +1810,52 @@ export default function GroupEnrollment() {
                 <p className="text-sm text-gray-500">Monitor each employer group before payment handoff.</p>
               </div>
             </div>
+            {canAccessAdminViews && (
+              <div className="grid gap-3 md:grid-cols-3 mt-3">
+                <div>
+                  <Label className="text-xs uppercase text-gray-500">Current Agent</Label>
+                  <Select value={groupCurrentAgentFilter} onValueChange={setGroupCurrentAgentFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All current agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All current agents</SelectItem>
+                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
+                      {agentOptions.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {getAgentLabel(agent.id)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs uppercase text-gray-500">Original Agent</Label>
+                  <Select value={groupOriginalAgentFilter} onValueChange={setGroupOriginalAgentFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All original agents" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All original agents</SelectItem>
+                      <SelectItem value="unassigned">Unassigned / In-house</SelectItem>
+                      {agentOptions.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {getAgentLabel(agent.id)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 mt-6 md:mt-0">
+                  <Checkbox
+                    id="reassigned-only"
+                    checked={groupReassignedOnlyFilter}
+                    onCheckedChange={(value) => setGroupReassignedOnlyFilter(Boolean(value))}
+                  />
+                  <Label htmlFor="reassigned-only">Reassigned groups only</Label>
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {groups.length === 0 ? (
@@ -1501,6 +1871,8 @@ export default function GroupEnrollment() {
                     <TableRow>
                       <TableHead>Group</TableHead>
                       <TableHead>Payor Type</TableHead>
+                      {canAccessAdminViews && <TableHead>Current Agent</TableHead>}
+                      {canAccessAdminViews && <TableHead>Original Agent</TableHead>}
                       <TableHead>Status</TableHead>
                       <TableHead>Discount</TableHead>
                       <TableHead>Updated</TableHead>
@@ -1517,6 +1889,16 @@ export default function GroupEnrollment() {
                         <TableCell>
                           <Badge variant="outline">{group.payorType}</Badge>
                         </TableCell>
+                        {canAccessAdminViews && (
+                          <TableCell className="text-sm">
+                            {getAgentLabel(group.currentAssignedAgentId || getAssignedAgentIdFromMetadata(group.metadata))}
+                          </TableCell>
+                        )}
+                        {canAccessAdminViews && (
+                          <TableCell className="text-sm">
+                            {getAgentLabel(group.originalAssignedAgentId || getOriginalAssignedAgentIdFromMetadata(group.metadata))}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex items-center gap-2">
                             {group.status === 'registered' ? (
@@ -1525,6 +1907,9 @@ export default function GroupEnrollment() {
                               <Layers className="h-4 w-4 text-amber-500" />
                             )}
                             <span className="capitalize">{group.status}</span>
+                            {group.hasReassignmentHistory && (
+                              <Badge variant="secondary" className="ml-1">Reassigned</Badge>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>{group.discountCode || '—'}</TableCell>
@@ -1571,6 +1956,47 @@ export default function GroupEnrollment() {
                 onChange={(event) => setNewGroupForm((prev) => ({ ...prev, groupType: event.target.value }))}
               />
             </div>
+            <div>
+              <Label htmlFor="group-industry">Industry</Label>
+              <Select
+                value={newGroupIndustrySelectValue}
+                onValueChange={(value) => {
+                  if (value === INDUSTRY_NOT_SET_VALUE) {
+                    setNewGroupForm((prev) => ({ ...prev, industry: "" }));
+                    return;
+                  }
+
+                  if (value === INDUSTRY_OTHER_VALUE) {
+                    if (!newGroupIndustryIsCustom) {
+                      setNewGroupForm((prev) => ({ ...prev, industry: "" }));
+                    }
+                    return;
+                  }
+
+                  setNewGroupForm((prev) => ({ ...prev, industry: value }));
+                }}
+              >
+                <SelectTrigger id="group-industry">
+                  <SelectValue placeholder="Select industry" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={INDUSTRY_NOT_SET_VALUE}>Not set</SelectItem>
+                  {industryOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value === "Other" ? INDUSTRY_OTHER_VALUE : option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {newGroupIndustrySelectValue === INDUSTRY_OTHER_VALUE && (
+                <Input
+                  className="mt-2"
+                  placeholder="Enter custom industry"
+                  value={newGroupForm.industry}
+                  onChange={(event) => setNewGroupForm((prev) => ({ ...prev, industry: event.target.value }))}
+                />
+              )}
+            </div>
             {canAccessAdminViews && (
               <div>
                 <Label>Assign to Agent of Record</Label>
@@ -1597,7 +2023,7 @@ export default function GroupEnrollment() {
               </div>
             )}
             <div>
-              <Label>Payor Mix</Label>
+              <Label>Payor Matrix Option</Label>
               <Select
                 value={newGroupProfileForm.payorMixMode}
                 onValueChange={(value) =>
@@ -1952,15 +2378,112 @@ export default function GroupEnrollment() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <div className="mt-2 space-y-1 text-xs text-slate-600">
+                      <p>Current: {getAgentLabel(selectedGroupCurrentAgentId || null)}</p>
+                      <p>Original: {getAgentLabel(selectedGroupOriginalAgentId || null)}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      onClick={() => setReassignDialogOpen(true)}
+                    >
+                      Reassign Group
+                    </Button>
                   </div>
                 )}
                 <div>
-                  <Label>Group Type</Label>
-                  <p className="font-medium">{selectedGroup.data.groupType || 'General'}</p>
+                  <Label>Industry</Label>
+                  <p className="font-medium">{groupSetupForm.industry || "Not set"}</p>
                 </div>
-                <div>
-                  <Label>Discount Code</Label>
-                  <p className="font-medium">{selectedGroup.data.discountCode || 'Not applied'}</p>
+              </div>
+
+              <div className="border rounded-lg p-4 bg-white space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base font-semibold text-slate-900">Group Setup</h3>
+                  <Badge variant="secondary">Editable</Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-group-name">Group Name</Label>
+                    <Input
+                      id="detail-group-name"
+                      value={groupSetupForm.name}
+                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, name: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="detail-group-type">Group Type</Label>
+                    <Input
+                      id="detail-group-type"
+                      value={groupSetupForm.groupType}
+                      onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, groupType: event.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="detail-group-industry">Industry</Label>
+                    <Select
+                      value={detailIndustrySelectValue}
+                      onValueChange={(value) => {
+                        if (value === INDUSTRY_NOT_SET_VALUE) {
+                          setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
+                          return;
+                        }
+
+                        if (value === INDUSTRY_OTHER_VALUE) {
+                          if (!detailIndustryIsCustom) {
+                            setGroupSetupForm((prev) => ({ ...prev, industry: "" }));
+                          }
+                          return;
+                        }
+
+                        setGroupSetupForm((prev) => ({ ...prev, industry: value }));
+                      }}
+                    >
+                      <SelectTrigger id="detail-group-industry">
+                        <SelectValue placeholder="Select industry" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={INDUSTRY_NOT_SET_VALUE}>Not set</SelectItem>
+                        {industryOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value === "Other" ? INDUSTRY_OTHER_VALUE : option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {detailIndustrySelectValue === INDUSTRY_OTHER_VALUE && (
+                      <Input
+                        className="mt-2"
+                        placeholder="Enter custom industry"
+                        value={groupSetupForm.industry}
+                        onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, industry: event.target.value }))}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <Label htmlFor="detail-group-discount-code">Discount Code</Label>
+                    <Input
+                      id="detail-group-discount-code"
+                      placeholder="Optional"
+                      value={groupSetupForm.discountCode}
+                      onChange={(event) =>
+                        setGroupSetupForm((prev) => ({ ...prev, discountCode: event.target.value.toUpperCase() }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    disabled={updateGroupSetupMutation.isPending || !groupSetupForm.name.trim()}
+                    onClick={() => updateGroupSetupMutation.mutate()}
+                  >
+                    {updateGroupSetupMutation.isPending ? "Saving..." : "Save Group Setup"}
+                  </Button>
                 </div>
               </div>
 
@@ -2049,7 +2572,7 @@ export default function GroupEnrollment() {
                     />
                   </div>
                   <div>
-                    <Label>Payor Mix</Label>
+                    <Label>Payor Matrix Option</Label>
                     <Select
                       value={groupProfileForm.payorMixMode}
                       onValueChange={(value) =>
@@ -2393,41 +2916,82 @@ export default function GroupEnrollment() {
                     </div>
                   </div>
                 </div>
-                <div className="border rounded-lg divide-y bg-white">
+                <div className="border rounded-lg bg-white overflow-x-auto">
                   {selectedGroup?.members && selectedGroup.members.length > 0 ? (
-                    selectedGroup.members.map((member) => (
-                      <div key={member.id} className="p-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-medium">{member.firstName} {member.lastName}</p>
-                          <p className="text-sm text-gray-500">{tierLabels[member.tier] || member.tier}</p>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant="outline" className="mb-1">{member.status || 'draft'}</Badge>
-                          <p className="text-xs text-gray-500">{member.registeredAt ? formatDistanceToNow(new Date(member.registeredAt), { addSuffix: true }) : 'Pending'}</p>
-                          <div className="flex justify-end gap-2 mt-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => handleEditMemberClick(member)}
-                              aria-label="Edit member"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-red-600"
-                              disabled={deleteMemberMutation.isPending}
-                              onClick={() => deleteMemberMutation.mutate(member)}
-                              aria-label="Remove member"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Member</TableHead>
+                          <TableHead>Relationship</TableHead>
+                          <TableHead>Household #</TableHead>
+                          <TableHead>Tier</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedGroup.members.map((member) => {
+                          const isTerminated = member.status === "terminated";
+                          const statusTimestamp = isTerminated ? member.terminatedAt : member.registeredAt;
+
+                          return (
+                            <TableRow key={member.id}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{member.firstName} {member.lastName}</p>
+                                  <p className="text-xs text-gray-500">{member.email}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>{formatRelationshipLabel(member.relationship)}</TableCell>
+                              <TableCell>{formatHouseholdMemberNumber(member)}</TableCell>
+                              <TableCell>{tierLabels[member.tier] || member.tier}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">{member.status || "draft"}</Badge>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {statusTimestamp
+                                    ? `${isTerminated ? "Terminated" : "Updated"} ${formatDistanceToNow(new Date(statusTimestamp), { addSuffix: true })}`
+                                    : "Pending"}
+                                </p>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => handleEditMemberClick(member)}
+                                    aria-label="Edit member"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  {isTerminated ? (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={restoreMemberMutation.isPending}
+                                      onClick={() => restoreMemberMutation.mutate(member)}
+                                    >
+                                      Restore
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 text-red-600"
+                                      disabled={deleteMemberMutation.isPending}
+                                      onClick={() => deleteMemberMutation.mutate(member)}
+                                      aria-label="Terminate member"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   ) : (
                     <div className="p-4 text-sm text-gray-500">No members captured yet.</div>
                   )}
@@ -2452,7 +3016,7 @@ export default function GroupEnrollment() {
                     <div className="flex flex-wrap items-center gap-3 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-slate-500">Members captured</span>
-                        <Badge variant="secondary">{memberCount}</Badge>
+                        <Badge variant="secondary">{activeMemberCount}</Badge>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-500">Status</span>
@@ -2491,7 +3055,7 @@ export default function GroupEnrollment() {
                     </Button>
                     {!canMarkReady && selectedGroup.data.status !== 'registered' && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
-                        {memberCount === 0 ? 'Add members before marking the group ready.' : 'Complete group profile before marking ready.'}
+                        {activeMemberCount === 0 ? 'Add at least one non-terminated member before marking the group ready.' : 'Complete group profile before marking ready.'}
                       </p>
                     )}
                   </div>
@@ -2516,6 +3080,127 @@ export default function GroupEnrollment() {
               variant="secondary"
             >
               {canAccessAdminViews ? 'Go to Enrollment Records' : 'Back to Dashboard'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reassignDialogOpen} onOpenChange={setReassignDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Reassign Group</DialogTitle>
+            <DialogDescription>
+              Move this group to a new agent while preserving history and audit attribution.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-md border bg-slate-50 p-3 text-sm">
+              <p><span className="font-medium">Current agent:</span> {getAgentLabel(selectedGroupCurrentAgentId || null)}</p>
+              <p><span className="font-medium">Original agent:</span> {getAgentLabel(selectedGroupOriginalAgentId || null)}</p>
+              {selectedGroup?.assignmentHistory && selectedGroup.assignmentHistory.length > 0 && (
+                <p className="text-xs text-slate-600 mt-2">
+                  Last reassigned {selectedGroup.assignmentHistory[0]?.changed_at
+                    ? formatDistanceToNow(new Date(selectedGroup.assignmentHistory[0].changed_at as string), { addSuffix: true })
+                    : "recently"}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label>New Agent</Label>
+              <Select
+                value={reassignmentForm.newAgentId}
+                onValueChange={(value) => setReassignmentForm((prev) => ({ ...prev, newAgentId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select destination agent" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={IN_HOUSE_AGENT_OPTION_VALUE}>Select destination agent</SelectItem>
+                  {agentOptions.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {getAgentLabel(agent.id)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="reassign-effective-date">Effective Date</Label>
+              <Input
+                id="reassign-effective-date"
+                type="date"
+                value={reassignmentForm.effectiveDate}
+                onChange={(event) => setReassignmentForm((prev) => ({ ...prev, effectiveDate: event.target.value }))}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="reassign-reason">Reason</Label>
+              <Input
+                id="reassign-reason"
+                value={reassignmentForm.reason}
+                onChange={(event) => setReassignmentForm((prev) => ({ ...prev, reason: event.target.value }))}
+                placeholder="Territory handoff, ownership correction, staffing change..."
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="reassign-notes">Notes</Label>
+              <Input
+                id="reassign-notes"
+                value={reassignmentForm.notes}
+                onChange={(event) => setReassignmentForm((prev) => ({ ...prev, notes: event.target.value }))}
+                placeholder="Optional context for audit and reporting"
+              />
+            </div>
+
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="transfer-linked-employees"
+                  checked={true}
+                  disabled
+                />
+                <Label htmlFor="transfer-linked-employees">Transfer linked employees (always enforced)</Label>
+              </div>
+              <p className="text-xs text-slate-600">
+                Enrollment ownership is automatically reassigned so enrollment records follow the new current assignee.
+              </p>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="transfer-open-workflows"
+                  checked={reassignmentForm.transferOpenWorkflows}
+                  onCheckedChange={(value) =>
+                    setReassignmentForm((prev) => ({ ...prev, transferOpenWorkflows: Boolean(value) }))
+                  }
+                />
+                <Label htmlFor="transfer-open-workflows">Transfer open enrollments/opportunities/tasks</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="previous-agent-readonly"
+                  checked={reassignmentForm.previousAgentReadOnly}
+                  onCheckedChange={(value) =>
+                    setReassignmentForm((prev) => ({ ...prev, previousAgentReadOnly: Boolean(value) }))
+                  }
+                />
+                <Label htmlFor="previous-agent-readonly">Keep previous agent read-only access</Label>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setReassignDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => reassignGroupMutation.mutate()}
+              disabled={!canSubmitReassignment || reassignGroupMutation.isPending}
+            >
+              {reassignGroupMutation.isPending ? "Reassigning..." : "Confirm Reassignment"}
             </Button>
           </DialogFooter>
         </DialogContent>
