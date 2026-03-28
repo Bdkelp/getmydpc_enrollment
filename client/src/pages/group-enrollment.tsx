@@ -812,6 +812,7 @@ export default function GroupEnrollment() {
   const [newGroupAssignedAgentId, setNewGroupAssignedAgentId] = useState(IN_HOUSE_AGENT_OPTION_VALUE);
   const [newGroupCensusFileName, setNewGroupCensusFileName] = useState("");
   const [newGroupCensusRows, setNewGroupCensusRows] = useState<CensusImportRow[]>([]);
+  const [newGroupBypassCensus, setNewGroupBypassCensus] = useState(false);
   const [newGroupPaymentFormFile, setNewGroupPaymentFormFile] = useState<File | null>(null);
   const [newGroupProfileForm, setNewGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
   const [groupProfileForm, setGroupProfileForm] = useState<GroupProfile>({ ...defaultGroupProfileForm });
@@ -1054,6 +1055,7 @@ export default function GroupEnrollment() {
     },
     onSuccess: async (result: any) => {
       const createdGroupId = result?.data?.id as string | undefined;
+      const skippedInitialCensus = Boolean(createdGroupId && newGroupBypassCensus && newGroupCensusRows.length === 0);
 
       if (createdGroupId && newGroupCensusRows.length > 0) {
         try {
@@ -1101,6 +1103,7 @@ export default function GroupEnrollment() {
       setNewGroupAssignedAgentId(IN_HOUSE_AGENT_OPTION_VALUE);
       setNewGroupCensusFileName("");
       setNewGroupCensusRows([]);
+      setNewGroupBypassCensus(false);
       setNewGroupPaymentFormFile(null);
       setNewGroupProfileForm({ ...defaultGroupProfileForm });
       setDiscountValidation(null);
@@ -1111,6 +1114,16 @@ export default function GroupEnrollment() {
         newGroupPaymentInputRef.current.value = "";
       }
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+
+      if (createdGroupId && skippedInitialCensus) {
+        await fetchGroupDetail(createdGroupId);
+        setDetailStep("members");
+        setDetailOpen(true);
+        toast({
+          title: "Manual employee entry required",
+          description: "Census upload was bypassed. Add employees manually in the Members step.",
+        });
+      }
     },
     onError: (err: any) => {
       toast({
@@ -1261,6 +1274,7 @@ export default function GroupEnrollment() {
 
       setNewGroupCensusFileName(file.name);
       setNewGroupCensusRows(parsedRows);
+      setNewGroupBypassCensus(false);
       toast({
         title: "Census file queued",
         description: `${parsedRows.length} rows will import after group creation`,
@@ -1828,7 +1842,9 @@ export default function GroupEnrollment() {
   const canDownloadFailedRows = lastImportFailedRows.length > 0;
   const groupDocuments = getGroupDocumentsFromMetadata(selectedGroup?.data?.metadata);
   const latestPaymentForm = groupDocuments.find((doc) => doc.type === "authorized_payment_form");
-  const canCreateGroup = Boolean(newGroupForm.name.trim().length > 0);
+  const canCreateGroup = Boolean(
+    newGroupForm.name.trim().length > 0 && (newGroupCensusRows.length > 0 || newGroupBypassCensus)
+  );
   const setupComplete = Boolean(groupSetupForm.name.trim().length > 0);
   const membersComplete = activeMemberCount > 0;
   const readinessComplete = isEnrollmentComplete;
@@ -2559,6 +2575,21 @@ export default function GroupEnrollment() {
                     ? `${newGroupCensusFileName} (${newGroupCensusRows.length} rows queued)`
                     : "Optional: import census immediately after saving"}
                 </span>
+              </div>
+              <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-white p-2">
+                <Checkbox
+                  id="new-group-bypass-census"
+                  checked={newGroupBypassCensus}
+                  onCheckedChange={(checked) => setNewGroupBypassCensus(checked === true)}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="new-group-bypass-census" className="text-sm text-slate-800">
+                    Bypass census upload and manually enter employees
+                  </Label>
+                  <p className="text-xs text-slate-600">
+                    If enabled, Save Group will open the Members step so you can add employees one-by-one.
+                  </p>
+                </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <Button type="button" variant="outline" size="sm" onClick={() => newGroupPaymentInputRef.current?.click()}>
