@@ -8,6 +8,7 @@ import {
   addGroupMember,
   completeGroupRegistration,
   createGroup,
+  getDiscountCodeByCode,
   getGroupById,
   getGroupMemberById,
   listGroupMembers,
@@ -125,6 +126,38 @@ const normalizeGroupIndustry = (value: unknown): string | null => {
   }
 
   return toTitleCase(trimmed);
+};
+
+const resolveValidDiscountCode = async (
+  value: unknown,
+): Promise<{ discountCode: string | null; discountCodeId: string | null }> => {
+  const normalizedCode = toTrimmedOrNull(value)?.toUpperCase() ?? null;
+  if (!normalizedCode) {
+    return { discountCode: null, discountCodeId: null };
+  }
+
+  const discountCode = await getDiscountCodeByCode(normalizedCode);
+  if (!discountCode || !discountCode.isActive) {
+    throw new Error('Invalid or inactive discount code');
+  }
+
+  const now = new Date();
+  if (discountCode.validFrom && new Date(discountCode.validFrom) > now) {
+    throw new Error('This discount code is not yet active');
+  }
+
+  if (discountCode.validUntil && new Date(discountCode.validUntil) < now) {
+    throw new Error('This discount code has expired');
+  }
+
+  if (discountCode.maxUses && discountCode.currentUses >= discountCode.maxUses) {
+    throw new Error('This discount code has reached its maximum number of uses');
+  }
+
+  return {
+    discountCode: discountCode.code,
+    discountCodeId: discountCode.id,
+  };
 };
 
 const toDigitsOrNull = (value: unknown): string | null => {
@@ -886,7 +919,7 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
     const { name, payorType, groupType, discountCode, discountCodeId, metadata, groupProfile, assignedAgentId } = req.body || {};
 
     if (!name) {
-      return res.status(400).json({ message: 'Group name and payor type are required' });
+      return res.status(400).json({ message: 'Group name is required' });
     }
 
     const existingMetadata = (metadata && typeof metadata === 'object') ? { ...metadata } : {};
@@ -899,6 +932,7 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
     const normalizedPayorType = typeof payorType === 'string'
       ? payorType
       : payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+    const resolvedDiscountCode = await resolveValidDiscountCode(discountCode);
     const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
     const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
     let nextMetadata = {
@@ -923,8 +957,8 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
       name,
       payorType: normalizedPayorType,
       groupType,
-      discountCode,
-      discountCodeId,
+      discountCode: resolvedDiscountCode.discountCode,
+      discountCodeId: resolvedDiscountCode.discountCodeId ?? discountCodeId ?? null,
       metadata: nextMetadata,
       status: 'draft',
       createdBy: req.user?.id,
@@ -1057,6 +1091,10 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const { groupProfile, metadata, assignedAgentId, ...otherFields } = req.body || {};
     const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
     const incomingMetadata = (metadata && typeof metadata === 'object') ? { ...metadata } : {};
@@ -1072,6 +1110,11 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
     const selectedAssignedAgentId = normalizeAssignedAgentId(assignedAgentId);
 
     let normalizedPayorType = typeof otherFields.payorType === 'string' ? otherFields.payorType : group.payorType;
+    const includesDiscountCode = hasOwn(otherFields, 'discountCode');
+    let resolvedDiscountCode: { discountCode: string | null; discountCodeId: string | null } | null = null;
+    if (includesDiscountCode) {
+      resolvedDiscountCode = await resolveValidDiscountCode(otherFields.discountCode);
+    }
 
     if (groupProfile !== undefined) {
       const normalizedProfile = normalizeGroupProfile(groupProfile, normalizedPayorType);
@@ -1103,6 +1146,12 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
 
     const updated = await updateGroup(groupId, {
       ...otherFields,
+      ...(resolvedDiscountCode
+        ? {
+          discountCode: resolvedDiscountCode.discountCode,
+          discountCodeId: resolvedDiscountCode.discountCodeId,
+        }
+        : {}),
       payorType: normalizedPayorType,
       metadata: normalizedMetadata,
       updatedBy: req.user?.id,
@@ -1211,7 +1260,6 @@ router.post('/api/groups/:groupId/reassign', async (req: AuthRequest, res: Respo
           updated_at: nowIso,
         })
         .in('id', linkedMemberIds)
-        .in('status', Array.from(GROUP_WORKFLOW_OPEN_STATUSES))
         .select('id');
 
       if (transferError) {
@@ -1304,6 +1352,10 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const {
       tier,
       payorType,
@@ -1323,6 +1375,10 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
 
     if (!tier || !firstName || !lastName || !email) {
       return res.status(400).json({ message: 'Tier, first name, last name, and email are required' });
+    }
+
+    if (!EMAIL_REGEX.test(String(email).trim().toLowerCase())) {
+      return res.status(400).json({ message: 'Invalid email format' });
     }
 
     const ssnIntent = extractSsnIntent(req.body, metadata, registrationPayload);
@@ -1370,6 +1426,10 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
     const group = await getGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
     }
 
     const incomingMembers = Array.isArray(req.body?.members) ? req.body.members : [];
@@ -1464,6 +1524,10 @@ router.post('/api/groups/:groupId/documents', async (req: AuthRequest, res: Resp
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const documentType = typeof req.body?.documentType === 'string' ? req.body.documentType.trim().toLowerCase() : '';
     const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
     const contentType = typeof req.body?.contentType === 'string' ? req.body.contentType.trim() : 'application/octet-stream';
@@ -1549,6 +1613,10 @@ router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Respons
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const members = await listGroupMembers({
       groupId,
       status: typeof req.query.status === 'string' ? req.query.status : undefined,
@@ -1568,6 +1636,10 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     const group = await getGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
     }
 
     const numericMemberId = Number(memberId);
@@ -1656,6 +1728,10 @@ router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequ
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const numericMemberId = Number(memberId);
     if (Number.isNaN(numericMemberId)) {
       return res.status(400).json({ message: 'Invalid member id' });
@@ -1695,6 +1771,10 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
     const group = await getGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
     }
 
     const numericMemberId = Number(memberId);
@@ -1741,6 +1821,10 @@ router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRe
     const group = await getGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
     }
 
     const numericMemberId = Number(memberId);
@@ -1806,6 +1890,15 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
       return res.status(400).json({ message: 'Invalid member id' });
     }
 
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const existingMember = await getGroupMemberById(numericMemberId);
     if (!existingMember || existingMember.groupId !== groupId) {
       return res.status(404).json({ message: 'Group member not found' });
@@ -1832,12 +1925,22 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
       return res.status(404).json({ message: 'Group not found' });
     }
 
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
     const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
     if (!groupProfileContext.isComplete) {
       return res.status(400).json({
         message: 'Group profile is incomplete. Please complete profile fields before marking ready.',
         missingFields: groupProfileContext.missingFields,
       });
+    }
+
+    const members = await listGroupMembers({ groupId });
+    const activeMemberCount = members.filter((member) => member.status !== 'terminated').length;
+    if (activeMemberCount <= 0) {
+      return res.status(400).json({ message: 'At least one active member is required before marking ready.' });
     }
 
     const completed = await completeGroupRegistration(groupId, {

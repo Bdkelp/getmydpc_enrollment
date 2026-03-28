@@ -765,6 +765,7 @@ export default function GroupEnrollment() {
   const [groupCurrentAgentFilter, setGroupCurrentAgentFilter] = useState("all");
   const [groupOriginalAgentFilter, setGroupOriginalAgentFilter] = useState("all");
   const [groupReassignedOnlyFilter, setGroupReassignedOnlyFilter] = useState(false);
+  const [detailStep, setDetailStep] = useState<"setup" | "profile" | "members" | "readiness">("setup");
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [reassignmentForm, setReassignmentForm] = useState<GroupReassignmentFormState>({
     newAgentId: IN_HOUSE_AGENT_OPTION_VALUE,
@@ -1577,6 +1578,7 @@ export default function GroupEnrollment() {
     setDetailLoading(true);
     try {
       await fetchGroupDetail(groupId);
+      setDetailStep("setup");
       setDetailOpen(true);
     } catch (err: any) {
       if (isGroupNotFoundError(err)) {
@@ -1674,6 +1676,9 @@ export default function GroupEnrollment() {
   const groupDocuments = getGroupDocumentsFromMetadata(selectedGroup?.data?.metadata);
   const latestPaymentForm = groupDocuments.find((doc) => doc.type === "authorized_payment_form");
   const canCreateGroup = Boolean(newGroupForm.name.trim().length > 0);
+  const setupComplete = Boolean(groupSetupForm.name.trim().length > 0);
+  const membersComplete = activeMemberCount > 0;
+  const readinessComplete = selectedGroup?.data?.status === "registered";
   const newGroupIndustryIsCustom = Boolean(newGroupForm.industry.trim()) && !isPresetIndustryValue(newGroupForm.industry);
   const newGroupIndustrySelectValue = newGroupIndustryIsCustom
     ? INDUSTRY_OTHER_VALUE
@@ -2350,6 +2355,46 @@ export default function GroupEnrollment() {
             </div>
           ) : (
             <div className="space-y-6">
+              <div className="rounded-lg border bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment Flow</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                  <Button
+                    type="button"
+                    variant={detailStep === "setup" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDetailStep("setup")}
+                  >
+                    1. Setup {setupComplete ? "✓" : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={detailStep === "profile" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDetailStep("profile")}
+                  >
+                    2. Profile {profileComplete ? "✓" : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={detailStep === "members" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDetailStep("members")}
+                  >
+                    3. Members {membersComplete ? "✓" : ""}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={detailStep === "readiness" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setDetailStep("readiness")}
+                  >
+                    4. Readiness {readinessComplete ? "✓" : ""}
+                  </Button>
+                </div>
+              </div>
+
+              {detailStep === "setup" && (
+                <>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <Label>Status</Label>
@@ -2548,7 +2593,10 @@ export default function GroupEnrollment() {
                   )}
                 </div>
               )}
+                </>
+              )}
 
+              {detailStep === "profile" && (
               <div className="border rounded-lg p-4 bg-white space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base font-semibold text-slate-900">Group Profile</h3>
@@ -2810,7 +2858,9 @@ export default function GroupEnrollment() {
                   </Button>
                 </div>
               </div>
+              )}
 
+              {detailStep === "members" && (
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-lg font-semibold flex items-center gap-2">
@@ -2997,7 +3047,10 @@ export default function GroupEnrollment() {
                   )}
                 </div>
               </div>
+              )}
 
+              {detailStep === "readiness" && (
+                <>
               <div className="border rounded-lg p-4 bg-slate-50 flex flex-col gap-4">
                 <div className="flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-600 uppercase">
                   <ClipboardCheck className="h-4 w-4 text-blue-600" /> Hosted Checkout Readiness
@@ -3069,6 +3122,8 @@ export default function GroupEnrollment() {
                   Add all members, confirm payor amounts, then trigger hosted checkout from this workspace. Payment automation hooks into the existing EPX hosted checkout service.
                 </AlertDescription>
               </Alert>
+                </>
+              )}
             </div>
           )}
           <DialogFooter>
