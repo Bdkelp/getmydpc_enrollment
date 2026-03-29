@@ -6761,6 +6761,24 @@ export const storage = {
 
   createMember: async (memberData: Partial<Member>): Promise<Member> => {
     try {
+      const toStoredSsnValue = (value: unknown): string | null => {
+        const digits = String(value || '').replace(/\D/g, '');
+        if (!digits) {
+          return null;
+        }
+
+        try {
+          return encryptSSN(digits);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes('SSN encryption key is not configured')) {
+            console.warn('[Storage] SSN encryption key missing during createMember; storing normalized SSN as fallback.');
+            return digits;
+          }
+          throw error;
+        }
+      };
+
       const resolvedCustomerNumber = (memberData.customerNumber || '').toString().trim().toUpperCase() ||
         await generateUniqueMemberIdentifier({ prefix: 'CUST', column: 'customer_number' });
 
@@ -6779,8 +6797,8 @@ export const storage = {
         dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
         dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
         planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
-        // Encrypt SSN before storage - validate and encrypt with AES-256-GCM
-        ssn: memberData.ssn ? encryptSSN(memberData.ssn) : null,
+        // Persist SSN without blocking enrollment when encryption key is missing.
+        ssn: toStoredSsnValue(memberData.ssn),
         // Format ZIP to 5 digits
         zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
         // Ensure state is uppercase 2 chars

@@ -3955,13 +3955,14 @@ export default function GroupEnrollment() {
       </Dialog>
 
       <Dialog open={memberDialogOpen} onOpenChange={handleMemberDialogToggle}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="w-[96vw] max-w-[1400px] h-[92vh] flex flex-col overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b">
             <DialogTitle>{memberDialogTitle}</DialogTitle>
             <DialogDescription>{memberDialogDescription}</DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label>Relationship</Label>
@@ -3990,7 +3991,7 @@ export default function GroupEnrollment() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <div>
                 <Label htmlFor="member-first-name">First Name</Label>
                 <Input
@@ -4089,7 +4090,7 @@ export default function GroupEnrollment() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <div>
                 <Label htmlFor="member-hire-date">Hire Date</Label>
                 <Input
@@ -4187,7 +4188,7 @@ export default function GroupEnrollment() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <div>
                 <Label htmlFor="member-city">City</Label>
                 <Input
@@ -4214,7 +4215,7 @@ export default function GroupEnrollment() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               <div>
                 <Label htmlFor="member-department">Department</Label>
                 <Input
@@ -4382,9 +4383,10 @@ export default function GroupEnrollment() {
                 Missing required fields: {missingMemberFields.join(", ")}
               </p>
             )}
+            </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t bg-white">
             <Button variant="ghost" onClick={() => handleMemberDialogToggle(false)}>
               Cancel
             </Button>

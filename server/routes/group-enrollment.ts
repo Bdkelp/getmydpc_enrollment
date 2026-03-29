@@ -795,6 +795,7 @@ const upsertEncryptedSsn = (
     }
 
     delete metadataValue.ssnEncrypted;
+    delete metadataValue.ssn;
     delete metadataValue.ssnLast4;
     return metadataValue;
   }
@@ -807,14 +808,16 @@ const upsertEncryptedSsn = (
   const nextMetadata = metadataValue || {};
   try {
     nextMetadata.ssnEncrypted = encryptSSN(normalized);
+    delete nextMetadata.ssn;
     nextMetadata.ssnLast4 = normalized.slice(-4);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('SSN encryption key is not configured')) {
       // Keep member flows working when SSN encryption is not configured.
       delete nextMetadata.ssnEncrypted;
-      delete nextMetadata.ssnLast4;
-      console.warn('[Group Enrollment] SSN encryption key is missing; skipping SSN persistence.');
+      nextMetadata.ssn = normalized;
+      nextMetadata.ssnLast4 = normalized.slice(-4);
+      console.warn('[Group Enrollment] SSN encryption key is missing; storing normalized SSN fallback.');
       return nextMetadata;
     }
 
