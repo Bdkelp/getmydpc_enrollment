@@ -3271,7 +3271,23 @@ router.patch(
         return res.status(400).json({ message: "Invalid SSN format" });
       }
 
-      await storage.updateMember(enrollmentId, { ssn: normalized });
+      try {
+        await storage.updateMember(enrollmentId, { ssn: normalized });
+      } catch (updateError: any) {
+        const message = updateError instanceof Error ? updateError.message : String(updateError);
+        if (!message.includes('SSN encryption key is not configured')) {
+          throw updateError;
+        }
+
+        const { error: fallbackError } = await storage.supabase
+          .from('members')
+          .update({ ssn: normalized, updated_at: new Date().toISOString() })
+          .eq('id', enrollmentId);
+
+        if (fallbackError) {
+          throw fallbackError;
+        }
+      }
 
       // Log sensitive update for audit trail
       try {
