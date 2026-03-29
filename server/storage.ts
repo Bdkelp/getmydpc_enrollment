@@ -5726,6 +5726,11 @@ export interface ListGroupMembersOptions {
   status?: string;
 }
 
+const GROUP_READ_RETRY_DELAY_MS = 150;
+const GROUP_READ_MAX_RETRIES = 2;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function createGroup(group: InsertGroup): Promise<Group> {
   const payload = mapGroupToDBPayload(group);
   payload.updated_at = new Date().toISOString();
@@ -5763,53 +5768,81 @@ export async function updateGroup(id: string, updates: Partial<Group>): Promise<
 }
 
 export async function getGroupById(id: string): Promise<Group | null> {
-  const { data, error } = await supabase
-    .from(GROUP_TABLE)
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
+  for (let attempt = 0; attempt <= GROUP_READ_MAX_RETRIES; attempt += 1) {
+    const { data, error } = await supabase
+      .from(GROUP_TABLE)
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
-  if (error) {
-    console.error('[Storage] Failed to fetch group:', error);
-    throw new Error(`Failed to fetch group: ${error.message}`);
+    if (error) {
+      console.error('[Storage] Failed to fetch group:', error);
+      throw new Error(`Failed to fetch group: ${error.message}`);
+    }
+
+    if (data) {
+      return mapGroupFromDB(data);
+    }
+
+    if (attempt < GROUP_READ_MAX_RETRIES) {
+      await sleep(GROUP_READ_RETRY_DELAY_MS);
+    }
   }
 
-  return data ? mapGroupFromDB(data) : null;
+  return null;
 }
 
 export async function listGroups(options: ListGroupsOptions = {}): Promise<{ groups: Group[]; count: number | null }> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const offset = Math.max(options.offset ?? 0, 0);
+  for (let attempt = 0; attempt <= GROUP_READ_MAX_RETRIES; attempt += 1) {
+    let request = supabase
+      .from(GROUP_TABLE)
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false });
 
-  let request = supabase
-    .from(GROUP_TABLE)
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: false });
+    if (options.status) {
+      request = request.eq('status', options.status);
+    }
 
-  if (options.status) {
-    request = request.eq('status', options.status);
+    if (options.payorType) {
+      request = request.eq('payor_type', options.payorType);
+    }
+
+    if (options.search) {
+      request = request.ilike('name', `%${options.search}%`);
+    }
+
+    const to = offset + limit - 1;
+    const { data, error, count } = await request.range(offset, to);
+
+    if (error) {
+      console.error('[Storage] Failed to list groups:', error);
+      throw new Error(`Failed to list groups: ${error.message}`);
+    }
+
+    const groups = (data || []).map(mapGroupFromDB);
+    const shouldRetryEmpty =
+      groups.length === 0
+      && (count ?? 0) === 0
+      && offset === 0
+      && !options.status
+      && !options.payorType
+      && !options.search
+      && attempt < GROUP_READ_MAX_RETRIES;
+
+    if (shouldRetryEmpty) {
+      await sleep(GROUP_READ_RETRY_DELAY_MS);
+      continue;
+    }
+
+    return {
+      groups,
+      count: count ?? null,
+    };
   }
 
-  if (options.payorType) {
-    request = request.eq('payor_type', options.payorType);
-  }
-
-  if (options.search) {
-    request = request.ilike('name', `%${options.search}%`);
-  }
-
-  const to = offset + limit - 1;
-  const { data, error, count } = await request.range(offset, to);
-
-  if (error) {
-    console.error('[Storage] Failed to list groups:', error);
-    throw new Error(`Failed to list groups: ${error.message}`);
-  }
-
-  return {
-    groups: (data || []).map(mapGroupFromDB),
-    count: count ?? null,
-  };
+  return { groups: [], count: 0 };
 }
 
 export async function addGroupMember(groupId: string, member: InsertGroupMember): Promise<GroupMember> {

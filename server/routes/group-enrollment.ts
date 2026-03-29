@@ -1204,6 +1204,11 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
     const group = await getGroupById(groupId);
 
     if (!group) {
+      console.warn('[Group Enrollment] Group detail not found', {
+        groupId,
+        userId: req.user?.id || null,
+        userRole: req.user?.role || null,
+      });
       return res.status(404).json({ message: 'Group not found' });
     }
 
@@ -1312,6 +1317,11 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
     const { groupId } = req.params;
     const group = await getGroupById(groupId);
     if (!group) {
+      console.warn('[Group Enrollment] Group update target not found', {
+        groupId,
+        userId: req.user?.id || null,
+        userRole: req.user?.role || null,
+      });
       return res.status(404).json({ message: 'Group not found' });
     }
 

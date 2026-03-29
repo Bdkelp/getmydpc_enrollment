@@ -1549,8 +1549,34 @@ export default function GroupEnrollment() {
     });
   };
 
+  const retrySelectedGroupAfterNotFound = async (): Promise<boolean> => {
+    const groupId = selectedGroup?.data?.id;
+    if (!groupId) {
+      return false;
+    }
+
+    try {
+      // During deployment/cache handoffs a valid group id can briefly 404.
+      // Refresh list state and re-fetch details once before falling back.
+      await refreshGroups();
+      await fetchGroupDetail(groupId);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleGroupMutationError = async (err: any, title: string) => {
     if (isGroupNotFoundError(err)) {
+      const recovered = await retrySelectedGroupAfterNotFound();
+      if (recovered) {
+        toast({
+          title: "Group reloaded",
+          description: "The group became available again. Please retry your last action.",
+        });
+        return;
+      }
+
       await recoverFromMissingGroup();
       return;
     }
