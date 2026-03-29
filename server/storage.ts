@@ -7088,6 +7088,28 @@ export const storage = {
         return date.toISOString();
       };
 
+      const toStoredSsnValue = (value: unknown): string | undefined => {
+        if (value === undefined) {
+          return undefined;
+        }
+
+        const digits = String(value || '').replace(/\D/g, '');
+        if (!digits) {
+          return undefined;
+        }
+
+        try {
+          return encryptSSN(digits);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes('SSN encryption key is not configured')) {
+            console.warn('[Storage] SSN encryption key missing during updateMember; storing normalized SSN as fallback.');
+            return digits;
+          }
+          throw error;
+        }
+      };
+
       // Prevent camelCase timestamp aliases from becoming invalid SQL columns.
       const sanitizedData = { ...data } as Record<string, any>;
       delete sanitizedData.updatedAt;
@@ -7101,7 +7123,7 @@ export const storage = {
         dateOfBirth: sanitizedData.dateOfBirth ? formatDateMMDDYYYY(sanitizedData.dateOfBirth) : undefined,
         dateOfHire: sanitizedData.dateOfHire ? formatDateMMDDYYYY(sanitizedData.dateOfHire) : undefined,
         planStartDate: sanitizedData.planStartDate ? formatDateMMDDYYYY(sanitizedData.planStartDate) : undefined,
-        ssn: sanitizedData.ssn ? encryptSSN(sanitizedData.ssn) : undefined,
+        ssn: toStoredSsnValue(sanitizedData.ssn),
         zipCode: sanitizedData.zipCode ? formatZipCode(sanitizedData.zipCode) : undefined,
         state: sanitizedData.state?.toUpperCase().slice(0, 2),
         gender: sanitizedData.gender?.toUpperCase().slice(0, 1),
