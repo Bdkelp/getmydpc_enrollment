@@ -9,12 +9,14 @@ import {
   addGroupMember,
   completeGroupRegistration,
   createGroup,
+  getPlatformSetting,
   getDiscountCodeByCode,
   getGroupById,
   getGroupMemberById,
   listGroupMembers,
   listGroups,
   setGroupMemberPaymentStatus,
+  upsertPlatformSetting,
   updateGroup,
   updateGroupMember,
 } from '../storage';
@@ -75,6 +77,8 @@ const SSN_FIELD_ALIASES = new Set([
   'memberssn',
 ]);
 const GROUP_DOCUMENTS_BUCKET = 'group-documents';
+const CENSUS_TEMPLATE_SETTING_KEY = 'group_census_template';
+const MAX_CENSUS_TEMPLATE_BYTES = 5 * 1024 * 1024;
 const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
 const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -131,6 +135,14 @@ type GroupProfile = {
     bankName: string | null;
     accountType: string | null;
   };
+};
+
+type CensusTemplateSettingValue = {
+  fileName: string;
+  mimeType: string;
+  base64: string;
+  uploadedAt: string;
+  uploadedBy?: string | null;
 };
 
 const toTrimmedOrNull = (value: unknown): string | null => {
@@ -977,6 +989,81 @@ const ensureGroupDocumentsBucket = async () => {
 };
 
 router.use('/api/groups', authenticateToken, ensureGroupEnrollmentAccess);
+
+router.get('/api/census-template', authenticateToken, ensureGroupEnrollmentAccess, async (_req: AuthRequest, res: Response) => {
+  try {
+    const record = await getPlatformSetting<CensusTemplateSettingValue>(CENSUS_TEMPLATE_SETTING_KEY);
+    const value = record?.value;
+
+    if (value && typeof value.base64 === 'string' && value.base64.trim()) {
+      return res.json({
+        source: 'custom',
+        fileName: value.fileName || 'MyPremierPlans_Census_Template.xlsx',
+        mimeType: value.mimeType || 'application/octet-stream',
+        base64: value.base64,
+        updatedAt: value.uploadedAt || record?.updatedAt || null,
+      });
+    }
+
+    return res.json({
+      source: 'default',
+      fileName: 'MyPremierPlans_Census_Template.csv',
+      url: '/templates/MyPremierPlans_Census_Template.csv',
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to fetch census template setting:', error);
+    return res.status(500).json({ message: 'Failed to load census template configuration' });
+  }
+});
+
+router.post('/api/admin/census-template', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    const fileName = typeof req.body?.fileName === 'string' ? req.body.fileName.trim() : '';
+    const mimeType = typeof req.body?.mimeType === 'string' ? req.body.mimeType.trim() : '';
+    const base64 = typeof req.body?.base64 === 'string' ? req.body.base64.trim() : '';
+
+    if (!fileName || !base64) {
+      return res.status(400).json({ message: 'fileName and base64 are required' });
+    }
+
+    if (fileName.length > 200) {
+      return res.status(400).json({ message: 'fileName is too long' });
+    }
+
+    const fileBuffer = Buffer.from(base64, 'base64');
+    if (!fileBuffer.length) {
+      return res.status(400).json({ message: 'Invalid file content' });
+    }
+
+    if (fileBuffer.length > MAX_CENSUS_TEMPLATE_BYTES) {
+      return res.status(413).json({ message: 'Template file exceeds 5MB limit' });
+    }
+
+    const nextValue: CensusTemplateSettingValue = {
+      fileName,
+      mimeType: mimeType || 'application/octet-stream',
+      base64,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: req.user?.id || null,
+    };
+
+    await upsertPlatformSetting(CENSUS_TEMPLATE_SETTING_KEY, nextValue, req.user?.id);
+
+    return res.json({
+      success: true,
+      source: 'custom',
+      fileName: nextValue.fileName,
+      updatedAt: nextValue.uploadedAt,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to upload census template:', error);
+    return res.status(500).json({ message: 'Failed to upload census template' });
+  }
+});
 
 router.get('/api/groups', async (req: AuthRequest, res: Response) => {
   try {

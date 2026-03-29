@@ -34,6 +34,15 @@ import {
 
 const CENSUS_TEMPLATE_PATH = "/templates/MyPremierPlans_Census_Template.csv";
 
+type CensusTemplateConfig = {
+  source: "default" | "custom";
+  fileName: string;
+  url?: string;
+  mimeType?: string;
+  base64?: string;
+  updatedAt?: string;
+};
+
 const payorMixOptions = [
   { value: "full", label: "Employer Pays All" },
   { value: "member", label: "Member Pays All" },
@@ -1143,6 +1152,7 @@ export default function GroupEnrollment() {
   const newGroupCensusInputRef = useRef<HTMLInputElement | null>(null);
   const newGroupPaymentInputRef = useRef<HTMLInputElement | null>(null);
   const detailPaymentInputRef = useRef<HTMLInputElement | null>(null);
+  const censusTemplateInputRef = useRef<HTMLInputElement | null>(null);
 
   const resetMemberForm = (overrides?: Partial<MemberFormState>) => {
     setMemberForm({
@@ -1185,6 +1195,13 @@ export default function GroupEnrollment() {
     queryKey: ["/api/agents"],
     queryFn: async () => apiRequest("/api/agents"),
     enabled: !authLoading && isAuthorized && canAccessAdminViews,
+    staleTime: 1000 * 60,
+  });
+
+  const { data: censusTemplateData } = useQuery({
+    queryKey: ["/api/census-template"],
+    queryFn: async () => apiRequest("/api/census-template"),
+    enabled: !authLoading && isAuthorized,
     staleTime: 1000 * 60,
   });
 
@@ -1845,6 +1862,71 @@ export default function GroupEnrollment() {
       void handleGroupMutationError(err, "Census import failed");
     },
   });
+
+  const uploadCensusTemplateMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const dataUrl = await readFileAsDataUrl(file);
+      const base64 = dataUrl.split(",")[1] || "";
+      if (!base64) {
+        throw new Error("Unable to read template file");
+      }
+
+      return apiRequest("/api/admin/census-template", {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          base64,
+        }),
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/census-template"] });
+      toast({
+        title: "Template updated",
+        description: "The census template is now shared across all users.",
+      });
+      if (censusTemplateInputRef.current) {
+        censusTemplateInputRef.current.value = "";
+      }
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Template upload failed",
+        description: err?.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleTemplateDownload = () => {
+    const template = censusTemplateData as CensusTemplateConfig | undefined;
+
+    if (template?.source === "custom" && template.base64) {
+      const anchor = document.createElement("a");
+      const mimeType = template.mimeType || "application/octet-stream";
+      anchor.href = `data:${mimeType};base64,${template.base64}`;
+      anchor.download = template.fileName || "MyPremierPlans_Census_Template.xlsx";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      return;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = template?.url || CENSUS_TEMPLATE_PATH;
+    anchor.download = template?.fileName || "MyPremierPlans_Census_Template.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  };
+
+  const handleTemplateUploadSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadCensusTemplateMutation.mutate(file);
+    }
+  };
 
   const handleDownloadFailedRows = () => {
     if (lastImportFailedRows.length === 0) {
@@ -2954,13 +3036,29 @@ export default function GroupEnrollment() {
                 <p className="text-xs text-slate-600">
                   Use the standard template so every heading maps correctly during import.
                 </p>
-                <Button type="button" size="sm" variant="outline" asChild>
-                  <a href={CENSUS_TEMPLATE_PATH} download="MyPremierPlans_Census_Template.csv">
-                    <Download className="mr-1 h-4 w-4" />
-                    Download Census Template
-                  </a>
+                <Button type="button" size="sm" variant="outline" onClick={handleTemplateDownload}>
+                  <Download className="mr-1 h-4 w-4" />
+                  Download Census Template
                 </Button>
+                {canAccessAdminViews && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => censusTemplateInputRef.current?.click()}
+                    disabled={uploadCensusTemplateMutation.isPending}
+                  >
+                    {uploadCensusTemplateMutation.isPending ? "Uploading..." : "Upload New Template"}
+                  </Button>
+                )}
               </div>
+              <input
+                ref={censusTemplateInputRef}
+                type="file"
+                accept=".csv,.xls,.xlsx"
+                className="hidden"
+                onChange={handleTemplateUploadSelect}
+              />
               <input
                 ref={newGroupCensusInputRef}
                 type="file"
@@ -3577,11 +3675,9 @@ export default function GroupEnrollment() {
                     <p className="text-xs text-slate-600">
                       Need a blank file? Download the shared census template with supported headings.
                     </p>
-                    <Button type="button" size="sm" variant="outline" asChild>
-                      <a href={CENSUS_TEMPLATE_PATH} download="MyPremierPlans_Census_Template.csv">
-                        <Download className="mr-1 h-4 w-4" />
-                        Download Census Template
-                      </a>
+                    <Button type="button" size="sm" variant="outline" onClick={handleTemplateDownload}>
+                      <Download className="mr-1 h-4 w-4" />
+                      Download Census Template
                     </Button>
                   </div>
                   <input
