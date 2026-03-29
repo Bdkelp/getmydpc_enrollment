@@ -26,11 +26,53 @@ import { createMonthlyPayout } from '../services/commission-payout-service';
 
 const router = Router();
 
+const GROUP_LOOKUP_SCAN_PAGE_SIZE = 200;
+const GROUP_LOOKUP_SCAN_MAX_PAGES = 25;
+
 const ensureGroupEnrollmentAccess = (req: AuthRequest, res: Response, next: NextFunction) => {
   if (!req.user || !hasAtLeastRole(req.user.role, 'agent')) {
     return res.status(403).json({ message: 'Insufficient permissions for group enrollment' });
   }
   return next();
+};
+
+const resolveGroupById = async (groupId: string) => {
+  const normalizedGroupId = String(groupId || '').trim();
+  if (!normalizedGroupId) {
+    return null;
+  }
+
+  const directGroup = await getGroupById(normalizedGroupId);
+  if (directGroup) {
+    return directGroup;
+  }
+
+  const normalizedToken = normalizedGroupId.toLowerCase();
+  for (let page = 0; page < GROUP_LOOKUP_SCAN_MAX_PAGES; page += 1) {
+    const offset = page * GROUP_LOOKUP_SCAN_PAGE_SIZE;
+    const { groups } = await listGroups({ limit: GROUP_LOOKUP_SCAN_PAGE_SIZE, offset });
+
+    if (!groups.length) {
+      break;
+    }
+
+    const fallbackGroup = groups.find(
+      (candidate) => String(candidate.id || '').trim().toLowerCase() === normalizedToken,
+    );
+    if (fallbackGroup) {
+      console.warn('[Group Enrollment] Group recovered via paged list lookup', {
+        groupId: normalizedGroupId,
+        page,
+      });
+      return fallbackGroup;
+    }
+
+    if (groups.length < GROUP_LOOKUP_SCAN_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return null;
 };
 
 const parseAmount = (value: unknown): string | null => {
@@ -1464,7 +1506,7 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
 router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
 
     if (!group) {
       console.warn('[Group Enrollment] Group detail not found', {
@@ -1511,7 +1553,7 @@ router.get('/api/groups/:groupId/commission-attribution', async (req: AuthReques
     }
 
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -1554,7 +1596,7 @@ router.patch('/api/groups/:groupId/commission-attribution', async (req: AuthRequ
     }
 
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -1656,7 +1698,7 @@ router.patch('/api/groups/:groupId/effective-date', async (req: AuthRequest, res
     }
 
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -1723,7 +1765,7 @@ router.patch('/api/groups/:groupId/effective-date', async (req: AuthRequest, res
 router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       console.warn('[Group Enrollment] Group update target not found', {
         groupId,
@@ -1811,7 +1853,7 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
 router.get('/api/groups/:groupId/assignment-history', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -1836,7 +1878,7 @@ router.post('/api/groups/:groupId/reassign', async (req: AuthRequest, res: Respo
     }
 
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -1989,7 +2031,7 @@ router.post('/api/groups/:groupId/reassign', async (req: AuthRequest, res: Respo
 router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2221,7 +2263,7 @@ const findExistingMemberForSync = (
 router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2341,7 +2383,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
 router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2520,7 +2562,7 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
 router.post('/api/groups/:groupId/documents', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2609,7 +2651,7 @@ router.post('/api/groups/:groupId/documents', async (req: AuthRequest, res: Resp
 router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2634,7 +2676,7 @@ router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Respons
 router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId, memberId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2759,7 +2801,7 @@ router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequ
     }
 
     const { groupId, memberId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2804,7 +2846,7 @@ router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequ
 router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId, memberId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2854,7 +2896,7 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
 router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId, memberId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2926,7 +2968,7 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
       return res.status(400).json({ message: 'Invalid member id' });
     }
 
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -2978,7 +3020,7 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
 router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -3093,7 +3135,7 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
 router.post('/api/groups/:groupId/activate', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const group = await getGroupById(groupId);
+    const group = await resolveGroupById(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
