@@ -66,24 +66,3 @@ export function isEligibleForPayment(paymentEligibleDate: Date): boolean {
   const now = new Date();
   return now >= paymentEligibleDate;
 }
-
-// Example usage and test cases (for development reference)
-if (require.main === module) {
-  console.log('Commission Payment Date Calculator - Test Cases\n');
-  console.log('Business Rule: Weeks run Monday-Sunday, payment eligible Friday after week ends\n');
-  
-  const testCases = [
-    new Date('2026-02-20'), // Thursday
-    new Date('2026-02-17'), // Monday
-    new Date('2026-02-22'), // Saturday
-    new Date('2026-02-23'), // Sunday
-    new Date('2026-02-24'), // Monday (next week)
-  ];
-  
-  testCases.forEach(enrollDate => {
-    const paymentDate = calculatePaymentEligibleDate(enrollDate);
-    console.log(`Enrollment: ${enrollDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`);
-    console.log(`Payment Eligible: ${paymentDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`);
-    console.log(`  → ${formatPaymentSchedule(enrollDate)}\n`);
-  });
-}
