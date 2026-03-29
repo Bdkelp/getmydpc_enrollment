@@ -477,41 +477,66 @@ const emptyEmploymentProfile: EmploymentProfileState = {
 };
 
 const toEmploymentProfile = (member: GroupMemberRecord | null | undefined): EmploymentProfileState => {
-  const source = (member?.metadata?.employmentProfile || member?.registrationPayload?.employmentProfile || {}) as Record<string, unknown>;
+  const toRecord = (value: unknown): Record<string, unknown> => (
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {}
+  );
+  const toStringValue = (...values: unknown[]): string => {
+    for (const value of values) {
+      if (typeof value === "string") {
+        return value;
+      }
+    }
+    return "";
+  };
+
+  const metadata = toRecord(member?.metadata);
+  const registrationPayload = toRecord(member?.registrationPayload);
+  const metadataEmployment = toRecord(metadata.employmentProfile);
+  const payloadEmployment = toRecord(registrationPayload.employmentProfile);
+  // Merge nested profile first, then legacy top-level census payload keys as fallback.
+  const source = {
+    ...registrationPayload,
+    ...metadata,
+    ...payloadEmployment,
+    ...metadataEmployment,
+  } as Record<string, unknown>;
+
   return {
     ...emptyEmploymentProfile,
-    middleName: String(source.middleName || ""),
-    suffix: String(source.suffix || ""),
-    preferredName: String(source.preferredName || ""),
-    sex: String(source.sex || ""),
-    hireDate: String(source.hireDate || ""),
-    className: String(source.className || ""),
-    department: String(source.department || ""),
-    division: String(source.division || ""),
-    businessUnit: String(source.businessUnit || ""),
-    workEmail: String(source.workEmail || ""),
-    personalEmail: String(source.personalEmail || ""),
-    payrollGroup: String(source.payrollGroup || ""),
-    annualBaseSalary: String(source.annualBaseSalary || ""),
-    hoursPerWeek: String(source.hoursPerWeek || ""),
-    salaryEffectiveDate: String(source.salaryEffectiveDate || ""),
-    address1: String(source.address1 || ""),
-    address2: String(source.address2 || ""),
-    city: String(source.city || ""),
-    state: String(source.state || ""),
-    zipCode: String(source.zipCode || ""),
-    county: String(source.county || ""),
-    country: String(source.country || ""),
-    homePhone: String(source.homePhone || ""),
-    mobilePhone: String(source.mobilePhone || ""),
-    workPhone: String(source.workPhone || ""),
-    employmentType: String(source.employmentType || ""),
-    jobTitle: String(source.jobTitle || ""),
-    retireDate: String(source.retireDate || ""),
-    originalHireDate: String(source.originalHireDate || ""),
-    terminationDate: String(source.terminationDate || ""),
-    terminationReason: String(source.terminationReason || ""),
-    rehireDate: String(source.rehireDate || ""),
+    middleName: toStringValue(source.middleName, source.middle_name),
+    suffix: toStringValue(source.suffix),
+    preferredName: toStringValue(source.preferredName, source.preferred_name),
+    sex: toStringValue(source.sex, source.gender),
+    hireDate: toStringValue(source.hireDate, source.hire_date),
+    className: toStringValue(source.className, source.class_name, source.class),
+    department: toStringValue(source.department),
+    division: toStringValue(source.division),
+    businessUnit: toStringValue(source.businessUnit, source.business_unit),
+    workEmail: toStringValue(source.workEmail, source.work_email, source.email),
+    personalEmail: toStringValue(source.personalEmail, source.personal_email),
+    payrollGroup: toStringValue(source.payrollGroup, source.payroll_group),
+    annualBaseSalary: toStringValue(source.annualBaseSalary, source.annual_base_salary),
+    hoursPerWeek: toStringValue(source.hoursPerWeek, source.hours_per_week),
+    salaryEffectiveDate: toStringValue(source.salaryEffectiveDate, source.salary_effective_date),
+    address1: toStringValue(source.address1, source.address_1, source.address),
+    address2: toStringValue(source.address2, source.address_2),
+    city: toStringValue(source.city),
+    state: toStringValue(source.state),
+    zipCode: toStringValue(source.zipCode, source.zip_code, source.zip),
+    county: toStringValue(source.county),
+    country: toStringValue(source.country),
+    homePhone: toStringValue(source.homePhone, source.home_phone),
+    mobilePhone: toStringValue(source.mobilePhone, source.mobile_phone, source.phone),
+    workPhone: toStringValue(source.workPhone, source.work_phone),
+    employmentType: toStringValue(source.employmentType, source.employment_type),
+    jobTitle: toStringValue(source.jobTitle, source.job_title),
+    retireDate: toStringValue(source.retireDate, source.retire_date),
+    originalHireDate: toStringValue(source.originalHireDate, source.original_hire_date),
+    terminationDate: toStringValue(source.terminationDate, source.termination_date),
+    terminationReason: toStringValue(source.terminationReason, source.termination_reason),
+    rehireDate: toStringValue(source.rehireDate, source.rehire_date),
   };
 };
 
@@ -1551,10 +1576,9 @@ export default function GroupEnrollment() {
     setSelectedGroup(null);
     setEditingMember(null);
     resetMemberForm();
-    await refreshGroups();
     toast({
       title: "Group no longer available",
-      description: "This group was not found. The list has been refreshed.",
+      description: "This group was not found. You can re-open it from the list once available.",
       variant: "destructive",
     });
   };
@@ -1565,15 +1589,21 @@ export default function GroupEnrollment() {
       return false;
     }
 
-    try {
-      // During deployment/cache handoffs a valid group id can briefly 404.
-      // Refresh list state and re-fetch details once before falling back.
-      await refreshGroups();
-      await fetchGroupDetail(groupId);
-      return true;
-    } catch {
-      return false;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        // During deployment/cache handoffs a valid group id can briefly 404.
+        // Refresh list state and re-fetch details with short retries before fallback.
+        await refreshGroups();
+        await fetchGroupDetail(groupId);
+        return true;
+      } catch {
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
     }
+
+    return false;
   };
 
   const handleGroupMutationError = async (err: any, title: string) => {
@@ -2355,16 +2385,17 @@ export default function GroupEnrollment() {
 
   const handleEditMemberClick = (member: GroupMemberRecord) => {
     const employment = toEmploymentProfile(member);
+    const payload = (member.registrationPayload || {}) as Record<string, any>;
     setEditingMember(member);
     resetMemberForm({
       id: member.id,
       relationship: member.relationship || "primary",
-      firstName: member.firstName,
+      firstName: member.firstName || String(payload.firstName || payload.first_name || ""),
       middleName: employment.middleName,
-      lastName: member.lastName,
+      lastName: member.lastName || String(payload.lastName || payload.last_name || ""),
       suffix: employment.suffix,
       preferredName: employment.preferredName,
-      dateOfBirth: member.dateOfBirth || "",
+      dateOfBirth: member.dateOfBirth || String(payload.dateOfBirth || payload.date_of_birth || payload.dob || ""),
       sex: employment.sex,
       hireDate: employment.hireDate,
       className: employment.className,
