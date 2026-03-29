@@ -1881,7 +1881,7 @@ export default function GroupEnrollment() {
       if (!selectedGroup?.data?.id) throw new Error("Select a group first");
       if (importRows.length === 0) throw new Error("Load a census file first");
 
-      return apiRequest(`/api/groups/${selectedGroup.data.id}/members/bulk`, {
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/members/sync`, {
         method: "POST",
         body: JSON.stringify({ members: importRows }),
       });
@@ -1908,11 +1908,11 @@ export default function GroupEnrollment() {
       setLastImportSourceFileName(importFileName || "group-census.csv");
       setLastImportFailedRows(failedRows);
       toast({
-        title: "Census import complete",
+        title: "Census sync complete",
         description:
           failedRows.length > 0
-            ? `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows. ${failedRows.length} rows failed.`
-            : `Created ${summary?.created ?? 0} of ${summary?.received ?? importRows.length} rows`,
+            ? `Created ${summary?.created ?? 0}, updated ${summary?.updated ?? 0}, failed ${failedRows.length} of ${summary?.received ?? importRows.length} rows.`
+            : `Created ${summary?.created ?? 0} and updated ${summary?.updated ?? 0} of ${summary?.received ?? importRows.length} rows`,
         variant: summary?.failed ? "destructive" : undefined,
       });
       setImportFileName("");

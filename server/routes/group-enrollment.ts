@@ -1659,6 +1659,131 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
   }
 });
 
+const mergeImportedMetadata = (existingMetadata: unknown, incomingMetadata: unknown): Record<string, any> | null => {
+  const baseMetadata = stripSensitiveSsnFields(existingMetadata) || {};
+  const nextMetadata = stripSensitiveSsnFields(incomingMetadata) || {};
+
+  const merged: Record<string, any> = {
+    ...baseMetadata,
+    ...nextMetadata,
+  };
+
+  const baseEmployment = toObjectOrNull(baseMetadata.employmentProfile);
+  const nextEmployment = toObjectOrNull(nextMetadata.employmentProfile);
+  if (baseEmployment || nextEmployment) {
+    merged.employmentProfile = {
+      ...(baseEmployment || {}),
+      ...(nextEmployment || {}),
+    };
+  }
+
+  return merged;
+};
+
+const mergeImportedRegistrationPayload = (
+  existingRegistrationPayload: unknown,
+  source: Record<string, any>,
+): Record<string, any> | null => {
+  const basePayload = stripSensitiveSsnFields(existingRegistrationPayload) || {};
+  const nextPayload = stripSensitiveSsnFields(source.registrationPayload || source) || {};
+
+  const merged: Record<string, any> = {
+    ...basePayload,
+    ...nextPayload,
+  };
+
+  const baseEmployment = toObjectOrNull(basePayload.employmentProfile);
+  const nextEmployment = toObjectOrNull(nextPayload.employmentProfile);
+  if (baseEmployment || nextEmployment) {
+    merged.employmentProfile = {
+      ...(baseEmployment || {}),
+      ...(nextEmployment || {}),
+    };
+  }
+
+  return merged;
+};
+
+const findExistingMemberForSync = (
+  existingMembers: any[],
+  options: {
+    isPrimaryMember: boolean;
+    normalizedRelationship: string;
+    providedEmail: string | null;
+    firstName: string;
+    lastName: string;
+    normalizedDateOfBirth: string | null;
+    householdBaseNumber: string | null;
+    householdMemberNumber: string | null;
+    dependentSuffix: number | null;
+  },
+): any | null => {
+  const {
+    isPrimaryMember,
+    normalizedRelationship,
+    providedEmail,
+    firstName,
+    lastName,
+    normalizedDateOfBirth,
+    householdBaseNumber,
+    householdMemberNumber,
+    dependentSuffix,
+  } = options;
+
+  const byHouseholdMemberNumber = householdMemberNumber
+    ? existingMembers.find((member) => String(member.householdMemberNumber || '').trim() === householdMemberNumber)
+    : null;
+  if (byHouseholdMemberNumber) return byHouseholdMemberNumber;
+
+  const byHouseholdBaseAndSuffix = householdBaseNumber
+    ? existingMembers.find((member) => {
+      const matchesBase = String(member.householdBaseNumber || '').trim() === householdBaseNumber;
+      if (!matchesBase) return false;
+
+      if (dependentSuffix === null || dependentSuffix === undefined) {
+        return true;
+      }
+
+      return normalizeDependentSuffix(member.dependentSuffix) === dependentSuffix;
+    })
+    : null;
+  if (byHouseholdBaseAndSuffix) return byHouseholdBaseAndSuffix;
+
+  if (isPrimaryMember && providedEmail) {
+    const byPrimaryEmail = existingMembers.find((member) => {
+      const memberRelationship = normalizeMemberRelationship(member.relationship, member.tier);
+      const memberEmail = toTrimmedOrNull(member.email)?.toLowerCase() || null;
+      return memberRelationship === 'primary' && memberEmail === providedEmail;
+    });
+    if (byPrimaryEmail) return byPrimaryEmail;
+  }
+
+  const normalizedFirstName = firstName.trim().toLowerCase();
+  const normalizedLastName = lastName.trim().toLowerCase();
+
+  const byIdentity = existingMembers.find((member) => {
+    const memberRelationship = normalizeMemberRelationship(member.relationship, member.tier);
+    if (memberRelationship !== normalizedRelationship) {
+      return false;
+    }
+
+    const memberFirst = toTrimmedOrNull(member.firstName)?.toLowerCase() || '';
+    const memberLast = toTrimmedOrNull(member.lastName)?.toLowerCase() || '';
+    if (memberFirst !== normalizedFirstName || memberLast !== normalizedLastName) {
+      return false;
+    }
+
+    const memberDob = normalizeGroupMemberDateOfBirth(member.dateOfBirth);
+    if (normalizedDateOfBirth && memberDob) {
+      return normalizedDateOfBirth === memberDob;
+    }
+
+    return true;
+  });
+
+  return byIdentity || null;
+};
+
 router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
@@ -1763,6 +1888,174 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
   } catch (error) {
     console.error('[Group Enrollment] Failed to bulk import group members:', error);
     const message = error instanceof Error ? error.message : 'Failed to bulk import group members';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
+    const incomingMembers = Array.isArray(req.body?.members) ? req.body.members : [];
+    if (incomingMembers.length === 0) {
+      return res.status(400).json({ message: 'No members provided for census sync' });
+    }
+
+    const existingMembers = await listGroupMembers({ groupId });
+    const created: any[] = [];
+    const updated: any[] = [];
+    const failed: Array<{ row: number; email?: string; reason: string }> = [];
+
+    for (let index = 0; index < incomingMembers.length; index += 1) {
+      const source = incomingMembers[index] || {};
+      const rowNumber = index + 2;
+      const firstName = toTrimmedOrNull(source.firstName);
+      const lastName = toTrimmedOrNull(source.lastName);
+      const normalizedTier = normalizeMemberTier(source.tier);
+      const normalizedRelationship = normalizeMemberRelationship(source.relationship ?? source.memberRelationship, normalizedTier);
+      const isPrimaryMember = normalizedRelationship === 'primary';
+      const providedEmail = toTrimmedOrNull(source.email)?.toLowerCase() || null;
+      const normalizedDateOfBirth = normalizeGroupMemberDateOfBirth(source.dateOfBirth);
+      const householdBaseNumber = toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber);
+      const householdMemberNumber = toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber);
+      const dependentSuffix = normalizeDependentSuffix(source.dependentSuffix);
+
+      if (!firstName || !lastName) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Missing firstName or lastName' });
+        continue;
+      }
+
+      if (isPrimaryMember && !providedEmail) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Primary member email is required' });
+        continue;
+      }
+
+      if (isPrimaryMember && providedEmail && !EMAIL_REGEX.test(providedEmail)) {
+        failed.push({ row: rowNumber, email: providedEmail, reason: 'Invalid email format' });
+        continue;
+      }
+
+      const email = isPrimaryMember
+        ? (providedEmail as string)
+        : buildDependentMemberFallbackEmail(firstName, lastName, groupId, rowNumber);
+
+      try {
+        const matched = findExistingMemberForSync(existingMembers, {
+          isPrimaryMember,
+          normalizedRelationship,
+          providedEmail,
+          firstName,
+          lastName,
+          normalizedDateOfBirth,
+          householdBaseNumber,
+          householdMemberNumber,
+          dependentSuffix,
+        });
+
+        const ssnIntent = isPrimaryMember
+          ? extractSsnIntent(source, source?.metadata, source?.registrationPayload)
+          : { provided: true, value: null as string | null };
+
+        if (matched) {
+          const mergedMetadata = mergeImportedMetadata(matched.metadata, source.metadata);
+          const mergedRegistrationPayload = mergeImportedRegistrationPayload(matched.registrationPayload, source);
+          const nextMetadata = ssnIntent.provided
+            ? upsertEncryptedSsn(mergedMetadata, ssnIntent.value)
+            : mergedMetadata;
+
+          const updatedRecord = await updateGroupMember(matched.id, {
+            tier: normalizedTier,
+            relationship: normalizedRelationship,
+            householdBaseNumber,
+            householdMemberNumber,
+            dependentSuffix,
+            payorType: normalizeMemberPayorType(source.payorType, group.payorType),
+            firstName,
+            lastName,
+            email: isPrimaryMember ? email : (matched.email || email),
+            phone: toDigitsOrNull(source.phone),
+            dateOfBirth: normalizedDateOfBirth,
+            employerAmount: parseAmount(source.employerAmount),
+            memberAmount: parseAmount(source.memberAmount),
+            discountAmount: parseAmount(source.discountAmount),
+            totalAmount: parseAmount(source.totalAmount),
+            metadata: nextMetadata,
+            registrationPayload: mergedRegistrationPayload,
+            status: normalizeMemberStatus(source.status || matched.status),
+          });
+
+          updated.push(toMemberResponse(updatedRecord, shouldRevealMemberSsn(req)));
+
+          const existingIndex = existingMembers.findIndex((member) => member.id === matched.id);
+          if (existingIndex >= 0) {
+            existingMembers[existingIndex] = updatedRecord;
+          }
+
+          continue;
+        }
+
+        const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
+        const sanitizedRegistrationPayload = mergeImportedRegistrationPayload(null, source);
+        const nextMetadata = ssnIntent.provided
+          ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
+          : sanitizedMetadata;
+
+        const createdRecord = await addGroupMember(groupId, {
+          tier: normalizedTier,
+          relationship: normalizedRelationship,
+          householdBaseNumber,
+          householdMemberNumber,
+          dependentSuffix,
+          payorType: normalizeMemberPayorType(source.payorType, group.payorType),
+          firstName,
+          lastName,
+          email,
+          phone: toDigitsOrNull(source.phone),
+          dateOfBirth: normalizedDateOfBirth,
+          employerAmount: parseAmount(source.employerAmount),
+          memberAmount: parseAmount(source.memberAmount),
+          discountAmount: parseAmount(source.discountAmount),
+          totalAmount: parseAmount(source.totalAmount),
+          metadata: nextMetadata,
+          registrationPayload: sanitizedRegistrationPayload,
+          status: normalizeMemberStatus(source.status),
+        });
+
+        created.push(toMemberResponse(createdRecord, shouldRevealMemberSsn(req)));
+        existingMembers.push(createdRecord);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to sync row';
+        failed.push({ row: rowNumber, email, reason: message });
+      }
+    }
+
+    const summary = {
+      received: incomingMembers.length,
+      created: created.length,
+      updated: updated.length,
+      failed: failed.length,
+    };
+
+    return res.status(failed.length > 0 ? 207 : 200).json({
+      message: failed.length > 0
+        ? 'Census sync completed with partial failures'
+        : 'Census sync completed successfully',
+      summary,
+      created,
+      updated,
+      failed,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to sync group members:', error);
+    const message = error instanceof Error ? error.message : 'Failed to sync group members';
     return res.status(500).json({ message });
   }
 });
