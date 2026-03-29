@@ -588,6 +588,8 @@ type CensusImportRow = {
   lastName: string;
   email: string;
   ssn?: string;
+  employeeSsn?: string;
+  dependentSsn?: string;
   relationship?: string;
   householdBaseNumber?: string;
   householdMemberNumber?: string;
@@ -880,6 +882,48 @@ const isSsnLikeHeader = (header: string): boolean => {
 
 const normalizeImportedEmail = (value: unknown): string => sanitizeImportValue(value).toLowerCase();
 
+type ImportedPlanSelection = {
+  rawBusinessUnit: string;
+  corePlanLabel?: string;
+  corePlanMonthlyAmount?: number;
+  pbmPlanLabel?: string;
+  pbmPlanMonthlyAmount?: number;
+  totalMonthlyAmount?: number;
+};
+
+const parseAmountToken = (token: string | undefined): number | undefined => {
+  if (!token) return undefined;
+  const numeric = Number.parseFloat(token.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+};
+
+const parsePlanSelectionFromBusinessUnit = (businessUnitRaw: string): ImportedPlanSelection | null => {
+  const raw = sanitizeImportValue(businessUnitRaw);
+  if (!raw) {
+    return null;
+  }
+
+  const coreMatch = raw.match(/(my\s*premierplans[^$@\n\r]*)[$@]?\s*\$\s*(\d+(?:\.\d{1,2})?)/i);
+  const pbmMatch = raw.match(/((?:choicerx|choice\s*rx|pbm)[^$@\n\r]*)[$@]?\s*\$\s*(\d+(?:\.\d{1,2})?)/i);
+
+  const corePlanLabel = sanitizeImportValue(coreMatch?.[1] || "") || undefined;
+  const corePlanMonthlyAmount = parseAmountToken(coreMatch?.[2]);
+  const pbmPlanLabel = sanitizeImportValue(pbmMatch?.[1] || "") || undefined;
+  const pbmPlanMonthlyAmount = parseAmountToken(pbmMatch?.[2]);
+
+  const totalFromParts = [corePlanMonthlyAmount || 0, pbmPlanMonthlyAmount || 0].reduce((sum, value) => sum + value, 0);
+  const totalMonthlyAmount = totalFromParts > 0 ? Number(totalFromParts.toFixed(2)) : undefined;
+
+  return {
+    rawBusinessUnit: raw,
+    corePlanLabel,
+    corePlanMonthlyAmount,
+    pbmPlanLabel,
+    pbmPlanMonthlyAmount,
+    totalMonthlyAmount,
+  };
+};
+
 const buildEmploymentProfileFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
   const profile: Record<string, unknown> = {
     middleName: sanitizeImportValue(getRecordValue(record, ["middleName", "middle_name"])),
@@ -927,7 +971,10 @@ const buildEmploymentProfileFromRecord = (record: Record<string, unknown>): Reco
   return cleaned;
 };
 
-const buildRegistrationPayloadFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
+const buildRegistrationPayloadFromRecord = (
+  record: Record<string, unknown>,
+  options?: { relationship?: string; tier?: string },
+): Record<string, unknown> => {
   const payload: Record<string, unknown> = {};
 
   Object.entries(record).forEach(([key, value]) => {
@@ -956,6 +1003,17 @@ const buildRegistrationPayloadFromRecord = (record: Record<string, unknown>): Re
   const employmentProfile = buildEmploymentProfileFromRecord(record);
   if (Object.keys(employmentProfile).length > 0) {
     payload.employmentProfile = employmentProfile;
+  }
+
+  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
+  const planSelection = parsePlanSelectionFromBusinessUnit(businessUnitRaw);
+  if (planSelection) {
+    payload.planSelection = {
+      ...planSelection,
+      relationship: options?.relationship || null,
+      tier: options?.tier || null,
+      source: "business_unit",
+    };
   }
 
   return payload;
@@ -1044,26 +1102,75 @@ const resolveImportedEmail = (record: Record<string, unknown>): string => {
   return "";
 };
 
-const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => ({
-  firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname", "employeeFirstName", "memberFirstName", "givenName"])),
-  lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname", "employeeLastName", "memberLastName", "surname", "familyName"])),
-  email: resolveImportedEmail(record),
-  ssn: sanitizeImportValue(getRecordValue(record, ["ssn", "socialSecurityNumber", "social_security_number", "social security number", "employeeSsn", "employee_ssn", "memberSsn", "member_ssn"])),
-  relationship: sanitizeImportValue(getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship", "dependent_relation", "member_relation"])),
-  householdBaseNumber: sanitizeImportValue(getRecordValue(record, ["householdBaseNumber", "baseMemberNumber", "householdNumber"])),
-  householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber", "employeeNumber", "employeeId", "memberId"])),
-  dependentSuffix: sanitizeImportValue(getRecordValue(record, ["dependentSuffix"])),
-  phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone", "cellPhone", "mobile"])),
-  dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
-  tier: sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record),
-  payorType: sanitizeImportValue(getRecordValue(record, ["payorType", "payor_type", "payor"])),
-  status: sanitizeImportValue(getRecordValue(record, ["status"])),
-  employerAmount: sanitizeImportValue(getRecordValue(record, ["employerAmount", "employer_amount"])),
-  memberAmount: sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"])),
-  discountAmount: sanitizeImportValue(getRecordValue(record, ["discountAmount", "discount_amount"])),
-  totalAmount: sanitizeImportValue(getRecordValue(record, ["totalAmount", "total_amount"])),
-  registrationPayload: buildRegistrationPayloadFromRecord(record),
-});
+const resolveImportedSsn = (
+  relationship: string,
+  tier: string,
+  employeeSsn: string,
+  dependentSsn: string,
+  fallbackSsn: string,
+): string => {
+  const relationshipValue = relationship.toLowerCase();
+  const tierValue = tier.toLowerCase();
+  const looksDependent =
+    relationshipValue.includes("dependent")
+    || relationshipValue.includes("child")
+    || relationshipValue.includes("spouse")
+    || tierValue === "child"
+    || tierValue === "spouse";
+
+  if (looksDependent) {
+    return dependentSsn || employeeSsn || fallbackSsn;
+  }
+
+  return employeeSsn || dependentSsn || fallbackSsn;
+};
+
+const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => {
+  const relationship = sanitizeImportValue(
+    getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship", "dependent_relation", "member_relation"]),
+  );
+  const tier = sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record);
+  const employeeSsn = sanitizeImportValue(
+    getRecordValue(record, ["employeeSsn", "employee_ssn", "employee social security number", "ee ssn"]),
+  );
+  const dependentSsn = sanitizeImportValue(
+    getRecordValue(record, ["dependentSsn", "dependent_ssn", "dependent social security number", "dep ssn"]),
+  );
+  const fallbackSsn = sanitizeImportValue(
+    getRecordValue(record, ["ssn", "socialSecurityNumber", "social_security_number", "social security number", "memberSsn", "member_ssn"]),
+  );
+  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
+  const planSelection = parsePlanSelectionFromBusinessUnit(businessUnitRaw);
+  const importedEmployerAmount = sanitizeImportValue(getRecordValue(record, ["employerAmount", "employer_amount"]));
+  const importedMemberAmount = sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"]));
+  const importedTotalAmount = sanitizeImportValue(getRecordValue(record, ["totalAmount", "total_amount"]));
+  const parsedPlanTotal = planSelection?.totalMonthlyAmount;
+  const derivedMemberAmount = importedMemberAmount || (parsedPlanTotal !== undefined ? parsedPlanTotal.toFixed(2) : "");
+  const derivedTotalAmount = importedTotalAmount || (parsedPlanTotal !== undefined ? parsedPlanTotal.toFixed(2) : "");
+
+  return {
+    firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname", "employeeFirstName", "memberFirstName", "givenName"])),
+    lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname", "employeeLastName", "memberLastName", "surname", "familyName"])),
+    email: resolveImportedEmail(record),
+    employeeSsn,
+    dependentSsn,
+    ssn: resolveImportedSsn(relationship, tier, employeeSsn, dependentSsn, fallbackSsn),
+    relationship,
+    householdBaseNumber: sanitizeImportValue(getRecordValue(record, ["householdBaseNumber", "baseMemberNumber", "householdNumber"])),
+    householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber", "employeeNumber", "employeeId", "memberId"])),
+    dependentSuffix: sanitizeImportValue(getRecordValue(record, ["dependentSuffix"])),
+    phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone", "cellPhone", "mobile"])),
+    dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
+    tier,
+    payorType: sanitizeImportValue(getRecordValue(record, ["payorType", "payor_type", "payor"])),
+    status: sanitizeImportValue(getRecordValue(record, ["status"])),
+    employerAmount: importedEmployerAmount,
+    memberAmount: derivedMemberAmount,
+    discountAmount: sanitizeImportValue(getRecordValue(record, ["discountAmount", "discount_amount"])),
+    totalAmount: derivedTotalAmount,
+    registrationPayload: buildRegistrationPayloadFromRecord(record, { relationship, tier }),
+  };
+};
 
 const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
   if (tableRows.length < 2) {
@@ -2447,11 +2554,11 @@ export default function GroupEnrollment() {
   const groupStatus = selectedGroup?.data?.status || "draft";
   const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
   const isGroupActive = groupStatus === "active";
-  const canCompleteEnrollment = activeMemberCount > 0 && profileComplete && !isEnrollmentComplete;
+  const canCompleteEnrollment = activeMemberCount > 0 && !isEnrollmentComplete;
   const activeMembersMissingRequired = selectedGroup?.members?.filter((member) =>
     member.status !== "terminated" && !isMemberCompleteForEnrollment(member)
   ).length ?? 0;
-  const canCompleteEnrollmentWithRequiredFields = canCompleteEnrollment && activeMembersMissingRequired === 0;
+  const hasEnrollmentDataGaps = !profileComplete || activeMembersMissingRequired > 0;
   const canActivateGroup = activeMemberCount > 0 && profileComplete && isEnrollmentComplete && !isGroupActive;
   const paymentHandoffStatusLabel = selectedGroup?.data?.hostedCheckoutStatus || "not-started";
   const paymentHandoffBadgeClass = paymentHandoffStatusLabel === "ready"
@@ -4081,7 +4188,7 @@ export default function GroupEnrollment() {
                       <Button
                         className="w-full"
                         onClick={() => completeGroupMutation.mutate()}
-                        disabled={!canCompleteEnrollmentWithRequiredFields || completeGroupMutation.isPending}
+                        disabled={!canCompleteEnrollment || completeGroupMutation.isPending}
                       >
                         {isEnrollmentComplete
                           ? 'Enrollment Complete'
@@ -4102,15 +4209,17 @@ export default function GroupEnrollment() {
                             : 'Set Active'}
                       </Button>
                     </div>
-                    {!canCompleteEnrollmentWithRequiredFields && !isEnrollmentComplete && (
+                    {hasEnrollmentDataGaps && !isEnrollmentComplete && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
                         {activeMemberCount === 0
                           ? 'Add at least one non-terminated member before completing enrollment.'
-                          : !profileComplete
-                            ? 'Complete group profile before completing enrollment.'
-                            : activeMembersMissingRequired > 0
-                              ? `Complete all required member fields for ${activeMembersMissingRequired} active member(s).`
-                              : 'Complete required member data before completing enrollment.'}
+                          : !profileComplete && activeMembersMissingRequired > 0
+                            ? `Enrollment can continue. Follow-up needed: group profile plus ${activeMembersMissingRequired} member record(s).`
+                            : !profileComplete
+                              ? 'Enrollment can continue. Follow-up needed: complete the group profile.'
+                              : activeMembersMissingRequired > 0
+                                ? `Enrollment can continue. Follow-up needed: complete required fields for ${activeMembersMissingRequired} active member(s).`
+                                : 'Enrollment can continue with follow-up data completion.'}
                       </p>
                     )}
                   </div>

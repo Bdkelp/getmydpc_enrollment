@@ -119,8 +119,23 @@ const SSN_FIELD_ALIASES = new Set([
   'socialsecurityno',
   'socialsecuritynum',
   'employeessn',
+  'eessn',
+  'employeesocialsecuritynumber',
+  'depssn',
+  'dependentssn',
+  'dependentsocialsecuritynumber',
   'memberssn',
 ]);
+const PRIMARY_MEMBER_SSN_ALIASES = [
+  'employeessn',
+  'eessn',
+  'employeesocialsecuritynumber',
+] as const;
+const DEPENDENT_MEMBER_SSN_ALIASES = [
+  'depssn',
+  'dependentssn',
+  'dependentsocialsecuritynumber',
+] as const;
 const GROUP_DOCUMENTS_BUCKET = 'group-documents';
 const CENSUS_TEMPLATE_SETTING_KEY = 'group_census_template';
 const MAX_CENSUS_TEMPLATE_BYTES = 5 * 1024 * 1024;
@@ -1092,6 +1107,8 @@ const stripSensitiveSsnFields = (value: unknown): Record<string, any> | null => 
 };
 
 const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: string | null } => {
+  let sawSsnField = false;
+
   for (const source of sources) {
     const objectValue = toObjectOrNull(source);
     if (!objectValue) {
@@ -1103,24 +1120,86 @@ const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: st
         continue;
       }
 
+      sawSsnField = true;
+
       if (raw === null || raw === undefined) {
-        return { provided: true, value: null };
+        continue;
       }
 
       if (typeof raw !== 'string') {
-        return { provided: true, value: null };
+        continue;
       }
 
       const trimmed = raw.trim();
       if (!trimmed) {
-        return { provided: true, value: null };
+        continue;
       }
 
       return { provided: true, value: trimmed };
     }
   }
 
+  if (sawSsnField) {
+    return { provided: true, value: null };
+  }
+
   return { provided: false, value: null };
+};
+
+const extractSsnIntentByAliases = (
+  aliases: readonly string[],
+  ...sources: unknown[]
+): { provided: boolean; value: string | null } => {
+  let sawAliasField = false;
+  const normalizedAliases = new Set(aliases.map((alias) => normalizeImportKey(alias)));
+
+  for (const source of sources) {
+    const objectValue = toObjectOrNull(source);
+    if (!objectValue) {
+      continue;
+    }
+
+    for (const [key, raw] of Object.entries(objectValue)) {
+      const normalizedKey = normalizeImportKey(key);
+      if (!normalizedAliases.has(normalizedKey)) {
+        continue;
+      }
+
+      sawAliasField = true;
+
+      if (raw === null || raw === undefined || typeof raw !== 'string') {
+        continue;
+      }
+
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      return { provided: true, value: trimmed };
+    }
+  }
+
+  if (sawAliasField) {
+    return { provided: true, value: null };
+  }
+
+  return { provided: false, value: null };
+};
+
+const extractMemberSsnIntent = (
+  isPrimaryMember: boolean,
+  ...sources: unknown[]
+): { provided: boolean; value: string | null } => {
+  const relationshipSpecificIntent = isPrimaryMember
+    ? extractSsnIntentByAliases(PRIMARY_MEMBER_SSN_ALIASES, ...sources)
+    : extractSsnIntentByAliases(DEPENDENT_MEMBER_SSN_ALIASES, ...sources);
+
+  if (relationshipSpecificIntent.provided) {
+    return relationshipSpecificIntent;
+  }
+
+  return extractSsnIntent(...sources);
 };
 
 const upsertEncryptedSsn = (
@@ -2078,9 +2157,7 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       ? (providedEmail as string)
       : buildDependentMemberFallbackEmail(String(firstName), String(lastName), groupId, Date.now());
 
-    const ssnIntent = isPrimaryMember
-      ? extractSsnIntent(req.body, metadata, registrationPayload)
-      : { provided: true, value: null as string | null };
+    const ssnIntent = extractMemberSsnIntent(isPrimaryMember, req.body, metadata, registrationPayload);
     const sanitizedMetadata = stripSensitiveSsnFields(metadata);
     const sanitizedRegistrationPayload = stripSensitiveSsnFields(registrationPayload || req.body);
     const nextMetadata = ssnIntent.provided
@@ -2322,9 +2399,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
         : buildDependentMemberFallbackEmail(firstName, lastName, groupId, rowNumber);
 
       try {
-        const ssnIntent = isPrimaryMember
-          ? extractSsnIntent(source, source?.metadata, source?.registrationPayload)
-          : { provided: true, value: null as string | null };
+        const ssnIntent = extractMemberSsnIntent(isPrimaryMember, source, source?.metadata, source?.registrationPayload);
         const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
         const sanitizedRegistrationPayload = stripSensitiveSsnFields(source.registrationPayload || source);
         const nextMetadata = ssnIntent.provided
@@ -2459,9 +2534,7 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           dependentSuffix,
         });
 
-        const ssnIntent = isPrimaryMember
-          ? extractSsnIntent(source, source?.metadata, source?.registrationPayload)
-          : { provided: true, value: null as string | null };
+        const ssnIntent = extractMemberSsnIntent(isPrimaryMember, source, source?.metadata, source?.registrationPayload);
 
         if (matched) {
           const mergedMetadata = mergeImportedMetadata(matched.metadata, source.metadata);
@@ -2704,12 +2777,15 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     );
     const isPrimaryMember = requestedRelationship === 'primary';
 
-    const includeSsnIntentRaw = extractSsnIntent(req.body, req.body?.metadata, req.body?.registrationPayload);
-    const includeSsnIntent = isPrimaryMember
-      ? includeSsnIntentRaw
-      : { provided: true, value: null as string | null };
+    const includeSsnIntentRaw = extractMemberSsnIntent(
+      isPrimaryMember,
+      req.body,
+      req.body?.metadata,
+      req.body?.registrationPayload,
+    );
+    const includeSsnIntent = includeSsnIntentRaw;
     const canEditSsn = canEditMemberSsn(req);
-    if (includeSsnIntentRaw.provided && isPrimaryMember && !canEditSsn) {
+    if (includeSsnIntentRaw.provided && !canEditSsn) {
       return res.status(403).json({ message: 'Only assigned agents and admins can edit SSN values' });
     }
 
@@ -3030,12 +3106,6 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
     }
 
     const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
-    if (!groupProfileContext.isComplete) {
-      return res.status(400).json({
-        message: 'Group profile is incomplete. Please complete profile fields before marking ready.',
-        missingFields: groupProfileContext.missingFields,
-      });
-    }
 
     const members = await listGroupMembers({ groupId });
     const activeMembers = members.filter((member) => member.status !== 'terminated');
@@ -3055,12 +3125,11 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
       })
       .filter((entry) => entry.missingFields.length > 0);
 
-    if (missingMemberRequirements.length > 0) {
-      return res.status(400).json({
-        message: 'All active members must have required enrollment fields completed before final enrollment.',
-        missingMemberRequirements,
-      });
-    }
+    const pendingDataFollowUp = {
+      groupProfileMissingFields: groupProfileContext.isComplete ? [] : groupProfileContext.missingFields,
+      memberRequirements: missingMemberRequirements,
+      requiresFollowUp: !groupProfileContext.isComplete || missingMemberRequirements.length > 0,
+    };
 
     const completed = await completeGroupRegistration(groupId, {
       hostedCheckoutLink: req.body?.hostedCheckoutLink,
@@ -3089,6 +3158,14 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
         scheduledStartDate: schedulerStartDate,
         activeMemberCount,
       },
+      enrollmentDataFollowUp: {
+        ...(existingMetadata.enrollmentDataFollowUp && typeof existingMetadata.enrollmentDataFollowUp === 'object'
+          ? existingMetadata.enrollmentDataFollowUp
+          : {}),
+        ...pendingDataFollowUp,
+        lastQueuedAt: nowIso,
+        lastQueuedBy: req.user?.id || null,
+      },
     };
 
     const completedWithScheduler = await updateGroup(groupId, {
@@ -3098,9 +3175,14 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
 
     let notificationCreated = false;
     try {
+      const assignmentState = getGroupAssignmentState(nextMetadata);
       await createAdminNotification({
-        type: 'group_enrollment_ready_for_billing',
-        errorMessage: `Group ${completed.name || groupId} marked ready and queued for payment scheduling.`,
+        type: pendingDataFollowUp.requiresFollowUp
+          ? 'group_enrollment_ready_with_missing_data'
+          : 'group_enrollment_ready_for_billing',
+        errorMessage: pendingDataFollowUp.requiresFollowUp
+          ? `Group ${completed.name || groupId} marked ready with missing data follow-up required.`
+          : `Group ${completed.name || groupId} marked ready and queued for payment scheduling.`,
         metadata: {
           groupId,
           groupName: completed.name || null,
@@ -3110,6 +3192,9 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
           preferredPaymentMethod: groupProfileContext.profile?.preferredPaymentMethod || null,
           markedReadyBy: req.user?.id || null,
           markedReadyAt: nowIso,
+          currentAssignedAgentId: assignmentState.currentAssignedAgentId,
+          originalAssignedAgentId: assignmentState.originalAssignedAgentId,
+          followUp: pendingDataFollowUp,
         },
       });
       notificationCreated = true;
@@ -3123,6 +3208,7 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
         queueState: 'ready',
         scheduledStartDate: schedulerStartDate,
       },
+      followUp: pendingDataFollowUp,
       adminNotificationCreated: notificationCreated,
     });
   } catch (error) {
