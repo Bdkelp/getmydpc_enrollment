@@ -1102,23 +1102,9 @@ const upsertEncryptedSsn = (
   }
 
   const nextMetadata = metadataValue || {};
-  try {
-    nextMetadata.ssnEncrypted = encryptSSN(normalized);
-    delete nextMetadata.ssn;
-    nextMetadata.ssnLast4 = normalized.slice(-4);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('SSN encryption key is not configured')) {
-      // Keep member flows working when SSN encryption is not configured.
-      delete nextMetadata.ssnEncrypted;
-      nextMetadata.ssn = normalized;
-      nextMetadata.ssnLast4 = normalized.slice(-4);
-      console.warn('[Group Enrollment] SSN encryption key is missing; storing normalized SSN fallback.');
-      return nextMetadata;
-    }
-
-    throw error;
-  }
+  nextMetadata.ssnEncrypted = encryptSSN(normalized);
+  delete nextMetadata.ssn;
+  nextMetadata.ssnLast4 = normalized.slice(-4);
 
   return nextMetadata;
 };
@@ -1155,6 +1141,9 @@ const resolveMemberSsnDigits = (member: any): string | null => {
 };
 
 const canViewFullMemberSsn = (req: AuthRequest): boolean =>
+  Boolean(req.user && (hasAtLeastRole(req.user.role, 'admin') || req.user.role === 'authorized'));
+
+const canEditMemberSsn = (req: AuthRequest): boolean =>
   Boolean(req.user && (hasAtLeastRole(req.user.role, 'agent') || req.user.role === 'authorized'));
 
 const shouldRevealMemberSsn = (req: AuthRequest): boolean => {
@@ -2663,9 +2652,9 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     const includeSsnIntent = isPrimaryMember
       ? includeSsnIntentRaw
       : { provided: true, value: null as string | null };
-    const canEditSsn = canViewFullMemberSsn(req);
+    const canEditSsn = canEditMemberSsn(req);
     if (includeSsnIntentRaw.provided && isPrimaryMember && !canEditSsn) {
-      return res.status(403).json({ message: 'Only admins can edit SSN values' });
+      return res.status(403).json({ message: 'Only assigned agents and admins can edit SSN values' });
     }
 
     const incomingBody = (req.body && typeof req.body === 'object') ? req.body : {};
@@ -2751,8 +2740,8 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
 
 router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequest, res: Response) => {
   try {
-    if (!canViewFullMemberSsn(req)) {
-      return res.status(403).json({ message: 'Only admins can delete SSN values' });
+    if (!canEditMemberSsn(req)) {
+      return res.status(403).json({ message: 'Only assigned agents and admins can delete SSN values' });
     }
 
     const { groupId, memberId } = req.params;

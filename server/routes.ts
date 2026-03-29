@@ -258,7 +258,7 @@ async function getGroupEnrollmentRecordsForAgent(agentId: string): Promise<any[]
 }
 
 const canRevealEnrollmentSsnForRole = (role: string | undefined): boolean => {
-  return Boolean(role === "authorized" || hasAgentOrAdminAccess(role));
+  return Boolean(role === "authorized" || isAdmin(role));
 };
 
 const shouldRevealEnrollmentSsn = (req: AuthRequest): boolean => {
@@ -3271,23 +3271,7 @@ router.patch(
         return res.status(400).json({ message: "Invalid SSN format" });
       }
 
-      try {
-        await storage.updateMember(enrollmentId, { ssn: normalized });
-      } catch (updateError: any) {
-        const message = updateError instanceof Error ? updateError.message : String(updateError);
-        if (!message.includes('SSN encryption key is not configured')) {
-          throw updateError;
-        }
-
-        const { error: fallbackError } = await storage.supabase
-          .from('members')
-          .update({ ssn: normalized, updated_at: new Date().toISOString() })
-          .eq('id', enrollmentId);
-
-        if (fallbackError) {
-          throw fallbackError;
-        }
-      }
+      await storage.updateMember(enrollmentId, { ssn: normalized });
 
       // Log sensitive update for audit trail
       try {

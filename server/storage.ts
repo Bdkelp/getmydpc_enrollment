@@ -6990,16 +6990,7 @@ export const storage = {
           return null;
         }
 
-        try {
-          return encryptSSN(digits);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (message.includes('SSN encryption key is not configured')) {
-            console.warn('[Storage] SSN encryption key missing during createMember; storing normalized SSN as fallback.');
-            return digits;
-          }
-          throw error;
-        }
+        return encryptSSN(digits);
       };
 
       const resolvedCustomerNumber = (memberData.customerNumber || '').toString().trim().toUpperCase() ||
@@ -7020,7 +7011,7 @@ export const storage = {
         dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
         dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
         planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
-        // Persist SSN without blocking enrollment when encryption key is missing.
+        // Persist SSN encrypted at rest.
         ssn: toStoredSsnValue(memberData.ssn),
         // Format ZIP to 5 digits
         zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
@@ -7339,16 +7330,7 @@ export const storage = {
           return undefined;
         }
 
-        try {
-          return encryptSSN(digits);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (message.includes('SSN encryption key is not configured')) {
-            console.warn('[Storage] SSN encryption key missing during updateMember; storing normalized SSN as fallback.');
-            return digits;
-          }
-          throw error;
-        }
+        return encryptSSN(digits);
       };
 
       // Prevent camelCase timestamp aliases from becoming invalid SQL columns.
