@@ -13,6 +13,7 @@ import {
 import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
 import { sendEmailVerification, sendUserCredentialsEmail } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
+import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
 import { displaySSN } from "@shared/display-ssn";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
@@ -315,6 +316,25 @@ router.get("/api/debug/supabase-config", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : "Unknown error" });
+  }
+});
+
+router.get("/api/health/supabase-auth-context", authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    return res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      diagnostics: getSupabaseClientDiagnostics(),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to read Supabase auth context",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 });
 

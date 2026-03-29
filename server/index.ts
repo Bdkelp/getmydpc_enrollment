@@ -39,6 +39,8 @@ import paymentReconciliationRoutes from "./routes/payment-reconciliation";
 import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
 import paymentTrackingRoutes from "./routes/payment-tracking";
 import achPaymentRoutes from "./routes/ach-payment-routes";
+import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
+import { isSupabaseServiceRoleReady } from "./lib/supabaseClient";
 
 const app = express();
 
@@ -95,6 +97,44 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Readiness check for platform health probes.
+// Returns 503 when backend cannot act as service_role against Supabase.
+app.get("/ready", (req, res) => {
+  const diagnostics = getSupabaseClientDiagnostics();
+  if (!isSupabaseServiceRoleReady()) {
+    return res.status(503).json({
+      status: "not_ready",
+      reason: "supabase_service_role_unavailable",
+      timestamp: new Date().toISOString(),
+      diagnostics,
+    });
+  }
+
+  return res.json({
+    status: "ready",
+    timestamp: new Date().toISOString(),
+    diagnostics,
+  });
+});
+
+app.get("/api/ready", (req, res) => {
+  const diagnostics = getSupabaseClientDiagnostics();
+  if (!isSupabaseServiceRoleReady()) {
+    return res.status(503).json({
+      status: "not_ready",
+      reason: "supabase_service_role_unavailable",
+      timestamp: new Date().toISOString(),
+      diagnostics,
+    });
+  }
+
+  return res.json({
+    status: "ready",
+    timestamp: new Date().toISOString(),
+    diagnostics,
   });
 });
 
@@ -205,6 +245,7 @@ app.use((req, res, next) => {
       console.log(`Server running on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV}`);
       console.log('EPX Hosted Checkout service configured and ready');
+      console.log('[Supabase Client Diagnostics]', getSupabaseClientDiagnostics());
 
       // Initialize weekly recap service
       WeeklyRecapService.scheduleWeeklyRecap();
