@@ -29,7 +29,10 @@ import {
   Trash2,
   ClipboardCheck,
   Upload,
+  Download,
 } from "lucide-react";
+
+const CENSUS_TEMPLATE_PATH = "/templates/MyPremierPlans_Census_Template.csv";
 
 const payorMixOptions = [
   { value: "full", label: "Employer Pays All" },
@@ -540,6 +543,7 @@ type CensusImportRow = {
   firstName: string;
   lastName: string;
   email: string;
+  ssn?: string;
   relationship?: string;
   householdBaseNumber?: string;
   householdMemberNumber?: string;
@@ -553,6 +557,7 @@ type CensusImportRow = {
   memberAmount?: string;
   discountAmount?: string;
   totalAmount?: string;
+  registrationPayload?: Record<string, unknown>;
 };
 
 type BulkImportFailedRow = {
@@ -824,6 +829,40 @@ const sanitizeImportValue = (value: unknown): string => {
   return IMPORT_EMPTY_MARKERS.has(trimmed.toLowerCase()) ? "" : trimmed;
 };
 
+const isSsnLikeHeader = (header: string): boolean => {
+  const normalized = normalizeHeader(header);
+  return normalized.includes("ssn") || normalized.includes("socialsecurity");
+};
+
+const buildRegistrationPayloadFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
+  const payload: Record<string, unknown> = {};
+
+  Object.entries(record).forEach(([key, value]) => {
+    if (!key || isSsnLikeHeader(key)) {
+      return;
+    }
+
+    const normalizedKey = normalizeHeader(key);
+    if (!normalizedKey) {
+      return;
+    }
+
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      payload[normalizedKey] = value.toISOString().slice(0, 10);
+      return;
+    }
+
+    const sanitized = sanitizeImportValue(value);
+    if (!sanitized) {
+      return;
+    }
+
+    payload[normalizedKey] = sanitized;
+  });
+
+  return payload;
+};
+
 const formatImportedDate = (value: unknown): string => {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
@@ -898,14 +937,15 @@ const resolveImportedEmail = (record: Record<string, unknown>): string => {
 };
 
 const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => ({
-  firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname"])),
-  lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname"])),
+  firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname", "employeeFirstName", "memberFirstName", "givenName"])),
+  lastName: sanitizeImportValue(getRecordValue(record, ["lastName", "last_name", "lastname", "employeeLastName", "memberLastName", "surname", "familyName"])),
   email: resolveImportedEmail(record),
-  relationship: sanitizeImportValue(getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship"])),
+  ssn: sanitizeImportValue(getRecordValue(record, ["ssn", "socialSecurityNumber", "social_security_number", "social security number", "employeeSsn", "employee_ssn", "memberSsn", "member_ssn"])),
+  relationship: sanitizeImportValue(getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship", "dependent_relation", "member_relation"])),
   householdBaseNumber: sanitizeImportValue(getRecordValue(record, ["householdBaseNumber", "baseMemberNumber", "householdNumber"])),
-  householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber"])),
+  householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber", "employeeNumber", "employeeId", "memberId"])),
   dependentSuffix: sanitizeImportValue(getRecordValue(record, ["dependentSuffix"])),
-  phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone"])),
+  phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone", "cellPhone", "mobile"])),
   dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
   tier: sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record),
   payorType: sanitizeImportValue(getRecordValue(record, ["payorType", "payor_type", "payor"])),
@@ -914,6 +954,7 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
   memberAmount: sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"])),
   discountAmount: sanitizeImportValue(getRecordValue(record, ["discountAmount", "discount_amount"])),
   totalAmount: sanitizeImportValue(getRecordValue(record, ["totalAmount", "total_amount"])),
+  registrationPayload: buildRegistrationPayloadFromRecord(record),
 });
 
 const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
@@ -2909,6 +2950,17 @@ export default function GroupEnrollment() {
 
             <div className="space-y-2 border rounded-md p-3 bg-slate-50">
               <p className="text-sm font-medium text-slate-800">File Uploads</p>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white px-3 py-2">
+                <p className="text-xs text-slate-600">
+                  Use the standard template so every heading maps correctly during import.
+                </p>
+                <Button type="button" size="sm" variant="outline" asChild>
+                  <a href={CENSUS_TEMPLATE_PATH} download="MyPremierPlans_Census_Template.csv">
+                    <Download className="mr-1 h-4 w-4" />
+                    Download Census Template
+                  </a>
+                </Button>
+              </div>
               <input
                 ref={newGroupCensusInputRef}
                 type="file"
@@ -3521,6 +3573,17 @@ export default function GroupEnrollment() {
                   </Button>
                 </div>
                 <div className="mb-3 border rounded-lg p-3 bg-slate-50 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-white px-3 py-2">
+                    <p className="text-xs text-slate-600">
+                      Need a blank file? Download the shared census template with supported headings.
+                    </p>
+                    <Button type="button" size="sm" variant="outline" asChild>
+                      <a href={CENSUS_TEMPLATE_PATH} download="MyPremierPlans_Census_Template.csv">
+                        <Download className="mr-1 h-4 w-4" />
+                        Download Census Template
+                      </a>
+                    </Button>
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"

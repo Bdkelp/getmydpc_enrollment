@@ -59,7 +59,21 @@ const GROUP_INDUSTRY_CANONICAL_MAP: Record<string, string> = {
   nonprofit: 'Nonprofit',
   government: 'Government',
 };
-const SSN_FIELD_ALIASES = ['ssn', 'socialSecurityNumber', 'social_security_number'] as const;
+const normalizeImportKey = (value: unknown): string =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+const SSN_FIELD_ALIASES = new Set([
+  'ssn',
+  'socialsecuritynumber',
+  'socialsecurity',
+  'socialsecurityno',
+  'socialsecuritynum',
+  'employeessn',
+  'memberssn',
+]);
 const GROUP_DOCUMENTS_BUCKET = 'group-documents';
 const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
 const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
@@ -743,8 +757,10 @@ const stripSensitiveSsnFields = (value: unknown): Record<string, any> | null => 
     return null;
   }
 
-  for (const alias of SSN_FIELD_ALIASES) {
-    delete objectValue[alias];
+  for (const key of Object.keys(objectValue)) {
+    if (SSN_FIELD_ALIASES.has(normalizeImportKey(key))) {
+      delete objectValue[key];
+    }
   }
 
   delete objectValue.ssnEncrypted;
@@ -759,12 +775,11 @@ const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: st
       continue;
     }
 
-    for (const alias of SSN_FIELD_ALIASES) {
-      if (!hasOwn(objectValue, alias)) {
+    for (const [key, raw] of Object.entries(objectValue)) {
+      if (!SSN_FIELD_ALIASES.has(normalizeImportKey(key))) {
         continue;
       }
 
-      const raw = objectValue[alias];
       if (raw === null || raw === undefined) {
         return { provided: true, value: null };
       }
