@@ -84,7 +84,7 @@ const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
 const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
-const REQUIRED_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
+const REQUIRED_PRIMARY_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
   'sex',
   'hireDate',
   'className',
@@ -103,6 +103,10 @@ const REQUIRED_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
   'mobilePhone',
   'employmentType',
   'originalHireDate',
+] as const;
+
+const REQUIRED_DEPENDENT_EMPLOYMENT_PROFILE_FIELDS = [
+  'sex',
 ] as const;
 
 let groupDocumentsBucketReady = false;
@@ -171,6 +175,10 @@ const getEmploymentProfileFromMember = (member: any): Record<string, any> => {
 const getMissingRequiredMemberFields = (member: any): string[] => {
   const missing: string[] = [];
   const profile = getEmploymentProfileFromMember(member);
+  const normalizedRelationship = normalizeMemberRelationship(member?.relationship, member?.tier);
+  const requiredProfileFields = normalizedRelationship === 'primary'
+    ? REQUIRED_PRIMARY_MEMBER_EMPLOYMENT_PROFILE_FIELDS
+    : REQUIRED_DEPENDENT_EMPLOYMENT_PROFILE_FIELDS;
 
   if (!toTrimmedOrNull(member?.relationship)) {
     missing.push('relationship');
@@ -188,7 +196,7 @@ const getMissingRequiredMemberFields = (member: any): string[] => {
     missing.push('dateOfBirth');
   }
 
-  for (const fieldName of REQUIRED_MEMBER_EMPLOYMENT_PROFILE_FIELDS) {
+  for (const fieldName of requiredProfileFields) {
     if (!toTrimmedOrNull(profile[fieldName])) {
       missing.push(fieldName);
     }
@@ -1714,6 +1722,22 @@ const mergeImportedRegistrationPayload = (
   return merged;
 };
 
+const getImportedMemberSex = (source: Record<string, any>): string | null => {
+  const direct = toTrimmedOrNull(source.sex ?? source.gender);
+  if (direct) {
+    return direct;
+  }
+
+  const registrationPayload = toObjectOrNull(source.registrationPayload);
+  const payloadEmploymentProfile = toObjectOrNull(registrationPayload?.employmentProfile);
+  return toTrimmedOrNull(
+    payloadEmploymentProfile?.sex
+      ?? payloadEmploymentProfile?.gender
+      ?? registrationPayload?.sex
+      ?? registrationPayload?.gender,
+  );
+};
+
 const findExistingMemberForSync = (
   existingMembers: any[],
   options: {
@@ -1823,6 +1847,8 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
       const normalizedRelationship = normalizeMemberRelationship(source.relationship ?? source.memberRelationship, normalizedTier);
       const isPrimaryMember = normalizedRelationship === 'primary';
       const providedEmail = toTrimmedOrNull(source.email)?.toLowerCase() || null;
+      const normalizedDateOfBirth = normalizeGroupMemberDateOfBirth(source.dateOfBirth);
+      const importedSex = getImportedMemberSex(source);
 
       if (!firstName || !lastName) {
         failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Missing firstName or lastName' });
@@ -1836,6 +1862,16 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
 
       if (isPrimaryMember && providedEmail && !EMAIL_REGEX.test(providedEmail)) {
         failed.push({ row: rowNumber, email: providedEmail, reason: 'Invalid email format' });
+        continue;
+      }
+
+      if (!isPrimaryMember && !normalizedDateOfBirth) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Dependent dateOfBirth is required' });
+        continue;
+      }
+
+      if (!isPrimaryMember && !importedSex) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Dependent sex is required' });
         continue;
       }
 
@@ -1864,7 +1900,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           lastName,
           email,
           phone: toDigitsOrNull(source.phone),
-          dateOfBirth: normalizeGroupMemberDateOfBirth(source.dateOfBirth),
+          dateOfBirth: normalizedDateOfBirth,
           employerAmount: parseAmount(source.employerAmount),
           memberAmount: parseAmount(source.memberAmount),
           discountAmount: parseAmount(source.discountAmount),
@@ -1937,6 +1973,7 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
       const householdBaseNumber = toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber);
       const householdMemberNumber = toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber);
       const dependentSuffix = normalizeDependentSuffix(source.dependentSuffix);
+      const importedSex = getImportedMemberSex(source);
 
       if (!firstName || !lastName) {
         failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Missing firstName or lastName' });
@@ -1950,6 +1987,16 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
 
       if (isPrimaryMember && providedEmail && !EMAIL_REGEX.test(providedEmail)) {
         failed.push({ row: rowNumber, email: providedEmail, reason: 'Invalid email format' });
+        continue;
+      }
+
+      if (!isPrimaryMember && !normalizedDateOfBirth) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Dependent dateOfBirth is required' });
+        continue;
+      }
+
+      if (!isPrimaryMember && !importedSex) {
+        failed.push({ row: rowNumber, email: providedEmail || undefined, reason: 'Dependent sex is required' });
         continue;
       }
 

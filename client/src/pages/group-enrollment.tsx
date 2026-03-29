@@ -430,6 +430,10 @@ const REQUIRED_MEMBER_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
   "originalHireDate",
 ];
 
+const REQUIRED_DEPENDENT_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
+  "sex",
+];
+
 const REQUIRED_MEMBER_BASE_FIELDS: Array<keyof Pick<MemberFormState, "relationship" | "firstName" | "lastName" | "dateOfBirth">> = [
   "relationship",
   "firstName",
@@ -513,6 +517,9 @@ const toEmploymentProfile = (member: GroupMemberRecord | null | undefined): Empl
 
 const collectMissingMemberFields = (form: MemberFormState): string[] => {
   const missing: string[] = [];
+  const requiredProfileFields = isPrimaryRelationshipValue(form.relationship)
+    ? REQUIRED_MEMBER_PROFILE_FIELDS
+    : REQUIRED_DEPENDENT_PROFILE_FIELDS;
 
   REQUIRED_MEMBER_BASE_FIELDS.forEach((fieldName) => {
     if (!String(form[fieldName] || "").trim()) {
@@ -520,7 +527,7 @@ const collectMissingMemberFields = (form: MemberFormState): string[] => {
     }
   });
 
-  REQUIRED_MEMBER_PROFILE_FIELDS.forEach((fieldName) => {
+  requiredProfileFields.forEach((fieldName) => {
     if (!String(form[fieldName] || "").trim()) {
       missing.push(fieldName);
     }
@@ -531,13 +538,16 @@ const collectMissingMemberFields = (form: MemberFormState): string[] => {
 
 const isMemberCompleteForEnrollment = (member: GroupMemberRecord): boolean => {
   const employment = toEmploymentProfile(member);
+  const requiredProfileFields = isPrimaryRelationshipValue(member.relationship)
+    ? REQUIRED_MEMBER_PROFILE_FIELDS
+    : REQUIRED_DEPENDENT_PROFILE_FIELDS;
 
   if (!String(member.relationship || "").trim()) return false;
   if (!String(member.firstName || "").trim()) return false;
   if (!String(member.lastName || "").trim()) return false;
   if (!String(member.dateOfBirth || "").trim()) return false;
 
-  return REQUIRED_MEMBER_PROFILE_FIELDS.every((fieldName) => String(employment[fieldName] || "").trim().length > 0);
+  return requiredProfileFields.every((fieldName) => String(employment[fieldName] || "").trim().length > 0);
 };
 
 type DiscountValidationState = {
@@ -4068,7 +4078,7 @@ export default function GroupEnrollment() {
                           : !profileComplete
                             ? 'Complete group profile before completing enrollment.'
                             : activeMembersMissingRequired > 0
-                              ? `Complete all required employee fields for ${activeMembersMissingRequired} active member(s).`
+                              ? `Complete all required member fields for ${activeMembersMissingRequired} active member(s).`
                               : 'Complete required member data before completing enrollment.'}
                       </p>
                     )}
