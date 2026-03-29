@@ -14,3 +14,4 @@ This folder stores SOP drafts intended for inclusion in the operations handbook.
 
 ## Current SOPs
 - `group-reassignment-sop.md`
+- `enrollment-records-ux-rollout-sop.md`
