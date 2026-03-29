@@ -856,7 +856,7 @@ const resolveMemberSsnDigits = (member: any): string | null => {
 };
 
 const canViewFullMemberSsn = (req: AuthRequest): boolean =>
-  Boolean(req.user && (hasAtLeastRole(req.user.role, 'admin') || req.user.role === 'authorized'));
+  Boolean(req.user && (hasAtLeastRole(req.user.role, 'agent') || req.user.role === 'authorized'));
 
 const shouldRevealMemberSsn = (req: AuthRequest): boolean => {
   if (!canViewFullMemberSsn(req)) {

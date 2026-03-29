@@ -5771,23 +5771,33 @@ export async function registerRoutes(app: any) {
         startDate as string,
         endDate as string
       );
+
+      const revealSsn = shouldRevealEnrollmentSsn(req as AuthRequest);
+      const revealRole = req.user?.role || '';
+      const { decryptSSN } = await import('./utils/encryption');
+      const enrollmentsWithSsn = (enrollments || []).map((enrollment: any) => ({
+        ...enrollment,
+        ssn: enrollment?.ssn
+          ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
+          : null,
+      }));
       
-      console.log('[Agent Enrollments] Found', enrollments?.length || 0, 'enrollments');
-      if (enrollments && enrollments.length > 0) {
+      console.log('[Agent Enrollments] Found', enrollmentsWithSsn?.length || 0, 'enrollments');
+      if (enrollmentsWithSsn && enrollmentsWithSsn.length > 0) {
         console.log('[Agent Enrollments] Sample enrollment:', {
-          id: enrollments[0].id,
-          email: enrollments[0].email,
-          name: `${enrollments[0].firstName} ${enrollments[0].lastName}`,
-          planName: enrollments[0].planName,
-          commissionAmount: enrollments[0].commissionAmount,
-          enrolledByAgentId: enrollments[0].enrolledByAgentId
+          id: enrollmentsWithSsn[0].id,
+          email: enrollmentsWithSsn[0].email,
+          name: `${enrollmentsWithSsn[0].firstName} ${enrollmentsWithSsn[0].lastName}`,
+          planName: enrollmentsWithSsn[0].planName,
+          commissionAmount: enrollmentsWithSsn[0].commissionAmount,
+          enrolledByAgentId: enrollmentsWithSsn[0].enrolledByAgentId
         });
       }
 
       res.json({
         success: true,
-        enrollments: enrollments || [],
-        total: enrollments?.length || 0,
+        enrollments: enrollmentsWithSsn,
+        total: enrollmentsWithSsn?.length || 0,
         agentId: agentId
       });
     } catch (error: any) {
