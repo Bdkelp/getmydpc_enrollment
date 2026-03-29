@@ -4,7 +4,7 @@ import { hasAtLeastRole } from '../auth/roles';
 import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
 import { displaySSN } from '@shared/display-ssn';
 import { supabase } from '../lib/supabaseClient';
-import { decryptSSN, encryptSSN, formatSSN, isValidSSN } from '../utils/encryption';
+import { decryptSSN, encryptSSN, formatSSN } from '../utils/encryption';
 import {
   addGroupMember,
   completeGroupRegistration,
@@ -405,6 +405,8 @@ const normalizeGroupMemberDateOfBirth = (value: unknown): string | null => {
 
   return null;
 };
+
+const isNineDigitSsn = (value: string): boolean => /^\d{9}$/.test(value);
 
 const toNumberOrNull = (value: unknown): number | null => {
   if (value === null || value === undefined || value === '') {
@@ -1218,7 +1220,7 @@ const upsertEncryptedSsn = (
   }
 
   const normalized = ssn.replace(/\D/g, '');
-  if (!isValidSSN(normalized)) {
+  if (!isNineDigitSsn(normalized)) {
     throw new Error('Invalid SSN format');
   }
 
@@ -1262,12 +1264,12 @@ const resolveMemberSsnDigits = (member: any): string | null => {
 
     const decrypted = decryptSSN(candidate);
     const decryptedDigits = String(decrypted || '').replace(/\D/g, '');
-    if (isValidSSN(decryptedDigits)) {
+    if (isNineDigitSsn(decryptedDigits)) {
       return decryptedDigits;
     }
 
     const rawDigits = candidate.replace(/\D/g, '');
-    if (isValidSSN(rawDigits)) {
+    if (isNineDigitSsn(rawDigits)) {
       return rawDigits;
     }
   }
@@ -2810,6 +2812,9 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       ...otherUpdates,
       tier: requestedTier,
       relationship: requestedRelationship,
+      dateOfBirth: hasOwn(incomingBody, 'dateOfBirth')
+        ? normalizeGroupMemberDateOfBirth(otherUpdates?.dateOfBirth)
+        : existingMember.dateOfBirth,
       employerAmount: parseAmount(req.body?.employerAmount ?? existingMember.employerAmount),
       memberAmount: parseAmount(req.body?.memberAmount ?? existingMember.memberAmount),
       discountAmount: parseAmount(req.body?.discountAmount ?? existingMember.discountAmount),
