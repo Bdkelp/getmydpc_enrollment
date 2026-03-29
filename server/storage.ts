@@ -5591,6 +5591,16 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
 const GROUP_TABLE = 'groups';
 const GROUP_MEMBER_TABLE = 'group_members';
 
+const isMissingDependentSuffixColumnError = (error: any): boolean => {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const details = typeof error?.details === 'string' ? error.details : '';
+  return (
+    message.includes('dependent_suffix')
+    || details.includes('dependent_suffix')
+    || ((error as any)?.code === 'PGRST204' && message.includes('schema cache'))
+  );
+};
+
 const mapGroupFromDB = (record: any): Group => ({
   id: record.id,
   name: record.name,
@@ -5798,11 +5808,23 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
   const payload = mapGroupMemberToDBPayload({ ...member, groupId });
   payload.updated_at = new Date().toISOString();
 
-  const { data, error } = await supabase
-    .from(GROUP_MEMBER_TABLE)
-    .insert([payload])
-    .select('*')
-    .single();
+  const insertWithPayload = async (insertPayload: Record<string, any>) => {
+    const { data, error } = await supabase
+      .from(GROUP_MEMBER_TABLE)
+      .insert([insertPayload])
+      .select('*')
+      .single();
+    return { data, error };
+  };
+
+  let { data, error } = await insertWithPayload(payload);
+
+  if (error && isMissingDependentSuffixColumnError(error) && Object.prototype.hasOwnProperty.call(payload, 'dependent_suffix')) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.dependent_suffix;
+    console.warn('[Storage] addGroupMember: dependent_suffix column missing; retrying without dependent_suffix payload.');
+    ({ data, error } = await insertWithPayload(fallbackPayload));
+  }
 
   if (error) {
     console.error('[Storage] Failed to add group member:', error);
@@ -5815,12 +5837,24 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
 export async function updateGroupMember(id: number, updates: Partial<GroupMember>): Promise<GroupMember> {
   const payload = mapGroupMemberToDBPayload({ ...updates, updatedAt: new Date().toISOString() });
 
-  const { data, error } = await supabase
-    .from(GROUP_MEMBER_TABLE)
-    .update(payload)
-    .eq('id', id)
-    .select('*')
-    .single();
+  const updateWithPayload = async (updatePayload: Record<string, any>) => {
+    const { data, error } = await supabase
+      .from(GROUP_MEMBER_TABLE)
+      .update(updatePayload)
+      .eq('id', id)
+      .select('*')
+      .single();
+    return { data, error };
+  };
+
+  let { data, error } = await updateWithPayload(payload);
+
+  if (error && isMissingDependentSuffixColumnError(error) && Object.prototype.hasOwnProperty.call(payload, 'dependent_suffix')) {
+    const fallbackPayload = { ...payload };
+    delete fallbackPayload.dependent_suffix;
+    console.warn('[Storage] updateGroupMember: dependent_suffix column missing; retrying without dependent_suffix payload.');
+    ({ data, error } = await updateWithPayload(fallbackPayload));
+  }
 
   if (error) {
     console.error('[Storage] Failed to update group member:', error);
