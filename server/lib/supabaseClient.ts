@@ -51,20 +51,33 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing valid Supabase service-role key. Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY with a service_role JWT.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10
-    }
-  },
-  db: {
-    schema: 'public'
-  }
-});
+const createServerSupabaseClient = () =>
+  createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
+    },
+    db: {
+      schema: 'public'
+    },
+    global: {
+      headers: {
+        apikey: supabaseServiceKey,
+        Authorization: `Bearer ${supabaseServiceKey}`,
+      },
+    },
+  });
+
+// Use this shared client for auth-related routes.
+export const supabase = createServerSupabaseClient();
+
+// Dedicated admin client for data writes to avoid auth session side-effects.
+export const supabaseAdmin = createServerSupabaseClient();
 
 export const getSupabaseClientDiagnostics = () => {
   const selectedPayload = supabaseServiceKey ? parseJwtPayload(supabaseServiceKey) : null;

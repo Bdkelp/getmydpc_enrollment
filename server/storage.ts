@@ -1,4 +1,4 @@
-import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
+import { supabaseAdmin as supabase, getSupabaseClientDiagnostics } from './lib/supabaseClient'; // Use dedicated admin client for storage
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import { normalizeRole } from './auth/roles';
 import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
@@ -5609,6 +5609,25 @@ const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | nu
   return null;
 };
 
+const isGroupMemberRlsError = (error: any): boolean => {
+  const message = String(error?.message || '').toLowerCase();
+  const details = String(error?.details || '').toLowerCase();
+  const code = String(error?.code || '').toLowerCase();
+
+  return (
+    message.includes('row-level security policy')
+    || details.includes('row-level security policy')
+    || code === '42501'
+  );
+};
+
+const formatGroupMemberRlsError = (operation: 'insert' | 'update') => {
+  const diagnostics = getSupabaseClientDiagnostics();
+  const source = diagnostics.selectedKeySource || 'unknown';
+  const role = diagnostics.selectedRole || 'unknown';
+  return `Failed to ${operation} group member: RLS blocked Supabase write (selectedKeySource=${source}, selectedRole=${role}). Verify production server uses a service_role key for backend writes.`;
+};
+
 const mapGroupFromDB = (record: any): Group => ({
   id: record.id,
   name: record.name,
@@ -5900,6 +5919,16 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
   }
 
   if (error) {
+    if (isGroupMemberRlsError(error)) {
+      console.error('[Storage] addGroupMember blocked by RLS', {
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+        details: (error as any)?.details,
+        diagnostics: getSupabaseClientDiagnostics(),
+      });
+      throw new Error(formatGroupMemberRlsError('insert'));
+    }
+
     console.error('[Storage] Failed to add group member:', error);
     throw new Error(`Failed to add group member: ${error.message}`);
   }
@@ -5937,6 +5966,17 @@ export async function updateGroupMember(id: number, updates: Partial<GroupMember
   }
 
   if (error) {
+    if (isGroupMemberRlsError(error)) {
+      console.error('[Storage] updateGroupMember blocked by RLS', {
+        id,
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+        details: (error as any)?.details,
+        diagnostics: getSupabaseClientDiagnostics(),
+      });
+      throw new Error(formatGroupMemberRlsError('update'));
+    }
+
     console.error('[Storage] Failed to update group member:', error);
     throw new Error(`Failed to update group member: ${error.message}`);
   }
