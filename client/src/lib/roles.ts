@@ -9,9 +9,12 @@ const ROLE_SYNONYMS: Record<string, Role> = {
   agent: "agent",
   agents: "agent",
   admin: "admin",
+  admins: "admin",
   administrator: "admin",
   super_admin: "super_admin",
+  super_admins: "super_admin",
   superadmin: "super_admin",
+  superadmins: "super_admin",
   "super administrator": "super_admin",
 };
 
@@ -34,7 +37,28 @@ export function normalizeRole(role: string | undefined | null): Role | null {
 
   const cleaned = role.trim().toLowerCase().replace(/[\r\n\t]+/g, "");
   const slugged = cleaned.replace(/[\s-]+/g, "_");
-  return ROLE_SYNONYMS[slugged] || null;
+  const mapped = ROLE_SYNONYMS[slugged];
+  if (mapped) {
+    return mapped;
+  }
+
+  if (slugged.includes("super") && slugged.includes("admin")) {
+    return "super_admin";
+  }
+  if (slugged.includes("admin")) {
+    return "admin";
+  }
+  if (slugged.includes("agent")) {
+    return "agent";
+  }
+  if (slugged.includes("member")) {
+    return "member";
+  }
+  if (slugged.includes("user")) {
+    return "user";
+  }
+
+  return null;
 }
 
 export function isAgentOrAbove(role: string | undefined | null): boolean {
