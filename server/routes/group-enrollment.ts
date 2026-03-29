@@ -804,8 +804,22 @@ const upsertEncryptedSsn = (
   }
 
   const nextMetadata = metadataValue || {};
-  nextMetadata.ssnEncrypted = encryptSSN(normalized);
-  nextMetadata.ssnLast4 = normalized.slice(-4);
+  try {
+    nextMetadata.ssnEncrypted = encryptSSN(normalized);
+    nextMetadata.ssnLast4 = normalized.slice(-4);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('SSN encryption key is not configured')) {
+      // Keep member flows working when SSN encryption is not configured.
+      delete nextMetadata.ssnEncrypted;
+      delete nextMetadata.ssnLast4;
+      console.warn('[Group Enrollment] SSN encryption key is missing; skipping SSN persistence.');
+      return nextMetadata;
+    }
+
+    throw error;
+  }
+
   return nextMetadata;
 };
 
