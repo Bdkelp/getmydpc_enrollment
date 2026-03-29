@@ -179,6 +179,84 @@ const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
   return role === "agent" || hasAtLeastRole(role, "admin");
 };
 
+function getCurrentAssignedAgentId(groupMetadata: unknown): string | null {
+  if (!groupMetadata || typeof groupMetadata !== 'object') {
+    return null;
+  }
+
+  const metadata = groupMetadata as Record<string, any>;
+  const assignment = metadata.assignment && typeof metadata.assignment === 'object'
+    ? metadata.assignment
+    : {};
+  const candidate = assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
+
+  if (typeof candidate !== 'string') {
+    return null;
+  }
+
+  const normalized = candidate.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+async function getGroupEnrollmentRecordsForAgent(agentId: string): Promise<any[]> {
+  const groups: any[] = [];
+  const pageSize = 200;
+  let offset = 0;
+
+  while (true) {
+    const response = await storage.listGroups({ limit: pageSize, offset });
+    const page = Array.isArray(response?.groups) ? response.groups : [];
+
+    if (page.length === 0) {
+      break;
+    }
+
+    groups.push(...page);
+    offset += page.length;
+
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+  const ownedGroups = groups.filter((group) => {
+    if (!group || !['registered', 'active'].includes(group.status)) {
+      return false;
+    }
+
+    return getCurrentAssignedAgentId(group.metadata) === agentId;
+  });
+
+  const memberPages = await Promise.all(
+    ownedGroups.map((group) => storage.listGroupMembers({ groupId: group.id }))
+  );
+
+  const records: any[] = [];
+  ownedGroups.forEach((group, idx) => {
+    const members = Array.isArray(memberPages[idx]) ? memberPages[idx] : [];
+    members
+      .filter((member: any) => member?.status !== 'terminated')
+      .forEach((member: any) => {
+        const total = parseFloat(String(member?.totalAmount ?? 0));
+        records.push({
+          id: `group-${group.id}-${member.id}`,
+          createdAt: member?.registeredAt || member?.updatedAt || group?.createdAt,
+          totalMonthlyPrice: Number.isFinite(total) ? total : 0,
+          isActive: member?.status === 'active' || member?.status === 'registered',
+          status: member?.status || 'draft',
+          source: 'group',
+          groupId: group.id,
+          groupName: group.name,
+          firstName: member?.firstName || '',
+          lastName: member?.lastName || '',
+          email: member?.email || '',
+        });
+      });
+  });
+
+  return records;
+}
+
 const canRevealEnrollmentSsnForRole = (role: string | undefined): boolean => {
   return Boolean(role === "authorized" || hasAgentOrAdminAccess(role));
 };
@@ -3620,7 +3698,7 @@ router.get(
 
       // Fallback for environments where newer optional membership columns may not exist yet.
       try {
-        const [totalResult, activeResult, archivedResult] = await Promise.all([
+        const [totalResult, activeResult, archivedResult, groupTotalResult, groupActiveResult, groupTerminatedResult] = await Promise.all([
           supabase
             .from('members')
             .select('id', { count: 'exact', head: true }),
@@ -3632,17 +3710,39 @@ router.get(
             .from('members')
             .select('id', { count: 'exact', head: true })
             .eq('status', 'archived'),
+          supabase
+            .from('group_members')
+            .select('id', { count: 'exact', head: true }),
+          supabase
+            .from('group_members')
+            .select('id', { count: 'exact', head: true })
+            .neq('status', 'terminated'),
+          supabase
+            .from('group_members')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', 'terminated'),
         ]);
 
-        if (totalResult.error || activeResult.error || archivedResult.error) {
-          throw totalResult.error || activeResult.error || archivedResult.error;
+        if (totalResult.error || activeResult.error || archivedResult.error || groupTotalResult.error || groupActiveResult.error || groupTerminatedResult.error) {
+          throw totalResult.error || activeResult.error || archivedResult.error || groupTotalResult.error || groupActiveResult.error || groupTerminatedResult.error;
         }
 
+        const individualTotal = Number(totalResult.count) || 0;
+        const individualActive = Number(activeResult.count) || 0;
+        const individualArchived = Number(archivedResult.count) || 0;
+        const groupTotal = Number(groupTotalResult.count) || 0;
+        const groupActive = Number(groupActiveResult.count) || 0;
+        const groupTerminated = Number(groupTerminatedResult.count) || 0;
+
         return res.json({
-          total: Number(totalResult.count) || 0,
-          active: Number(activeResult.count) || 0,
+          total: individualTotal + groupTotal,
+          active: individualActive + groupActive,
           test: 0,
-          archived: Number(archivedResult.count) || 0,
+          archived: individualArchived,
+          individualMembers: individualTotal,
+          groupMembers: groupTotal,
+          groupActiveMembers: groupActive,
+          groupTerminatedMembers: groupTerminated,
           generatedAt: new Date().toISOString(),
         });
       } catch (fallbackError: any) {
@@ -5879,12 +5979,20 @@ export async function registerRoutes(app: any) {
         periodEnd: periodEnd?.toISOString() || null
       });
 
-      const enrollments = await storage.getEnrollmentsByAgent(agentId);
-      const reportingEnrollments = filterRecordsByDate(enrollments, periodStart, periodEnd);
-      const lifetimeTotal = enrollments.length;
+      const [individualEnrollments, groupEnrollments] = await Promise.all([
+        storage.getEnrollmentsByAgent(agentId),
+        getGroupEnrollmentRecordsForAgent(agentId),
+      ]);
+
+      const allEnrollments = [...individualEnrollments, ...groupEnrollments];
+      const reportingEnrollments = filterRecordsByDate(allEnrollments, periodStart, periodEnd);
+      const lifetimeTotal = allEnrollments.length;
       const totalMembers = reportingEnrollments.length;
       const activeMembers = reportingEnrollments.filter((e) => e.isActive || e.status === 'active').length;
       const pendingEnrollments = reportingEnrollments.filter((e) => e.approvalStatus === 'pending' || e.status === 'pending_activation').length;
+
+      const reportingIndividualEnrollments = reportingEnrollments.filter((e) => e.source !== 'group');
+      const reportingGroupEnrollments = reportingEnrollments.filter((e) => e.source === 'group');
 
       const revenueTotal = sumEnrollmentRevenue(reportingEnrollments);
 
@@ -5893,8 +6001,8 @@ export async function registerRoutes(app: any) {
       const startOfMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfYearDate = new Date(now.getFullYear(), 0, 1);
 
-      const monthlyEnrollmentRecords = filterRecordsByDate(enrollments, startOfMonthDate, endOfTodayDate);
-      const yearlyEnrollmentRecords = filterRecordsByDate(enrollments, startOfYearDate, endOfTodayDate);
+      const monthlyEnrollmentRecords = filterRecordsByDate(allEnrollments, startOfMonthDate, endOfTodayDate);
+      const yearlyEnrollmentRecords = filterRecordsByDate(allEnrollments, startOfYearDate, endOfTodayDate);
 
       const monthlyEnrollments = monthlyEnrollmentRecords.length;
       const yearlyEnrollments = yearlyEnrollmentRecords.length;
@@ -5922,6 +6030,8 @@ export async function registerRoutes(app: any) {
         totalMembers,
         activeMembers,
         pendingEnrollments,
+        individualEnrollments: reportingIndividualEnrollments.length,
+        groupEnrollments: reportingGroupEnrollments.length,
         totalRevenue: parseFloat(revenueTotal.toFixed(2)),
         monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
         yearlyRevenue: parseFloat(yearlyRevenue.toFixed(2)),

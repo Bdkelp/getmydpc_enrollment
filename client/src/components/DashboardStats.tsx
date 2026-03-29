@@ -37,6 +37,8 @@ interface StatsData {
   // Member/Enrollment data
   totalMembers?: number;
   activeMembers?: number;
+  individualEnrollments?: number;
+  groupEnrollments?: number;
   monthlyEnrollments?: number;
   yearlyEnrollments?: number;
   totalEnrollments?: number;
@@ -372,7 +374,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
               <Users className="h-8 w-8 text-white/80" />
             </div>
             <p className="text-xs text-white/70 mt-2">
-              {formatNumber(stats?.activeMembers || 0)} active members
+              {formatNumber(stats?.activeMembers || 0)} active | {formatNumber(stats?.individualEnrollments || 0)} individual | {formatNumber(stats?.groupEnrollments || 0)} group
             </p>
           </CardContent>
         </Card>

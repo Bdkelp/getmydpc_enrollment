@@ -39,6 +39,16 @@ interface AnalyticsData {
     growthRate: number;
     newEnrollmentsThisMonth: number;
     cancellationsThisMonth: number;
+    sourceBreakdown?: {
+      individualMembers: number;
+      groupMembers: number;
+      individualMonthlyRevenue: number;
+      groupMonthlyRevenue: number;
+      newIndividualEnrollmentsThisMonth: number;
+      newGroupEnrollmentsThisMonth: number;
+      cancelledIndividualsThisMonth: number;
+      cancelledGroupMembersThisMonth: number;
+    };
   };
   planBreakdown: Array<{
     planName: string;
@@ -315,7 +325,11 @@ export default function AdminAnalytics() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{analytics.overview.totalMembers}</div>
-                  <p className="text-xs text-gray-500 mt-1">Active subscriptions: {analytics.overview.activeSubscriptions}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Active subscriptions: {analytics.overview.activeSubscriptions}
+                    {' | '}Individual: {analytics.overview.sourceBreakdown?.individualMembers ?? 0}
+                    {' | '}Group: {analytics.overview.sourceBreakdown?.groupMembers ?? 0}
+                  </p>
                 </CardContent>
               </Card>
 

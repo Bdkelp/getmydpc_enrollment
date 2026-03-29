@@ -6619,14 +6619,54 @@ export const storage = {
       const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
       const commissionsResult = await query('SELECT * FROM agent_commissions ORDER BY created_at DESC');
       const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
+      const groupMembersResult = await query(
+        `SELECT
+          gm.*,
+          g.id AS group_id,
+          g.name AS group_name,
+          g.status AS group_status,
+          g.metadata AS group_metadata,
+          g.created_at AS group_created_at
+        FROM group_members gm
+        JOIN groups g ON g.id = gm.group_id
+        ORDER BY gm.registered_at DESC`
+      );
 
       const allMembers = membersResult.rows || [];
       const allAgents = agentsResult.rows || [];
       const allCommissions = commissionsResult.rows || [];
       const allPlans = plansResult.rows || [];
+      const allGroupMembers = groupMembersResult.rows || [];
+
+      const parseAmount = (value: unknown): number => {
+        const amount = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+        return Number.isFinite(amount) ? amount : 0;
+      };
+
+      const parseAssignedAgentId = (metadata: any): string | null => {
+        if (!metadata || typeof metadata !== 'object') {
+          return null;
+        }
+
+        const assignment = metadata.assignment && typeof metadata.assignment === 'object'
+          ? metadata.assignment
+          : {};
+        const assigned = assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
+        return typeof assigned === 'string' && assigned.trim().length > 0 ? assigned.trim() : null;
+      };
+
+      const isGroupMemberEligible = (groupMember: any): boolean => {
+        if (groupMember?.status === 'terminated') {
+          return false;
+        }
+
+        const groupStatus = String(groupMember?.group_status || '').toLowerCase();
+        return groupStatus === 'registered' || groupStatus === 'active';
+      };
 
       console.log('[Analytics] Raw data counts:', {
         members: allMembers.length,
+        groupMembers: allGroupMembers.length,
         agents: allAgents.length,
         commissions: allCommissions.length,
         plans: allPlans.length
@@ -6634,26 +6674,48 @@ export const storage = {
 
       // Overview metrics - count active members from members table
       const activeMembers = allMembers.filter(member => member.status === 'active');
-      const monthlyRevenue = activeMembers.reduce((total, member) => 
+      const activeGroupMembers = allGroupMembers.filter(isGroupMemberEligible);
+
+      const individualMonthlyRevenue = activeMembers.reduce((total, member) =>
         total + parseFloat(member.total_monthly_price || 0), 0
       );
+      const groupMonthlyRevenue = activeGroupMembers.reduce((total, member) =>
+        total + parseAmount(member.total_amount), 0
+      );
+      const monthlyRevenue = individualMonthlyRevenue + groupMonthlyRevenue;
 
       // Use proper date comparison
-      const newEnrollmentsThisMonth = allMembers.filter(member =>
+      const newIndividualEnrollmentsThisMonth = allMembers.filter(member =>
         member.created_at && new Date(member.created_at) >= cutoffDate && member.status === 'active'
       ).length;
+      const newGroupEnrollmentsThisMonth = allGroupMembers.filter(member => {
+        if (!isGroupMemberEligible(member) || !member.registered_at) {
+          return false;
+        }
+        return new Date(member.registered_at) >= cutoffDate;
+      }).length;
+      const newEnrollmentsThisMonth = newIndividualEnrollmentsThisMonth + newGroupEnrollmentsThisMonth;
 
-      const cancellationsThisMonth = allMembers.filter(member =>
+      const cancelledIndividualsThisMonth = allMembers.filter(member =>
         member.status === 'cancelled' && 
         member.cancellation_date && 
         new Date(member.cancellation_date) >= cutoffDate
       ).length;
+      const cancelledGroupMembersThisMonth = allGroupMembers.filter(member =>
+        member.status === 'terminated' &&
+        member.terminated_at &&
+        new Date(member.terminated_at) >= cutoffDate
+      ).length;
+      const cancellationsThisMonth = cancelledIndividualsThisMonth + cancelledGroupMembersThisMonth;
 
-      const totalMembers = allMembers.length;
+      const totalIndividualMembers = allMembers.length;
+      const totalGroupMembers = activeGroupMembers.length;
+      const totalMembers = totalIndividualMembers + totalGroupMembers;
 
       console.log('[Analytics] Calculated metrics:', {
         totalMembers,
         activeMembers: activeMembers.length,
+        activeGroupMembers: totalGroupMembers,
         monthlyRevenue,
         newEnrollments: newEnrollmentsThisMonth,
         cancellations: cancellationsThisMonth
@@ -6688,12 +6750,34 @@ export const storage = {
             firstName: m.first_name || '',
             lastName: m.last_name || '',
             email: m.email || '',
+            source: 'individual',
             planName: plan?.name || '',
             amount: parseFloat(m.total_monthly_price || 0),
             enrolledDate: m.created_at || '',
             status: m.status
           };
-        })
+        });
+
+      const recentGroupEnrollments = allGroupMembers
+        .filter((m) => m.registered_at && new Date(m.registered_at) >= cutoffDate)
+        .map((m) => ({
+          id: `group-${m.group_id}-${m.id}`,
+          memberId: m.member_id?.toString() || '',
+          memberPublicId: m.household_member_number || '',
+          customerNumber: m.household_member_number || '',
+          firstName: m.first_name || '',
+          lastName: m.last_name || '',
+          email: m.email || '',
+          source: 'group',
+          groupId: m.group_id,
+          groupName: m.group_name || '',
+          planName: m.group_name ? `${m.group_name} (Group)` : 'Group Enrollment',
+          amount: parseAmount(m.total_amount),
+          enrolledDate: m.registered_at || m.updated_at || m.group_created_at || '',
+          status: m.status || 'draft'
+        }));
+
+      const recentEnrollmentsCombined = [...recentEnrollments, ...recentGroupEnrollments]
         .sort((a, b) => new Date(b.enrolledDate).getTime() - new Date(a.enrolledDate).getTime())
         .slice(0, 20);
 
@@ -6701,10 +6785,22 @@ export const storage = {
       const agentPerformance = allAgents.map(agent => {
         const agentCommissions = allCommissions.filter(comm => comm.agent_id === agent.id);
         const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id || m.enrolled_by_agent_id === agent.id.toString());
+        const agentGroupMembers = allGroupMembers.filter((groupMember) => {
+          if (!isGroupMemberEligible(groupMember)) {
+            return false;
+          }
 
-        const monthlyEnrollments = agentMembers.filter(m =>
+          const assignedAgentId = parseAssignedAgentId(groupMember.group_metadata);
+          return assignedAgentId === agent.id;
+        });
+
+        const monthlyIndividualEnrollments = agentMembers.filter(m =>
           m.created_at && new Date(m.created_at) >= cutoffDate
         ).length;
+        const monthlyGroupEnrollments = agentGroupMembers.filter(m =>
+          m.registered_at && new Date(m.registered_at) >= cutoffDate
+        ).length;
+        const monthlyEnrollments = monthlyIndividualEnrollments + monthlyGroupEnrollments;
 
         const totalCommissions = agentCommissions.reduce((total, comm) => 
           total + parseFloat(comm.commission_amount || 0), 0
@@ -6720,7 +6816,9 @@ export const storage = {
           agentId: agent.id,
           agentName: `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
           agentNumber: agent.agent_number || '',
-          totalEnrollments: agentMembers.length,
+          totalEnrollments: agentMembers.length + agentGroupMembers.length,
+          individualEnrollments: agentMembers.length,
+          groupEnrollments: agentGroupMembers.length,
           monthlyEnrollments,
           totalCommissions,
           paidCommissions,
@@ -6743,6 +6841,7 @@ export const storage = {
           firstName: member.first_name || '',
           lastName: member.last_name || '',
           email: member.email || '',
+          source: 'individual',
           phone: member.phone || '',
           planName: plan?.name || '',
           status: member.status || 'inactive',
@@ -6752,6 +6851,33 @@ export const storage = {
           agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Direct'
         };
       });
+
+      const groupMemberReports = allGroupMembers
+        .filter(isGroupMemberEligible)
+        .map((member) => {
+          const assignedAgentId = parseAssignedAgentId(member.group_metadata);
+          const agent = allAgents.find((a) => a.id === assignedAgentId);
+
+          return {
+            id: `group-${member.group_id}-${member.id}`,
+            memberId: member.member_id?.toString() || '',
+            memberPublicId: member.household_member_number || '',
+            customerNumber: member.household_member_number || '',
+            firstName: member.first_name || '',
+            lastName: member.last_name || '',
+            email: member.email || '',
+            source: 'group',
+            phone: member.phone || '',
+            planName: member.group_name ? `${member.group_name} (Group)` : 'Group Enrollment',
+            status: member.status || 'draft',
+            enrolledDate: member.registered_at || member.updated_at || member.group_created_at || '',
+            lastPayment: member.updated_at || '',
+            totalPaid: parseAmount(member.total_amount),
+            agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'In-house'
+          };
+        });
+
+      const combinedMemberReports = [...memberReports, ...groupMemberReports];
 
       // Commission reports
       const commissionReports = allCommissions.map(commission => {
@@ -6780,10 +6906,8 @@ export const storage = {
       // Revenue breakdown
       const totalRevenue = allMembers.reduce((total, m) => 
         total + parseFloat(m.total_monthly_price || 0), 0
-      );
-      const subscriptionRevenue = activeMembers.reduce((total, m) => 
-        total + parseFloat(m.total_monthly_price || 0), 0
-      );
+      ) + allGroupMembers.reduce((total, m) => total + parseAmount(m.total_amount), 0);
+      const subscriptionRevenue = monthlyRevenue;
 
       const revenueBreakdown = {
         totalRevenue,
@@ -6792,7 +6916,7 @@ export const storage = {
         refunds: 0, // Add when you track refunds
         netRevenue: totalRevenue,
         projectedAnnualRevenue: subscriptionRevenue * 12,
-        averageRevenuePerUser: activeMembers.length > 0 ? subscriptionRevenue / activeMembers.length : 0,
+        averageRevenuePerUser: totalMembers > 0 ? subscriptionRevenue / totalMembers : 0,
         revenueByMonth: [
           {
             month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
@@ -6818,19 +6942,29 @@ export const storage = {
       const analytics = {
         overview: {
           totalMembers,
-          activeSubscriptions: activeMembers.length,
+          activeSubscriptions: activeMembers.length + totalGroupMembers,
           monthlyRevenue,
-          averageRevenue: activeMembers.length > 0 ? monthlyRevenue / activeMembers.length : 0,
+          averageRevenue: totalMembers > 0 ? monthlyRevenue / totalMembers : 0,
           churnRate: totalMembers > 0 ? (cancellationsThisMonth / totalMembers) * 100 : 0,
           growthRate: totalMembers > 0 ? (newEnrollmentsThisMonth / totalMembers) * 100 : 0,
           newEnrollmentsThisMonth,
-          cancellationsThisMonth
+          cancellationsThisMonth,
+          sourceBreakdown: {
+            individualMembers: totalIndividualMembers,
+            groupMembers: totalGroupMembers,
+            individualMonthlyRevenue,
+            groupMonthlyRevenue,
+            newIndividualEnrollmentsThisMonth,
+            newGroupEnrollmentsThisMonth,
+            cancelledIndividualsThisMonth,
+            cancelledGroupMembersThisMonth,
+          }
         },
         planBreakdown,
-        recentEnrollments,
+        recentEnrollments: recentEnrollmentsCombined,
         monthlyTrends,
         agentPerformance,
-        memberReports,
+        memberReports: combinedMemberReports,
         commissionReports,
         revenueBreakdown
       };
@@ -7322,21 +7456,45 @@ export const storage = {
 
   getMembershipStats: async (): Promise<MembershipStatsSummary> => {
     try {
-      const result = await query(
-        `SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE status != 'archived' AND COALESCE(is_active, true))::int AS active,
-          COUNT(*) FILTER (WHERE COALESCE(is_test_member, false))::int AS test,
-          COUNT(*) FILTER (WHERE status = 'archived')::int AS archived
-        FROM members`
-      );
+      const [result, groupResult] = await Promise.all([
+        query(
+          `SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE status != 'archived' AND COALESCE(is_active, true))::int AS active,
+            COUNT(*) FILTER (WHERE COALESCE(is_test_member, false))::int AS test,
+            COUNT(*) FILTER (WHERE status = 'archived')::int AS archived
+          FROM members`
+        ),
+        query(
+          `SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE status != 'terminated')::int AS active,
+            COUNT(*) FILTER (WHERE status = 'terminated')::int AS terminated
+          FROM group_members`
+        ),
+      ]);
 
       const row = result.rows[0] || {};
+      const groupRow = groupResult.rows[0] || {};
+
+      const individualTotal = Number(row.total) || 0;
+      const individualActive = Number(row.active) || 0;
+      const individualTest = Number(row.test) || 0;
+      const individualArchived = Number(row.archived) || 0;
+
+      const groupTotal = Number(groupRow.total) || 0;
+      const groupActive = Number(groupRow.active) || 0;
+      const groupTerminated = Number(groupRow.terminated) || 0;
+
       return {
-        total: Number(row.total) || 0,
-        active: Number(row.active) || 0,
-        test: Number(row.test) || 0,
-        archived: Number(row.archived) || 0,
+        total: individualTotal + groupTotal,
+        active: individualActive + groupActive,
+        test: individualTest,
+        archived: individualArchived,
+        individualMembers: individualTotal,
+        groupMembers: groupTotal,
+        groupActiveMembers: groupActive,
+        groupTerminatedMembers: groupTerminated,
       };
     } catch (error: any) {
       console.error('[Storage] Error fetching membership stats:', error);

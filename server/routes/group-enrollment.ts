@@ -21,6 +21,8 @@ import {
   updateGroup,
   updateGroupMember,
 } from '../storage';
+import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
+import { createMonthlyPayout } from '../services/commission-payout-service';
 
 const router = Router();
 
@@ -82,6 +84,7 @@ const CENSUS_TEMPLATE_SETTING_KEY = 'group_census_template';
 const MAX_CENSUS_TEMPLATE_BYTES = 5 * 1024 * 1024;
 const GROUP_ASSIGNMENT_HISTORY_TABLE = 'group_assignment_history';
 const GROUP_WORKFLOW_OPEN_STATUSES = new Set(['draft', 'ready', 'pending', 'pending_activation']);
+const CAPTURED_PAYMENT_STATUSES = new Set(['paid', 'captured', 'succeeded', 'success', 'completed']);
 const MAX_GROUP_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_GROUP_DOCUMENT_TYPES = new Set(['authorized_payment_form']);
 const REQUIRED_PRIMARY_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
@@ -697,6 +700,255 @@ const fetchGroupAssignmentHistory = async (groupId: string): Promise<any[]> => {
   return data || [];
 };
 
+const parseAmountNumber = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const normalizePaymentStatus = (value: unknown): string =>
+  String(value || '').trim().toLowerCase();
+
+const getCycleKey = (date: Date): string => {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const roundCurrency = (value: number): number => Math.round(value * 100) / 100;
+
+type CommissionSplit = { agentId: string; percentage: number };
+
+const normalizeCommissionSplitInput = (input: unknown): CommissionSplit[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .map((entry: any) => {
+      const agentId = typeof entry?.agentId === 'string' ? entry.agentId.trim() : '';
+      const percentage = typeof entry?.percentage === 'number'
+        ? entry.percentage
+        : parseInt(String(entry?.percentage ?? ''), 10);
+
+      return { agentId, percentage };
+    })
+    .filter((entry) => entry.agentId.length > 0 && Number.isFinite(entry.percentage) && entry.percentage > 0);
+};
+
+const pickAttributionSplitsForDate = (
+  metadata: Record<string, any>,
+  asOfDateIso: string,
+): CommissionSplit[] => {
+  const attribution = metadata.commissionAttribution && typeof metadata.commissionAttribution === 'object'
+    ? metadata.commissionAttribution
+    : {};
+
+  const activeSplits = normalizeCommissionSplitInput(attribution.splits);
+  const pendingChange = attribution.pendingChange && typeof attribution.pendingChange === 'object'
+    ? attribution.pendingChange
+    : null;
+
+  if (!pendingChange) {
+    return activeSplits;
+  }
+
+  const pendingEffectiveDate = typeof pendingChange.effectiveDate === 'string' ? pendingChange.effectiveDate : null;
+  if (!pendingEffectiveDate || !isISODateString(pendingEffectiveDate)) {
+    return activeSplits;
+  }
+
+  if (pendingEffectiveDate > asOfDateIso) {
+    return activeSplits;
+  }
+
+  return normalizeCommissionSplitInput(pendingChange.splits);
+};
+
+const parseConfiguredCommissionSplits = (
+  metadata: Record<string, any>,
+  fallbackAgentId: string | null,
+  asOfDateIso: string,
+): CommissionSplit[] => {
+  const parsed = pickAttributionSplitsForDate(metadata, asOfDateIso);
+
+  if (parsed.length > 0) {
+    return parsed;
+  }
+
+  if (!fallbackAgentId) {
+    return [];
+  }
+
+  return [{ agentId: fallbackAgentId, percentage: 100 }];
+};
+
+const validateCommissionSplits = (splits: CommissionSplit[]): string | null => {
+  if (splits.length === 0) {
+    return 'No eligible agent attribution configured for group commissions';
+  }
+
+  const nonWhole = splits.find((split) => !Number.isInteger(split.percentage));
+  if (nonWhole) {
+    return 'Commission split percentages must be whole numbers';
+  }
+
+  const total = splits.reduce((sum, split) => sum + split.percentage, 0);
+  if (total !== 100) {
+    return `Commission split percentages must total 100 (received ${total})`;
+  }
+
+  return null;
+};
+
+const resolveAssignedAgentForDate = async (
+  groupId: string,
+  metadata: Record<string, any>,
+  asOfDateIso: string,
+): Promise<string | null> => {
+  const assignmentState = getGroupAssignmentState(metadata);
+  const fallbackAgentId = assignmentState.currentAssignedAgentId;
+
+  const { data, error } = await supabase
+    .from(GROUP_ASSIGNMENT_HISTORY_TABLE)
+    .select('new_agent_id,effective_date,changed_at')
+    .eq('group_id', groupId)
+    .lte('effective_date', asOfDateIso)
+    .order('effective_date', { ascending: false })
+    .order('changed_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[Group Enrollment] Failed resolving assignment history for commission attribution:', error);
+    return fallbackAgentId;
+  }
+
+  if (!data?.new_agent_id || typeof data.new_agent_id !== 'string') {
+    return fallbackAgentId;
+  }
+
+  const trimmed = data.new_agent_id.trim();
+  return trimmed.length > 0 ? trimmed : fallbackAgentId;
+};
+
+const hasExistingGroupCommissionForCycle = async (
+  syntheticMemberId: string,
+  agentId: string,
+  cycleKey: string,
+): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from('agent_commissions')
+    .select('id')
+    .eq('member_id', syntheticMemberId)
+    .eq('agent_id', agentId)
+    .ilike('notes', `%cycle:${cycleKey}%`)
+    .limit(1);
+
+  if (error) {
+    console.warn('[Group Enrollment] Failed checking existing group commission:', error);
+    return false;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+};
+
+const createGroupMemberCommissionsForCapturedPayment = async (
+  group: any,
+  groupMember: any,
+  paymentCapturedAt: Date,
+  paymentStatusRaw: string,
+  triggeredBy: string | null,
+) => {
+  const metadata = group.metadata && typeof group.metadata === 'object'
+    ? (group.metadata as Record<string, any>)
+    : {};
+
+  const paymentDateIso = paymentCapturedAt.toISOString();
+  const paymentDateOnly = paymentDateIso.slice(0, 10);
+  const cycleKey = getCycleKey(paymentCapturedAt);
+  const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, paymentDateOnly);
+  const configuredSplits = parseConfiguredCommissionSplits(metadata, assignedAgentId, paymentDateOnly);
+  const splitError = validateCommissionSplits(configuredSplits);
+  if (splitError) {
+    throw new Error(splitError);
+  }
+
+  const syntheticMemberId = `group_member:${groupMember.id}`;
+  const baseAmount = roundCurrency(
+    parseAmountNumber(groupMember.totalAmount)
+    || (parseAmountNumber(groupMember.memberAmount) + parseAmountNumber(groupMember.employerAmount))
+  );
+
+  if (baseAmount <= 0) {
+    throw new Error('Cannot create group commission because member total amount is zero');
+  }
+
+  const paymentEligibleDate = calculatePaymentEligibleDate(paymentCapturedAt);
+  const primaryAgentId = configuredSplits[0].agentId;
+
+  let allocated = 0;
+  for (let index = 0; index < configuredSplits.length; index += 1) {
+    const split = configuredSplits[index];
+    const existing = await hasExistingGroupCommissionForCycle(syntheticMemberId, split.agentId, cycleKey);
+    if (existing) {
+      continue;
+    }
+
+    const isLast = index === configuredSplits.length - 1;
+    const splitAmount = isLast
+      ? roundCurrency(baseAmount - allocated)
+      : roundCurrency(baseAmount * (split.percentage / 100));
+    allocated = roundCurrency(allocated + splitAmount);
+
+    if (splitAmount <= 0) {
+      continue;
+    }
+
+    const commissionPayload = {
+      agent_id: split.agentId,
+      member_id: syntheticMemberId,
+      enrollment_id: null,
+      commission_amount: splitAmount,
+      coverage_type: 'other' as const,
+      status: 'approved',
+      payment_status: 'unpaid',
+      payment_captured: true,
+      payment_captured_at: paymentDateIso,
+      payment_eligible_date: paymentEligibleDate.toISOString(),
+      commission_type: index === 0 ? 'direct' : 'override',
+      override_for_agent_id: index === 0 ? null : primaryAgentId,
+      base_premium: baseAmount,
+      notes: [
+        `Group member commission`,
+        `group:${group.id}`,
+        `groupMember:${groupMember.id}`,
+        `cycle:${cycleKey}`,
+        `paymentStatus:${paymentStatusRaw}`,
+        `split:${split.percentage}`,
+        triggeredBy ? `triggeredBy:${triggeredBy}` : null,
+      ].filter(Boolean).join(' | '),
+    };
+
+    const { data: createdCommission, error: commissionError } = await supabase
+      .from('agent_commissions')
+      .insert(commissionPayload)
+      .select('id')
+      .single();
+
+    if (commissionError) {
+      throw new Error(`Failed creating group commission for agent ${split.agentId}: ${commissionError.message}`);
+    }
+
+    await createMonthlyPayout({
+      commissionId: createdCommission.id,
+      paymentCapturedAt,
+      amount: splitAmount,
+      commissionType: index === 0 ? 'direct' : 'override',
+      overrideForAgentId: index === 0 ? undefined : primaryAgentId,
+    });
+  }
+};
+
 const normalizeMemberTier = (value: unknown): string => {
   if (typeof value !== 'string') {
     return 'member';
@@ -1245,6 +1497,151 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('[Group Enrollment] Failed to fetch group:', error);
     const message = error instanceof Error ? error.message : 'Failed to fetch group';
+    return res.status(500).json({ message });
+  }
+});
+
+router.get('/api/groups/:groupId/commission-attribution', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can view commission attribution' });
+    }
+
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const metadata = group.metadata && typeof group.metadata === 'object'
+      ? (group.metadata as Record<string, any>)
+      : {};
+    const attribution = metadata.commissionAttribution && typeof metadata.commissionAttribution === 'object'
+      ? metadata.commissionAttribution
+      : {};
+    const assignmentState = getGroupAssignmentState(metadata);
+
+    return res.json({
+      data: {
+        splits: normalizeCommissionSplitInput(attribution.splits),
+        pendingChange: attribution.pendingChange && typeof attribution.pendingChange === 'object'
+          ? {
+              effectiveDate: attribution.pendingChange.effectiveDate || null,
+              splits: normalizeCommissionSplitInput(attribution.pendingChange.splits),
+              scheduledBy: attribution.pendingChange.scheduledBy || null,
+              scheduledAt: attribution.pendingChange.scheduledAt || null,
+            }
+          : null,
+        fallbackAssignedAgentId: assignmentState.currentAssignedAgentId,
+        updatedAt: attribution.updatedAt || null,
+        updatedBy: attribution.updatedBy || null,
+      },
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to load commission attribution:', error);
+    const message = error instanceof Error ? error.message : 'Failed to load commission attribution';
+    return res.status(500).json({ message });
+  }
+});
+
+router.patch('/api/groups/:groupId/commission-attribution', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can update commission attribution' });
+    }
+
+    const { groupId } = req.params;
+    const group = await getGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const splits = normalizeCommissionSplitInput(req.body?.splits);
+    const splitError = validateCommissionSplits(splits);
+    if (splitError) {
+      return res.status(400).json({ message: splitError });
+    }
+
+    const uniqueAgentIds = Array.from(new Set(splits.map((split) => split.agentId)));
+    const { data: agents, error: agentsError } = await supabase
+      .from('users')
+      .select('id, role')
+      .in('id', uniqueAgentIds);
+
+    if (agentsError) {
+      return res.status(500).json({ message: `Unable to validate split agents: ${agentsError.message}` });
+    }
+
+    const allowedRoles = new Set(['agent', 'admin', 'super_admin']);
+    const validAgentIds = new Set(
+      (agents || [])
+        .filter((agent: any) => typeof agent?.id === 'string' && allowedRoles.has(String(agent?.role || '').trim()))
+        .map((agent: any) => String(agent.id).trim())
+    );
+
+    const missingAgent = uniqueAgentIds.find((agentId) => !validAgentIds.has(agentId));
+    if (missingAgent) {
+      return res.status(400).json({ message: `Invalid agent in commission split: ${missingAgent}` });
+    }
+
+    const requestedEffectiveDate = typeof req.body?.effectiveDate === 'string' ? req.body.effectiveDate.trim() : '';
+    if (requestedEffectiveDate && !isISODateString(requestedEffectiveDate)) {
+      return res.status(400).json({ message: 'effectiveDate must be YYYY-MM-DD when provided' });
+    }
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const shouldScheduleForFuture = requestedEffectiveDate && requestedEffectiveDate > todayIso;
+    const existingMetadata = group.metadata && typeof group.metadata === 'object'
+      ? { ...(group.metadata as Record<string, any>) }
+      : {};
+    const existingAttribution = existingMetadata.commissionAttribution && typeof existingMetadata.commissionAttribution === 'object'
+      ? { ...(existingMetadata.commissionAttribution as Record<string, any>) }
+      : {};
+
+    let nextAttribution: Record<string, any>;
+    if (shouldScheduleForFuture) {
+      nextAttribution = {
+        ...existingAttribution,
+        pendingChange: {
+          effectiveDate: requestedEffectiveDate,
+          splits,
+          scheduledBy: req.user.id,
+          scheduledAt: new Date().toISOString(),
+        },
+      };
+    } else {
+      nextAttribution = {
+        ...existingAttribution,
+        splits,
+        updatedBy: req.user.id,
+        updatedAt: new Date().toISOString(),
+      };
+      delete nextAttribution.pendingChange;
+    }
+
+    existingMetadata.commissionAttribution = nextAttribution;
+    const updated = await updateGroup(groupId, {
+      metadata: existingMetadata,
+      updatedBy: req.user.id,
+    });
+
+    return res.json({
+      data: {
+        groupId: updated.id,
+        appliedImmediately: !shouldScheduleForFuture,
+        effectiveDate: shouldScheduleForFuture ? requestedEffectiveDate : todayIso,
+        splits,
+        pendingChange: shouldScheduleForFuture
+          ? {
+              effectiveDate: requestedEffectiveDate,
+              splits,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to update commission attribution:', error);
+    const message = error instanceof Error ? error.message : 'Failed to update commission attribution';
     return res.status(500).json({ message });
   }
 });
@@ -2540,10 +2937,32 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
       return res.status(404).json({ message: 'Group member not found' });
     }
 
-    const updated = await setGroupMemberPaymentStatus(numericMemberId, req.body?.paymentStatus || 'paid', {
+    const nextPaymentStatus = req.body?.paymentStatus || 'paid';
+    const updated = await setGroupMemberPaymentStatus(numericMemberId, nextPaymentStatus, {
       status: req.body?.status,
       metadata: req.body?.metadata,
     });
+
+    const normalizedPaymentStatus = normalizePaymentStatus(nextPaymentStatus);
+    if (CAPTURED_PAYMENT_STATUSES.has(normalizedPaymentStatus) && updated.status !== 'terminated') {
+      try {
+        const paymentCapturedAt = new Date();
+        await createGroupMemberCommissionsForCapturedPayment(
+          group,
+          updated,
+          paymentCapturedAt,
+          normalizedPaymentStatus,
+          req.user?.id || null,
+        );
+      } catch (commissionError) {
+        console.error('[Group Enrollment] Failed to create commissions for captured group payment:', commissionError);
+        return res.status(400).json({
+          message: commissionError instanceof Error
+            ? commissionError.message
+            : 'Failed to create group commissions from captured payment',
+        });
+      }
+    }
 
     return res.json({ data: updated });
   } catch (error) {
