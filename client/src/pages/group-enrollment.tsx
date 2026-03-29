@@ -843,6 +843,55 @@ const isSsnLikeHeader = (header: string): boolean => {
   return normalized.includes("ssn") || normalized.includes("socialsecurity");
 };
 
+const normalizeImportedEmail = (value: unknown): string => sanitizeImportValue(value).toLowerCase();
+
+const buildEmploymentProfileFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
+  const profile: Record<string, unknown> = {
+    middleName: sanitizeImportValue(getRecordValue(record, ["middleName", "middle_name"])),
+    suffix: sanitizeImportValue(getRecordValue(record, ["suffix"])),
+    preferredName: sanitizeImportValue(getRecordValue(record, ["preferredName", "preferred_name"])),
+    sex: sanitizeImportValue(getRecordValue(record, ["sex", "gender"])),
+    hireDate: formatImportedDate(getRawRecordValue(record, ["hireDate", "hire_date"])),
+    className: sanitizeImportValue(getRecordValue(record, ["className", "class", "employeeClass"])),
+    department: sanitizeImportValue(getRecordValue(record, ["department"])),
+    division: sanitizeImportValue(getRecordValue(record, ["division"])),
+    businessUnit: sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"])),
+    workEmail: normalizeImportedEmail(getRecordValue(record, ["workEmail", "work_email", "workEmailAddress"])),
+    personalEmail: normalizeImportedEmail(getRecordValue(record, ["personalEmail", "personal_email", "email", "emailAddress"])),
+    payrollGroup: sanitizeImportValue(getRecordValue(record, ["payrollGroup", "payroll_group"])),
+    annualBaseSalary: sanitizeImportValue(getRecordValue(record, ["annualBaseSalary", "annual_base_salary", "annualSalary", "salary"])),
+    hoursPerWeek: sanitizeImportValue(getRecordValue(record, ["hoursPerWeek", "hours_per_week"])),
+    salaryEffectiveDate: formatImportedDate(getRawRecordValue(record, ["salaryEffectiveDate", "salary_effective_date"])),
+    address1: sanitizeImportValue(getRecordValue(record, ["address1", "address_1", "addressLine1"])),
+    address2: sanitizeImportValue(getRecordValue(record, ["address2", "address_2", "addressLine2"])),
+    city: sanitizeImportValue(getRecordValue(record, ["city"])),
+    state: sanitizeImportValue(getRecordValue(record, ["state", "province"])),
+    zipCode: sanitizeImportValue(getRecordValue(record, ["zipCode", "zip", "postalCode", "postal_code"])),
+    county: sanitizeImportValue(getRecordValue(record, ["county"])),
+    country: sanitizeImportValue(getRecordValue(record, ["country"])),
+    homePhone: sanitizeImportValue(getRecordValue(record, ["homePhone", "home_phone"])),
+    mobilePhone: sanitizeImportValue(getRecordValue(record, ["mobilePhone", "mobile_phone", "phone", "phoneNumber"])),
+    workPhone: sanitizeImportValue(getRecordValue(record, ["workPhone", "work_phone"])),
+    employmentType: sanitizeImportValue(getRecordValue(record, ["employmentType", "employment_type", "employment type (ft/pt)"])),
+    jobTitle: sanitizeImportValue(getRecordValue(record, ["jobTitle", "job_title", "title"])),
+    retireDate: formatImportedDate(getRawRecordValue(record, ["retireDate", "retire_date"])),
+    originalHireDate: formatImportedDate(getRawRecordValue(record, ["originalHireDate", "original_hire_date"])),
+    terminationDate: formatImportedDate(getRawRecordValue(record, ["terminationDate", "termination_date"])),
+    terminationReason: sanitizeImportValue(getRecordValue(record, ["terminationReason", "termination_reason"])),
+    rehireDate: formatImportedDate(getRawRecordValue(record, ["rehireDate", "rehire_date"])),
+  };
+
+  const cleaned: Record<string, unknown> = {};
+  Object.entries(profile).forEach(([key, value]) => {
+    const nextValue = typeof value === "string" ? value.trim() : value;
+    if (nextValue !== null && nextValue !== undefined && nextValue !== "") {
+      cleaned[key] = nextValue;
+    }
+  });
+
+  return cleaned;
+};
+
 const buildRegistrationPayloadFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
   const payload: Record<string, unknown> = {};
 
@@ -868,6 +917,11 @@ const buildRegistrationPayloadFromRecord = (record: Record<string, unknown>): Re
 
     payload[normalizedKey] = sanitized;
   });
+
+  const employmentProfile = buildEmploymentProfileFromRecord(record);
+  if (Object.keys(employmentProfile).length > 0) {
+    payload.employmentProfile = employmentProfile;
+  }
 
   return payload;
 };
