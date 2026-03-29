@@ -35,25 +35,137 @@ export function calculateMembershipStartDate(enrollmentDate: Date): Date {
   }
 }
 
+const BILLING_ANCHOR_DAYS = [1, 15] as const;
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+function isSameLocalDate(first: Date, second: Date): boolean {
+  return first.getFullYear() === second.getFullYear()
+    && first.getMonth() === second.getMonth()
+    && first.getDate() === second.getDate();
+}
+
+function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): Date {
+  const first = new Date(year, month, 1);
+  const firstWeekdayOffset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + firstWeekdayOffset + (nth - 1) * 7);
+}
+
+function lastWeekdayOfMonth(year: number, month: number, weekday: number): Date {
+  const last = new Date(year, month + 1, 0);
+  const offset = (last.getDay() - weekday + 7) % 7;
+  return new Date(year, month, last.getDate() - offset);
+}
+
+function observedHoliday(actualDate: Date): Date {
+  const day = actualDate.getDay();
+  if (day === 6) {
+    return addDays(actualDate, -1);
+  }
+  if (day === 0) {
+    return addDays(actualDate, 1);
+  }
+  return actualDate;
+}
+
+function getObservedUsBankHolidays(year: number): Date[] {
+  const january = 0;
+  const february = 1;
+  const may = 4;
+  const june = 5;
+  const july = 6;
+  const september = 8;
+  const october = 9;
+  const november = 10;
+  const december = 11;
+
+  const holidays: Date[] = [
+    observedHoliday(new Date(year, january, 1)),
+    nthWeekdayOfMonth(year, january, 1, 3),
+    nthWeekdayOfMonth(year, february, 1, 3),
+    lastWeekdayOfMonth(year, may, 1),
+    observedHoliday(new Date(year, june, 19)),
+    observedHoliday(new Date(year, july, 4)),
+    nthWeekdayOfMonth(year, september, 1, 1),
+    nthWeekdayOfMonth(year, october, 1, 2),
+    observedHoliday(new Date(year, november, 11)),
+    nthWeekdayOfMonth(year, november, 4, 4),
+    observedHoliday(new Date(year, december, 25)),
+  ];
+
+  return holidays.map(startOfLocalDay);
+}
+
+function isUsBankHoliday(date: Date): boolean {
+  const year = date.getFullYear();
+  const holidays = getObservedUsBankHolidays(year);
+  return holidays.some((holiday) => isSameLocalDate(holiday, date));
+}
+
+function shiftToPreviousBusinessDay(date: Date): Date {
+  let current = startOfLocalDay(date);
+  while (isUsBankHoliday(current) || isWeekend(current)) {
+    current = addDays(current, -1);
+  }
+  return current;
+}
+
+function adjustAnchorForBusinessCalendar(anchor: Date): Date {
+  const day = anchor.getDay();
+
+  if (day === 6) {
+    return shiftToPreviousBusinessDay(addDays(anchor, -1));
+  }
+
+  if (day === 0) {
+    return shiftToPreviousBusinessDay(addDays(anchor, -1));
+  }
+
+  if (isUsBankHoliday(anchor)) {
+    return shiftToPreviousBusinessDay(addDays(anchor, -1));
+  }
+
+  return startOfLocalDay(anchor);
+}
+
+function getNextBillingAnchorDate(afterDate: Date): Date {
+  const baseline = startOfLocalDay(afterDate);
+
+  for (let monthOffset = 0; monthOffset < 24; monthOffset += 1) {
+    const monthStart = new Date(baseline.getFullYear(), baseline.getMonth() + monthOffset, 1);
+    for (const anchorDay of BILLING_ANCHOR_DAYS) {
+      const anchor = new Date(monthStart.getFullYear(), monthStart.getMonth(), anchorDay);
+      if (anchor <= baseline) {
+        continue;
+      }
+      return anchor;
+    }
+  }
+
+  return new Date(baseline.getFullYear(), baseline.getMonth() + 1, BILLING_ANCHOR_DAYS[0]);
+}
+
 /**
  * Calculate next recurring billing date (same day next month)
  * @param billingDate - The original billing date
  * @returns The next billing date (same day next month)
  */
 export function calculateNextBillingDate(billingDate: Date): Date {
-  const nextMonth = new Date(billingDate);
-  nextMonth.setMonth(nextMonth.getMonth() + 1);
-  
-  // Handle edge case: if billing date is 31st but next month has fewer days
-  // (e.g., Jan 31 → Feb 28/29), use last day of month
-  const dayOfMonth = billingDate.getDate();
-  const lastDayOfNextMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
-  
-  if (dayOfMonth > lastDayOfNextMonth) {
-    nextMonth.setDate(lastDayOfNextMonth);
-  }
-  
-  return nextMonth;
+  const nextAnchor = getNextBillingAnchorDate(billingDate);
+  return adjustAnchorForBusinessCalendar(nextAnchor);
 }
 
 /**

@@ -8,6 +8,7 @@ import { decryptSSN, encryptSSN, formatSSN, isValidSSN } from '../utils/encrypti
 import {
   addGroupMember,
   completeGroupRegistration,
+  createAdminNotification,
   createGroup,
   getPlatformSetting,
   getDiscountCodeByCode,
@@ -2245,7 +2246,63 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
       status: req.body?.status,
     });
 
-    return res.json({ data: completed });
+    const nowIso = new Date().toISOString();
+    const effectiveDateContext = getGroupEffectiveDateContext(req, completed.metadata);
+    const schedulerStartDate = effectiveDateContext.selectedEffectiveDate;
+    const existingMetadata =
+      completed.metadata && typeof completed.metadata === 'object'
+        ? (completed.metadata as Record<string, any>)
+        : {};
+
+    const nextMetadata = {
+      ...existingMetadata,
+      billingScheduler: {
+        ...(existingMetadata.billingScheduler && typeof existingMetadata.billingScheduler === 'object'
+          ? existingMetadata.billingScheduler
+          : {}),
+        queueState: 'ready',
+        queueSource: 'group_enrollment_complete',
+        queueTriggeredAt: nowIso,
+        queueTriggeredBy: req.user?.id || null,
+        scheduledStartDate: schedulerStartDate,
+        activeMemberCount,
+      },
+    };
+
+    const completedWithScheduler = await updateGroup(groupId, {
+      metadata: nextMetadata,
+      updatedBy: req.user?.id,
+    });
+
+    let notificationCreated = false;
+    try {
+      await createAdminNotification({
+        type: 'group_enrollment_ready_for_billing',
+        errorMessage: `Group ${completed.name || groupId} marked ready and queued for payment scheduling.`,
+        metadata: {
+          groupId,
+          groupName: completed.name || null,
+          groupStatus: completedWithScheduler.status,
+          scheduledStartDate: schedulerStartDate,
+          activeMemberCount,
+          preferredPaymentMethod: groupProfileContext.profile?.preferredPaymentMethod || null,
+          markedReadyBy: req.user?.id || null,
+          markedReadyAt: nowIso,
+        },
+      });
+      notificationCreated = true;
+    } catch (notificationError) {
+      console.warn('[Group Enrollment] Failed to create admin notification for group readiness:', notificationError);
+    }
+
+    return res.json({
+      data: completedWithScheduler,
+      scheduler: {
+        queueState: 'ready',
+        scheduledStartDate: schedulerStartDate,
+      },
+      adminNotificationCreated: notificationCreated,
+    });
   } catch (error) {
     console.error('[Group Enrollment] Failed to complete group registration:', error);
     const message = error instanceof Error ? error.message : 'Failed to complete group registration';

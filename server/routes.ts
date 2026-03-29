@@ -17,6 +17,7 @@ import { displaySSN } from "@shared/display-ssn";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
   calculateMembershipStartDate, 
+  calculateNextBillingDate,
   isMembershipActive, 
   daysUntilMembershipStarts 
 } from "./utils/membership-dates";
@@ -5045,7 +5046,7 @@ export async function registerRoutes(app: any) {
             status: "pending_payment",
             amount: totalMonthlyPrice,
             start_date: new Date().toISOString(),
-            next_billing_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            next_billing_date: calculateNextBillingDate(new Date()).toISOString()
           };
 
           const { data: subscription, error: subscriptionError } = await supabase
