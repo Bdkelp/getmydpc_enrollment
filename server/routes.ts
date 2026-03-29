@@ -177,6 +177,22 @@ const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
   return role === "agent" || hasAtLeastRole(role, "admin");
 };
 
+const canRevealEnrollmentSsnForRole = (role: string | undefined): boolean => {
+  return Boolean(role === "authorized" || hasAgentOrAdminAccess(role));
+};
+
+const shouldRevealEnrollmentSsn = (req: AuthRequest): boolean => {
+  if (!canRevealEnrollmentSsnForRole(req.user?.role)) {
+    return false;
+  }
+
+  if (req.query?.revealSsn === 'false' || req.body?.revealSsn === false) {
+    return false;
+  }
+
+  return true;
+};
+
 async function canManageMemberForUser(
   memberId: string,
   user: AuthRequest["user"],
@@ -1555,14 +1571,16 @@ router.get(
       
       // Limit the results if specified
       const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
+      const revealSsn = shouldRevealEnrollmentSsn(req);
+      const revealRole = req.user?.role || '';
 
-      // Mask SSN for agent view (show only last 4 digits)
+      // Reveal SSN by default for authorized enrollment viewers unless explicitly masked.
       const { decryptSSN } = await import('./utils/encryption');
       const maskedEnrollments = limitedEnrollments.map((enrollment) => {
         return {
           ...enrollment,
           ssn: enrollment.ssn
-            ? displaySSN(decryptSSN(enrollment.ssn), { reveal: false, role: '' })
+            ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
             : null,
         };
       });
@@ -3889,8 +3907,18 @@ router.get(
         );
       }
 
-      console.log("✅ Got", enrollments?.length || 0, "enrollments");
-      res.json(enrollments);
+      const revealSsn = shouldRevealEnrollmentSsn(req);
+      const revealRole = req.user?.role || '';
+      const { decryptSSN } = await import('./utils/encryption');
+      const enrollmentsWithSsn = (enrollments || []).map((enrollment: any) => ({
+        ...enrollment,
+        ssn: enrollment?.ssn
+          ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
+          : null,
+      }));
+
+      console.log("✅ Got", enrollmentsWithSsn?.length || 0, "enrollments");
+      res.json(enrollmentsWithSsn);
     } catch (error) {
       console.error("❌ Error fetching agent enrollments:", error);
       res.status(500).json({ message: "Failed to fetch enrollments" });
@@ -3936,6 +3964,8 @@ router.get(
       }
 
       const allMembers = [...enrolledUsers, ...additionalUsers];
+      const revealSsn = shouldRevealEnrollmentSsn(req);
+      const revealRole = req.user?.role || '';
 
       // Get subscription info for each member
       const { decryptSSN } = await import('./utils/encryption');
@@ -3945,14 +3975,14 @@ router.get(
           const subscription = await storage.getUserSubscription(member.id);
           const familyMembers = await storage.getFamilyMembers(member.id);
 
-          // Mask SSN for agents (show only last 4)
+          // Reveal SSN by default for authorized enrollment viewers unless explicitly masked.
           const memberSSN = member.ssn
-            ? displaySSN(decryptSSN(member.ssn), { reveal: false, role: '' })
+            ? displaySSN(decryptSSN(member.ssn), { reveal: revealSsn, role: revealRole })
             : null;
           const maskedFamily = familyMembers.map((fm: any) => ({
             ...fm,
             ssn: fm.ssn
-              ? displaySSN(decryptSSN(fm.ssn), { reveal: false, role: '' })
+              ? displaySSN(decryptSSN(fm.ssn), { reveal: revealSsn, role: revealRole })
               : null,
           }));
 

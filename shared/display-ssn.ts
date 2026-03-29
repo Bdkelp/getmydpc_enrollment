@@ -5,7 +5,8 @@ export type DisplaySsnOptions = {
 
 export function displaySSN(ssn: string | null | undefined, options?: DisplaySsnOptions): string {
   const { reveal = false, role = "" } = options || {};
-  const canReveal = role === "admin" || role === "authorized" || role === "super_admin";
+  const canReveal =
+    role === "admin" || role === "authorized" || role === "super_admin" || role === "agent";
 
   const raw = typeof ssn === "string" ? ssn : "";
   const digits = raw.replace(/\D/g, "");
