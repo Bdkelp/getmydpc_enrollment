@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import { displaySSN } from '@shared/display-ssn';
 
 const ALGORITHM = 'aes-256-gcm';
 
@@ -125,22 +126,6 @@ export function decryptSSN(encryptedSSN: string): string {
 
   console.error('[Encryption] Failed to decrypt SSN with all configured keys');
   return ''; // Return empty on decrypt failure
-}
-
-/**
- * Mask SSN for display (show only last 4 digits)
- */
-export function maskSSN(ssn: string | null | undefined): string {
-  if (!ssn) return '***-**-****';
-  
-  // If already masked, return as-is
-  if (ssn.includes('*')) return ssn;
-  
-  const cleanSSN = ssn.replace(/\D/g, '');
-  if (cleanSSN.length < 4) return '***-**-****';
-  
-  const last4 = cleanSSN.slice(-4);
-  return `***-**-${last4}`;
 }
 
 /**

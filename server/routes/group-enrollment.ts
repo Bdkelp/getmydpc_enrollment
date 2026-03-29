@@ -2,8 +2,9 @@ import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole } from '../auth/roles';
 import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
+import { displaySSN } from '@shared/display-ssn';
 import { supabase } from '../lib/supabaseClient';
-import { decryptSSN, encryptSSN, formatSSN, isValidSSN, maskSSN } from '../utils/encryption';
+import { decryptSSN, encryptSSN, formatSSN, isValidSSN } from '../utils/encryption';
 import {
   addGroupMember,
   completeGroupRegistration,
@@ -855,19 +856,29 @@ const resolveMemberSsnDigits = (member: any): string | null => {
 };
 
 const canViewFullMemberSsn = (req: AuthRequest): boolean =>
-  Boolean(req.user);
+  Boolean(req.user && (hasAtLeastRole(req.user.role, 'admin') || req.user.role === 'authorized'));
+
+const shouldRevealMemberSsn = (req: AuthRequest): boolean => {
+  const requestedByQuery = req.query?.revealSsn === 'true';
+  const requestedByBody = req.body?.revealSsn === true;
+  return canViewFullMemberSsn(req) && (requestedByQuery || requestedByBody);
+};
 
 const toMemberResponse = (member: any, includeFullSsn: boolean) => {
   const isPrimaryMember = isPrimaryMemberRelationship(member?.relationship, member?.tier);
   const ssnDigits = resolveMemberSsnDigits(member);
-  const formatted = ssnDigits && isPrimaryMember ? formatSSN(ssnDigits) : null;
-  const masked = ssnDigits && isPrimaryMember ? maskSSN(ssnDigits) : null;
+  const fullSsn = ssnDigits && isPrimaryMember
+    ? displaySSN(ssnDigits, { reveal: true, role: 'admin' })
+    : null;
+  const masked = ssnDigits && isPrimaryMember
+    ? displaySSN(ssnDigits, { reveal: false, role: '' })
+    : null;
 
   return {
     ...member,
     metadata: stripSensitiveSsnFields(member?.metadata),
     registrationPayload: stripSensitiveSsnFields(member?.registrationPayload),
-    ssn: ssnDigits && isPrimaryMember ? (includeFullSsn ? formatted : masked) : null,
+    ssn: ssnDigits && isPrimaryMember ? (includeFullSsn ? fullSsn : masked) : null,
     ssnMasked: masked,
     hasSsn: Boolean(ssnDigits && isPrimaryMember),
   };
@@ -1081,7 +1092,7 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
 
     const members = await listGroupMembers({ groupId });
     const assignmentHistory = await fetchGroupAssignmentHistory(groupId);
-    const includeFullSsn = canViewFullMemberSsn(req);
+    const includeFullSsn = shouldRevealMemberSsn(req);
     const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
     const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
     const assignmentState = getGroupAssignmentState(group.metadata);
@@ -1516,7 +1527,7 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       status: status || 'draft',
     });
 
-    return res.status(201).json({ data: toMemberResponse(memberRecord, canViewFullMemberSsn(req)) });
+    return res.status(201).json({ data: toMemberResponse(memberRecord, shouldRevealMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to add group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to add group member';
@@ -1607,7 +1618,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           status: normalizeMemberStatus(source.status),
         });
 
-        created.push(toMemberResponse(memberRecord, canViewFullMemberSsn(req)));
+        created.push(toMemberResponse(memberRecord, shouldRevealMemberSsn(req)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to add row';
         failed.push({ row: rowNumber, email, reason: message });
@@ -1741,7 +1752,7 @@ router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Respons
       status: typeof req.query.status === 'string' ? req.query.status : undefined,
     });
 
-    return res.json({ data: members.map((member) => toMemberResponse(member, canViewFullMemberSsn(req))) });
+    return res.json({ data: members.map((member) => toMemberResponse(member, shouldRevealMemberSsn(req))) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to list group members:', error);
     const message = error instanceof Error ? error.message : 'Failed to list group members';
@@ -1855,13 +1866,11 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
         numericMemberId,
         includeSsnIntentRaw.value ? 'update_group_member_ssn' : 'delete_group_member_ssn',
         typeof req.body?.reason === 'string' ? req.body.reason : null,
-        {
-          maskedSsn: includeSsnIntentRaw.value ? maskSSN(includeSsnIntentRaw.value) : null,
-        },
+        {},
       );
     }
 
-    return res.json({ data: toMemberResponse(updated, canViewFullMemberSsn(req)) });
+    return res.json({ data: toMemberResponse(updated, shouldRevealMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group member:', error);
     const message = error instanceof Error ? error.message : 'Failed to update group member';
@@ -1910,10 +1919,10 @@ router.delete('/api/groups/:groupId/members/:memberId/ssn', async (req: AuthRequ
       numericMemberId,
       'delete_group_member_ssn',
       typeof req.query.reason === 'string' ? req.query.reason : null,
-      { maskedSsn: null },
+      {},
     );
 
-    return res.json({ data: toMemberResponse(updated, true) });
+    return res.json({ data: toMemberResponse(updated, shouldRevealMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to delete group member SSN:', error);
     const message = error instanceof Error ? error.message : 'Failed to delete group member SSN';
@@ -1962,7 +1971,7 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
 
     return res.status(200).json({
       message: 'Group member terminated and retained for history',
-      data: toMemberResponse(terminated, canViewFullMemberSsn(req)),
+      data: toMemberResponse(terminated, shouldRevealMemberSsn(req)),
     });
   } catch (error) {
     console.error('[Group Enrollment] Failed to delete group member:', error);
@@ -2028,7 +2037,7 @@ router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRe
 
     return res.status(200).json({
       message: 'Group member restored',
-      data: toMemberResponse(restored, canViewFullMemberSsn(req)),
+      data: toMemberResponse(restored, shouldRevealMemberSsn(req)),
     });
   } catch (error) {
     console.error('[Group Enrollment] Failed to restore group member:', error);

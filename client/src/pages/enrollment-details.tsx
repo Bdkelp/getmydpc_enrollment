@@ -35,6 +35,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPhoneNumber, cleanPhoneNumber, formatZipCode } from "@/lib/formatters";
+import { displaySSN } from "@shared/display-ssn";
 
 interface SensitiveMemberResponse {
   success: boolean;
@@ -209,12 +210,8 @@ export default function EnrollmentDetails() {
   const [selectedMemberType, setSelectedMemberType] = useState<string>('');
   const [membershipReason, setMembershipReason] = useState('');
 
-  const getMaskedSSN = (value?: string | null): string => {
-    if (!value) return '***-**-****';
-    const digits = String(value).replace(/\D/g, '');
-    if (digits.length < 4) return '***-**-****';
-    return `***-**-${digits.slice(-4)}`;
-  };
+  const getMaskedSSN = (value?: string | null): string =>
+    displaySSN(value || "", { reveal: false, role: "" });
   
   // Fetch enrollment details
   const { data: enrollment, isLoading } = useQuery<EnrollmentDetails>({

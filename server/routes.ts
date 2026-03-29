@@ -13,6 +13,7 @@ import {
 import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
 import { sendEmailVerification, sendUserCredentialsEmail } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
+import { displaySSN } from "@shared/display-ssn";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
   calculateMembershipStartDate, 
@@ -1556,11 +1557,13 @@ router.get(
       const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
 
       // Mask SSN for agent view (show only last 4 digits)
-      const { decryptSSN, maskSSN } = await import('./utils/encryption');
+      const { decryptSSN } = await import('./utils/encryption');
       const maskedEnrollments = limitedEnrollments.map((enrollment) => {
         return {
           ...enrollment,
-          ssn: enrollment.ssn ? maskSSN(decryptSSN(enrollment.ssn)) : null,
+          ssn: enrollment.ssn
+            ? displaySSN(decryptSSN(enrollment.ssn), { reveal: false, role: '' })
+            : null,
         };
       });
 
@@ -3144,7 +3147,7 @@ router.patch(
     }
 
     try {
-      const { isValidSSN, formatSSN, maskSSN } = await import('./utils/encryption');
+      const { isValidSSN, formatSSN } = await import('./utils/encryption');
       const normalized = ssn.replace(/\D/g, '');
 
       if (!isValidSSN(normalized)) {
@@ -3164,7 +3167,6 @@ router.patch(
           reason: typeof reason === 'string' ? reason : null,
           metadata: {
             updated_field: 'ssn',
-            masked_ssn: maskSSN(normalized),
           },
           ip_address: req.ip,
           user_agent: req.get('user-agent'),
@@ -3180,7 +3182,7 @@ router.patch(
       res.json({
         success: true,
         ssn: {
-          masked: maskSSN(normalized),
+          masked: displaySSN(normalized, { reveal: false, role: '' }),
           formatted: decryptedSSN,
         },
       });
@@ -3936,7 +3938,7 @@ router.get(
       const allMembers = [...enrolledUsers, ...additionalUsers];
 
       // Get subscription info for each member
-      const { decryptSSN, maskSSN } = await import('./utils/encryption');
+      const { decryptSSN } = await import('./utils/encryption');
 
       const membersWithDetails = await Promise.all(
         allMembers.map(async (member) => {
@@ -3944,10 +3946,14 @@ router.get(
           const familyMembers = await storage.getFamilyMembers(member.id);
 
           // Mask SSN for agents (show only last 4)
-          const memberSSN = member.ssn ? maskSSN(decryptSSN(member.ssn)) : null;
+          const memberSSN = member.ssn
+            ? displaySSN(decryptSSN(member.ssn), { reveal: false, role: '' })
+            : null;
           const maskedFamily = familyMembers.map((fm: any) => ({
             ...fm,
-            ssn: fm.ssn ? maskSSN(decryptSSN(fm.ssn)) : null,
+            ssn: fm.ssn
+              ? displaySSN(decryptSSN(fm.ssn), { reveal: false, role: '' })
+              : null,
           }));
 
           return {
@@ -7099,7 +7105,7 @@ export async function registerRoutes(app: any) {
       let ssnStatus: 'decrypted' | 'masked_only' | 'not_available' = 'not_available';
       let ssnReason: string | null = null;
       if (member.ssn) {
-        const { decryptSSN, maskSSN, formatSSN } = await import('./utils/encryption');
+        const { decryptSSN, formatSSN } = await import('./utils/encryption');
 
         const storedRaw = String(member.ssn);
         const decryptedCandidate = decryptSSN(storedRaw);
@@ -7108,18 +7114,16 @@ export async function registerRoutes(app: any) {
 
         if (decryptedDigits.length === 9) {
           decryptedSSN = formatSSN(decryptedDigits);
-          maskedSSN = maskSSN(decryptedDigits);
+          maskedSSN = displaySSN(decryptedDigits, { reveal: false, role: '' });
           ssnStatus = 'decrypted';
         } else if (storedDigits.length === 9) {
           // Legacy plaintext support
           decryptedSSN = formatSSN(storedDigits);
-          maskedSSN = maskSSN(storedDigits);
+          maskedSSN = displaySSN(storedDigits, { reveal: false, role: '' });
           ssnStatus = 'decrypted';
         } else {
           // Irrecoverable values (e.g. already-masked-only or malformed)
-          maskedSSN = storedRaw.includes('*')
-            ? storedRaw
-            : storedRaw.replace(/\d(?=\d{4})/g, '*');
+          maskedSSN = displaySSN(storedRaw, { reveal: false, role: '' });
           ssnStatus = 'masked_only';
           ssnReason = storedRaw.includes(':')
             ? 'Encrypted SSN could not be decrypted with configured keys'

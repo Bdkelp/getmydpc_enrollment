@@ -2,7 +2,7 @@ import { supabase } from './lib/supabaseClient'; // Use Supabase for everything
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import { normalizeRole } from './auth/roles';
 import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
-import { encryptSSN, decryptSSN, maskSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
+import { encryptSSN, decryptSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
 import crypto from 'crypto';
 
 // Encryption utilities for sensitive data

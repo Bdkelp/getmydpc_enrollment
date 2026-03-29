@@ -26,6 +26,7 @@ import {
   PLAN_START_SAME_DAY_ENABLED,
   type PlanStartDateOption,
 } from "@/lib/planStartDates";
+import { displaySSN } from "@shared/display-ssn";
 import { isPlanStartDateAllowed } from "@shared/planStartDates";
 
 const PROGRESS_STEP_TITLES: Record<number, string> = {
@@ -1608,7 +1609,7 @@ export default function Registration() {
                           <span className="font-medium">Name:</span> {form.watch("firstName")} {form.watch("middleName")} {form.watch("lastName")}
                         </div>
                         <div>
-                          <span className="font-medium">SSN:</span> ***-**-{form.watch("ssn")?.slice(-4) || "****"}
+                          <span className="font-medium">SSN:</span> {displaySSN(form.watch("ssn") || "", { reveal: false, role: "" })}
                         </div>
                         <div>
                           <span className="font-medium">Date of Birth:</span> {form.watch("dateOfBirth")}
