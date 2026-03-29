@@ -2263,8 +2263,26 @@ export default function GroupEnrollment() {
       setDetailOpen(true);
     } catch (err: any) {
       if (isGroupNotFoundError(err)) {
-        await recoverFromMissingGroup();
-        return;
+        try {
+          // Deployment/reload windows can briefly return 404 for a valid group id.
+          // Refresh the list and retry once before treating it as truly missing.
+          await refreshGroups();
+          await fetchGroupDetail(groupId);
+          setDetailStep("setup");
+          setDetailOpen(true);
+          return;
+        } catch (retryErr: any) {
+          if (isGroupNotFoundError(retryErr)) {
+            await recoverFromMissingGroup();
+            return;
+          }
+          toast({
+            title: "Failed to load group",
+            description: retryErr?.message || "Please try again",
+            variant: "destructive",
+          });
+          return;
+        }
       }
 
       toast({
