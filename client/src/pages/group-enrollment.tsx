@@ -3110,19 +3110,20 @@ export default function GroupEnrollment() {
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="w-[96vw] max-w-[1500px] h-[92vh] flex flex-col overflow-hidden p-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b">
             <DialogTitle>{selectedGroup?.data?.name || 'Group Details'}</DialogTitle>
             <DialogDescription>
               Manual member entry and hosted checkout prep live here. Use the API-backed flow to keep downtime low.
             </DialogDescription>
           </DialogHeader>
-          {detailLoading || !selectedGroup ? (
-            <div className="flex items-center justify-center py-10">
-              <LoadingSpinner />
-            </div>
-          ) : (
-            <div className="space-y-6">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {detailLoading || !selectedGroup ? (
+              <div className="flex items-center justify-center py-10">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <div className="space-y-6">
               <div className="rounded-lg border bg-slate-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Enrollment Flow</p>
                 <div className="mt-2 grid gap-2 sm:grid-cols-4">
@@ -3976,9 +3977,10 @@ export default function GroupEnrollment() {
               </Alert>
                 </>
               )}
-            </div>
-          )}
-          <DialogFooter>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="px-6 py-4 border-t bg-white">
             <Button variant="ghost" onClick={() => setDetailOpen(false)}>
               Close
             </Button>

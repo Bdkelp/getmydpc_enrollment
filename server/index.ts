@@ -184,6 +184,10 @@ app.use((req, res, next) => {
         if (req.path.startsWith('/api')) {
           return next();
         }
+        // Never return HTML for missing asset files. This prevents module MIME errors.
+        if (req.path.startsWith('/assets/') || /\.[a-z0-9]+$/i.test(req.path)) {
+          return res.status(404).type('text/plain').send('Not found');
+        }
         res.sendFile(path.join(clientDistPath, 'index.html'));
       });
     } else {
