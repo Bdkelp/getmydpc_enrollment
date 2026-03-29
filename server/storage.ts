@@ -5768,11 +5768,16 @@ export async function updateGroup(id: string, updates: Partial<Group>): Promise<
 }
 
 export async function getGroupById(id: string): Promise<Group | null> {
+  const normalizedId = String(id || '').trim();
+  if (!normalizedId) {
+    return null;
+  }
+
   for (let attempt = 0; attempt <= GROUP_READ_MAX_RETRIES; attempt += 1) {
     const { data, error } = await supabase
       .from(GROUP_TABLE)
       .select('*')
-      .eq('id', id)
+      .eq('id', normalizedId)
       .maybeSingle();
 
     if (error) {
@@ -5787,6 +5792,26 @@ export async function getGroupById(id: string): Promise<Group | null> {
     if (attempt < GROUP_READ_MAX_RETRIES) {
       await sleep(GROUP_READ_RETRY_DELAY_MS);
     }
+  }
+
+  // Fallback to direct SQL when PostgREST returns null unexpectedly.
+  try {
+    const result = await query(
+      `
+        SELECT *
+        FROM groups
+        WHERE id::text = $1
+        LIMIT 1
+      `,
+      [normalizedId],
+    );
+
+    if (result.rows && result.rows.length > 0) {
+      console.warn('[Storage] getGroupById recovered via SQL fallback', { groupId: normalizedId });
+      return mapGroupFromDB(result.rows[0]);
+    }
+  } catch (fallbackError: any) {
+    console.warn('[Storage] getGroupById SQL fallback failed:', fallbackError?.message || fallbackError);
   }
 
   return null;
