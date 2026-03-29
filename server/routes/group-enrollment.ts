@@ -859,9 +859,16 @@ const canViewFullMemberSsn = (req: AuthRequest): boolean =>
   Boolean(req.user && (hasAtLeastRole(req.user.role, 'admin') || req.user.role === 'authorized'));
 
 const shouldRevealMemberSsn = (req: AuthRequest): boolean => {
-  const requestedByQuery = req.query?.revealSsn === 'true';
-  const requestedByBody = req.body?.revealSsn === true;
-  return canViewFullMemberSsn(req) && (requestedByQuery || requestedByBody);
+  if (!canViewFullMemberSsn(req)) {
+    return false;
+  }
+
+  // Authorized users now get full SSN by default. Callers can still force masking.
+  if (req.query?.revealSsn === 'false' || req.body?.revealSsn === false) {
+    return false;
+  }
+
+  return true;
 };
 
 const toMemberResponse = (member: any, includeFullSsn: boolean) => {
