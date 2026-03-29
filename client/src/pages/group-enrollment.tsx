@@ -908,6 +908,16 @@ const inferTierFromRelationship = (record: Record<string, unknown>): string => {
   const relationship = sanitizeImportValue(getRecordValue(record, ["relationship", "dependentRelationship", "memberRelationship"])).toLowerCase();
   if (!relationship) return "member";
 
+  if (
+    relationship.includes("employee")
+    || relationship.includes("member")
+    || relationship.includes("self")
+    || relationship.includes("subscriber")
+    || relationship.includes("primary")
+  ) {
+    return "member";
+  }
+
   if (relationship.includes("spouse") || relationship.includes("wife") || relationship.includes("husband")) {
     return "spouse";
   }

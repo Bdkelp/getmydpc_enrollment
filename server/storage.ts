@@ -5591,14 +5591,22 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
 const GROUP_TABLE = 'groups';
 const GROUP_MEMBER_TABLE = 'group_members';
 
-const isMissingDependentSuffixColumnError = (error: any): boolean => {
+const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | null => {
   const message = typeof error?.message === 'string' ? error.message : '';
   const details = typeof error?.details === 'string' ? error.details : '';
-  return (
-    message.includes('dependent_suffix')
-    || details.includes('dependent_suffix')
-    || ((error as any)?.code === 'PGRST204' && message.includes('schema cache'))
-  );
+  const source = `${message} ${details}`;
+  const explicitMatch = source.match(/Could not find the '([^']+)' column of 'group_members'/i);
+  if (explicitMatch?.[1]) {
+    return explicitMatch[1];
+  }
+
+  if ((error as any)?.code === 'PGRST204' && source.toLowerCase().includes('schema cache')) {
+    if (source.includes('dependent_suffix')) return 'dependent_suffix';
+    if (source.includes('household_base_number')) return 'household_base_number';
+    if (source.includes('household_member_number')) return 'household_member_number';
+  }
+
+  return null;
 };
 
 const mapGroupFromDB = (record: any): Group => ({
@@ -5817,13 +5825,20 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
     return { data, error };
   };
 
-  let { data, error } = await insertWithPayload(payload);
+  let nextPayload = { ...payload };
+  let { data, error } = await insertWithPayload(nextPayload);
 
-  if (error && isMissingDependentSuffixColumnError(error) && Object.prototype.hasOwnProperty.call(payload, 'dependent_suffix')) {
-    const fallbackPayload = { ...payload };
-    delete fallbackPayload.dependent_suffix;
-    console.warn('[Storage] addGroupMember: dependent_suffix column missing; retrying without dependent_suffix payload.');
-    ({ data, error } = await insertWithPayload(fallbackPayload));
+  for (let attempt = 0; error && attempt < 4; attempt += 1) {
+    const missingColumn = extractMissingGroupMemberColumnFromSchemaError(error);
+    if (!missingColumn || !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)) {
+      break;
+    }
+
+    const fallbackPayload = { ...nextPayload };
+    delete fallbackPayload[missingColumn];
+    console.warn(`[Storage] addGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`);
+    nextPayload = fallbackPayload;
+    ({ data, error } = await insertWithPayload(nextPayload));
   }
 
   if (error) {
@@ -5847,13 +5862,20 @@ export async function updateGroupMember(id: number, updates: Partial<GroupMember
     return { data, error };
   };
 
-  let { data, error } = await updateWithPayload(payload);
+  let nextPayload = { ...payload };
+  let { data, error } = await updateWithPayload(nextPayload);
 
-  if (error && isMissingDependentSuffixColumnError(error) && Object.prototype.hasOwnProperty.call(payload, 'dependent_suffix')) {
-    const fallbackPayload = { ...payload };
-    delete fallbackPayload.dependent_suffix;
-    console.warn('[Storage] updateGroupMember: dependent_suffix column missing; retrying without dependent_suffix payload.');
-    ({ data, error } = await updateWithPayload(fallbackPayload));
+  for (let attempt = 0; error && attempt < 4; attempt += 1) {
+    const missingColumn = extractMissingGroupMemberColumnFromSchemaError(error);
+    if (!missingColumn || !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)) {
+      break;
+    }
+
+    const fallbackPayload = { ...nextPayload };
+    delete fallbackPayload[missingColumn];
+    console.warn(`[Storage] updateGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`);
+    nextPayload = fallbackPayload;
+    ({ data, error } = await updateWithPayload(nextPayload));
   }
 
   if (error) {

@@ -716,6 +716,14 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
     if (normalized === 'child') {
       return 'dependent';
     }
+    if (
+      normalized === 'employee'
+      || normalized === 'member'
+      || normalized === 'self'
+      || normalized === 'subscriber'
+    ) {
+      return 'primary';
+    }
   }
 
   const normalizedTier = normalizeMemberTier(fallbackTier);
