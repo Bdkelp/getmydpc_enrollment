@@ -1174,7 +1174,7 @@ const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
   }
 
   const headers = tableRows[0];
-  return tableRows
+  const rows = tableRows
     .slice(1)
     .map((cells) => {
       const record: Record<string, unknown> = {};
@@ -1184,6 +1184,70 @@ const mapCsvTableToRows = (tableRows: string[][]): CensusImportRow[] => {
       return mapRecordToCensusRow(record);
     })
     .filter((row) => row.firstName || row.lastName || row.email);
+
+  const hasImportedSsn = (value: string | undefined): boolean => {
+    const digits = String(value || "").replace(/\D/g, "");
+    return digits.length === 9 || digits.length === 8;
+  };
+
+  let activeHouseholdBase: string | null = null;
+  let activePrimaryRowIndex = -1;
+  let activeDependentSuffix = 0;
+  let householdCounter = 0;
+
+  rows.forEach((row, index) => {
+    const relationship = String(row.relationship || "").trim().toLowerCase();
+    const tier = String(row.tier || "").trim().toLowerCase();
+    const hasEeSsn = hasImportedSsn(row.employeeSsn)
+      || (hasImportedSsn(row.ssn) && !hasImportedSsn(row.dependentSsn) && (relationship === "" || relationship === "primary"));
+    const hasDependentSsn = hasImportedSsn(row.dependentSsn);
+
+    if (hasEeSsn) {
+      householdCounter += 1;
+      activeHouseholdBase = `IMP-${String(householdCounter).padStart(4, "0")}`;
+      activePrimaryRowIndex = index;
+      activeDependentSuffix = 0;
+
+      row.relationship = "primary";
+      if (!tier || tier === "dependent" || tier === "child" || tier === "spouse") {
+        row.tier = hasDependentSsn ? "family" : "member";
+      }
+
+      row.householdBaseNumber = activeHouseholdBase;
+      row.householdMemberNumber = `${activeHouseholdBase}-00`;
+      row.dependentSuffix = "0";
+      return;
+    }
+
+    const isDependentRow = hasDependentSsn
+      || relationship === "dependent"
+      || relationship === "spouse"
+      || tier === "child"
+      || tier === "spouse";
+
+    if (!isDependentRow || !activeHouseholdBase) {
+      return;
+    }
+
+    activeDependentSuffix += 1;
+    row.relationship = relationship === "spouse" ? "spouse" : "dependent";
+    if (!tier || tier === "member") {
+      row.tier = row.relationship === "spouse" ? "spouse" : "child";
+    }
+
+    row.householdBaseNumber = activeHouseholdBase;
+    row.householdMemberNumber = `${activeHouseholdBase}-${String(activeDependentSuffix).padStart(2, "0")}`;
+    row.dependentSuffix = String(activeDependentSuffix);
+
+    if (activePrimaryRowIndex >= 0) {
+      const primaryRow = rows[activePrimaryRowIndex];
+      if (String(primaryRow.tier || "").trim().toLowerCase() === "member") {
+        primaryRow.tier = "family";
+      }
+    }
+  });
+
+  return rows;
 };
 
 const escapeCsvCell = (value: unknown): string => {
