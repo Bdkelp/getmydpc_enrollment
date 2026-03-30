@@ -2450,6 +2450,9 @@ const getNextDependentSuffixForHousehold = (
 const formatHouseholdMemberNumber = (householdBaseNumber: string, dependentSuffix: number): string =>
   `${householdBaseNumber}-${String(Math.max(0, dependentSuffix)).padStart(2, '0')}`;
 
+const isStructuredHouseholdMemberNumber = (value: string | null): boolean =>
+  Boolean(toTrimmedOrNull(value)?.match(/^.+-\d{1,2}$/));
+
 const extractHouseholdBaseNumberFromMemberNumber = (value: string | null): string | null => {
   const trimmed = toTrimmedOrNull(value);
   if (!trimmed) {
@@ -2458,7 +2461,7 @@ const extractHouseholdBaseNumberFromMemberNumber = (value: string | null): strin
 
   const match = trimmed.match(/^(.*?)-\d{1,2}$/);
   const candidate = match?.[1]?.trim();
-  return candidate || trimmed;
+  return candidate || null;
 };
 
 const resolveHouseholdIdentifiers = (
@@ -2511,8 +2514,12 @@ const resolveHouseholdIdentifiers = (
 
   if (isPrimaryMember) {
     const dependentSuffix = 0;
-    const householdMemberNumber = toTrimmedOrNull(explicitHouseholdMemberNumber)
-      || toTrimmedOrNull(existingHouseholdMemberNumber)
+    const householdMemberNumber = (isStructuredHouseholdMemberNumber(explicitHouseholdMemberNumber)
+      ? toTrimmedOrNull(explicitHouseholdMemberNumber)
+      : null)
+      || (isStructuredHouseholdMemberNumber(existingHouseholdMemberNumber)
+        ? toTrimmedOrNull(existingHouseholdMemberNumber)
+        : null)
       || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
 
     return { householdBaseNumber, householdMemberNumber, dependentSuffix };
@@ -2521,7 +2528,9 @@ const resolveHouseholdIdentifiers = (
   const dependentSuffix = explicitDependentSuffix
     || existingDependentSuffix
     || getNextDependentSuffixForHousehold(members, householdBaseNumber, excludeMemberId);
-  const householdMemberNumber = toTrimmedOrNull(explicitHouseholdMemberNumber)
+  const householdMemberNumber = (isStructuredHouseholdMemberNumber(explicitHouseholdMemberNumber)
+    ? toTrimmedOrNull(explicitHouseholdMemberNumber)
+    : null)
     || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
 
   return { householdBaseNumber, householdMemberNumber, dependentSuffix };

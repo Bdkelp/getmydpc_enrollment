@@ -1153,7 +1153,7 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
     ssn: resolveImportedSsn(relationship, tier, employeeSsn, dependentSsn, fallbackSsn),
     relationship,
     householdBaseNumber: sanitizeImportValue(getRecordValue(record, ["householdBaseNumber", "baseMemberNumber", "householdNumber"])),
-    householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "memberNumber", "employeeNumber", "employeeId", "memberId"])),
+    householdMemberNumber: sanitizeImportValue(getRecordValue(record, ["householdMemberNumber", "household_member_number", "householdId", "household_id"])),
     dependentSuffix: sanitizeImportValue(getRecordValue(record, ["dependentSuffix"])),
     phone: sanitizeImportValue(getRecordValue(record, ["phone", "phoneNumber", "phone_number", "mobilePhone", "homePhone", "workPhone", "cellPhone", "mobile"])),
     dateOfBirth: formatImportedDate(getRawRecordValue(record, ["dateOfBirth", "date_of_birth", "dob"])),
