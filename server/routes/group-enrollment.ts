@@ -2219,6 +2219,15 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
     const persistedEmail = isPrimaryMember
       ? (providedEmail as string)
       : buildDependentMemberFallbackEmail(String(firstName), String(lastName), groupId, Date.now());
+    const existingMembers = await listGroupMembers({ groupId });
+    const householdIdentifiers = resolveHouseholdIdentifiers({
+      groupId,
+      isPrimaryMember,
+      members: existingMembers,
+      explicitHouseholdBaseNumber: toTrimmedOrNull(req.body?.householdBaseNumber),
+      explicitHouseholdMemberNumber: toTrimmedOrNull(req.body?.householdMemberNumber),
+      explicitDependentSuffix: normalizeDependentSuffix(req.body?.dependentSuffix),
+    });
 
     const ssnIntent = extractMemberSsnIntent(isPrimaryMember, req.body, metadata, registrationPayload);
     const dependentSsnIntent = isPrimaryMember
@@ -2236,9 +2245,9 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
     const memberRecord = await addGroupMember(groupId, {
       tier: normalizedTier,
       relationship: normalizedRelationship,
-      householdBaseNumber: toTrimmedOrNull(req.body?.householdBaseNumber),
-      householdMemberNumber: toTrimmedOrNull(req.body?.householdMemberNumber),
-      dependentSuffix: normalizeDependentSuffix(req.body?.dependentSuffix),
+      householdBaseNumber: householdIdentifiers.householdBaseNumber,
+      householdMemberNumber: householdIdentifiers.householdMemberNumber,
+      dependentSuffix: householdIdentifiers.dependentSuffix,
       payorType: payorType || group.payorType,
       firstName,
       lastName,
@@ -2406,6 +2415,120 @@ const findExistingMemberForSync = (
   return byIdentity || null;
 };
 
+const inferTierFromRelationship = (relationship: string, fallbackTier: string): string => {
+  if (relationship === 'spouse') {
+    return 'spouse';
+  }
+
+  if (relationship === 'dependent') {
+    return 'child';
+  }
+
+  if (relationship === 'primary') {
+    return 'member';
+  }
+
+  return fallbackTier;
+};
+
+const getNextDependentSuffixForHousehold = (
+  members: any[],
+  householdBaseNumber: string,
+  excludeMemberId?: number,
+): number => {
+  const suffixes = members
+    .filter((member) => Number(member.id) !== Number(excludeMemberId))
+    .filter((member) => String(member.householdBaseNumber || '').trim() === householdBaseNumber)
+    .map((member) => normalizeDependentSuffix(member.dependentSuffix))
+    .filter((value): value is number => value !== null);
+
+  if (suffixes.length === 0) {
+    return 1;
+  }
+
+  return Math.max(...suffixes) + 1;
+};
+
+const formatHouseholdMemberNumber = (householdBaseNumber: string, dependentSuffix: number): string =>
+  `${householdBaseNumber}-${String(Math.max(0, dependentSuffix)).padStart(2, '0')}`;
+
+const extractHouseholdBaseNumberFromMemberNumber = (value: string | null): string | null => {
+  const trimmed = toTrimmedOrNull(value);
+  if (!trimmed) {
+    return null;
+  }
+
+  const match = trimmed.match(/^(.*?)-\d{1,2}$/);
+  const candidate = match?.[1]?.trim();
+  return candidate || trimmed;
+};
+
+const resolveHouseholdIdentifiers = (
+  options: {
+    groupId: string;
+    isPrimaryMember: boolean;
+    members: any[];
+    excludeMemberId?: number;
+    explicitHouseholdBaseNumber?: string | null;
+    explicitHouseholdMemberNumber?: string | null;
+    explicitDependentSuffix?: number | null;
+    existingHouseholdBaseNumber?: string | null;
+    existingHouseholdMemberNumber?: string | null;
+    existingDependentSuffix?: number | null;
+  },
+): { householdBaseNumber: string; householdMemberNumber: string; dependentSuffix: number } => {
+  const {
+    groupId,
+    isPrimaryMember,
+    members,
+    excludeMemberId,
+    explicitHouseholdBaseNumber,
+    explicitHouseholdMemberNumber,
+    explicitDependentSuffix,
+    existingHouseholdBaseNumber,
+    existingHouseholdMemberNumber,
+    existingDependentSuffix,
+  } = options;
+
+  const explicitBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(explicitHouseholdMemberNumber || null);
+  const existingBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(existingHouseholdMemberNumber || null);
+
+  const primaryAnchor = members.find((member) =>
+    Number(member.id) !== Number(excludeMemberId)
+    && normalizeMemberRelationship(member.relationship, member.tier) === 'primary'
+    && member.status !== 'terminated'
+  );
+
+  const anchorBaseNumber = toTrimmedOrNull(primaryAnchor?.householdBaseNumber)
+    || extractHouseholdBaseNumberFromMemberNumber(toTrimmedOrNull(primaryAnchor?.householdMemberNumber))
+    || (primaryAnchor ? String(primaryAnchor.id) : null);
+
+  const generatedBaseNumber = `HH${groupId.replace(/-/g, '').slice(-6)}${Date.now().toString().slice(-4)}`;
+  const householdBaseNumber = toTrimmedOrNull(explicitHouseholdBaseNumber)
+    || explicitBaseFromMemberNumber
+    || toTrimmedOrNull(existingHouseholdBaseNumber)
+    || existingBaseFromMemberNumber
+    || anchorBaseNumber
+    || generatedBaseNumber;
+
+  if (isPrimaryMember) {
+    const dependentSuffix = 0;
+    const householdMemberNumber = toTrimmedOrNull(explicitHouseholdMemberNumber)
+      || toTrimmedOrNull(existingHouseholdMemberNumber)
+      || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
+
+    return { householdBaseNumber, householdMemberNumber, dependentSuffix };
+  }
+
+  const dependentSuffix = explicitDependentSuffix
+    || existingDependentSuffix
+    || getNextDependentSuffixForHousehold(members, householdBaseNumber, excludeMemberId);
+  const householdMemberNumber = toTrimmedOrNull(explicitHouseholdMemberNumber)
+    || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
+
+  return { householdBaseNumber, householdMemberNumber, dependentSuffix };
+};
+
 router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
@@ -2422,6 +2545,8 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
     if (incomingMembers.length === 0) {
       return res.status(400).json({ message: 'No members provided for bulk import' });
     }
+
+    const existingMembers = await listGroupMembers({ groupId });
 
     const created: any[] = [];
     const failed: Array<{ row: number; email?: string; reason: string }> = [];
@@ -2481,12 +2606,21 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
         }
 
+        const householdIdentifiers = resolveHouseholdIdentifiers({
+          groupId,
+          isPrimaryMember,
+          members: existingMembers,
+          explicitHouseholdBaseNumber: toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber),
+          explicitHouseholdMemberNumber: toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber),
+          explicitDependentSuffix: normalizeDependentSuffix(source.dependentSuffix),
+        });
+
         const memberRecord = await addGroupMember(groupId, {
           tier: normalizedTier,
           relationship: normalizedRelationship,
-          householdBaseNumber: toTrimmedOrNull(source.householdBaseNumber ?? source.baseMemberNumber),
-          householdMemberNumber: toTrimmedOrNull(source.householdMemberNumber ?? source.memberNumber),
-          dependentSuffix: normalizeDependentSuffix(source.dependentSuffix),
+          householdBaseNumber: householdIdentifiers.householdBaseNumber,
+          householdMemberNumber: householdIdentifiers.householdMemberNumber,
+          dependentSuffix: householdIdentifiers.dependentSuffix,
           payorType: normalizeMemberPayorType(source.payorType, group.payorType),
           firstName,
           lastName,
@@ -2503,6 +2637,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
         });
 
         created.push(toMemberResponse(memberRecord, shouldRevealMemberSsn(req)));
+        existingMembers.push(memberRecord);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to add row';
         failed.push({ row: rowNumber, email, reason: message });
@@ -2615,6 +2750,19 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           : { provided: false, value: null as string | null };
 
         if (matched) {
+          const householdIdentifiers = resolveHouseholdIdentifiers({
+            groupId,
+            isPrimaryMember,
+            members: existingMembers,
+            excludeMemberId: matched.id,
+            explicitHouseholdBaseNumber: householdBaseNumber,
+            explicitHouseholdMemberNumber: householdMemberNumber,
+            explicitDependentSuffix: dependentSuffix,
+            existingHouseholdBaseNumber: toTrimmedOrNull(matched.householdBaseNumber),
+            existingHouseholdMemberNumber: toTrimmedOrNull(matched.householdMemberNumber),
+            existingDependentSuffix: normalizeDependentSuffix(matched.dependentSuffix),
+          });
+
           const mergedMetadata = mergeImportedMetadata(matched.metadata, source.metadata);
           const mergedRegistrationPayload = mergeImportedRegistrationPayload(matched.registrationPayload, source);
           let nextMetadata = ssnIntent.provided
@@ -2627,9 +2775,9 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           const updatedRecord = await updateGroupMember(matched.id, {
             tier: normalizedTier,
             relationship: normalizedRelationship,
-            householdBaseNumber,
-            householdMemberNumber,
-            dependentSuffix,
+            householdBaseNumber: householdIdentifiers.householdBaseNumber,
+            householdMemberNumber: householdIdentifiers.householdMemberNumber,
+            dependentSuffix: householdIdentifiers.dependentSuffix,
             payorType: normalizeMemberPayorType(source.payorType, group.payorType),
             firstName,
             lastName,
@@ -2657,6 +2805,14 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
 
         const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
         const sanitizedRegistrationPayload = mergeImportedRegistrationPayload(null, source);
+        const householdIdentifiers = resolveHouseholdIdentifiers({
+          groupId,
+          isPrimaryMember,
+          members: existingMembers,
+          explicitHouseholdBaseNumber: householdBaseNumber,
+          explicitHouseholdMemberNumber: householdMemberNumber,
+          explicitDependentSuffix: dependentSuffix,
+        });
         let nextMetadata = ssnIntent.provided
           ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
           : sanitizedMetadata;
@@ -2667,9 +2823,9 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
         const createdRecord = await addGroupMember(groupId, {
           tier: normalizedTier,
           relationship: normalizedRelationship,
-          householdBaseNumber,
-          householdMemberNumber,
-          dependentSuffix,
+          householdBaseNumber: householdIdentifiers.householdBaseNumber,
+          householdMemberNumber: householdIdentifiers.householdMemberNumber,
+          dependentSuffix: householdIdentifiers.dependentSuffix,
           payorType: normalizeMemberPayorType(source.payorType, group.payorType),
           firstName,
           lastName,
@@ -2852,13 +3008,18 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       return res.status(404).json({ message: 'Group member not found' });
     }
 
-    const requestedTier = hasOwn(req.body || {}, 'tier')
+    const bodyHasTier = hasOwn(req.body || {}, 'tier');
+    const bodyHasRelationship = hasOwn(req.body || {}, 'relationship');
+    const baseRequestedTier = bodyHasTier
       ? normalizeMemberTier(req.body?.tier)
       : normalizeMemberTier(existingMember.tier);
     const requestedRelationship = normalizeMemberRelationship(
-      hasOwn(req.body || {}, 'relationship') ? req.body?.relationship : existingMember.relationship,
-      requestedTier,
+      bodyHasRelationship ? req.body?.relationship : existingMember.relationship,
+      baseRequestedTier,
     );
+    const requestedTier = bodyHasTier
+      ? baseRequestedTier
+      : inferTierFromRelationship(requestedRelationship, baseRequestedTier);
     const isPrimaryMember = requestedRelationship === 'primary';
 
     const includeSsnIntentRaw = extractMemberSsnIntent(
@@ -2902,6 +3063,65 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       discountAmount: parseAmount(req.body?.discountAmount ?? existingMember.discountAmount),
       totalAmount: parseAmount(req.body?.totalAmount ?? existingMember.totalAmount),
     };
+
+    if (!isPrimaryMember) {
+      const allMembers = await listGroupMembers({ groupId });
+      const householdIdentifiers = resolveHouseholdIdentifiers({
+        groupId,
+        isPrimaryMember,
+        members: allMembers,
+        excludeMemberId: numericMemberId,
+        explicitHouseholdBaseNumber: hasOwn(incomingBody, 'householdBaseNumber')
+          ? toTrimmedOrNull(incomingBody?.householdBaseNumber)
+          : null,
+        explicitHouseholdMemberNumber: hasOwn(incomingBody, 'householdMemberNumber')
+          ? toTrimmedOrNull(incomingBody?.householdMemberNumber)
+          : null,
+        explicitDependentSuffix: hasOwn(incomingBody, 'dependentSuffix')
+          ? normalizeDependentSuffix(incomingBody?.dependentSuffix)
+          : null,
+        existingHouseholdBaseNumber: toTrimmedOrNull(existingMember.householdBaseNumber),
+        existingHouseholdMemberNumber: toTrimmedOrNull(existingMember.householdMemberNumber),
+        existingDependentSuffix: normalizeDependentSuffix(existingMember.dependentSuffix),
+      });
+
+      updatePayload.householdBaseNumber = householdIdentifiers.householdBaseNumber;
+      updatePayload.dependentSuffix = householdIdentifiers.dependentSuffix;
+      updatePayload.householdMemberNumber = householdIdentifiers.householdMemberNumber;
+
+      if (!hasOwn(incomingBody, 'memberAmount')) {
+        updatePayload.memberAmount = null;
+      }
+      if (!hasOwn(incomingBody, 'totalAmount')) {
+        updatePayload.totalAmount = null;
+      }
+      if (!hasOwn(incomingBody, 'employerAmount')) {
+        updatePayload.employerAmount = null;
+      }
+      if (!hasOwn(incomingBody, 'discountAmount')) {
+        updatePayload.discountAmount = null;
+      }
+    } else {
+      const allMembers = await listGroupMembers({ groupId });
+      const householdIdentifiers = resolveHouseholdIdentifiers({
+        groupId,
+        isPrimaryMember: true,
+        members: allMembers,
+        excludeMemberId: numericMemberId,
+        explicitHouseholdBaseNumber: hasOwn(incomingBody, 'householdBaseNumber')
+          ? toTrimmedOrNull(incomingBody?.householdBaseNumber)
+          : null,
+        explicitHouseholdMemberNumber: hasOwn(incomingBody, 'householdMemberNumber')
+          ? toTrimmedOrNull(incomingBody?.householdMemberNumber)
+          : null,
+        existingHouseholdBaseNumber: toTrimmedOrNull(existingMember.householdBaseNumber),
+        existingHouseholdMemberNumber: toTrimmedOrNull(existingMember.householdMemberNumber),
+      });
+
+      updatePayload.householdBaseNumber = householdIdentifiers.householdBaseNumber;
+      updatePayload.dependentSuffix = householdIdentifiers.dependentSuffix;
+      updatePayload.householdMemberNumber = householdIdentifiers.householdMemberNumber;
+    }
 
     const effectiveFirstName = toTrimmedOrNull(otherUpdates?.firstName) || existingMember.firstName;
     const effectiveLastName = toTrimmedOrNull(otherUpdates?.lastName) || existingMember.lastName;
