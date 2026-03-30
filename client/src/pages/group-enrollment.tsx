@@ -414,8 +414,6 @@ const REQUIRED_MEMBER_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
   "hireDate",
   "className",
   "division",
-  "workEmail",
-  "personalEmail",
   "payrollGroup",
   "annualBaseSalary",
   "hoursPerWeek",
@@ -429,6 +427,23 @@ const REQUIRED_MEMBER_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
   "employmentType",
   "originalHireDate",
 ];
+
+const OPTIONAL_EMPTY_TOKENS = new Set([
+  "n/a",
+  "na",
+  "none",
+  "null",
+  "not applicable",
+  "not available",
+]);
+
+const normalizeOptionalEmailInput = (value: unknown): string => {
+  const normalized = sanitizeImportValue(value).toLowerCase();
+  if (!normalized || OPTIONAL_EMPTY_TOKENS.has(normalized)) {
+    return "";
+  }
+  return normalized;
+};
 
 const REQUIRED_DEPENDENT_PROFILE_FIELDS: Array<keyof EmploymentProfileState> = [
   "sex",
@@ -880,75 +895,7 @@ const isSsnLikeHeader = (header: string): boolean => {
   return normalized.includes("ssn") || normalized.includes("socialsecurity");
 };
 
-const normalizeImportedEmail = (value: unknown): string => sanitizeImportValue(value).toLowerCase();
-
-type ImportedPlanSelection = {
-  rawBusinessUnit: string;
-  corePlanLabel?: string;
-  corePlanMonthlyAmount?: number;
-  pbmPlanLabel?: string;
-  pbmPlanMonthlyAmount?: number;
-  totalMonthlyAmount?: number;
-};
-
-const parseAmountToken = (token: string | undefined): number | undefined => {
-  if (!token) return undefined;
-  const numeric = Number.parseFloat(token.replace(/[^0-9.]/g, ""));
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
-};
-
-const parsePlanSelectionFromBusinessUnit = (businessUnitRaw: string): ImportedPlanSelection | null => {
-  const raw = sanitizeImportValue(businessUnitRaw);
-  if (!raw) {
-    return null;
-  }
-
-  const coreMatch = raw.match(/(my\s*premierplans[^$@\n\r]*)[$@]?\s*\$\s*(\d+(?:\.\d{1,2})?)/i);
-  const pbmMatch = raw.match(/((?:choicerx|choice\s*rx|pbm)[^$@\n\r]*)[$@]?\s*\$\s*(\d+(?:\.\d{1,2})?)/i);
-
-  const corePlanLabel = sanitizeImportValue(coreMatch?.[1] || "") || undefined;
-  const corePlanMonthlyAmount = parseAmountToken(coreMatch?.[2]);
-  const pbmPlanLabel = sanitizeImportValue(pbmMatch?.[1] || "") || undefined;
-  const pbmPlanMonthlyAmount = parseAmountToken(pbmMatch?.[2]);
-
-  const totalFromParts = [corePlanMonthlyAmount || 0, pbmPlanMonthlyAmount || 0].reduce((sum, value) => sum + value, 0);
-  const totalMonthlyAmount = totalFromParts > 0 ? Number(totalFromParts.toFixed(2)) : undefined;
-
-  return {
-    rawBusinessUnit: raw,
-    corePlanLabel,
-    corePlanMonthlyAmount,
-    pbmPlanLabel,
-    pbmPlanMonthlyAmount,
-    totalMonthlyAmount,
-  };
-};
-
-const classifyCoverageFromBusinessUnit = (businessUnitRaw: string): "single" | "includesDependents" | "unknown" => {
-  const raw = sanitizeImportValue(businessUnitRaw).toLowerCase();
-  if (!raw) {
-    return "unknown";
-  }
-
-  if (raw.includes("member only") || raw.includes("employee only") || raw.includes("ee only")) {
-    return "single";
-  }
-
-  if (
-    raw.includes("ee/spouse")
-    || raw.includes("employee/spouse")
-    || raw.includes("ee child")
-    || raw.includes("ee/child")
-    || raw.includes("employee/child")
-    || raw.includes("ee family")
-    || raw.includes("employee family")
-    || raw.includes("family")
-  ) {
-    return "includesDependents";
-  }
-
-  return "unknown";
-};
+const normalizeImportedEmail = (value: unknown): string => normalizeOptionalEmailInput(value);
 
 const buildEmploymentProfileFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
   const profile: Record<string, unknown> = {
@@ -1031,16 +978,7 @@ const buildRegistrationPayloadFromRecord = (
     payload.employmentProfile = employmentProfile;
   }
 
-  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
-  const planSelection = parsePlanSelectionFromBusinessUnit(businessUnitRaw);
-  if (planSelection) {
-    payload.planSelection = {
-      ...planSelection,
-      relationship: options?.relationship || null,
-      tier: options?.tier || null,
-      source: "business_unit",
-    };
-  }
+  void options;
 
   return payload;
 };
@@ -1144,20 +1082,6 @@ const normalizeImportedRelationship = (value: string, tier: string): string => {
   return "primary";
 };
 
-const isPrimaryLikeImportRelationship = (value: string): boolean => {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return true;
-
-  return (
-    normalized === "primary"
-    || normalized === "employee"
-    || normalized === "member"
-    || normalized === "self"
-    || normalized === "subscriber"
-    || normalized === "ee"
-  );
-};
-
 const resolveImportedEmail = (record: Record<string, unknown>): string => {
   const candidates = [
     getRecordValue(record, ["email", "emailAddress", "email_address"]),
@@ -1202,17 +1126,10 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
   const rawRelationship = sanitizeImportValue(
     getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship", "dependent_relation", "member_relation"]),
   );
-  const rawTier = sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record);
-  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
-  const coverageByBusinessUnit = classifyCoverageFromBusinessUnit(businessUnitRaw);
-  const inferredTierFromBusinessUnit = isPrimaryLikeImportRelationship(rawRelationship)
-    ? (coverageByBusinessUnit === "single"
-      ? "member"
-      : coverageByBusinessUnit === "includesDependents"
-        ? "family"
-        : rawTier)
-    : rawTier;
-  const tier = normalizeImportedTier(inferredTierFromBusinessUnit);
+  const rawTier = sanitizeImportValue(
+    getRecordValue(record, ["planTier", "plan_tier", "plan tier", "tier", "memberType", "member_type"]),
+  ) || inferTierFromRelationship(record);
+  const tier = normalizeImportedTier(rawTier);
   const relationship = normalizeImportedRelationship(rawRelationship, tier);
   const employeeSsn = sanitizeImportValue(
     getRecordValue(record, ["employeeSsn", "employee_ssn", "employee social security number", "ee ssn"]),
@@ -1223,13 +1140,9 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
   const fallbackSsn = sanitizeImportValue(
     getRecordValue(record, ["ssn", "socialSecurityNumber", "social_security_number", "social security number", "memberSsn", "member_ssn"]),
   );
-  const planSelection = parsePlanSelectionFromBusinessUnit(businessUnitRaw);
   const importedEmployerAmount = sanitizeImportValue(getRecordValue(record, ["employerAmount", "employer_amount"]));
   const importedMemberAmount = sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"]));
   const importedTotalAmount = sanitizeImportValue(getRecordValue(record, ["totalAmount", "total_amount"]));
-  const parsedPlanTotal = planSelection?.totalMonthlyAmount;
-  const derivedMemberAmount = importedMemberAmount || (parsedPlanTotal !== undefined ? parsedPlanTotal.toFixed(2) : "");
-  const derivedTotalAmount = importedTotalAmount || (parsedPlanTotal !== undefined ? parsedPlanTotal.toFixed(2) : "");
 
   return {
     firstName: sanitizeImportValue(getRecordValue(record, ["firstName", "first_name", "firstname", "employeeFirstName", "memberFirstName", "givenName"])),
@@ -1248,9 +1161,9 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
     payorType: sanitizeImportValue(getRecordValue(record, ["payorType", "payor_type", "payor"])),
     status: sanitizeImportValue(getRecordValue(record, ["status"])),
     employerAmount: importedEmployerAmount,
-    memberAmount: derivedMemberAmount,
+    memberAmount: importedMemberAmount,
     discountAmount: sanitizeImportValue(getRecordValue(record, ["discountAmount", "discount_amount"])),
-    totalAmount: derivedTotalAmount,
+    totalAmount: importedTotalAmount,
     registrationPayload: buildRegistrationPayloadFromRecord(record, { relationship, tier }),
   };
 };
@@ -1930,6 +1843,10 @@ export default function GroupEnrollment() {
       const groupId = selectedGroup?.data?.id;
       if (!groupId) throw new Error("Select a group first");
 
+      const normalizedWorkEmail = normalizeOptionalEmailInput(memberForm.workEmail);
+      const normalizedPersonalEmail = normalizeOptionalEmailInput(memberForm.personalEmail);
+      const primaryEmail = normalizedWorkEmail || normalizedPersonalEmail || null;
+
       const payload = {
         relationship: memberForm.relationship,
         firstName: memberForm.firstName.trim(),
@@ -1937,7 +1854,7 @@ export default function GroupEnrollment() {
         lastName: memberForm.lastName.trim(),
         dateOfBirth: memberForm.dateOfBirth,
         phone: memberForm.mobilePhone.trim() || null,
-        email: memberForm.workEmail.trim().toLowerCase(),
+        email: primaryEmail,
         ssn: memberForm.ssn.trim() || null,
         tier: memberForm.tier,
         payorType: memberForm.payorType,
@@ -1953,8 +1870,8 @@ export default function GroupEnrollment() {
             department: memberForm.department,
             division: memberForm.division,
             businessUnit: memberForm.businessUnit,
-            workEmail: memberForm.workEmail,
-            personalEmail: memberForm.personalEmail,
+            workEmail: normalizedWorkEmail || null,
+            personalEmail: normalizedPersonalEmail || null,
             payrollGroup: memberForm.payrollGroup,
             annualBaseSalary: memberForm.annualBaseSalary,
             hoursPerWeek: memberForm.hoursPerWeek,
@@ -1989,8 +1906,8 @@ export default function GroupEnrollment() {
             department: memberForm.department,
             division: memberForm.division,
             businessUnit: memberForm.businessUnit,
-            workEmail: memberForm.workEmail,
-            personalEmail: memberForm.personalEmail,
+            workEmail: normalizedWorkEmail || null,
+            personalEmail: normalizedPersonalEmail || null,
             payrollGroup: memberForm.payrollGroup,
             annualBaseSalary: memberForm.annualBaseSalary,
             hoursPerWeek: memberForm.hoursPerWeek,
@@ -2592,7 +2509,7 @@ export default function GroupEnrollment() {
       department: employment.department,
       division: employment.division,
       businessUnit: employment.businessUnit,
-      workEmail: employment.workEmail || member.email,
+      workEmail: employment.workEmail || (isPrimaryRelationshipValue(member.relationship) ? (member.email || "") : ""),
       personalEmail: employment.personalEmail,
       payrollGroup: employment.payrollGroup,
       annualBaseSalary: employment.annualBaseSalary,

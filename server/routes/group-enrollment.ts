@@ -149,8 +149,6 @@ const REQUIRED_PRIMARY_MEMBER_EMPLOYMENT_PROFILE_FIELDS = [
   'hireDate',
   'className',
   'division',
-  'workEmail',
-  'personalEmail',
   'payrollGroup',
   'annualBaseSalary',
   'hoursPerWeek',
