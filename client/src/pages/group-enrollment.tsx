@@ -55,6 +55,13 @@ const preferredPaymentMethodOptions = [
   { value: "ach", label: "ACH" },
 ];
 
+const paymentResponsibilityModeOptions = [
+  { value: "group_invoice", label: "Employer Pays Group Invoice" },
+  { value: "member_self_pay", label: "Employer Enables Only (Member Self-Pay)" },
+  { value: "hybrid_split", label: "Hybrid (Employer + Member Split)" },
+  { value: "payroll_external", label: "Payroll Deduction Managed Externally" },
+];
+
 const INDUSTRY_NOT_SET_VALUE = "__not_set__";
 const INDUSTRY_OTHER_VALUE = "__other__";
 const industryOptions = [
@@ -224,6 +231,7 @@ type GroupProfile = {
   memberFixedAmount: string;
   employerPercentage: string;
   memberPercentage: string;
+  paymentResponsibilityMode: "group_invoice" | "member_self_pay" | "hybrid_split" | "payroll_external";
   preferredPaymentMethod: "card" | "ach";
   achRoutingNumber: string;
   achAccountNumber: string;
@@ -243,6 +251,7 @@ type GroupProfileContext = {
       employerPercentage: number | null;
       memberPercentage: number | null;
     };
+    paymentResponsibilityMode: "group_invoice" | "member_self_pay" | "hybrid_split" | "payroll_external";
     preferredPaymentMethod: "card" | "ach" | null;
     achDetails: {
       routingNumber: string | null;
@@ -652,6 +661,7 @@ const defaultGroupProfileForm: GroupProfile = {
   memberFixedAmount: "",
   employerPercentage: "",
   memberPercentage: "",
+  paymentResponsibilityMode: "group_invoice",
   preferredPaymentMethod: "card",
   achRoutingNumber: "",
   achAccountNumber: "",
@@ -662,6 +672,12 @@ const defaultGroupProfileForm: GroupProfile = {
 const derivePayorTypeFromMode = (mode: GroupProfile["payorMixMode"]): string => {
   if (mode === "full") return "full";
   if (mode === "member") return "member";
+  return "mixed";
+};
+
+const derivePayorTypeFromPaymentResponsibility = (mode: GroupProfile["paymentResponsibilityMode"]): string => {
+  if (mode === "group_invoice" || mode === "payroll_external") return "full";
+  if (mode === "member_self_pay") return "member";
   return "mixed";
 };
 
@@ -686,6 +702,7 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
       ctx.profile.payorMix?.memberPercentage === null || ctx.profile.payorMix?.memberPercentage === undefined
         ? ""
         : String(ctx.profile.payorMix.memberPercentage),
+      paymentResponsibilityMode: ctx.profile.paymentResponsibilityMode || "group_invoice",
     preferredPaymentMethod: ctx.profile.preferredPaymentMethod || "card",
     achRoutingNumber: ctx.profile.achDetails?.routingNumber || "",
     achAccountNumber: ctx.profile.achDetails?.accountNumber || "",
@@ -713,6 +730,7 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
     employerPercentage: form.employerPercentage,
     memberPercentage: form.memberPercentage,
   },
+  paymentResponsibilityMode: form.paymentResponsibilityMode,
   preferredPaymentMethod: form.preferredPaymentMethod,
   achDetails: {
     routingNumber: form.achRoutingNumber,
@@ -1631,7 +1649,7 @@ export default function GroupEnrollment() {
       const payload = {
         name: newGroupForm.name.trim(),
         groupType: newGroupForm.groupType.trim() || undefined,
-        payorType: derivePayorTypeFromMode(newGroupProfileForm.payorMixMode),
+        payorType: derivePayorTypeFromPaymentResponsibility(newGroupProfileForm.paymentResponsibilityMode),
         discountCode,
         groupProfile: buildGroupProfilePayload(newGroupProfileForm),
         metadata: {
@@ -2372,7 +2390,7 @@ export default function GroupEnrollment() {
       return apiRequest(`/api/groups/${groupId}`, {
         method: "PATCH",
         body: JSON.stringify({
-          payorType: derivePayorTypeFromMode(groupProfileForm.payorMixMode),
+          payorType: derivePayorTypeFromPaymentResponsibility(groupProfileForm.paymentResponsibilityMode),
           groupProfile: buildGroupProfilePayload(groupProfileForm),
           assignedAgentId: canAccessAdminViews ? toAssignedAgentPayload(groupAssignedAgentId) : undefined,
         }),
@@ -2702,6 +2720,10 @@ export default function GroupEnrollment() {
   }, [activeGroupMembers, selectedGroup?.data?.payorType]);
   const groupProfileContext = selectedGroup?.groupProfileContext;
   const profileComplete = Boolean(groupProfileContext?.isComplete);
+  const paymentResponsibilityMode = groupProfileContext?.profile?.paymentResponsibilityMode || "group_invoice";
+  const allowsMemberPaymentCollection = paymentResponsibilityMode === "member_self_pay" || paymentResponsibilityMode === "hybrid_split";
+  const allowsGroupInvoiceCollection = paymentResponsibilityMode === "group_invoice" || paymentResponsibilityMode === "hybrid_split";
+  const usesPayrollExternalCollection = paymentResponsibilityMode === "payroll_external";
   const groupStatus = selectedGroup?.data?.status || "draft";
   const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
   const isGroupActive = groupStatus === "active";
@@ -3324,6 +3346,29 @@ export default function GroupEnrollment() {
                   setNewGroupProfileForm((prev) => ({ ...prev, contactPersonPhone: event.target.value }))
                 }
               />
+            </div>
+            <div>
+              <Label>Payment Responsibility</Label>
+              <Select
+                value={newGroupProfileForm.paymentResponsibilityMode}
+                onValueChange={(value) =>
+                  setNewGroupProfileForm((prev) => ({
+                    ...prev,
+                    paymentResponsibilityMode: value as GroupProfile['paymentResponsibilityMode'],
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select payment responsibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentResponsibilityModeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Preferred Payment Method</Label>
@@ -3973,6 +4018,30 @@ export default function GroupEnrollment() {
                 </div>
 
                 <div>
+                  <Label>Payment Responsibility</Label>
+                  <Select
+                    value={groupProfileForm.paymentResponsibilityMode}
+                    onValueChange={(value) =>
+                      setGroupProfileForm((prev) => ({
+                        ...prev,
+                        paymentResponsibilityMode: value as GroupProfile['paymentResponsibilityMode'],
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment responsibility" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentResponsibilityModeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
                   <Label>Preferred Payment Method</Label>
                   <Select
                     value={groupProfileForm.preferredPaymentMethod}
@@ -4299,7 +4368,7 @@ export default function GroupEnrollment() {
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
-                                  {!isTerminated && (
+                                  {!isTerminated && allowsMemberPaymentCollection && (
                                     <Button
                                       variant="outline"
                                       size="sm"
@@ -4386,7 +4455,13 @@ export default function GroupEnrollment() {
                       )}
                     </div>
                     <p className="text-xs text-slate-500">
-                      Use the member row action to launch hosted checkout in-app.
+                      {allowsMemberPaymentCollection
+                        ? 'Member self-pay is enabled. Use member row actions for hosted checkout.'
+                        : usesPayrollExternalCollection
+                          ? 'Payroll-managed collection is enabled. Hosted checkout is intentionally disabled for this group.'
+                          : allowsGroupInvoiceCollection
+                            ? 'Group invoice collection is enabled. Member-level hosted checkout is hidden for this group.'
+                            : 'Payment collection mode is not configured.'}
                     </p>
                   </div>
                   <div className="w-full md:w-auto">

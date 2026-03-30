@@ -173,6 +173,7 @@ let groupDocumentsBucketReady = false;
 
 type PayorMixMode = 'full' | 'member' | 'fixed' | 'percentage';
 type PreferredPaymentMethod = 'card' | 'ach' | null;
+type PaymentResponsibilityMode = 'group_invoice' | 'member_self_pay' | 'hybrid_split' | 'payroll_external';
 
 type GroupProfile = {
   ein: string | null;
@@ -193,6 +194,7 @@ type GroupProfile = {
     employerPercentage: number | null;
     memberPercentage: number | null;
   };
+  paymentResponsibilityMode: PaymentResponsibilityMode;
   preferredPaymentMethod: PreferredPaymentMethod;
   achDetails: {
     routingNumber: string | null;
@@ -437,6 +439,17 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
     : einRaw;
 
   const mode = normalizePayorMixMode(raw?.payorMix?.mode, fallbackPayorType);
+  const derivedPaymentResponsibilityMode: PaymentResponsibilityMode = mode === 'full'
+    ? 'group_invoice'
+    : mode === 'member'
+      ? 'member_self_pay'
+      : 'hybrid_split';
+  const paymentResponsibilityMode = raw?.paymentResponsibilityMode === 'group_invoice'
+    || raw?.paymentResponsibilityMode === 'member_self_pay'
+    || raw?.paymentResponsibilityMode === 'hybrid_split'
+    || raw?.paymentResponsibilityMode === 'payroll_external'
+    ? raw.paymentResponsibilityMode
+    : derivedPaymentResponsibilityMode;
   const preferredPaymentMethod = raw?.preferredPaymentMethod === 'card' || raw?.preferredPaymentMethod === 'ach'
     ? raw.preferredPaymentMethod
     : null;
@@ -460,6 +473,7 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
       employerPercentage: toNumberOrNull(raw?.payorMix?.employerPercentage),
       memberPercentage: toNumberOrNull(raw?.payorMix?.memberPercentage),
     },
+    paymentResponsibilityMode,
     preferredPaymentMethod,
     achDetails: {
       routingNumber: toDigitsOrNull(raw?.achDetails?.routingNumber),
@@ -478,6 +492,10 @@ const payorMixModeToPayorType = (mode: PayorMixMode): string => {
 
 const getGroupProfileCompleteness = (profile: GroupProfile): { isComplete: boolean; missingFields: string[] } => {
   const missingFields: string[] = [];
+
+  if (!profile.paymentResponsibilityMode) {
+    missingFields.push('paymentResponsibilityMode');
+  }
 
   if (!profile.ein) {
     missingFields.push('ein');
@@ -552,6 +570,9 @@ const getGroupProfileContext = (groupMetadata: any, payorType: string) => {
     ...completeness,
   };
 };
+
+const canCollectMemberPaymentsForMode = (mode: PaymentResponsibilityMode): boolean =>
+  mode === 'member_self_pay' || mode === 'hybrid_split';
 
 const isISODateString = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
@@ -3743,6 +3764,13 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
 
     if (!canAccessGroupByAssignment(req, group.metadata)) {
       return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
+    const groupProfileContext = getGroupProfileContext(group.metadata, group.payorType);
+    if (!canCollectMemberPaymentsForMode(groupProfileContext.profile.paymentResponsibilityMode)) {
+      return res.status(409).json({
+        message: `Member-level payment updates are disabled for payment responsibility mode: ${groupProfileContext.profile.paymentResponsibilityMode}`,
+      });
     }
 
     const existingMember = await getGroupMemberById(numericMemberId);
