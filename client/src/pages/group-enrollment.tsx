@@ -924,6 +924,32 @@ const parsePlanSelectionFromBusinessUnit = (businessUnitRaw: string): ImportedPl
   };
 };
 
+const classifyCoverageFromBusinessUnit = (businessUnitRaw: string): "single" | "includesDependents" | "unknown" => {
+  const raw = sanitizeImportValue(businessUnitRaw).toLowerCase();
+  if (!raw) {
+    return "unknown";
+  }
+
+  if (raw.includes("member only") || raw.includes("employee only") || raw.includes("ee only")) {
+    return "single";
+  }
+
+  if (
+    raw.includes("ee/spouse")
+    || raw.includes("employee/spouse")
+    || raw.includes("ee child")
+    || raw.includes("ee/child")
+    || raw.includes("employee/child")
+    || raw.includes("ee family")
+    || raw.includes("employee family")
+    || raw.includes("family")
+  ) {
+    return "includesDependents";
+  }
+
+  return "unknown";
+};
+
 const buildEmploymentProfileFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
   const profile: Record<string, unknown> = {
     middleName: sanitizeImportValue(getRecordValue(record, ["middleName", "middle_name"])),
@@ -1085,6 +1111,53 @@ const inferTierFromRelationship = (record: Record<string, unknown>): string => {
   return "member";
 };
 
+const normalizeImportedTier = (value: string): string => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return "member";
+
+  if (normalized === "dependent" || normalized === "dep") return "child";
+  if (normalized === "employee" || normalized === "ee" || normalized === "primary") return "member";
+  if (normalized === "spouse" || normalized === "child" || normalized === "family" || normalized === "member") {
+    return normalized;
+  }
+
+  return "member";
+};
+
+const normalizeImportedRelationship = (value: string, tier: string): string => {
+  const normalized = value.trim().toLowerCase();
+  if (normalized) {
+    if (normalized === "primary" || normalized === "employee" || normalized === "member" || normalized === "self" || normalized === "subscriber" || normalized === "ee") {
+      return "primary";
+    }
+    if (normalized === "spouse") {
+      return "spouse";
+    }
+    if (normalized === "dependent" || normalized === "child" || normalized === "dep") {
+      return "dependent";
+    }
+  }
+
+  const tierValue = normalizeImportedTier(tier);
+  if (tierValue === "spouse") return "spouse";
+  if (tierValue === "child") return "dependent";
+  return "primary";
+};
+
+const isPrimaryLikeImportRelationship = (value: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return true;
+
+  return (
+    normalized === "primary"
+    || normalized === "employee"
+    || normalized === "member"
+    || normalized === "self"
+    || normalized === "subscriber"
+    || normalized === "ee"
+  );
+};
+
 const resolveImportedEmail = (record: Record<string, unknown>): string => {
   const candidates = [
     getRecordValue(record, ["email", "emailAddress", "email_address"]),
@@ -1126,10 +1199,21 @@ const resolveImportedSsn = (
 };
 
 const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow => {
-  const relationship = sanitizeImportValue(
+  const rawRelationship = sanitizeImportValue(
     getRecordValue(record, ["relationship", "memberRelationship", "dependentRelationship", "dependent_relation", "member_relation"]),
   );
-  const tier = sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record);
+  const rawTier = sanitizeImportValue(getRecordValue(record, ["tier", "memberType", "member_type"])) || inferTierFromRelationship(record);
+  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
+  const coverageByBusinessUnit = classifyCoverageFromBusinessUnit(businessUnitRaw);
+  const inferredTierFromBusinessUnit = isPrimaryLikeImportRelationship(rawRelationship)
+    ? (coverageByBusinessUnit === "single"
+      ? "member"
+      : coverageByBusinessUnit === "includesDependents"
+        ? "family"
+        : rawTier)
+    : rawTier;
+  const tier = normalizeImportedTier(inferredTierFromBusinessUnit);
+  const relationship = normalizeImportedRelationship(rawRelationship, tier);
   const employeeSsn = sanitizeImportValue(
     getRecordValue(record, ["employeeSsn", "employee_ssn", "employee social security number", "ee ssn"]),
   );
@@ -1139,7 +1223,6 @@ const mapRecordToCensusRow = (record: Record<string, unknown>): CensusImportRow 
   const fallbackSsn = sanitizeImportValue(
     getRecordValue(record, ["ssn", "socialSecurityNumber", "social_security_number", "social security number", "memberSsn", "member_ssn"]),
   );
-  const businessUnitRaw = sanitizeImportValue(getRecordValue(record, ["businessUnit", "business_unit"]));
   const planSelection = parsePlanSelectionFromBusinessUnit(businessUnitRaw);
   const importedEmployerAmount = sanitizeImportValue(getRecordValue(record, ["employerAmount", "employer_amount"]));
   const importedMemberAmount = sanitizeImportValue(getRecordValue(record, ["memberAmount", "member_amount"]));

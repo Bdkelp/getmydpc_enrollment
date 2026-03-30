@@ -1014,6 +1014,12 @@ const normalizeMemberTier = (value: unknown): string => {
   }
 
   const normalized = value.trim().toLowerCase();
+  if (normalized === 'dependent' || normalized === 'dep') {
+    return 'child';
+  }
+  if (normalized === 'employee' || normalized === 'ee' || normalized === 'primary') {
+    return 'member';
+  }
   return ALLOWED_MEMBER_TIERS.has(normalized) ? normalized : 'member';
 };
 
@@ -1032,7 +1038,7 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
     if (ALLOWED_MEMBER_RELATIONSHIPS.has(normalized)) {
       return normalized;
     }
-    if (normalized === 'child') {
+    if (normalized === 'child' || normalized === 'dependent' || normalized === 'dep') {
       return 'dependent';
     }
     if (
@@ -1040,6 +1046,7 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
       || normalized === 'member'
       || normalized === 'self'
       || normalized === 'subscriber'
+      || normalized === 'ee'
     ) {
       return 'primary';
     }
@@ -1105,7 +1112,32 @@ const stripSensitiveSsnFields = (value: unknown): Record<string, any> | null => 
 
   delete objectValue.ssnEncrypted;
   delete objectValue.ssnLast4;
+  delete objectValue.dependentSsnEncrypted;
+  delete objectValue.dependentSsnLast4;
   return objectValue;
+};
+
+const normalizeRawSsnValue = (raw: unknown): string | null => {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+
+  const normalized = String(raw).trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const digits = normalized.replace(/\D/g, '');
+  if (!digits) {
+    return null;
+  }
+
+  // Spreadsheet imports can coerce leading-zero SSNs into 8-digit numbers.
+  if (digits.length === 8) {
+    return `0${digits}`;
+  }
+
+  return digits;
 };
 
 const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: string | null } => {
@@ -1124,20 +1156,12 @@ const extractSsnIntent = (...sources: unknown[]): { provided: boolean; value: st
 
       sawSsnField = true;
 
-      if (raw === null || raw === undefined) {
+      const normalizedSsn = normalizeRawSsnValue(raw);
+      if (!normalizedSsn) {
         continue;
       }
 
-      if (typeof raw !== 'string') {
-        continue;
-      }
-
-      const trimmed = raw.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      return { provided: true, value: trimmed };
+      return { provided: true, value: normalizedSsn };
     }
   }
 
@@ -1169,16 +1193,12 @@ const extractSsnIntentByAliases = (
 
       sawAliasField = true;
 
-      if (raw === null || raw === undefined || typeof raw !== 'string') {
+      const normalizedSsn = normalizeRawSsnValue(raw);
+      if (!normalizedSsn) {
         continue;
       }
 
-      const trimmed = raw.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      return { provided: true, value: trimmed };
+      return { provided: true, value: normalizedSsn };
     }
   }
 
@@ -1203,6 +1223,9 @@ const extractMemberSsnIntent = (
 
   return extractSsnIntent(...sources);
 };
+
+const extractDependentSsnIntent = (...sources: unknown[]): { provided: boolean; value: string | null } =>
+  extractSsnIntentByAliases(DEPENDENT_MEMBER_SSN_ALIASES, ...sources);
 
 const upsertEncryptedSsn = (
   metadataValue: Record<string, any> | null,
@@ -1237,6 +1260,44 @@ const upsertEncryptedSsn = (
       nextMetadata.ssn = normalized;
       nextMetadata.ssnLast4 = normalized.slice(-4);
       console.warn('[Group Enrollment] SSN encryption key is missing; storing normalized SSN fallback.');
+      return nextMetadata;
+    }
+
+    throw error;
+  }
+
+  return nextMetadata;
+};
+
+const upsertEncryptedDependentSsn = (
+  metadataValue: Record<string, any> | null,
+  ssn: string | null,
+): Record<string, any> | null => {
+  if (ssn === null) {
+    if (!metadataValue) {
+      return null;
+    }
+
+    delete metadataValue.dependentSsnEncrypted;
+    delete metadataValue.dependentSsnLast4;
+    return metadataValue;
+  }
+
+  const normalized = ssn.replace(/\D/g, '');
+  if (!isNineDigitSsn(normalized)) {
+    throw new Error('Invalid SSN format');
+  }
+
+  const nextMetadata = metadataValue || {};
+  try {
+    nextMetadata.dependentSsnEncrypted = encryptSSN(normalized);
+    nextMetadata.dependentSsnLast4 = normalized.slice(-4);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('SSN encryption key is not configured')) {
+      delete nextMetadata.dependentSsnEncrypted;
+      nextMetadata.dependentSsnLast4 = normalized.slice(-4);
+      console.warn('[Group Enrollment] SSN encryption key is missing; storing normalized dependent SSN fallback.');
       return nextMetadata;
     }
 
@@ -2160,11 +2221,17 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       : buildDependentMemberFallbackEmail(String(firstName), String(lastName), groupId, Date.now());
 
     const ssnIntent = extractMemberSsnIntent(isPrimaryMember, req.body, metadata, registrationPayload);
+    const dependentSsnIntent = isPrimaryMember
+      ? extractDependentSsnIntent(req.body, metadata, registrationPayload)
+      : { provided: false, value: null as string | null };
     const sanitizedMetadata = stripSensitiveSsnFields(metadata);
     const sanitizedRegistrationPayload = stripSensitiveSsnFields(registrationPayload || req.body);
-    const nextMetadata = ssnIntent.provided
+    let nextMetadata = ssnIntent.provided
       ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
       : sanitizedMetadata;
+    if (dependentSsnIntent.provided) {
+      nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
+    }
 
     const memberRecord = await addGroupMember(groupId, {
       tier: normalizedTier,
@@ -2402,11 +2469,17 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
 
       try {
         const ssnIntent = extractMemberSsnIntent(isPrimaryMember, source, source?.metadata, source?.registrationPayload);
+        const dependentSsnIntent = isPrimaryMember
+          ? extractDependentSsnIntent(source, source?.metadata, source?.registrationPayload)
+          : { provided: false, value: null as string | null };
         const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
         const sanitizedRegistrationPayload = stripSensitiveSsnFields(source.registrationPayload || source);
-        const nextMetadata = ssnIntent.provided
+        let nextMetadata = ssnIntent.provided
           ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
           : sanitizedMetadata;
+        if (dependentSsnIntent.provided) {
+          nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
+        }
 
         const memberRecord = await addGroupMember(groupId, {
           tier: normalizedTier,
@@ -2537,13 +2610,19 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
         });
 
         const ssnIntent = extractMemberSsnIntent(isPrimaryMember, source, source?.metadata, source?.registrationPayload);
+        const dependentSsnIntent = isPrimaryMember
+          ? extractDependentSsnIntent(source, source?.metadata, source?.registrationPayload)
+          : { provided: false, value: null as string | null };
 
         if (matched) {
           const mergedMetadata = mergeImportedMetadata(matched.metadata, source.metadata);
           const mergedRegistrationPayload = mergeImportedRegistrationPayload(matched.registrationPayload, source);
-          const nextMetadata = ssnIntent.provided
+          let nextMetadata = ssnIntent.provided
             ? upsertEncryptedSsn(mergedMetadata, ssnIntent.value)
             : mergedMetadata;
+          if (dependentSsnIntent.provided) {
+            nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
+          }
 
           const updatedRecord = await updateGroupMember(matched.id, {
             tier: normalizedTier,
@@ -2578,9 +2657,12 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
 
         const sanitizedMetadata = stripSensitiveSsnFields(source.metadata);
         const sanitizedRegistrationPayload = mergeImportedRegistrationPayload(null, source);
-        const nextMetadata = ssnIntent.provided
+        let nextMetadata = ssnIntent.provided
           ? upsertEncryptedSsn(sanitizedMetadata, ssnIntent.value)
           : sanitizedMetadata;
+        if (dependentSsnIntent.provided) {
+          nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
+        }
 
         const createdRecord = await addGroupMember(groupId, {
           tier: normalizedTier,
