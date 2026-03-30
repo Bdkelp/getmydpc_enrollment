@@ -20,6 +20,7 @@ import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from
 import { paymentEnvironment } from '../services/payment-environment-service';
 import { sendEnrollmentNotification, sendPaymentNotification } from '../utils/notifications';
 import { calculateCommission, RX_VALET_COMMISSION } from '../commissionCalculator';
+import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -351,6 +352,39 @@ function normalizeBillingAddress(address: any): BillingAddress | undefined {
   return hasValue ? normalized : undefined;
 }
 
+const parseNumericGroupMemberId = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const extractGroupPaymentContext = (metadata: Record<string, any>): { groupId: string; groupMemberId: number } | null => {
+  const nested = metadata.groupPaymentContext && typeof metadata.groupPaymentContext === 'object'
+    ? metadata.groupPaymentContext
+    : null;
+
+  const rawGroupId = nested?.groupId ?? metadata.groupId ?? metadata.group_id;
+  const rawGroupMemberId = nested?.groupMemberId ?? metadata.groupMemberId ?? metadata.group_member_id;
+
+  const groupId = typeof rawGroupId === 'string' ? rawGroupId.trim() : '';
+  const groupMemberId = parseNumericGroupMemberId(rawGroupMemberId);
+
+  if (!groupId || !groupMemberId) {
+    return null;
+  }
+
+  return { groupId, groupMemberId };
+};
+
 async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
   if (req.user) {
     return req.user;
@@ -430,8 +464,14 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       retryPaymentId,
       retryMemberId,
       retryReason,
-      retryInitiatedBy
+      retryInitiatedBy,
+      groupId,
+      groupMemberId
     } = req.body;
+
+    const explicitGroupId = typeof groupId === 'string' ? groupId.trim() : '';
+    const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
+    const hasGroupPaymentContext = Boolean(explicitGroupId && explicitGroupMemberId);
 
     const numericAmount = typeof amount === 'number'
       ? amount
@@ -680,6 +720,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         hasBillingAddress: !!effectiveBillingAddress,
         isRetryRequest,
         retryPaymentId: parsedRetryPaymentId || null,
+        groupId: explicitGroupId || null,
+        groupMemberId: explicitGroupMemberId,
         amountOverride: hasAmountOverride ? parsedAmountOverride : null,
         overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null
       }
@@ -725,6 +767,13 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         billingAddress: effectiveBillingAddress || null,
         requestedAmount: Number.isFinite(numericAmount) ? numericAmount : null
       };
+
+      if (hasGroupPaymentContext) {
+        paymentMetadata.groupPaymentContext = {
+          groupId: explicitGroupId,
+          groupMemberId: explicitGroupMemberId,
+        };
+      }
 
       if (hasAmountOverride) {
         paymentMetadata.amountOverride = {
@@ -987,10 +1036,60 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       });
     }
 
+    const paymentMetadata = parsePaymentMetadata(paymentRecord.metadata);
+    const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
+
     if (!numericMemberId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Unable to determine member for this payment'
+      if (!groupPaymentContext) {
+        return res.status(400).json({
+          success: false,
+          error: 'Unable to determine member for this payment'
+        });
+      }
+
+      const persistResult = await persistHostedPaymentUpdate({
+        epxTransactionId: transactionId,
+        authGuid,
+        authCode,
+        amount,
+        bricTokenPresent: true,
+        paymentStatus: 'succeeded',
+        tranType: 'CCE1',
+        paymentMethodType
+      });
+
+      const nextMetadata = {
+        ...paymentMetadata,
+        groupPaymentContext: {
+          ...groupPaymentContext,
+          hostedCompleteAt: new Date().toISOString(),
+          hostedCompleteVia: 'frontend-complete',
+        },
+      };
+
+      if (persistResult.paymentRecord?.id) {
+        try {
+          await storage.updatePayment(persistResult.paymentRecord.id, {
+            metadata: nextMetadata,
+          });
+        } catch (metadataError: any) {
+          logEPX({
+            level: 'warn',
+            phase: 'hosted-complete',
+            message: 'Unable to persist group hosted completion metadata',
+            data: {
+              error: metadataError?.message,
+              paymentId: persistResult.paymentRecord.id,
+            }
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        member: null,
+        paymentId: persistResult.paymentRecord?.id || null,
+        groupPayment: true,
       });
     }
 
@@ -1448,7 +1547,66 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       paymentRecordForLogging = persistResult.paymentRecord;
       maskedAuthGuid = persistResult.maskedAuthGuid;
 
-      if (paymentRecordForLogging?.member_id) {
+      const paymentMetadata = paymentRecordForLogging
+        ? parsePaymentMetadata(paymentRecordForLogging.metadata)
+        : {};
+      const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
+
+      if (groupPaymentContext && paymentRecordForLogging) {
+        try {
+          const transitionReference = [
+            `payment:${paymentRecordForLogging.id}`,
+            result.transactionId ? `transaction:${result.transactionId}` : null,
+          ].filter(Boolean).join('|');
+
+          const transitionResult = await transitionGroupPaymentToPayable({
+            groupId: groupPaymentContext.groupId,
+            groupMemberId: groupPaymentContext.groupMemberId,
+            paymentStatusRaw: req.body?.status || 'success',
+            paymentCapturedAt: new Date(),
+            triggeredBy: null,
+            transitionSource: 'epx-hosted-callback',
+            transitionReference,
+            updateMemberPaymentStatus: true,
+          });
+
+          paymentMetadata.groupPaymentContext = {
+            ...groupPaymentContext,
+            lastTransitionAt: new Date().toISOString(),
+            lastTransitionResult: transitionResult,
+          };
+
+          await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
+
+          logEPX({
+            level: 'info',
+            phase: 'callback',
+            message: 'Group payment transitioned to payable state',
+            data: {
+              groupId: groupPaymentContext.groupId,
+              groupMemberId: groupPaymentContext.groupMemberId,
+              transitionedCount: transitionResult.transitionedCount,
+              skippedCount: transitionResult.skippedCount,
+              missingExpectedCommissions: transitionResult.missingExpectedCommissions,
+              cycleKey: transitionResult.cycleKey,
+            }
+          });
+        } catch (groupTransitionError: any) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Group payment transition failed after successful callback',
+            data: {
+              error: groupTransitionError?.message,
+              groupId: groupPaymentContext.groupId,
+              groupMemberId: groupPaymentContext.groupMemberId,
+              paymentId: paymentRecordForLogging.id,
+            }
+          });
+        }
+      }
+
+      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
           const memberId = Number(paymentRecordForLogging.member_id);
           const memberRecord = await storage.getMember(memberId);
@@ -1484,7 +1642,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
       }
 
-      if (result.bricToken && paymentRecordForLogging?.member_id) {
+      if (result.bricToken && paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
           const paymentMethodType = req.body?.paymentMethodType || 'CreditCard';
           await storage.updateMember(Number(paymentRecordForLogging.member_id), {
@@ -1514,7 +1672,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
 
       // COMMISSION CREATION/VERIFICATION - Check if commission exists and create if missing
-      if (paymentRecordForLogging?.member_id) {
+      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
           const memberId = Number(paymentRecordForLogging.member_id);
           const memberRecord = await storage.getMember(memberId);
@@ -1658,13 +1816,14 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       if (paymentRecordForLogging) {
         try {
           const paymentMetadata = parsePaymentMetadata(paymentRecordForLogging.metadata);
+          const callbackGroupPaymentContext = extractGroupPaymentContext(paymentMetadata);
           const notificationMeta = {
             ...(typeof paymentMetadata.notifications === 'object' && paymentMetadata.notifications ? paymentMetadata.notifications : {})
           } as Record<string, any>;
           const shouldSendPaymentEmail = !notificationMeta.paymentReceiptSentAt;
           const shouldSendEnrollmentEmail = !notificationMeta.enrollmentEmailSentAt;
 
-          if ((shouldSendPaymentEmail || shouldSendEnrollmentEmail) && paymentRecordForLogging.member_id) {
+          if ((shouldSendPaymentEmail || shouldSendEnrollmentEmail) && paymentRecordForLogging.member_id && !callbackGroupPaymentContext) {
             const memberId = Number(paymentRecordForLogging.member_id);
             const memberRecord = await storage.getMember(memberId);
 

@@ -10,6 +10,7 @@ import {
   completeGroupRegistration,
   createAdminNotification,
   createGroup,
+  deleteGroupMember,
   getPlatformSetting,
   getDiscountCodeByCode,
   getGroupById,
@@ -23,6 +24,7 @@ import {
 } from '../storage';
 import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
 import { createMonthlyPayout } from '../services/commission-payout-service';
+import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
 
 const router = Router();
 
@@ -773,6 +775,18 @@ const getCycleKey = (date: Date): string => {
 
 const roundCurrency = (value: number): number => Math.round(value * 100) / 100;
 
+const toIsoDateOnly = (value: Date): string => value.toISOString().slice(0, 10);
+
+const buildSyntheticGroupMemberId = (groupMemberId: number): string => `group_member:${groupMemberId}`;
+
+const parseCycleDate = (value?: string | null): Date => {
+  if (value && isISODateString(value)) {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+
+  return new Date();
+};
+
 type CommissionSplit = { agentId: string; percentage: number };
 
 const normalizeCommissionSplitInput = (input: unknown): CommissionSplit[] => {
@@ -909,6 +923,308 @@ const hasExistingGroupCommissionForCycle = async (
   return Array.isArray(data) && data.length > 0;
 };
 
+const getExistingGroupCommissionForCycle = async (
+  groupId: string,
+  groupMemberId: number,
+  syntheticMemberId: string,
+  agentId: string,
+  cycleKey: string,
+): Promise<any | null> => {
+  const { data, error } = await supabase
+    .from('agent_commissions')
+    .select('id, payment_captured, payment_status, commission_amount')
+    .eq('member_id', syntheticMemberId)
+    .eq('agent_id', agentId)
+    .ilike('notes', `%group:${groupId}%`)
+    .ilike('notes', `%groupMember:${groupMemberId}%`)
+    .ilike('notes', `%cycle:${cycleKey}%`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[Group Enrollment] Failed loading existing group commission for cycle:', error);
+    return null;
+  }
+
+  return data || null;
+};
+
+const createExpectedGroupMemberCommissionsForCycle = async (
+  group: any,
+  groupMembers: any[],
+  cycleAnchor: Date,
+  triggeredBy: string | null,
+): Promise<{ created: number; updated: number; skipped: number; expectedTotal: number; cycleKey: string }> => {
+  const metadata = group.metadata && typeof group.metadata === 'object'
+    ? (group.metadata as Record<string, any>)
+    : {};
+
+  const cycleKey = getCycleKey(cycleAnchor);
+  const asOfDateIso = toIsoDateOnly(cycleAnchor);
+  const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, asOfDateIso);
+  const configuredSplits = parseConfiguredCommissionSplits(metadata, assignedAgentId, asOfDateIso);
+  const splitError = validateCommissionSplits(configuredSplits);
+  if (splitError) {
+    throw new Error(splitError);
+  }
+
+  const primaryAgentId = configuredSplits[0].agentId;
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let expectedTotal = 0;
+
+  for (const groupMember of groupMembers) {
+    if (groupMember.status === 'terminated') {
+      continue;
+    }
+
+    const syntheticMemberId = buildSyntheticGroupMemberId(groupMember.id);
+    const baseAmount = roundCurrency(
+      parseAmountNumber(groupMember.totalAmount)
+      || (parseAmountNumber(groupMember.memberAmount) + parseAmountNumber(groupMember.employerAmount))
+    );
+
+    if (baseAmount <= 0) {
+      skipped += 1;
+      continue;
+    }
+
+    expectedTotal = roundCurrency(expectedTotal + baseAmount);
+
+    let allocated = 0;
+    for (let index = 0; index < configuredSplits.length; index += 1) {
+      const split = configuredSplits[index];
+      const isLast = index === configuredSplits.length - 1;
+      const splitAmount = isLast
+        ? roundCurrency(baseAmount - allocated)
+        : roundCurrency(baseAmount * (split.percentage / 100));
+      allocated = roundCurrency(allocated + splitAmount);
+
+      if (splitAmount <= 0) {
+        continue;
+      }
+
+      const existingCommission = await getExistingGroupCommissionForCycle(
+        group.id,
+        groupMember.id,
+        syntheticMemberId,
+        split.agentId,
+        cycleKey,
+      );
+
+      const expectedNotes = [
+        'Group member commission',
+        `group:${group.id}`,
+        `groupMember:${groupMember.id}`,
+        `cycle:${cycleKey}`,
+        'stage:expected',
+        `split:${split.percentage}`,
+        triggeredBy ? `triggeredBy:${triggeredBy}` : null,
+      ].filter(Boolean).join(' | ');
+
+      if (existingCommission?.id) {
+        if (existingCommission.payment_captured) {
+          skipped += 1;
+          continue;
+        }
+
+        const { error: updateError } = await supabase
+          .from('agent_commissions')
+          .update({
+            commission_amount: splitAmount,
+            status: 'pending',
+            payment_status: 'unpaid',
+            payment_captured: false,
+            payment_captured_at: null,
+            payment_eligible_date: null,
+            commission_type: index === 0 ? 'direct' : 'override',
+            override_for_agent_id: index === 0 ? null : primaryAgentId,
+            base_premium: baseAmount,
+            notes: expectedNotes,
+          })
+          .eq('id', existingCommission.id);
+
+        if (updateError) {
+          throw new Error(`Failed updating expected group commission for agent ${split.agentId}: ${updateError.message}`);
+        }
+
+        updated += 1;
+        continue;
+      }
+
+      const commissionPayload = {
+        agent_id: split.agentId,
+        member_id: syntheticMemberId,
+        enrollment_id: null,
+        commission_amount: splitAmount,
+        coverage_type: 'other' as const,
+        status: 'pending',
+        payment_status: 'unpaid',
+        payment_captured: false,
+        payment_captured_at: null,
+        payment_eligible_date: null,
+        commission_type: index === 0 ? 'direct' : 'override',
+        override_for_agent_id: index === 0 ? null : primaryAgentId,
+        base_premium: baseAmount,
+        notes: expectedNotes,
+      };
+
+      const { error: commissionError } = await supabase
+        .from('agent_commissions')
+        .insert(commissionPayload);
+
+      if (commissionError) {
+        throw new Error(`Failed creating expected group commission for agent ${split.agentId}: ${commissionError.message}`);
+      }
+
+      created += 1;
+    }
+  }
+
+  return {
+    created,
+    updated,
+    skipped,
+    expectedTotal,
+    cycleKey,
+  };
+};
+
+const buildGroupBillingSnapshot = async (
+  group: any,
+  groupMembers: any[],
+  cycleAnchor: Date,
+  preferredPaymentMethod: PreferredPaymentMethod,
+  triggeredBy: string | null,
+  expectedCommissionTotal: number,
+): Promise<Record<string, any>> => {
+  const metadata = group.metadata && typeof group.metadata === 'object'
+    ? (group.metadata as Record<string, any>)
+    : {};
+
+  const asOfDateIso = toIsoDateOnly(cycleAnchor);
+  const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, asOfDateIso);
+  const configuredSplits = parseConfiguredCommissionSplits(metadata, assignedAgentId, asOfDateIso);
+
+  const tierCounts = {
+    memberOnly: 0,
+    spouse: 0,
+    child: 0,
+    family: 0,
+  };
+
+  const productMix: Record<string, { count: number; amount: number }> = {};
+  let eeCount = 0;
+  let dependentCount = 0;
+  let grossInvoiceAmount = 0;
+  let employerTotal = 0;
+  let memberTotal = 0;
+  let discountTotal = 0;
+  let pbmEnrolledCount = 0;
+  let pbmTotalAmount = 0;
+
+  for (const member of groupMembers) {
+    if (member.status === 'terminated') {
+      continue;
+    }
+
+    const normalizedTier = normalizeMemberTier(member.tier);
+    if (normalizedTier === 'member') tierCounts.memberOnly += 1;
+    if (normalizedTier === 'spouse') tierCounts.spouse += 1;
+    if (normalizedTier === 'child') tierCounts.child += 1;
+    if (normalizedTier === 'family') tierCounts.family += 1;
+
+    const relationship = normalizeMemberRelationship(member.relationship, normalizedTier);
+    if (relationship === 'primary') eeCount += 1;
+    else dependentCount += 1;
+
+    const totalAmount = roundCurrency(
+      parseAmountNumber(member.totalAmount)
+      || (parseAmountNumber(member.memberAmount) + parseAmountNumber(member.employerAmount))
+    );
+    grossInvoiceAmount = roundCurrency(grossInvoiceAmount + totalAmount);
+    employerTotal = roundCurrency(employerTotal + parseAmountNumber(member.employerAmount));
+    memberTotal = roundCurrency(memberTotal + parseAmountNumber(member.memberAmount));
+    discountTotal = roundCurrency(discountTotal + parseAmountNumber(member.discountAmount));
+
+    const payload = toObjectOrNull(member.registrationPayload) || {};
+    const memberMetadata = toObjectOrNull(member.metadata) || {};
+    const productLabel = String(
+      payload.planName
+      || payload.selectedPlanName
+      || memberMetadata.planName
+      || memberMetadata.productName
+      || 'unspecified_plan'
+    ).trim();
+
+    if (!productMix[productLabel]) {
+      productMix[productLabel] = { count: 0, amount: 0 };
+    }
+
+    productMix[productLabel].count += 1;
+    productMix[productLabel].amount = roundCurrency(productMix[productLabel].amount + totalAmount);
+
+    const pbmEnabled = Boolean(
+      payload.addRxValet
+      || payload.rxValetEnrolled
+      || memberMetadata.addRxValet
+      || memberMetadata.rxValetEnrolled
+      || memberMetadata.pbmEnrolled
+    );
+
+    if (pbmEnabled) {
+      pbmEnrolledCount += 1;
+      const pbmAmount = roundCurrency(
+        parseAmountNumber(payload.rxValetAmount)
+        || parseAmountNumber(memberMetadata.rxValetAmount)
+        || parseAmountNumber(memberMetadata.pbmAmount)
+      );
+      pbmTotalAmount = roundCurrency(pbmTotalAmount + pbmAmount);
+    }
+  }
+
+  const directSplit = configuredSplits[0]?.percentage || 100;
+  const directExpected = roundCurrency(expectedCommissionTotal * (directSplit / 100));
+  const overrideExpected = roundCurrency(Math.max(0, expectedCommissionTotal - directExpected));
+
+  return {
+    capturedAt: new Date().toISOString(),
+    capturedBy: triggeredBy,
+    cycleKey: getCycleKey(cycleAnchor),
+    cycleDate: asOfDateIso,
+    groupId: group.id,
+    payment: {
+      method: preferredPaymentMethod,
+      status: 'pending',
+    },
+    financials: {
+      grossInvoiceAmount,
+      employerTotal,
+      memberTotal,
+      discountTotal,
+      netPayableAmount: grossInvoiceAmount,
+    },
+    tierMix: {
+      ...tierCounts,
+      eeCount,
+      dependentCount,
+    },
+    productMix,
+    pbm: {
+      enrolledCount: pbmEnrolledCount,
+      totalAmount: pbmTotalAmount,
+    },
+    commissions: {
+      expectedTotal: expectedCommissionTotal,
+      directExpected,
+      overrideExpected,
+      attributionSplits: configuredSplits,
+    },
+  };
+};
+
 const createGroupMemberCommissionsForCapturedPayment = async (
   group: any,
   groupMember: any,
@@ -946,10 +1262,13 @@ const createGroupMemberCommissionsForCapturedPayment = async (
   let allocated = 0;
   for (let index = 0; index < configuredSplits.length; index += 1) {
     const split = configuredSplits[index];
-    const existing = await hasExistingGroupCommissionForCycle(syntheticMemberId, split.agentId, cycleKey);
-    if (existing) {
-      continue;
-    }
+    const existingCommission = await getExistingGroupCommissionForCycle(
+      group.id,
+      groupMember.id,
+      syntheticMemberId,
+      split.agentId,
+      cycleKey,
+    );
 
     const isLast = index === configuredSplits.length - 1;
     const splitAmount = isLast
@@ -980,24 +1299,42 @@ const createGroupMemberCommissionsForCapturedPayment = async (
         `group:${group.id}`,
         `groupMember:${groupMember.id}`,
         `cycle:${cycleKey}`,
+        'stage:payable',
         `paymentStatus:${paymentStatusRaw}`,
         `split:${split.percentage}`,
         triggeredBy ? `triggeredBy:${triggeredBy}` : null,
       ].filter(Boolean).join(' | '),
     };
 
-    const { data: createdCommission, error: commissionError } = await supabase
-      .from('agent_commissions')
-      .insert(commissionPayload)
-      .select('id')
-      .single();
+    let commissionId: string;
 
-    if (commissionError) {
-      throw new Error(`Failed creating group commission for agent ${split.agentId}: ${commissionError.message}`);
+    if (existingCommission?.id) {
+      const { error: updateError } = await supabase
+        .from('agent_commissions')
+        .update(commissionPayload)
+        .eq('id', existingCommission.id);
+
+      if (updateError) {
+        throw new Error(`Failed transitioning group commission to payable for agent ${split.agentId}: ${updateError.message}`);
+      }
+
+      commissionId = existingCommission.id;
+    } else {
+      const { data: createdCommission, error: commissionError } = await supabase
+        .from('agent_commissions')
+        .insert(commissionPayload)
+        .select('id')
+        .single();
+
+      if (commissionError) {
+        throw new Error(`Failed creating group commission for agent ${split.agentId}: ${commissionError.message}`);
+      }
+
+      commissionId = createdCommission.id;
     }
 
     await createMonthlyPayout({
-      commissionId: createdCommission.id,
+      commissionId,
       paymentCapturedAt,
       amount: splitAmount,
       commissionType: index === 0 ? 'direct' : 'override',
@@ -3283,6 +3620,47 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
   }
 });
 
+router.delete('/api/groups/:groupId/members/:memberId/hard', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can permanently delete group members' });
+    }
+
+    const { groupId, memberId } = req.params;
+    const group = await resolveGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const numericMemberId = Number(memberId);
+    if (Number.isNaN(numericMemberId)) {
+      return res.status(400).json({ message: 'Invalid member id' });
+    }
+
+    const existingMember = await getGroupMemberById(numericMemberId);
+    if (!existingMember || existingMember.groupId !== groupId) {
+      return res.status(404).json({ message: 'Group member not found' });
+    }
+
+    if (normalizeMemberStatus(existingMember.status) !== 'terminated') {
+      return res.status(400).json({
+        message: 'Only terminated members can be permanently deleted',
+      });
+    }
+
+    await deleteGroupMember(numericMemberId);
+
+    return res.status(200).json({
+      message: 'Group member permanently deleted',
+      data: { id: numericMemberId },
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to hard delete group member:', error);
+    const message = error instanceof Error ? error.message : 'Failed to hard delete group member';
+    return res.status(500).json({ message });
+  }
+});
+
 router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRequest, res: Response) => {
   try {
     const { groupId, memberId } = req.params;
@@ -3381,14 +3759,15 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
     const normalizedPaymentStatus = normalizePaymentStatus(nextPaymentStatus);
     if (CAPTURED_PAYMENT_STATUSES.has(normalizedPaymentStatus) && updated.status !== 'terminated') {
       try {
-        const paymentCapturedAt = new Date();
-        await createGroupMemberCommissionsForCapturedPayment(
-          group,
-          updated,
-          paymentCapturedAt,
-          normalizedPaymentStatus,
-          req.user?.id || null,
-        );
+        await transitionGroupPaymentToPayable({
+          groupId,
+          groupMemberId: updated.id,
+          paymentStatusRaw: normalizedPaymentStatus,
+          paymentCapturedAt: new Date(),
+          triggeredBy: req.user?.id || null,
+          transitionSource: 'group-member-payment-endpoint',
+          updateMemberPaymentStatus: false,
+        });
       } catch (commissionError) {
         console.error('[Group Enrollment] Failed to create commissions for captured group payment:', commissionError);
         return res.status(400).json({
@@ -3454,10 +3833,32 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
     const nowIso = new Date().toISOString();
     const effectiveDateContext = getGroupEffectiveDateContext(req, completed.metadata);
     const schedulerStartDate = effectiveDateContext.selectedEffectiveDate;
+    const expectedCycleAnchor = parseCycleDate(schedulerStartDate);
+
+    const expectedCommissionResult = await createExpectedGroupMemberCommissionsForCycle(
+      group,
+      activeMembers,
+      expectedCycleAnchor,
+      req.user?.id || null,
+    );
+
+    const billingSnapshot = await buildGroupBillingSnapshot(
+      completed,
+      activeMembers,
+      expectedCycleAnchor,
+      groupProfileContext.profile?.preferredPaymentMethod || null,
+      req.user?.id || null,
+      expectedCommissionResult.expectedTotal,
+    );
+
     const existingMetadata =
       completed.metadata && typeof completed.metadata === 'object'
         ? (completed.metadata as Record<string, any>)
         : {};
+
+    const existingSnapshots = Array.isArray(existingMetadata.groupBillingSnapshots)
+      ? existingMetadata.groupBillingSnapshots
+      : [];
 
     const nextMetadata = {
       ...existingMetadata,
@@ -3480,6 +3881,24 @@ router.post('/api/groups/:groupId/complete', async (req: AuthRequest, res: Respo
         lastQueuedAt: nowIso,
         lastQueuedBy: req.user?.id || null,
       },
+      groupBillingLifecycle: {
+        ...(existingMetadata.groupBillingLifecycle && typeof existingMetadata.groupBillingLifecycle === 'object'
+          ? existingMetadata.groupBillingLifecycle
+          : {}),
+        state: 'waiting_for_payment',
+        cycleKey: expectedCommissionResult.cycleKey,
+        expectedCycleDate: toIsoDateOnly(expectedCycleAnchor),
+        movedToWaitingAt: nowIso,
+        movedToWaitingBy: req.user?.id || null,
+        expectedCommissions: {
+          created: expectedCommissionResult.created,
+          updated: expectedCommissionResult.updated,
+          skipped: expectedCommissionResult.skipped,
+          expectedTotal: expectedCommissionResult.expectedTotal,
+        },
+      },
+      groupBillingSnapshot: billingSnapshot,
+      groupBillingSnapshots: [billingSnapshot, ...existingSnapshots].slice(0, 24),
     };
 
     const completedWithScheduler = await updateGroup(groupId, {

@@ -30,6 +30,8 @@ interface EPXHostedPaymentProps {
   description?: string;
   retryPaymentId?: string;
   retryMemberId?: string;
+  groupId?: string;
+  groupMemberId?: number | string;
   billingAddress?: {
     streetAddress?: string;
     city?: string;
@@ -62,6 +64,8 @@ export default function EPXHostedPayment({
   description,
   retryPaymentId,
   retryMemberId,
+  groupId,
+  groupMemberId,
   billingAddress = {},
   onSuccess,
   onError,
@@ -245,6 +249,11 @@ export default function EPXHostedPayment({
           payload.retryMemberId = retryMemberId;
         }
 
+        if (groupId && groupMemberId !== undefined && groupMemberId !== null) {
+          payload.groupId = groupId;
+          payload.groupMemberId = groupMemberId;
+        }
+
         let response: any;
 
         try {
@@ -313,7 +322,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {

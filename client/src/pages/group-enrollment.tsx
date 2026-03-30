@@ -165,6 +165,15 @@ const formatCurrencyDisplay = (value?: string | null): string => {
   return `$${numeric.toFixed(2)}`;
 };
 
+const parseCurrencyValue = (value?: string | null): number => {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
 type GroupRecord = {
   id: string;
   name: string;
@@ -2532,6 +2541,33 @@ export default function GroupEnrollment() {
     }
   };
 
+  const handleOpenMemberHostedCheckout = (member: GroupMemberRecord) => {
+    const groupId = selectedGroup?.data?.id;
+    if (!groupId) {
+      toast({
+        title: "Group not selected",
+        description: "Select a group before launching hosted checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const explicitTotal = parseCurrencyValue(member.totalAmount);
+    const derivedTotal = parseCurrencyValue(member.employerAmount) + parseCurrencyValue(member.memberAmount) - parseCurrencyValue(member.discountAmount);
+    const amount = explicitTotal > 0 ? explicitTotal : derivedTotal;
+
+    const params = new URLSearchParams({
+      groupId,
+      groupMemberId: String(member.id),
+    });
+
+    if (amount > 0) {
+      params.set("amount", amount.toFixed(2));
+    }
+
+    setLocation(`/payments/group-checkout?${params.toString()}`);
+  };
+
   const handleAddMemberClick = () => {
     setEditingMember(null);
     resetMemberForm();
@@ -2613,6 +2649,57 @@ export default function GroupEnrollment() {
     : "Enter each enrollee before triggering hosted checkout.";
   const activeMemberCount = selectedGroup?.members?.filter((member) => member.status !== "terminated").length ?? 0;
   const memberCount = selectedGroup?.members?.length ?? 0;
+  const activeGroupMembers = useMemo(
+    () => (selectedGroup?.members || []).filter((member) => member.status !== "terminated"),
+    [selectedGroup?.members],
+  );
+  const groupFinancialSnapshot = useMemo(() => {
+    let employerTotal = 0;
+    let memberTotal = 0;
+    let discountTotal = 0;
+    let invoiceTotal = 0;
+    let membersMissingTotalAmount = 0;
+
+    for (const member of activeGroupMembers) {
+      const employer = parseCurrencyValue(member.employerAmount);
+      const memberAmount = parseCurrencyValue(member.memberAmount);
+      const discount = parseCurrencyValue(member.discountAmount);
+      const explicitTotal = parseCurrencyValue(member.totalAmount);
+      const derivedTotal = employer + memberAmount - discount;
+      const resolvedTotal = explicitTotal > 0 ? explicitTotal : derivedTotal;
+
+      employerTotal += employer;
+      memberTotal += memberAmount;
+      discountTotal += discount;
+      invoiceTotal += resolvedTotal;
+
+      if (!member.totalAmount || member.totalAmount === "") {
+        membersMissingTotalAmount += 1;
+      }
+    }
+
+    const tierCounts = activeGroupMembers.reduce<Record<string, number>>((acc, member) => {
+      const tier = (member.tier || "unknown").toLowerCase();
+      acc[tier] = (acc[tier] || 0) + 1;
+      return acc;
+    }, {});
+
+    const payorCounts = activeGroupMembers.reduce<Record<string, number>>((acc, member) => {
+      const payor = (member.payorType || selectedGroup?.data?.payorType || "unknown").toLowerCase();
+      acc[payor] = (acc[payor] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      employerTotal,
+      memberTotal,
+      discountTotal,
+      invoiceTotal,
+      membersMissingTotalAmount,
+      tierCounts,
+      payorCounts,
+    };
+  }, [activeGroupMembers, selectedGroup?.data?.payorType]);
   const groupProfileContext = selectedGroup?.groupProfileContext;
   const profileComplete = Boolean(groupProfileContext?.isComplete);
   const groupStatus = selectedGroup?.data?.status || "draft";
@@ -4095,6 +4182,59 @@ export default function GroupEnrollment() {
                     </div>
                   </div>
                 </div>
+                <div className="mb-3 grid gap-3 lg:grid-cols-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs uppercase text-gray-500">Group Invoice Total</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-semibold">{formatCurrencyDisplay(groupFinancialSnapshot.invoiceTotal.toFixed(2))}</p>
+                      <p className="text-xs text-gray-500">Across {activeGroupMembers.length} active members</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs uppercase text-gray-500">Employer vs Member</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1 text-sm">
+                      <p>Employer: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.employerTotal.toFixed(2))}</span></p>
+                      <p>Member: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.memberTotal.toFixed(2))}</span></p>
+                      <p>Discounts: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.discountTotal.toFixed(2))}</span></p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs uppercase text-gray-500">Coverage Mix</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1 text-sm">
+                      {Object.keys(groupFinancialSnapshot.tierCounts).length === 0 ? (
+                        <p className="text-gray-500">No active coverage yet.</p>
+                      ) : (
+                        Object.entries(groupFinancialSnapshot.tierCounts).map(([tier, count]) => (
+                          <p key={tier}>
+                            {(tierLabels[tier] || tier)}: <span className="font-medium">{count}</span>
+                          </p>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs uppercase text-gray-500">Scorekeeping Health</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1 text-sm">
+                      <p>
+                        Missing member totals: <span className="font-medium">{groupFinancialSnapshot.membersMissingTotalAmount}</span>
+                      </p>
+                      <p>
+                        PBM tracking: <span className="font-medium">Not captured in group enrollment model</span>
+                      </p>
+                      <p>
+                        Product tracking: <span className="font-medium">Inferred by tier/payor only</span>
+                      </p>
+                    </CardContent>
+                  </Card>
+                </div>
                 <div className="border rounded-lg bg-white overflow-x-auto">
                   {selectedGroup?.members && selectedGroup.members.length > 0 ? (
                     <Table>
@@ -4159,6 +4299,15 @@ export default function GroupEnrollment() {
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
+                                  {!isTerminated && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleOpenMemberHostedCheckout(member)}
+                                    >
+                                      Collect Payment
+                                    </Button>
+                                  )}
                                   {isTerminated ? (
                                     <Button
                                       variant="outline"
@@ -4236,16 +4385,9 @@ export default function GroupEnrollment() {
                         </span>
                       )}
                     </div>
-                    {selectedGroup.data.hostedCheckoutLink && (
-                      <a
-                        href={selectedGroup.data.hostedCheckoutLink}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex text-sm text-blue-600 hover:text-blue-700"
-                      >
-                        Open hosted checkout
-                      </a>
-                    )}
+                    <p className="text-xs text-slate-500">
+                      Use the member row action to launch hosted checkout in-app.
+                    </p>
                   </div>
                   <div className="w-full md:w-auto">
                     <div className="space-y-2">

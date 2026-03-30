@@ -5002,18 +5002,17 @@ export async function registerRoutes(app: any) {
       if (!email) missingFields.push("email");
       if (!firstName) missingFields.push("firstName");
       if (!lastName) missingFields.push("lastName");
-      if (!normalizedSSN) missingFields.push("ssn");
 
       if (missingFields.length > 0) {
         console.log("[Registration] Missing fields:", missingFields);
         return res.status(400).json({
           error: "Missing required fields",
-          required: ["email", "firstName", "lastName", "ssn"],
+          required: ["email", "firstName", "lastName"],
           missing: missingFields
         });
       }
 
-      if (!/^\d{9}$/.test(normalizedSSN)) {
+      if (normalizedSSN && !/^\d{9}$/.test(normalizedSSN)) {
         return res.status(400).json({
           error: "Invalid SSN format",
           message: "SSN must be exactly 9 digits",

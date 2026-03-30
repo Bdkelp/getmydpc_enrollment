@@ -31,6 +31,7 @@ import GroupEnrollment from "@/pages/group-enrollment";
 import EnrollmentDetails from "@/pages/enrollment-details";
 import Payment from "@/pages/payment";
 import AdminPaymentCheckout from "@/pages/admin-payment-checkout";
+import GroupPaymentCheckout from "@/pages/group-payment-checkout";
 import PaymentSuccess from "@/pages/payment-success";
 import PaymentFailed from "@/pages/payment-failed";
 import PaymentCancel from "@/pages/payment-cancel";
@@ -114,6 +115,7 @@ function Router() {
               <Route path="/admin/discount-codes" component={AdminDiscountCodes} />
               <Route path="/admin/performance-goals" component={AdminPerformanceGoals} />
               <Route path="/admin/payments/checkout" component={AdminPaymentCheckout} />
+              <Route path="/payments/group-checkout" component={GroupPaymentCheckout} />
               <Route path="/admin/payments/recent" component={AdminRecentPayments} />
               <Route path="/admin/payments/failed" component={AdminFailedPayments} />
               <Route path="/admin/analytics" component={AdminAnalytics} />
@@ -150,6 +152,7 @@ function Router() {
               <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
               <Route path="/payments/update" component={PaymentUpdate} />
+              <Route path="/payments/group-checkout" component={GroupPaymentCheckout} />
             </>
           )}
 

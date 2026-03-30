@@ -84,9 +84,11 @@ const registrationSchema = z.object({
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
   dateOfHire: z.string().optional(),
-  ssn: z.string().min(9, "SSN is required").refine((val) => /^\d{9}$/.test(val), {
-    message: "SSN must be 9 digits (numbers only)"
-  }),
+  ssn: z.string()
+    .optional()
+    .refine((val) => !val || /^\d{9}$/.test(val), {
+      message: "SSN must be 9 digits (numbers only)",
+    }),
   memberType: z.string().min(1, "Member type is required"),
   planStartDate: z.string()
     .min(1, "Plan start date is required")
@@ -417,7 +419,7 @@ export default function Registration() {
   const handleNextStep = () => {
     if (currentStep === 1) {
       // Validate personal information
-      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'ssn', 'memberType'] as const;
+      const personalFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'memberType'] as const;
       form.trigger(personalFields).then((isValid) => {
         if (isValid) setCurrentStep(2);
       });
@@ -723,7 +725,7 @@ export default function Registration() {
                         name="ssn"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>SSN *</FormLabel>
+                            <FormLabel>SSN (Optional)</FormLabel>
                             <FormControl>
                               <Input
                                 type="tel"
@@ -1609,7 +1611,9 @@ export default function Registration() {
                           <span className="font-medium">Name:</span> {form.watch("firstName")} {form.watch("middleName")} {form.watch("lastName")}
                         </div>
                         <div>
-                          <span className="font-medium">SSN:</span> {displaySSN(form.watch("ssn") || "", { reveal: false, role: "" })}
+                          <span className="font-medium">SSN (Optional):</span> {form.watch("ssn")
+                            ? displaySSN(form.watch("ssn") || "", { reveal: false, role: "" })
+                            : "Not provided"}
                         </div>
                         <div>
                           <span className="font-medium">Date of Birth:</span> {form.watch("dateOfBirth")}
