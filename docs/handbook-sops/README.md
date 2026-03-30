@@ -16,3 +16,4 @@ This folder stores SOP drafts intended for inclusion in the operations handbook.
 - `group-reassignment-sop.md`
 - `enrollment-records-ux-rollout-sop.md`
 - `group-enrollment-reporting-commissions-sop.md`
+- `group-enrollment-census-import-sop.md`
