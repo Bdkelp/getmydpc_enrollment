@@ -56,6 +56,11 @@ interface CertificationLogResponse {
   entries: CertificationLogEntry[];
   totalEntries: number;
   limit: number;
+  sources?: {
+    certificationFiles?: number;
+    runtimeEPX?: number;
+    includeRuntimeLogs?: boolean;
+  };
 }
 
 interface CertificationExportResponse {
@@ -104,6 +109,7 @@ const AdminEPXCertification = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isAdmin = hasAtLeastRole(user?.role, "admin");
+  const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
 
   const [formState, setFormState] = useState({
     memberId: "",
@@ -132,9 +138,9 @@ const AdminEPXCertification = () => {
   const logsQuery = useQuery<CertificationLogResponse>(
     {
       queryKey: ["epx-cert-logs", logsLimit],
-      enabled: isAuthenticated && isAdmin,
+      enabled: isAuthenticated && isSuperAdmin,
       queryFn: async () => {
-        const response = await apiClient.get(`/api/epx/certification/logs?limit=${logsLimit}`);
+        const response = await apiClient.get(`/api/epx/certification/logs?limit=${logsLimit}&includeRuntimeLogs=true`);
         return response as CertificationLogResponse;
       },
     }
@@ -351,6 +357,24 @@ const AdminEPXCertification = () => {
           <CardContent>
             <p className="text-muted-foreground">
               Admin or super admin permissions are required to run EPX certification tools.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="w-full max-w-md mx-4">
+          <CardHeader>
+            <CardTitle>Super Admin Required</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">
+              EPX certification logs are restricted to super admins. Your current role can access admin tools,
+              but not the certification log feed endpoint.
             </p>
           </CardContent>
         </Card>
@@ -773,10 +797,23 @@ const AdminEPXCertification = () => {
               <div className="flex items-center justify-center py-8">
                 <LoadingSpinner />
               </div>
+            ) : logsQuery.isError ? (
+              <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+                Unable to load certification logs: {(logsQuery.error as Error)?.message || "unknown error"}
+              </div>
             ) : formattedLogs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No certification logs found yet.</p>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">No certification logs found yet.</p>
+                <p className="text-xs text-muted-foreground">
+                  Sources: files={logsQuery.data?.sources?.certificationFiles ?? 0}, runtime={logsQuery.data?.sources?.runtimeEPX ?? 0}, includeRuntimeLogs={String(logsQuery.data?.sources?.includeRuntimeLogs ?? true)}
+                </p>
+              </div>
             ) : (
-              formattedLogs.map((entry) => {
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Sources: files={logsQuery.data?.sources?.certificationFiles ?? 0}, runtime={logsQuery.data?.sources?.runtimeEPX ?? 0}, includeRuntimeLogs={String(logsQuery.data?.sources?.includeRuntimeLogs ?? true)}
+                </p>
+                {formattedLogs.map((entry) => {
                 const requestBody = entry.request?.body as CertificationRequestBody | undefined;
                 const responseBody = entry.response?.body as CertificationResponseBody | undefined;
                 const rawRequestFields = requestBody?.rawFields;
@@ -844,7 +881,8 @@ const AdminEPXCertification = () => {
                     )}
                   </div>
                 );
-              })
+                })}
+              </>
             )}
           </CardContent>
         </Card>
