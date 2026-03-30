@@ -12,7 +12,7 @@ import { certificationLogger } from '../services/certification-logger';
 import { storage, getRecentPaymentsDetailed, getSubscriptionsDueForBilling } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
-import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
+import { getRecentEPXLogs, getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
 import { getPaymentEnvironmentDetails, paymentEnvironment, type PaymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
@@ -433,14 +433,65 @@ router.get('/api/epx/certification/logs', authenticateToken, requireSuperAdmin, 
 
   const limitParam = parseInt((req.query.limit as string) || '25', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
+  const includeRuntimeLogs = String(req.query.includeRuntimeLogs ?? 'true').toLowerCase() !== 'false';
 
-  const entries = certificationLogger.getRecentEntries(limit);
+  const fileEntries = certificationLogger.getRecentEntries(limit);
+
+  const runtimeEntries = includeRuntimeLogs
+    ? getRecentEPXLogs(limit * 2).map((entry) => {
+        const eventData = entry.data && typeof entry.data === 'object' ? entry.data as Record<string, any> : {};
+        const derivedTransactionId = eventData.transactionId
+          || eventData.transaction_id
+          || eventData.epxTransactionId
+          || eventData?.request?.fields?.TRAN_NBR
+          || eventData?.response?.transactionId
+          || undefined;
+
+        return {
+          transactionId: derivedTransactionId ? String(derivedTransactionId) : undefined,
+          purpose: `runtime-${entry.phase}`,
+          amount: typeof eventData.amount === 'number' ? eventData.amount : undefined,
+          environment: eventData.environment || undefined,
+          timestamp: entry.timestamp,
+          metadata: {
+            source: 'epx-runtime',
+            phase: entry.phase,
+            level: entry.level,
+            message: entry.message,
+            data: eventData,
+          },
+          request: {
+            body: {
+              fields: eventData?.request || undefined,
+            },
+          },
+          response: {
+            body: {
+              fields: eventData?.response || undefined,
+            },
+          },
+        };
+      })
+    : [];
+
+  const mergedEntries = [...fileEntries, ...runtimeEntries]
+    .sort((a: any, b: any) => {
+      const aTime = Date.parse(a?.timestamp || '') || 0;
+      const bTime = Date.parse(b?.timestamp || '') || 0;
+      return bTime - aTime;
+    })
+    .slice(0, limit);
 
   res.json({
     success: true,
-    entries,
-    totalEntries: entries.length,
-    limit
+    entries: mergedEntries,
+    totalEntries: mergedEntries.length,
+    limit,
+    sources: {
+      certificationFiles: fileEntries.length,
+      runtimeEPX: runtimeEntries.length,
+      includeRuntimeLogs,
+    }
   });
 });
 

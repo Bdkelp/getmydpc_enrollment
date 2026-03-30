@@ -132,8 +132,84 @@ export function logEPX(event: Omit<EPXLogEvent, 'timestamp'>) {
   else console.log(consoleMsg, full.data || '');
 }
 
-export function getRecentEPXLogs(limit: number = 50): EPXLogEvent[] {
-  return inMemoryBuffer.slice(-limit).reverse();
+function readLogFileEntries(dateStr: string): EPXLogEvent[] {
+  const filePath = logFileForDate(dateStr);
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+
+  try {
+    const fileContents = fs.readFileSync(filePath, 'utf8');
+    const lines = fileContents.split(/\r?\n/);
+    const events: EPXLogEvent[] = [];
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(line) as EPXLogEvent;
+        if (parsed && parsed.timestamp && parsed.phase && parsed.level && parsed.message) {
+          events.push(parsed);
+        }
+      } catch {
+        // Ignore malformed lines to keep log retrieval resilient.
+      }
+    }
+
+    return events;
+  } catch (error) {
+    console.warn('[EPX Logger] Failed to read runtime log file', {
+      filePath,
+      error,
+    });
+    return [];
+  }
+}
+
+type RecentLogOptions = {
+  date?: string;
+  includeBuffer?: boolean;
+};
+
+export function getRecentEPXLogs(limit: number = 50, options?: RecentLogOptions): EPXLogEvent[] {
+  const normalizedLimit = Math.min(Math.max(limit, 1), 500);
+  const includeBuffer = options?.includeBuffer !== false;
+  const dedupeKeys = new Set<string>();
+  const merged: EPXLogEvent[] = [];
+
+  const pushEvent = (event: EPXLogEvent) => {
+    const key = `${event.timestamp}|${event.phase}|${event.level}|${event.message}`;
+    if (dedupeKeys.has(key)) {
+      return;
+    }
+    dedupeKeys.add(key);
+    merged.push(event);
+  };
+
+  if (includeBuffer) {
+    for (let i = inMemoryBuffer.length - 1; i >= 0; i -= 1) {
+      pushEvent(inMemoryBuffer[i]);
+      if (merged.length >= normalizedLimit) {
+        return merged.slice(0, normalizedLimit);
+      }
+    }
+  }
+
+  const dateCandidates = buildDateCandidates(options?.date);
+  for (const dateStr of dateCandidates) {
+    const events = readLogFileEntries(dateStr);
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      pushEvent(events[i]);
+      if (merged.length >= normalizedLimit) {
+        return merged.slice(0, normalizedLimit);
+      }
+    }
+  }
+
+  return merged.slice(0, normalizedLimit);
 }
 
 type TransactionLogOptions = {
