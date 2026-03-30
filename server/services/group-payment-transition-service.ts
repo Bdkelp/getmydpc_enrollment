@@ -20,6 +20,27 @@ const parseAmountNumber = (value: unknown): number => {
 
 const buildSyntheticGroupMemberId = (groupMemberId: number): string => `group_member:${groupMemberId}`;
 
+const resolveCycleKeyFromGroupMetadata = (metadata: Record<string, any>, fallbackDate: Date): string => {
+  const lifecycle = metadata.groupBillingLifecycle && typeof metadata.groupBillingLifecycle === 'object'
+    ? metadata.groupBillingLifecycle
+    : {};
+
+  const lifecycleCycleKey = typeof lifecycle.cycleKey === 'string' ? lifecycle.cycleKey.trim() : '';
+  if (lifecycleCycleKey) {
+    return lifecycleCycleKey;
+  }
+
+  const expectedCycleDate = typeof lifecycle.expectedCycleDate === 'string'
+    ? lifecycle.expectedCycleDate.trim()
+    : '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(expectedCycleDate)) {
+    const [year, month] = expectedCycleDate.split('-');
+    return `${year}-${month}`;
+  }
+
+  return getCycleKey(fallbackDate);
+};
+
 const buildPayableNotes = (
   existingNotes: unknown,
   paymentStatusRaw: string,
@@ -104,7 +125,10 @@ export async function transitionGroupPaymentToPayable(
   const paymentCapturedAtIso = paymentCapturedAt.toISOString();
   const paymentEligibleDate = calculatePaymentEligibleDate(paymentCapturedAt);
   const paymentEligibleDateIso = paymentEligibleDate.toISOString();
-  const cycleKey = getCycleKey(paymentCapturedAt);
+  const groupMetadata = group.metadata && typeof group.metadata === 'object'
+    ? (group.metadata as Record<string, any>)
+    : {};
+  const cycleKey = resolveCycleKeyFromGroupMetadata(groupMetadata, paymentCapturedAt);
   const syntheticMemberId = buildSyntheticGroupMemberId(options.groupMemberId);
 
   const { data: commissions, error: commissionError } = await supabase
@@ -150,25 +174,21 @@ export async function transitionGroupPaymentToPayable(
       }
 
       transitionedCount += 1;
+
+      const commissionAmount = parseAmountNumber(commission.commission_amount);
+      if (commissionAmount > 0) {
+        await createMonthlyPayout({
+          commissionId: commission.id,
+          paymentCapturedAt,
+          amount: commissionAmount,
+          commissionType: commission.commission_type === 'override' ? 'override' : 'direct',
+          overrideForAgentId: commission.override_for_agent_id || undefined,
+        });
+      }
     } else {
       skippedCount += 1;
     }
-
-    const commissionAmount = parseAmountNumber(commission.commission_amount);
-    if (commissionAmount > 0) {
-      await createMonthlyPayout({
-        commissionId: commission.id,
-        paymentCapturedAt,
-        amount: commissionAmount,
-        commissionType: commission.commission_type === 'override' ? 'override' : 'direct',
-        overrideForAgentId: commission.override_for_agent_id || undefined,
-      });
-    }
   }
-
-  const groupMetadata = group.metadata && typeof group.metadata === 'object'
-    ? (group.metadata as Record<string, any>)
-    : {};
   const existingTransitions = Array.isArray(groupMetadata.paymentTransitions)
     ? groupMetadata.paymentTransitions
     : [];
