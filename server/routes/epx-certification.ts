@@ -127,51 +127,126 @@ const toSafePretty = (value: any): string => {
   }
 };
 
+const getRequestFieldsFromEntry = (entry: any): Record<string, any> => {
+  return entry?.request?.body?.rawFields
+    || entry?.request?.body?.form
+    || entry?.metadata?.epxTransaction?.requestFields
+    || entry?.request?.body
+    || {};
+};
+
+const getResponseFieldsFromEntry = (entry: any): Record<string, any> => {
+  return entry?.response?.body?.fields
+    || entry?.metadata?.epxTransaction?.responseFields
+    || entry?.response?.body
+    || {};
+};
+
+const getRawRequestPayloadFromEntry = (entry: any): string | null => {
+  const value = entry?.request?.body?.raw || entry?.metadata?.epxTransaction?.rawRequest || null;
+  return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const getRawResponsePayloadFromEntry = (entry: any): string | null => {
+  const value = entry?.response?.body?.raw || entry?.metadata?.epxTransaction?.rawResponse || null;
+  return typeof value === 'string' && value.trim() ? value : null;
+};
+
+const hasMeaningfulValue = (value: unknown): boolean => {
+  if (value === null || value === undefined) return false;
+  const normalized = String(value).trim();
+  if (!normalized) return false;
+  if (normalized === '****') return false;
+  return true;
+};
+
+const classifyEpxUseCase = (entry: any): 'initial-sale' | 'token-sale' | 'mixed-or-unknown' => {
+  const requestFields = getRequestFieldsFromEntry(entry);
+  const hasOrigAuthGuid = hasMeaningfulValue(requestFields?.ORIG_AUTH_GUID);
+  const hasRouting = hasMeaningfulValue(requestFields?.ROUTING_NBR);
+  const hasAccount = hasMeaningfulValue(requestFields?.ACCOUNT_NBR);
+
+  if (hasOrigAuthGuid && !hasRouting && !hasAccount) {
+    return 'token-sale';
+  }
+
+  if (!hasOrigAuthGuid && (hasRouting || hasAccount)) {
+    return 'initial-sale';
+  }
+
+  return 'mixed-or-unknown';
+};
+
+const formatPresence = (value: unknown): string => (hasMeaningfulValue(value) ? 'yes' : 'no');
+
 const buildPlainTextCertificationSamples = (entries: any[]): string => {
-  const seenTranTypes = new Set<string>();
-  const selectedSamples: any[] = [];
+  const seenSampleKeys = new Set<string>();
+  const selectedSamples: Array<{ tranType: string; useCase: string; entry: any }> = [];
 
   for (const entry of entries) {
     const tranType = getTranTypeFromEntry(entry);
-    if (!tranType || seenTranTypes.has(tranType)) {
+    if (!tranType) {
       continue;
     }
 
-    seenTranTypes.add(tranType);
-    selectedSamples.push({ tranType, entry });
+    const useCase = classifyEpxUseCase(entry);
+    const sampleKey = `${useCase}:${tranType}`;
+    if (seenSampleKeys.has(sampleKey)) {
+      continue;
+    }
+
+    seenSampleKeys.add(sampleKey);
+    selectedSamples.push({ tranType, useCase, entry });
   }
 
   const lines: string[] = [];
-  lines.push('EPX Certification Samples');
+  lines.push('EPX Certification Samples (Guideline Format)');
   lines.push(`Generated: ${new Date().toISOString()}`);
-  lines.push(`Total unique tran types: ${selectedSamples.length}`);
+  lines.push(`Total samples: ${selectedSamples.length}`);
+  lines.push('Format: one request sample and one response sample per TRAN_TYPE/use-case.');
+  lines.push('Use-cases: initial-sale (bank data) and token-sale (ORIG_AUTH_GUID).');
   lines.push('');
 
   for (const sample of selectedSamples) {
     const entry = sample.entry;
-    const requestSection = entry?.request?.body?.rawFields
-      ? { rawFields: entry.request.body.rawFields, raw: entry.request.body.raw }
-      : entry?.request?.body || entry?.metadata?.epxTransaction?.requestFields || {};
-    const responseSection = entry?.response?.body?.fields
-      ? { fields: entry.response.body.fields, raw: entry.response.body.raw }
-      : entry?.metadata?.epxTransaction?.responseFields || entry?.response?.body || {};
+    const requestFields = getRequestFieldsFromEntry(entry);
+    const responseFields = getResponseFieldsFromEntry(entry);
+    const rawRequestPayload = getRawRequestPayloadFromEntry(entry);
+    const rawResponsePayload = getRawResponsePayloadFromEntry(entry);
 
     lines.push('============================================================');
+    lines.push(`USE_CASE: ${sample.useCase}`);
     lines.push(`TRAN_TYPE: ${sample.tranType}`);
     lines.push(`Purpose: ${entry?.purpose || 'unknown'}`);
     lines.push(`Transaction ID: ${entry?.transactionId || 'n/a'}`);
     lines.push(`Timestamp: ${entry?.timestamp || 'n/a'}`);
+    lines.push('FIELD CHECKLIST');
+    lines.push(`- CARD_ENT_METH present: ${formatPresence(requestFields?.CARD_ENT_METH)}`);
+    lines.push(`- STD_ENTRY_CLASS present: ${formatPresence(requestFields?.STD_ENTRY_CLASS)}`);
+    lines.push(`- ORIG_AUTH_GUID present: ${formatPresence(requestFields?.ORIG_AUTH_GUID)}`);
+    lines.push(`- ROUTING_NBR present: ${formatPresence(requestFields?.ROUTING_NBR)}`);
+    lines.push(`- ACCOUNT_NBR present: ${formatPresence(requestFields?.ACCOUNT_NBR)}`);
+    lines.push(`- AUTH_GUID in response: ${formatPresence(responseFields?.AUTH_GUID)}`);
     lines.push('');
     lines.push('REQUEST SAMPLE');
-    lines.push(toSafePretty(requestSection));
+    lines.push(toSafePretty(requestFields));
+    if (rawRequestPayload) {
+      lines.push('RAW REQUEST PAYLOAD');
+      lines.push(maskSensitiveText(rawRequestPayload));
+    }
     lines.push('');
     lines.push('RESPONSE SAMPLE');
-    lines.push(toSafePretty(responseSection));
+    lines.push(toSafePretty(responseFields));
+    if (rawResponsePayload) {
+      lines.push('RAW RESPONSE PAYLOAD');
+      lines.push(maskSensitiveText(rawResponsePayload));
+    }
     lines.push('');
   }
 
   if (!selectedSamples.length) {
     lines.push('No certification samples with TRAN_TYPE were found in recent logs.');
+    lines.push('Run a fresh test and export immediately afterward.');
   }
 
   return lines.join('\n');
