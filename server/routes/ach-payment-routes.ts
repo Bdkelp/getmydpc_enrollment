@@ -308,10 +308,11 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
 
-    // Submit initial ACH payment to EPX (CKC2)
+    // Submit initial ACH payment to EPX (CKC2) as a non-tokenized sale.
+    // EPX expects routing/account based initial sale and a separate token-based sale sample.
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
-      authGuid: member.paymentToken || '',
+      authGuid: '',
       member: member,
       bankAccountData: {
         routingNumber,

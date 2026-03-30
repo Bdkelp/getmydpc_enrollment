@@ -733,6 +733,7 @@ export async function submitServerPostRecurringPayment(
     }
 
     const authGuid = typeof options.authGuid === 'string' ? options.authGuid.trim() : '';
+    const usesTokenReference = Boolean(authGuid);
     const requiresAuthGuid = !isACHTransaction || isAchRefundOrVoidTranType(resolvedTranType);
     if (requiresAuthGuid && !authGuid) {
       throw new Error('Missing EPX auth GUID (ORIG_AUTH_GUID) for this Server Post transaction type.');
@@ -758,6 +759,12 @@ export async function submitServerPostRecurringPayment(
       ? (options.aciExt ?? 'RB')
       : undefined;
 
+    const resolvedCardEntryMethod = (() => {
+      const override = typeof options.cardEntryMethod === 'string' ? options.cardEntryMethod.trim().toUpperCase() : '';
+      if (override) return override;
+      return usesTokenReference ? 'Z' : 'X';
+    })();
+
     requestFields = {
       CUST_NBR: resolvedCredentials.custNbr,
       MERCH_NBR: resolvedCredentials.merchNbr,
@@ -768,7 +775,7 @@ export async function submitServerPostRecurringPayment(
       AMOUNT: amountIsProvided ? formatAmount(amount) : undefined,
       BATCH_ID: options.batchId || generateBatchId(),
       TRAN_NBR: generateTranNbr(options.tranNbr || options.transactionId),
-      CARD_ENT_METH: options.cardEntryMethod || 'X',
+      CARD_ENT_METH: resolvedCardEntryMethod,
       INDUSTRY_TYPE: options.industryType || 'E'
     };
 
@@ -777,7 +784,11 @@ export async function submitServerPostRecurringPayment(
     }
 
     // Add ACH-specific fields for CKC*/CKS* transactions.
-    if (isACHTransaction && options.bankAccountData) {
+    // Initial/direct ACH requests use routing+account data, while token-based requests use ORIG_AUTH_GUID.
+    if (isACHTransaction && !usesTokenReference) {
+      if (!options.bankAccountData) {
+        throw new Error('Bank account data is required for non-token ACH transactions (CKC*/CKS*).');
+      }
       const bankData = options.bankAccountData;
       requestFields.ROUTING_NBR = bankData.routingNumber;
       requestFields.ACCOUNT_NBR = bankData.accountNumber;
@@ -785,8 +796,6 @@ export async function submitServerPostRecurringPayment(
       requestFields.ACCOUNT_TYPE = bankData.accountType === 'Checking' ? 'C' : 'S'; // C=Checking, S=Savings
       const stdEntryClass = (options.stdEntryClass || process.env.EPX_STD_ENTRY_CLASS || 'WEB').trim().toUpperCase();
       requestFields.STD_ENTRY_CLASS = stdEntryClass;
-    } else if (isACHTransaction && !options.bankAccountData) {
-      throw new Error('Bank account data is required for ACH transactions (CKC*/CKS*).');
     }
 
     if (resolvedAciExt) {

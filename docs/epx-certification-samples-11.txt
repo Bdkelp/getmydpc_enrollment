@@ -1,0 +1,265 @@
+[
+  {
+    "transactionId": "ACH-INIT-23-1774901070672",
+    "customerId": "23",
+    "amount": 61.36,
+    "purpose": "ach-initial-request",
+    "request": {
+      "timestamp": "2026-03-30T20:04:30.672Z",
+      "method": "POST",
+      "endpoint": "/api/payments/ach/initial",
+      "url": "/api/payments/ach/initial",
+      "headers": {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+      },
+      "body": {
+        "memberId": 23,
+        "amount": 61.36,
+        "accountType": "Checking",
+        "accountHolderName": "Juan Testes",
+        "routingNumber": "****0092",
+        "accountNumber": "****7890"
+      },
+      "ipAddress": "68.203.208.101",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    },
+    "response": {
+      "statusCode": 202,
+      "body": {
+        "success": true,
+        "message": "ACH initial request submitted to EPX"
+      }
+    },
+    "sensitiveFieldsMasked": [
+      "routingNumber",
+      "accountNumber",
+      "ORIG_AUTH_GUID"
+    ],
+    "metadata": {
+      "userId": "8bda1072-ab65-4733-a84b-2a3609a69450",
+      "userRole": "super_admin",
+      "flow": "ach-initial"
+    },
+    "timestamp": "2026-03-30T20:04:30.672Z",
+    "fileName": "2026-03-30T20-04-30-672Z_ACH-INIT-23-1774901070672.json"
+  },
+  {
+    "transactionId": "ACH-INIT-23-1774901070672",
+    "customerId": "CUST-2603HSQY",
+    "amount": 61.36,
+    "environment": "sandbox",
+    "purpose": "server-post-mit",
+    "request": {
+      "timestamp": "2026-03-30T20:04:31.016Z",
+      "method": "POST",
+      "endpoint": "/serverpost",
+      "url": "https://secure.epxuap.com/",
+      "headers": {
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      "body": {
+        "form": {
+          "CUST_NBR": "9001",
+          "MERCH_NBR": "900300",
+          "DBA_NBR": "2",
+          "TERMINAL_NBR": "72",
+          "TRAN_TYPE": "CKC2",
+          "AMOUNT": "61.36",
+          "BATCH_ID": "20260330",
+          "TRAN_NBR": "673561",
+          "CARD_ENT_METH": "X",
+          "INDUSTRY_TYPE": "E",
+          "ORIG_AUTH_GUID": "09LN****30XW",
+          "ROUTING_NBR": "****0092",
+          "ACCOUNT_NBR": "****7890",
+          "RECV_NAME": "Juan Testes",
+          "ACCOUNT_TYPE": "C",
+          "STD_ENTRY_CLASS": "WEB",
+          "FIRST_NAME": "Juan",
+          "LAST_NAME": "Testes",
+          "USER_DATA_1": "j.testes@email.com",
+          "ADDRESS": "325 Main St",
+          "CITY": "El Paso",
+          "STATE": "TX",
+          "ZIP_CODE": "79904",
+          "PHONE_CELL": "2225551212",
+          "USER_DATA_2": "Initial ACH setup for Juan Testes"
+        },
+        "rawFields": {
+          "CUST_NBR": "9001",
+          "MERCH_NBR": "900300",
+          "DBA_NBR": "2",
+          "TERMINAL_NBR": "72",
+          "TRAN_TYPE": "CKC2",
+          "AMOUNT": "61.36",
+          "BATCH_ID": "20260330",
+          "TRAN_NBR": "673561",
+          "CARD_ENT_METH": "X",
+          "INDUSTRY_TYPE": "E",
+          "ORIG_AUTH_GUID": "09LN5Z4PZ5U0AHA30XW",
+          "ROUTING_NBR": "031100092",
+          "ACCOUNT_NBR": "1234567890",
+          "RECV_NAME": "Juan Testes",
+          "ACCOUNT_TYPE": "C",
+          "STD_ENTRY_CLASS": "WEB",
+          "FIRST_NAME": "Juan",
+          "LAST_NAME": "Testes",
+          "USER_DATA_1": "j.testes@email.com",
+          "ADDRESS": "325 Main St",
+          "CITY": "El Paso",
+          "STATE": "TX",
+          "ZIP_CODE": "79904",
+          "PHONE_CELL": "2225551212",
+          "USER_DATA_2": "Initial ACH setup for Juan Testes"
+        },
+        "raw": "CUST_NBR=9001&MERCH_NBR=900300&DBA_NBR=2&TERMINAL_NBR=72&TRAN_TYPE=CKC2&AMOUNT=61.36&BATCH_ID=20260330&TRAN_NBR=673561&CARD_ENT_METH=X&INDUSTRY_TYPE=E&ORIG_AUTH_GUID=09LN5Z4PZ5U0AHA30XW&ROUTING_NBR=031100092&ACCOUNT_NBR=1234567890&RECV_NAME=Juan+Testes&ACCOUNT_TYPE=C&STD_ENTRY_CLASS=WEB&FIRST_NAME=Juan&LAST_NAME=Testes&USER_DATA_1=j.testes%40email.com&ADDRESS=325+Main+St&CITY=El+Paso&STATE=TX&ZIP_CODE=79904&PHONE_CELL=2225551212&USER_DATA_2=Initial+ACH+setup+for+Juan+Testes",
+        "authGuid": "09LN5Z4PZ5U0AHA30XW",
+        "authGuidVisibility": "raw"
+      }
+    },
+    "response": {
+      "statusCode": 200,
+      "body": {
+        "raw": "<RESPONSE><FIELDS><FIELD KEY=\"MSG_VERSION\">003</FIELD><FIELD KEY=\"CUST_NBR\">9001</FIELD><FIELD KEY=\"MERCH_NBR\">900300</FIELD><FIELD KEY=\"DBA_NBR\">2</FIELD><FIELD KEY=\"TERMINAL_NBR\">72</FIELD><FIELD KEY=\"TRAN_TYPE\">CKC2</FIELD><FIELD KEY=\"BATCH_ID\">20260330</FIELD><FIELD KEY=\"TRAN_NBR\">673561</FIELD><FIELD KEY=\"LOCAL_DATE\">033026</FIELD><FIELD KEY=\"LOCAL_TIME\">160430</FIELD><FIELD KEY=\"AUTH_GUID\">09LN5ZB3LTKA92LB2HR</FIELD><FIELD KEY=\"AUTH_RESP\">00</FIELD><FIELD KEY=\"AUTH_CODE\">750813</FIELD><FIELD KEY=\"AUTH_RESP_TEXT\">ACCEPTED 750813</FIELD><FIELD KEY=\"AUTH_CARD_TYPE\">L</FIELD><FIELD KEY=\"AUTH_TRAN_DATE_GMT\">03/30/2026 08:04:30 PM</FIELD><FIELD KEY=\"AUTH_AMOUNT_REQUESTED\">61.36</FIELD><FIELD KEY=\"AUTH_AMOUNT\">61.36</FIELD><FIELD KEY=\"AUTH_CURRENCY_CODE\">840</FIELD><FIELD KEY=\"NETWORK_RESPONSE\">00</FIELD><FIELD KEY=\"AUTH_MASKED_ACCOUNT_NBR\">******7890</FIELD><FIELD KEY=\"ORIG_TRAN_TYPE\">CKC2</FIELD></FIELDS></RESPONSE>",
+        "fields": {
+          "MSG_VERSION": "003",
+          "CUST_NBR": "9001",
+          "MERCH_NBR": "900300",
+          "DBA_NBR": "2",
+          "TERMINAL_NBR": "72",
+          "TRAN_TYPE": "CKC2",
+          "BATCH_ID": "20260330",
+          "TRAN_NBR": "673561",
+          "LOCAL_DATE": "033026",
+          "LOCAL_TIME": "160430",
+          "AUTH_GUID": "09LN5ZB3LTKA92LB2HR",
+          "AUTH_RESP": "00",
+          "AUTH_CODE": "750813",
+          "AUTH_RESP_TEXT": "ACCEPTED 750813",
+          "AUTH_CARD_TYPE": "L",
+          "AUTH_TRAN_DATE_GMT": "03/30/2026 08:04:30 PM",
+          "AUTH_AMOUNT_REQUESTED": "61.36",
+          "AUTH_AMOUNT": "61.36",
+          "AUTH_CURRENCY_CODE": "840",
+          "NETWORK_RESPONSE": "00",
+          "AUTH_MASKED_ACCOUNT_NBR": "******7890",
+          "ORIG_TRAN_TYPE": "CKC2"
+        }
+      },
+      "processingTimeMs": 342
+    },
+    "sensitiveFieldsMasked": [
+      "ORIG_AUTH_GUID"
+    ],
+    "metadata": {
+      "tranNbr": "673561",
+      "tranType": "CKC2",
+      "memberId": 23,
+      "additional": {
+        "paymentMethodType": "ACH",
+        "accountType": "Checking",
+        "resolvedTranType": "CKC2"
+      }
+    },
+    "timestamp": "2026-03-30T20:04:31.016Z",
+    "fileName": "2026-03-30T20-04-31-016Z_ACH-INIT-23-1774901070672.json"
+  },
+  {
+    "transactionId": "673561",
+    "customerId": "23",
+    "amount": 61.36,
+    "purpose": "ach-initial-approved",
+    "request": {
+      "timestamp": "2026-03-30T20:04:31.232Z",
+      "method": "POST",
+      "endpoint": "/api/payments/ach/initial",
+      "url": "/api/payments/ach/initial",
+      "headers": {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+      },
+      "body": {
+        "accountType": "Checking",
+        "routingNumber": "****0092",
+        "accountNumber": "****7890"
+      },
+      "ipAddress": "68.203.208.101",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    },
+    "response": {
+      "statusCode": 200,
+      "body": {
+        "success": true,
+        "authCode": "750813",
+        "responseCode": "00",
+        "hasAuthGuid": true
+      }
+    },
+    "sensitiveFieldsMasked": [
+      "routingNumber",
+      "accountNumber",
+      "ORIG_AUTH_GUID"
+    ],
+    "metadata": {
+      "userId": "8bda1072-ab65-4733-a84b-2a3609a69450",
+      "userRole": "super_admin",
+      "paymentMethodType": "ACH",
+      "flow": "ach-initial",
+      "epxTransaction": {
+        "requestFields": {
+          "CUST_NBR": "9001",
+          "MERCH_NBR": "900300",
+          "DBA_NBR": "2",
+          "TERMINAL_NBR": "72",
+          "TRAN_TYPE": "CKC2",
+          "AMOUNT": "61.36",
+          "BATCH_ID": "20260330",
+          "TRAN_NBR": "673561",
+          "CARD_ENT_METH": "X",
+          "INDUSTRY_TYPE": "E",
+          "ORIG_AUTH_GUID": "09LN****30XW",
+          "ROUTING_NBR": "****0092",
+          "ACCOUNT_NBR": "****7890",
+          "RECV_NAME": "Juan Testes",
+          "ACCOUNT_TYPE": "C",
+          "STD_ENTRY_CLASS": "WEB",
+          "FIRST_NAME": "Juan",
+          "LAST_NAME": "Testes",
+          "USER_DATA_1": "j.testes@email.com",
+          "ADDRESS": "325 Main St",
+          "CITY": "El Paso",
+          "STATE": "TX",
+          "ZIP_CODE": "79904",
+          "PHONE_CELL": "2225551212",
+          "USER_DATA_2": "Initial ACH setup for Juan Testes"
+        },
+        "responseFields": {
+          "MSG_VERSION": "003",
+          "CUST_NBR": "9001",
+          "MERCH_NBR": "900300",
+          "DBA_NBR": "2",
+          "TERMINAL_NBR": "72",
+          "TRAN_TYPE": "CKC2",
+          "BATCH_ID": "20260330",
+          "TRAN_NBR": "673561",
+          "LOCAL_DATE": "033026",
+          "LOCAL_TIME": "160430",
+          "AUTH_GUID": "09LN****B2HR",
+          "AUTH_RESP": "00",
+          "AUTH_CODE": "750813",
+          "AUTH_RESP_TEXT": "ACCEPTED 750813",
+          "AUTH_CARD_TYPE": "L",
+          "AUTH_TRAN_DATE_GMT": "03/30/2026 08:04:30 PM",
+          "AUTH_AMOUNT_REQUESTED": "61.36",
+          "AUTH_AMOUNT": "61.36",
+          "AUTH_CURRENCY_CODE": "840",
+          "NETWORK_RESPONSE": "00",
+          "AUTH_MASKED_ACCOUNT_NBR": "******7890",
+          "ORIG_TRAN_TYPE": "CKC2"
+        },
+        "rawResponse": "<RESPONSE><FIELDS><FIELD KEY=\"MSG_VERSION\">003</FIELD><FIELD KEY=\"CUST_NBR\">9001</FIELD><FIELD KEY=\"MERCH_NBR\">900300</FIELD><FIELD KEY=\"DBA_NBR\">2</FIELD><FIELD KEY=\"TERMINAL_NBR\">72</FIELD><FIELD KEY=\"TRAN_TYPE\">CKC2</FIELD><FIELD KEY=\"BATCH_ID\">20260330</FIELD><FIELD KEY=\"TRAN_NBR\">673561</FIELD><FIELD KEY=\"LOCAL_DATE\">033026</FIELD><FIELD KEY=\"LOCAL_TIME\">160430</FIELD><FIELD KEY=\"AUTH_GUID\">09LN5ZB3LTKA92LB2HR</FIELD><FIELD KEY=\"AUTH_RESP\">00</FIELD><FIELD KEY=\"AUTH_CODE\">750813</FIELD><FIELD KEY=\"AUTH_RESP_TEXT\">ACCEPTED 750813</FIELD><FIELD KEY=\"AUTH_CARD_TYPE\">L</FIELD><FIELD KEY=\"AUTH_TRAN_DATE_GMT\">03/30/2026 08:04:30 PM</FIELD><FIELD KEY=\"AUTH_AMOUNT_REQUESTED\">61.36</FIELD><FIELD KEY=\"AUTH_AMOUNT\">61.36</FIELD><FIELD KEY=\"AUTH_CURRENCY_CODE\">840</FIELD><FIELD KEY=\"NETWORK_RESPONSE\">00</FIELD><FIELD KEY=\"AUTH_MASKED_ACCOUNT_NBR\">******7890</FIELD><FIELD KEY=\"ORIG_TRAN_TYPE\">CKC2</FIELD></FIELDS></RESPONSE>"
+      }
+    },
+    "timestamp": "2026-03-30T20:04:31.232Z",
+    "fileName": "2026-03-30T20-04-31-232Z_673561.json"
+  }
+]
