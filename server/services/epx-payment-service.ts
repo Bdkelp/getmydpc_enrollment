@@ -783,13 +783,8 @@ export async function submitServerPostRecurringPayment(
       requestFields.ACCOUNT_NBR = bankData.accountNumber;
       requestFields.RECV_NAME = bankData.accountHolderName;
       requestFields.ACCOUNT_TYPE = bankData.accountType === 'Checking' ? 'C' : 'S'; // C=Checking, S=Savings
-      const stdEntryClass = (options.stdEntryClass || process.env.EPX_STD_ENTRY_CLASS || '').trim().toUpperCase();
-      if (stdEntryClass) {
-        requestFields.STD_ENTRY_CLASS = stdEntryClass;
-      }
-      
-      // ACH transactions don't use CARD_ENT_METH, remove it
-      delete requestFields.CARD_ENT_METH;
+      const stdEntryClass = (options.stdEntryClass || process.env.EPX_STD_ENTRY_CLASS || 'WEB').trim().toUpperCase();
+      requestFields.STD_ENTRY_CLASS = stdEntryClass;
     } else if (isACHTransaction && !options.bankAccountData) {
       throw new Error('Bank account data is required for ACH transactions (CKC*/CKS*).');
     }

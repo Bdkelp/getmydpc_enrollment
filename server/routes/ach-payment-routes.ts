@@ -556,6 +556,15 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
       });
     }
 
+    // Recurring ACH must use a stored AUTH_GUID generated during initial setup.
+    if (!member.paymentToken || !String(member.paymentToken).trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing ACH authorization token',
+        message: 'Run ACH initial setup first to store AUTH_GUID for recurring billing'
+      });
+    }
+
     // Submit recurring ACH payment
     const achTransactionId = `ACH-REC-${member.id}-${Date.now()}`;
     logEPX({
@@ -599,7 +608,7 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
 
     const result = await submitACHRecurringPayment({
       amount: parsedAmount,
-      authGuid: member.paymentToken || '', // AUTH_GUID when available
+      authGuid: member.paymentToken,
       member: member,
       bankAccountData: {
         routingNumber: member.bankRoutingNumber,

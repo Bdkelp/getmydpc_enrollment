@@ -17,6 +17,8 @@
     "start": "node dist/index.js",
     "build:all": "npm run build:clean && npm --prefix client run build && npm run build",
     "check": "tsc",
+    "test": "npm run test:scheduler",
+    "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
     "db:push": "drizzle-kit push",
     "check:users": "tsx server/scripts/check-users.ts",
     "seed:users": "tsx server/scripts/seed-users.ts",

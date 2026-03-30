@@ -9,7 +9,7 @@ import fs from 'fs';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { requireRole } from '../auth/roles';
 import { certificationLogger } from '../services/certification-logger';
-import { storage, getRecentPaymentsDetailed } from '../storage';
+import { storage, getRecentPaymentsDetailed, getSubscriptionsDueForBilling } from '../storage';
 import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
 import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
 import { getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
@@ -88,6 +88,93 @@ const sanitizeFilename = (value?: string): string => {
   }
   const sanitized = trimmed.replace(/[^a-z0-9._-]/gi, '_');
   return sanitized.endsWith('.json') ? sanitized : `${sanitized}.json`;
+};
+
+const getTranTypeFromEntry = (entry: any): string | null => {
+  const candidates = [
+    entry?.request?.body?.rawFields?.TRAN_TYPE,
+    entry?.request?.body?.form?.TRAN_TYPE,
+    entry?.metadata?.epxTransaction?.requestFields?.TRAN_TYPE,
+    entry?.response?.body?.fields?.TRAN_TYPE,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().toUpperCase();
+    }
+  }
+
+  return null;
+};
+
+const maskSensitiveText = (input: string): string => {
+  if (!input) {
+    return input;
+  }
+
+  return input
+    .replace(/(ORIG_AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
+    .replace(/(AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
+    .replace(/(ACCOUNT_NBR"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
+    .replace(/(ROUTING_NBR"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3');
+};
+
+const toSafePretty = (value: any): string => {
+  try {
+    return maskSensitiveText(JSON.stringify(value ?? {}, null, 2));
+  } catch {
+    return maskSensitiveText(String(value ?? ''));
+  }
+};
+
+const buildPlainTextCertificationSamples = (entries: any[]): string => {
+  const seenTranTypes = new Set<string>();
+  const selectedSamples: any[] = [];
+
+  for (const entry of entries) {
+    const tranType = getTranTypeFromEntry(entry);
+    if (!tranType || seenTranTypes.has(tranType)) {
+      continue;
+    }
+
+    seenTranTypes.add(tranType);
+    selectedSamples.push({ tranType, entry });
+  }
+
+  const lines: string[] = [];
+  lines.push('EPX Certification Samples');
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`Total unique tran types: ${selectedSamples.length}`);
+  lines.push('');
+
+  for (const sample of selectedSamples) {
+    const entry = sample.entry;
+    const requestSection = entry?.request?.body?.rawFields
+      ? { rawFields: entry.request.body.rawFields, raw: entry.request.body.raw }
+      : entry?.request?.body || entry?.metadata?.epxTransaction?.requestFields || {};
+    const responseSection = entry?.response?.body?.fields
+      ? { fields: entry.response.body.fields, raw: entry.response.body.raw }
+      : entry?.metadata?.epxTransaction?.responseFields || entry?.response?.body || {};
+
+    lines.push('============================================================');
+    lines.push(`TRAN_TYPE: ${sample.tranType}`);
+    lines.push(`Purpose: ${entry?.purpose || 'unknown'}`);
+    lines.push(`Transaction ID: ${entry?.transactionId || 'n/a'}`);
+    lines.push(`Timestamp: ${entry?.timestamp || 'n/a'}`);
+    lines.push('');
+    lines.push('REQUEST SAMPLE');
+    lines.push(toSafePretty(requestSection));
+    lines.push('');
+    lines.push('RESPONSE SAMPLE');
+    lines.push(toSafePretty(responseSection));
+    lines.push('');
+  }
+
+  if (!selectedSamples.length) {
+    lines.push('No certification samples with TRAN_TYPE were found in recent logs.');
+  }
+
+  return lines.join('\n');
 };
 
 type ServerPostPayload = {
@@ -462,6 +549,50 @@ router.get('/api/epx/certification/report', authenticateToken, requireSuperAdmin
   });
 });
 
+router.get('/api/epx/certification/scheduler-preview', authenticateToken, requireSuperAdmin, async (_req: AuthRequest, res: Response) => {
+  try {
+    const environment = await paymentEnvironment.getEnvironment();
+    const achEnabledByFlag = process.env.ACH_RECURRING_ENABLED === 'true';
+    const achEnabledForRuntime = achEnabledByFlag && environment === 'sandbox';
+    const now = new Date();
+
+    const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
+      includeACH: achEnabledForRuntime,
+    });
+
+    const normalized = dueSubscriptions.map((item) => ({
+      subscriptionId: item.subscriptionId,
+      memberId: item.memberId,
+      amount: item.amount,
+      nextBillingDate: item.nextBillingDate,
+      paymentMethodType: item.paymentMethodType,
+      cardLastFour: item.cardLastFour,
+      bankAccountLastFour: item.memberBankAccountLastFour || item.tokenBankAccountLastFour || null,
+    }));
+
+    const cardDueCount = normalized.filter((item) => String(item.paymentMethodType || '').toUpperCase() === 'CREDITCARD').length;
+    const achDueCount = normalized.filter((item) => String(item.paymentMethodType || '').toUpperCase() === 'ACH').length;
+
+    res.json({
+      success: true,
+      runtime: {
+        paymentEnvironment: environment,
+        achEnabledByFlag,
+        achEnabledForRuntime,
+      },
+      dueCounts: {
+        total: normalized.length,
+        card: cardDueCount,
+        ach: achDueCount,
+      },
+      dueSubscriptions: normalized.slice(0, 100),
+    });
+  } catch (error: any) {
+    console.error('[EPX Certification] Scheduler preview failed', error);
+    res.status(500).json({ success: false, error: error?.message || 'Failed to load scheduler preview' });
+  }
+});
+
 router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
 
   const providedName = sanitizeFilename(req.body?.filename);
@@ -493,6 +624,18 @@ router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmi
       error: 'Failed to export certification logs'
     });
   }
+});
+
+router.get('/api/epx/certification/export-txt', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
+  const limitParam = parseInt((req.query.limit as string) || '1000', 10);
+  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 25), 2000) : 1000;
+  const entries = certificationLogger.getRecentEntries(limit);
+  const textPayload = buildPlainTextCertificationSamples(entries);
+  const fileName = `epx-certification-samples-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+  res.status(200).send(textPayload);
 });
 
 /**

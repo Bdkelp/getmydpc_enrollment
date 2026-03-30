@@ -26,6 +26,7 @@ import {
 } from '../storage';
 import { submitServerPostRecurringPayment } from './epx-payment-service';
 import { persistRecurringPostSuccess } from './recurring-post-success-persistence';
+import { paymentEnvironment } from './payment-environment-service';
 
 const LOG_PREFIX = '[Recurring Billing]';
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
@@ -66,19 +67,23 @@ function isAchRecurringTestMode(): boolean {
   return process.env.ACH_RECURRING_TEST_MODE !== 'false';
 }
 
-function normalizePaymentMethodType(paymentMethodType: string | null | undefined): 'CreditCard' | 'ACH' | 'UNKNOWN' {
+export function normalizePaymentMethodType(paymentMethodType: string | null | undefined): 'CreditCard' | 'ACH' | 'UNKNOWN' {
   const normalized = String(paymentMethodType || '').trim().toUpperCase();
   if (normalized === 'CREDITCARD') return 'CreditCard';
   if (normalized === 'ACH' || normalized === 'BANKACCOUNT') return 'ACH';
   return 'UNKNOWN';
 }
 
-function normalizeAchAccountType(accountType: string | null | undefined): 'Checking' | 'Savings' | null {
+export function normalizeAchAccountType(accountType: string | null | undefined): 'Checking' | 'Savings' | null {
   const normalized = String(accountType || '').trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === 'c' || normalized.startsWith('check')) return 'Checking';
   if (normalized === 's' || normalized.startsWith('sav')) return 'Savings';
   return null;
+}
+
+export function isAchRuntimeEnabled(achEnabledByFlag: boolean, paymentEnvironment: string): boolean {
+  return achEnabledByFlag && paymentEnvironment === 'sandbox';
 }
 
 function resolveAchRuntimeData(sub: BillableSubscription):
@@ -224,9 +229,17 @@ function truncateBillingDate(date: string | Date): string {
 async function runBillingCycle(): Promise<void> {
   const cycleStart = Date.now();
   const dryRun = isDryRun();
-  const achEnabled = isAchRecurringEnabled();
+  const achEnabledByFlag = isAchRecurringEnabled();
   const achTestMode = isAchRecurringTestMode();
+  const currentPaymentEnvironment = await paymentEnvironment.getEnvironment();
+  const achEnabled = isAchRuntimeEnabled(achEnabledByFlag, currentPaymentEnvironment);
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
+
+  if (achEnabledByFlag && currentPaymentEnvironment !== 'sandbox') {
+    console.warn(
+      `${LOG_PREFIX} ACH recurring feature flag is enabled but blocked because payment environment is ${currentPaymentEnvironment}`
+    );
+  }
 
   console.log(`${LOG_PREFIX} ──── Cycle start (${mode}) ────`);
 
@@ -292,7 +305,7 @@ async function runBillingCycle(): Promise<void> {
 
     console.log(
       `${LOG_PREFIX} Found ${dueSubscriptions.length} subscription(s) due ` +
-      `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achTestMode=${achTestMode})`
+      `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achEnabledByFlag=${achEnabledByFlag}, paymentEnvironment=${currentPaymentEnvironment}, achTestMode=${achTestMode})`
     );
 
     let successCount = 0;
