@@ -103,6 +103,7 @@ interface AnalyticsData {
     lastName: string;
     email: string;
     businessCategory?: 'individual' | 'family' | 'group';
+    groupName?: string;
     phone: string;
     planName: string;
     status: string;
@@ -120,6 +121,7 @@ interface AnalyticsData {
     agentNumber: string;
     memberName: string;
     businessCategory?: 'individual' | 'family' | 'group';
+    groupName?: string;
     planName: string;
     commissionAmount: number;
     totalPlanCost: number;
@@ -337,8 +339,7 @@ export default function AdminAnalytics() {
                   <div className="text-2xl font-bold">{analytics.overview.totalMembers}</div>
                   <p className="text-xs text-gray-500 mt-1">
                     Active subscriptions: {analytics.overview.activeSubscriptions}
-                    {' | '}Individual: {analytics.overview.sourceBreakdown?.individualMembers ?? 0}
-                    {' | '}Family: {analytics.overview.sourceBreakdown?.familyMembers ?? 0}
+                    {' | '}Individual/Family: {(analytics.overview.sourceBreakdown?.individualMembers ?? 0) + (analytics.overview.sourceBreakdown?.familyMembers ?? 0)}
                     {' | '}Group: {analytics.overview.sourceBreakdown?.groupMembers ?? 0}
                   </p>
                 </CardContent>
@@ -355,8 +356,7 @@ export default function AdminAnalytics() {
                   <div className="text-2xl font-bold">{formatCurrency(analytics.overview.monthlyRevenue)}</div>
                   <p className="text-xs text-gray-500 mt-1">Avg per member: {formatCurrency(analytics.overview.averageRevenue)}</p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Individual: {formatCurrency(analytics.overview.sourceBreakdown?.individualMonthlyRevenue ?? 0)}
-                    {' | '}Family: {formatCurrency(analytics.overview.sourceBreakdown?.familyMonthlyRevenue ?? 0)}
+                    Individual/Family: {formatCurrency((analytics.overview.sourceBreakdown?.individualMonthlyRevenue ?? 0) + (analytics.overview.sourceBreakdown?.familyMonthlyRevenue ?? 0))}
                     {' | '}Group: {formatCurrency(analytics.overview.sourceBreakdown?.groupMonthlyRevenue ?? 0)}
                   </p>
                 </CardContent>
@@ -576,6 +576,7 @@ export default function AdminAnalytics() {
                         <TableRow>
                           <TableHead>Name</TableHead>
                           <TableHead>Member ID</TableHead>
+                          <TableHead>Group</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Segment</TableHead>
                           <TableHead>Phone</TableHead>
@@ -593,7 +594,7 @@ export default function AdminAnalytics() {
                               {member.firstName} {member.lastName}
                             </TableCell>
                             <TableCell className="font-mono text-xs">
-                              #{member.memberId || member.id}
+                              {member.memberId ? `#${member.memberId}` : '-'}
                               {member.memberPublicId && (
                                 <div className="text-[11px] text-gray-500">
                                   Public: {member.memberPublicId}
@@ -605,6 +606,7 @@ export default function AdminAnalytics() {
                                 </div>
                               )}
                             </TableCell>
+                            <TableCell>{member.groupName || '-'}</TableCell>
                             <TableCell>{member.email}</TableCell>
                             <TableCell className="capitalize">{member.businessCategory || 'individual'}</TableCell>
                             <TableCell>{member.phone}</TableCell>
@@ -670,6 +672,7 @@ export default function AdminAnalytics() {
                           <TableHead>Agent #</TableHead>
                           <TableHead>Member</TableHead>
                           <TableHead>Member ID</TableHead>
+                          <TableHead>Group</TableHead>
                           <TableHead>Plan</TableHead>
                           <TableHead>Segment</TableHead>
                           <TableHead className="text-right">Commission</TableHead>
@@ -686,7 +689,7 @@ export default function AdminAnalytics() {
                             <TableCell>{commission.agentNumber}</TableCell>
                             <TableCell>{commission.memberName}</TableCell>
                             <TableCell className="font-mono text-xs">
-                              #{commission.memberId || '—'}
+                              {commission.memberId ? `#${commission.memberId}` : '—'}
                               {commission.memberPublicId && (
                                 <div className="text-[11px] text-gray-500">
                                   Public: {commission.memberPublicId}
@@ -698,6 +701,7 @@ export default function AdminAnalytics() {
                                 </div>
                               )}
                             </TableCell>
+                            <TableCell>{commission.groupName || '-'}</TableCell>
                             <TableCell>{commission.planName}</TableCell>
                             <TableCell className="capitalize">{commission.businessCategory || 'individual'}</TableCell>
                             <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
@@ -752,12 +756,11 @@ export default function AdminAnalytics() {
                         </Card>
                         <Card>
                           <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">Individual / Family / Group</CardTitle>
+                            <CardTitle className="text-sm">Individual / Family + Group</CardTitle>
                           </CardHeader>
                           <CardContent>
                             <div className="text-xs text-gray-600 space-y-1">
-                              <div>Individual: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.individualRevenue || 0)}</span></div>
-                              <div>Family: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.familyRevenue || 0)}</span></div>
+                              <div>Individual/Family: <span className="font-semibold text-gray-900">{formatCurrency((analytics?.revenueBreakdown?.individualRevenue || 0) + (analytics?.revenueBreakdown?.familyRevenue || 0))}</span></div>
                               <div>Group: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.groupRevenue || 0)}</span></div>
                             </div>
                           </CardContent>

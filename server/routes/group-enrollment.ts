@@ -25,6 +25,7 @@ import {
 import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
 import { createMonthlyPayout } from '../services/commission-payout-service';
 import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
+import { calculateCommission } from '../commissionCalculator';
 
 const router = Router();
 
@@ -890,6 +891,122 @@ const parseCycleDate = (value?: string | null): Date => {
 
 type CommissionSplit = { agentId: string; percentage: number };
 
+const toCommissionMemberType = (tierOrRelationship: unknown): string => {
+  const normalized = String(tierOrRelationship || '').trim().toLowerCase();
+  if (normalized === 'spouse' || normalized.includes('spouse')) {
+    return 'member/spouse';
+  }
+  if (normalized === 'child' || normalized === 'dependent' || normalized.includes('child')) {
+    return 'member/child';
+  }
+  if (normalized === 'family' || normalized === 'fam') {
+    return 'family';
+  }
+  return 'member only';
+};
+
+const resolveGroupMemberPlanName = (group: any, groupMember: any): string => {
+  const payload = toObjectOrNull(groupMember?.registrationPayload) || {};
+  const memberMetadata = toObjectOrNull(groupMember?.metadata) || {};
+  const groupMetadata = toObjectOrNull(group?.metadata) || {};
+
+  const directPlan = String(
+    payload.planName
+    || payload.selectedPlanName
+    || memberMetadata.planName
+    || groupMetadata.planName
+    || ''
+  ).trim();
+
+  if (directPlan.length > 0) {
+    return directPlan;
+  }
+
+  const memberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
+  const membershipAmount = roundCurrency(
+    parseAmountNumber(groupMember?.totalAmount)
+    || (parseAmountNumber(groupMember?.memberAmount) + parseAmountNumber(groupMember?.employerAmount))
+  );
+
+  const planCandidates = ['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'];
+  let bestPlan = 'MyPremierPlan Base';
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const candidate of planCandidates) {
+    const result = calculateCommission(candidate, memberType, false);
+    if (!result) {
+      continue;
+    }
+
+    const distance = Math.abs(result.totalCost - membershipAmount);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPlan = candidate;
+    }
+  }
+
+  return bestPlan;
+};
+
+const resolveGroupCommissionContext = (group: any, groupMember: any, membershipAmount: number) => {
+  const payload = toObjectOrNull(groupMember?.registrationPayload) || {};
+  const memberMetadata = toObjectOrNull(groupMember?.metadata) || {};
+  const relationship = normalizeMemberRelationship(groupMember?.relationship, groupMember?.tier);
+  const memberType = toCommissionMemberType(groupMember?.tier || relationship);
+  const planName = resolveGroupMemberPlanName(group, groupMember);
+  const addRxValet = Boolean(
+    payload.addRxValet
+    || payload.rxValetEnrolled
+    || memberMetadata.addRxValet
+    || memberMetadata.rxValetEnrolled
+    || memberMetadata.pbmEnrolled
+  );
+
+  const commissionResult = calculateCommission(planName, memberType, addRxValet);
+  if (!commissionResult) {
+    return {
+      planName,
+      memberType,
+      addRxValet,
+      coverageType: 'group',
+      commissionBaseAmount: roundCurrency(membershipAmount),
+      membershipAmount: roundCurrency(membershipAmount),
+    };
+  }
+
+  return {
+    planName,
+    memberType,
+    addRxValet,
+    coverageType: 'group',
+    commissionBaseAmount: roundCurrency(commissionResult.commission),
+    membershipAmount: roundCurrency(membershipAmount),
+  };
+};
+
+const filterEligibleCommissionSplits = async (splits: CommissionSplit[]): Promise<CommissionSplit[]> => {
+  if (!splits.length) {
+    return [];
+  }
+
+  const agentIds = [...new Set(splits.map((split) => split.agentId))];
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, role, is_active')
+    .in('id', agentIds);
+
+  if (error) {
+    console.warn('[Group Enrollment] Failed validating assigned commission agents:', error);
+    return [];
+  }
+
+  const usersById = new Map((data || []).map((row: any) => [String(row.id), row]));
+  return splits.filter((split) => {
+    const user = usersById.get(split.agentId);
+    return Boolean(user && user.role === 'agent' && user.is_active !== false);
+  });
+};
+
 const normalizeCommissionSplitInput = (input: unknown): CommissionSplit[] => {
   if (!Array.isArray(input)) {
     return [];
@@ -1064,10 +1181,22 @@ const createExpectedGroupMemberCommissionsForCycle = async (
   const cycleKey = getCycleKey(cycleAnchor);
   const asOfDateIso = toIsoDateOnly(cycleAnchor);
   const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, asOfDateIso);
-  const configuredSplits = parseConfiguredCommissionSplits(metadata, assignedAgentId, asOfDateIso);
+  const configuredSplits = await filterEligibleCommissionSplits(
+    parseConfiguredCommissionSplits(metadata, assignedAgentId, asOfDateIso)
+  );
   const splitError = validateCommissionSplits(configuredSplits);
-  if (splitError) {
+  if (splitError && configuredSplits.length > 0) {
     throw new Error(splitError);
+  }
+
+  if (configuredSplits.length === 0) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: groupMembers.length,
+      expectedTotal: 0,
+      cycleKey,
+    };
   }
 
   const primaryAgentId = configuredSplits[0].agentId;
@@ -1089,15 +1218,18 @@ const createExpectedGroupMemberCommissionsForCycle = async (
       continue;
     }
 
-    expectedTotal = roundCurrency(expectedTotal + baseAmount);
+    const commissionContext = resolveGroupCommissionContext(group, groupMember, baseAmount);
+    const commissionBaseAmount = commissionContext.commissionBaseAmount;
+
+    expectedTotal = roundCurrency(expectedTotal + commissionBaseAmount);
 
     let allocated = 0;
     for (let index = 0; index < configuredSplits.length; index += 1) {
       const split = configuredSplits[index];
       const isLast = index === configuredSplits.length - 1;
       const splitAmount = isLast
-        ? roundCurrency(baseAmount - allocated)
-        : roundCurrency(baseAmount * (split.percentage / 100));
+        ? roundCurrency(commissionBaseAmount - allocated)
+        : roundCurrency(commissionBaseAmount * (split.percentage / 100));
       allocated = roundCurrency(allocated + splitAmount);
 
       if (splitAmount <= 0) {
@@ -1118,6 +1250,10 @@ const createExpectedGroupMemberCommissionsForCycle = async (
         `groupMember:${groupMember.id}`,
         `cycle:${cycleKey}`,
         'stage:expected',
+        `groupName:${group.name || ''}`,
+        `plan:${commissionContext.planName}`,
+        `memberType:${commissionContext.memberType}`,
+        `membershipFee:${commissionContext.membershipAmount.toFixed(2)}`,
         `split:${split.percentage}`,
         triggeredBy ? `triggeredBy:${triggeredBy}` : null,
       ].filter(Boolean).join(' | ');
@@ -1139,7 +1275,7 @@ const createExpectedGroupMemberCommissionsForCycle = async (
             payment_eligible_date: null,
             commission_type: index === 0 ? 'direct' : 'override',
             override_for_agent_id: index === 0 ? null : primaryAgentId,
-            base_premium: baseAmount,
+            base_premium: commissionContext.membershipAmount,
             notes: expectedNotes,
           })
           .eq('id', existingCommission.id);
@@ -1157,7 +1293,7 @@ const createExpectedGroupMemberCommissionsForCycle = async (
         member_id: syntheticMemberId,
         enrollment_id: null,
         commission_amount: splitAmount,
-        coverage_type: 'other' as const,
+        coverage_type: commissionContext.coverageType as any,
         status: 'pending',
         payment_status: 'unpaid',
         payment_captured: false,
@@ -1165,7 +1301,7 @@ const createExpectedGroupMemberCommissionsForCycle = async (
         payment_eligible_date: null,
         commission_type: index === 0 ? 'direct' : 'override',
         override_for_agent_id: index === 0 ? null : primaryAgentId,
-        base_premium: baseAmount,
+        base_premium: commissionContext.membershipAmount,
         notes: expectedNotes,
       };
 
@@ -1338,10 +1474,16 @@ const createGroupMemberCommissionsForCapturedPayment = async (
   const paymentDateOnly = paymentDateIso.slice(0, 10);
   const cycleKey = getCycleKey(paymentCapturedAt);
   const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, paymentDateOnly);
-  const configuredSplits = parseConfiguredCommissionSplits(metadata, assignedAgentId, paymentDateOnly);
+  const configuredSplits = await filterEligibleCommissionSplits(
+    parseConfiguredCommissionSplits(metadata, assignedAgentId, paymentDateOnly)
+  );
   const splitError = validateCommissionSplits(configuredSplits);
-  if (splitError) {
+  if (splitError && configuredSplits.length > 0) {
     throw new Error(splitError);
+  }
+
+  if (configuredSplits.length === 0) {
+    return;
   }
 
   const syntheticMemberId = `group_member:${groupMember.id}`;
@@ -1350,6 +1492,9 @@ const createGroupMemberCommissionsForCapturedPayment = async (
   if (baseAmount <= 0) {
     throw new Error('Cannot create group commission because member total amount is zero');
   }
+
+  const commissionContext = resolveGroupCommissionContext(group, groupMember, baseAmount);
+  const commissionBaseAmount = commissionContext.commissionBaseAmount;
 
   const paymentEligibleDate = calculatePaymentEligibleDate(paymentCapturedAt);
   const primaryAgentId = configuredSplits[0].agentId;
@@ -1367,8 +1512,8 @@ const createGroupMemberCommissionsForCapturedPayment = async (
 
     const isLast = index === configuredSplits.length - 1;
     const splitAmount = isLast
-      ? roundCurrency(baseAmount - allocated)
-      : roundCurrency(baseAmount * (split.percentage / 100));
+      ? roundCurrency(commissionBaseAmount - allocated)
+      : roundCurrency(commissionBaseAmount * (split.percentage / 100));
     allocated = roundCurrency(allocated + splitAmount);
 
     if (splitAmount <= 0) {
@@ -1380,7 +1525,7 @@ const createGroupMemberCommissionsForCapturedPayment = async (
       member_id: syntheticMemberId,
       enrollment_id: null,
       commission_amount: splitAmount,
-      coverage_type: 'other' as const,
+      coverage_type: commissionContext.coverageType as any,
       status: 'approved',
       payment_status: 'unpaid',
       payment_captured: true,
@@ -1388,12 +1533,16 @@ const createGroupMemberCommissionsForCapturedPayment = async (
       payment_eligible_date: paymentEligibleDate.toISOString(),
       commission_type: index === 0 ? 'direct' : 'override',
       override_for_agent_id: index === 0 ? null : primaryAgentId,
-      base_premium: baseAmount,
+      base_premium: commissionContext.membershipAmount,
       notes: [
         `Group member commission`,
         `group:${group.id}`,
         `groupMember:${groupMember.id}`,
         `cycle:${cycleKey}`,
+        `groupName:${group.name || ''}`,
+        `plan:${commissionContext.planName}`,
+        `memberType:${commissionContext.memberType}`,
+        `membershipFee:${commissionContext.membershipAmount.toFixed(2)}`,
         'stage:payable',
         `paymentStatus:${paymentStatusRaw}`,
         `split:${split.percentage}`,

@@ -1,6 +1,7 @@
 import { supabaseAdmin as supabase, getSupabaseClientDiagnostics } from './lib/supabaseClient'; // Use dedicated admin client for storage
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import { normalizeRole } from './auth/roles';
+import { calculateCommission } from './commissionCalculator';
 import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
 import { encryptSSN, decryptSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
 import crypto from 'crypto';
@@ -3487,6 +3488,58 @@ const resolveCommissionBusinessCategory = (member: any, commission: any): 'indiv
   return 'individual';
 };
 
+const extractSyntheticGroupMemberId = (memberId: unknown): number | null => {
+  const token = String(memberId || '').trim().toLowerCase();
+  if (!token.startsWith('group_member:')) {
+    return null;
+  }
+
+  const numeric = parseInt(token.replace('group_member:', ''), 10);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const extractNoteToken = (notes: unknown, key: string): string | null => {
+  const text = String(notes || '');
+  const regex = new RegExp(`${key}:([^|]+)`, 'i');
+  const match = text.match(regex);
+  if (!match?.[1]) {
+    return null;
+  }
+  const value = match[1].trim();
+  return value.length > 0 ? value : null;
+};
+
+const toCommissionMemberType = (tierOrRelationship: unknown): string => {
+  const normalized = String(tierOrRelationship || '').trim().toLowerCase();
+  if (normalized === 'spouse' || normalized.includes('spouse')) return 'member/spouse';
+  if (normalized === 'child' || normalized === 'dependent' || normalized.includes('child')) return 'member/child';
+  if (normalized === 'family' || normalized === 'fam') return 'family';
+  return 'member only';
+};
+
+const normalizeGroupPlanName = (rawPlan: string | null, membershipFee: number, memberType: string): string => {
+  const trimmed = String(rawPlan || '').trim();
+  if (trimmed.length > 0) {
+    return trimmed;
+  }
+
+  const planCandidates = ['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'];
+  let bestPlan = 'MyPremierPlan Base';
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const candidate of planCandidates) {
+    const result = calculateCommission(candidate, memberType, false);
+    if (!result) continue;
+    const distance = Math.abs(result.totalCost - membershipFee);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestPlan = candidate;
+    }
+  }
+
+  return bestPlan;
+};
+
 const toExclusiveDateUpperBound = (endDate: string): string => {
   const [yearStr, monthStr, dayStr] = endDate.split('-');
   const year = Number(yearStr);
@@ -3536,6 +3589,9 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     const numericMemberIds = memberIds
       .map(id => parseInt(String(id), 10))
       .filter(id => Number.isFinite(id));
+    const syntheticGroupMemberIds = memberIds
+      .map((id) => extractSyntheticGroupMemberId(id))
+      .filter((id): id is number => Number.isFinite(id as number));
     const numericEnrollmentIds = enrollmentIds
       .map(id => parseInt(String(id), 10))
       .filter(id => Number.isFinite(id));
@@ -3550,6 +3606,17 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
 
     if (membersError) {
       console.warn('[Storage] Could not fetch member details:', membersError);
+    }
+
+    const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
+      ? await supabase
+        .from('group_members')
+        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, registration_payload, groups(name)')
+        .in('id', syntheticGroupMemberIds)
+      : { data: [], error: null };
+
+    if (groupMembersError) {
+      console.warn('[Storage] Could not fetch group member details:', groupMembersError);
     }
 
     // Batch fetch agents data from users table (agents/admins/super_admins)
@@ -3596,6 +3663,11 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         .filter(e => e?.id !== undefined && e?.id !== null)
         .map(e => [e.id.toString(), e])
     );
+    const groupMembersMap = new Map(
+      (groupMembers || [])
+        .filter((gm: any) => gm?.id !== undefined && gm?.id !== null)
+        .map((gm: any) => [`group_member:${gm.id}`, gm])
+    );
 
     console.log('[Storage] Sample raw commission:', {
       id: commissions[0].id,
@@ -3619,31 +3691,55 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       const member = memberKey ? membersMap.get(memberKey) : undefined;
       const agent = agentKey ? agentsMap.get(agentKey) : undefined;
       const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
+      const groupMember = memberKey ? groupMembersMap.get(memberKey.toLowerCase()) : undefined;
       const plan = enrollment?.plans;
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
+      const isGroupCommission = Boolean(groupMember);
+      const membershipFee = isGroupCommission
+        ? parseFloat(String(groupMember?.total_amount || commission.base_premium || 0)) || 0
+        : parseFloat(String(commission.base_premium || 0)) || 0;
+      const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
+      const notePlan = extractNoteToken(commission.notes, 'plan');
+      const inferredPlanName = normalizeGroupPlanName(notePlan, membershipFee, groupMemberType);
       const planTier = 'Base';
-      const planName = plan?.name || 'MyPremierPlan';
-      const coverageType = member?.coverage_type || 'Member Only';
-      const planDisplay = `${planTier} - ${coverageType}`;
+      const planName = isGroupCommission ? inferredPlanName : (plan?.name || 'MyPremierPlan');
+      const coverageType = isGroupCommission
+        ? groupMemberType
+        : (member?.coverage_type || 'Member Only');
+      const planDisplay = isGroupCommission ? planName : `${planTier} - ${coverageType}`;
       const businessCategory = resolveCommissionBusinessCategory(member, commission);
+      const groupName = isGroupCommission
+        ? String((groupMember as any)?.groups?.name || extractNoteToken(commission.notes, 'groupName') || '').trim()
+        : '';
+      const resolvedMemberId = isGroupCommission
+        ? String(groupMember?.member_id || groupMember?.household_member_number || '')
+        : String(commission.member_id || '');
+      const resolvedMembershipId = isGroupCommission
+        ? String(groupMember?.household_member_number || groupMember?.member_id || '')
+        : String(member?.customer_number || commission.member_id || '');
+      const resolvedUserName = isGroupCommission
+        ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || 'Unknown Group Employee')
+        : (member?.first_name && member?.last_name
+          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})`
+          : member?.email || `Member ${commission.member_id}`);
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
         agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
-        memberId: commission.member_id,
-        membershipId: member?.customer_number || commission.member_id, // Use customer_number as membership ID
+        memberId: resolvedMemberId,
+        membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
         paymentStatus: commission.payment_status || 'unpaid',
         // Map member data from lookup
-        totalPlanCost: parseFloat(commission.base_premium || 0),
-        userName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
-          : member?.email || `Member ${commission.member_id}`,
+        totalPlanCost: membershipFee,
+        membershipFee,
+        groupName,
+        userName: resolvedUserName,
         planTier: planTier,
         planType: coverageType,
         businessCategory,
@@ -3653,10 +3749,10 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         updatedAt: commission.updated_at,
         paymentDate: commission.paid_date,
         // Additional fields for display
-        memberEmail: member?.email || '',
-        firstName: member?.first_name || '',
-        lastName: member?.last_name || '',
-        planPrice: parseFloat(commission.base_premium || 0),
+        memberEmail: isGroupCommission ? (groupMember?.email || '') : (member?.email || ''),
+        firstName: isGroupCommission ? (groupMember?.first_name || '') : (member?.first_name || ''),
+        lastName: isGroupCommission ? (groupMember?.last_name || '') : (member?.last_name || ''),
+        planPrice: membershipFee,
         // Agent info
         agentEmail: agent?.email || '',
         agentName: agent?.first_name && agent?.last_name 
@@ -3713,6 +3809,9 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const numericMemberIds = memberIds
       .map(id => parseInt(String(id), 10))
       .filter(id => Number.isFinite(id));
+    const syntheticGroupMemberIds = memberIds
+      .map((id) => extractSyntheticGroupMemberId(id))
+      .filter((id): id is number => Number.isFinite(id as number));
     const numericEnrollmentIds = enrollmentIds
       .map(id => parseInt(String(id), 10))
       .filter(id => Number.isFinite(id));
@@ -3727,6 +3826,17 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
 
     if (membersError) {
       console.warn('[Storage] Could not fetch member details:', membersError);
+    }
+
+    const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
+      ? await supabase
+        .from('group_members')
+        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, registration_payload, groups(name)')
+        .in('id', syntheticGroupMemberIds)
+      : { data: [], error: null };
+
+    if (groupMembersError) {
+      console.warn('[Storage] Could not fetch group member details:', groupMembersError);
     }
 
     // Batch fetch agents data from users table (agents/admins/super_admins)
@@ -3761,6 +3871,11 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const membersMap = new Map((members || []).map(m => [m.id.toString(), m]));
     const agentsMap = new Map((agents || []).map(a => [a.id, a]));
     const enrollmentsMap = new Map((enrollments || []).map(e => [e.id.toString(), e]));
+    const groupMembersMap = new Map(
+      (groupMembers || [])
+        .filter((gm: any) => gm?.id !== undefined && gm?.id !== null)
+        .map((gm: any) => [`group_member:${gm.id}`, gm])
+    );
     
     // Format for frontend - enhanced for admin view
     const formatted = commissions.map(commission => {
@@ -3774,38 +3889,62 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       const member = memberKey ? membersMap.get(memberKey) : undefined;
       const agent = agentsMap.get(commission.agent_id);
       const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
+      const groupMember = memberKey ? groupMembersMap.get(memberKey.toLowerCase()) : undefined;
       const plan = enrollment?.plans;
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
+      const isGroupCommission = Boolean(groupMember);
+      const membershipFee = isGroupCommission
+        ? parseFloat(String(groupMember?.total_amount || commission.base_premium || 0)) || 0
+        : parseFloat(String(commission.base_premium || 0)) || 0;
+      const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
+      const notePlan = extractNoteToken(commission.notes, 'plan');
+      const inferredPlanName = normalizeGroupPlanName(notePlan, membershipFee, groupMemberType);
       const planTier = 'Base';
-      const planName = plan?.name || 'MyPremierPlan';
-      const coverageType = member?.coverage_type || 'Member Only';
-      const planDisplay = `${planTier} - ${coverageType}`;
+      const planName = isGroupCommission ? inferredPlanName : (plan?.name || 'MyPremierPlan');
+      const coverageType = isGroupCommission
+        ? groupMemberType
+        : (member?.coverage_type || 'Member Only');
+      const planDisplay = isGroupCommission ? planName : `${planTier} - ${coverageType}`;
       const businessCategory = resolveCommissionBusinessCategory(member, commission);
+      const groupName = isGroupCommission
+        ? String((groupMember as any)?.groups?.name || extractNoteToken(commission.notes, 'groupName') || '').trim()
+        : '';
+      const resolvedMemberName = isGroupCommission
+        ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || 'Unknown Group Employee')
+        : (member?.first_name && member?.last_name
+          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})`
+          : member?.email || `Member ${commission.member_id}`);
+      const resolvedMemberId = isGroupCommission
+        ? String(groupMember?.member_id || groupMember?.household_member_number || '')
+        : String(commission.member_id || '');
+      const resolvedMembershipId = isGroupCommission
+        ? String(groupMember?.household_member_number || groupMember?.member_id || '')
+        : String(member?.customer_number || commission.member_id || '');
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
         agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
-        memberId: commission.member_id,
-        membershipId: member?.customer_number || commission.member_id,
+        memberId: resolvedMemberId,
+        membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         commissionAmount: parseFloat(commission.commission_amount || 0),
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
         paymentStatus: commission.payment_status || 'unpaid',
-        basePremium: parseFloat(commission.base_premium || 0),
+        basePremium: membershipFee,
+        membershipFee,
+        groupName,
         notes: commission.notes || '',
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
         paymentDate: commission.paid_date,
         // Member information
-        memberEmail: member?.email || '',
-        memberName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
-          : member?.email || `Member ${commission.member_id}`,
-        memberFirstName: member?.first_name || '',
-        memberLastName: member?.last_name || '',
+        memberEmail: isGroupCommission ? (groupMember?.email || '') : (member?.email || ''),
+        memberName: resolvedMemberName,
+        memberFirstName: isGroupCommission ? (groupMember?.first_name || '') : (member?.first_name || ''),
+        memberLastName: isGroupCommission ? (groupMember?.last_name || '') : (member?.last_name || ''),
         // Agent information
         agentEmail: agent?.email || '',
         agentName: agent?.first_name && agent?.last_name 
@@ -3818,11 +3957,9 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         planType: coverageType,
         businessCategory,
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
-        planPrice: parseFloat(commission.base_premium || 0),
-        totalPlanCost: parseFloat(commission.base_premium || 0),
-        userName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})` 
-          : member?.email || `Member ${commission.member_id}`
+        planPrice: membershipFee,
+        totalPlanCost: membershipFee,
+        userName: resolvedMemberName
       };
     });
 
@@ -7470,6 +7607,7 @@ export const storage = {
           email: member.email || '',
           source: 'individual',
           businessCategory: String(member.coverage_type || '').toLowerCase().includes('family') || String(member.coverage_type || '').toLowerCase().includes('spouse') || String(member.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
+          groupName: '',
           phone: member.phone || '',
           planName: plan?.name || '',
           status: member.status || 'inactive',
@@ -7496,6 +7634,7 @@ export const storage = {
             email: member.email || '',
             source: 'group',
             businessCategory: 'group',
+            groupName: member.group_name || '',
             phone: member.phone || '',
             planName: member.group_name ? `${member.group_name} (Group)` : 'Group Enrollment',
             status: member.status || 'draft',
@@ -7508,24 +7647,45 @@ export const storage = {
 
       const combinedMemberReports = [...memberReports, ...groupMemberReports];
 
+      const groupMembersBySyntheticId = new Map(
+        allGroupMembers.map((gm) => [`group_member:${gm.id}`, gm])
+      );
+
       // Commission reports
       const commissionReports = allCommissions.map(commission => {
         const agent = allAgents.find(a => a.id === commission.agent_id);
-        const member = allMembers.find(m => m.id === commission.member_id);
+        const commissionMemberId = String(commission.member_id || '');
+        const groupMember = groupMembersBySyntheticId.get(commissionMemberId);
+        const member = groupMember ? null : allMembers.find(m => String(m.id) === commissionMemberId);
         const plan = allPlans.find(p => p.id === commission.plan_id);
+        const groupPlanName = extractNoteToken(commission.notes, 'plan');
+        const groupName = groupMember?.group_name || extractNoteToken(commission.notes, 'groupName') || '';
+        const membershipFee = groupMember
+          ? parseAmount(groupMember.total_amount || commission.base_premium)
+          : parseFloat(member?.total_monthly_price || commission.base_premium || 0);
+        const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
+        const normalizedGroupPlan = normalizeGroupPlanName(groupPlanName, membershipFee, groupMemberType);
+        const memberName = groupMember
+          ? `${groupMember.first_name || ''} ${groupMember.last_name || ''}`.trim()
+          : (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown');
 
         return {
           id: commission.id.toString(),
-          memberId: commission.member_id?.toString() || '',
-          memberPublicId: member?.member_public_id || '',
-          membershipId: member?.customer_number || '',
+          memberId: groupMember
+            ? (groupMember.member_id?.toString() || groupMember.household_member_number || '')
+            : (commission.member_id?.toString() || ''),
+          memberPublicId: groupMember ? (groupMember.household_member_number || '') : (member?.member_public_id || ''),
+          membershipId: groupMember
+            ? (groupMember.household_member_number || groupMember.member_id?.toString() || '')
+            : (member?.customer_number || ''),
           agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Unknown',
           agentNumber: agent?.agent_number || '',
-          memberName: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown',
-          businessCategory: resolveCommissionBusinessCategory(member, commission),
-          planName: plan?.name || '',
+          memberName: groupName ? `${memberName} (${groupName})` : memberName,
+          groupName,
+          businessCategory: resolveCommissionBusinessCategory(member || groupMember, commission),
+          planName: groupMember ? normalizedGroupPlan : (plan?.name || ''),
           commissionAmount: parseFloat(commission.commission_amount || 0),
-          totalPlanCost: parseFloat(member?.total_monthly_price || 0),
+          totalPlanCost: membershipFee,
           status: commission.status || 'pending',
           paymentStatus: commission.payment_status || 'pending',
           createdDate: commission.created_at || '',

@@ -43,6 +43,8 @@ interface Commission {
   paymentCapturedAt?: string;
   eligibleForPayoutAt?: string;
   businessCategory?: 'individual' | 'family' | 'group';
+  groupName?: string;
+  membershipFee?: number;
   commissionType?: 'direct' | 'override';
   isClawedBack?: boolean;
   clawbackReason?: string;
@@ -243,22 +245,18 @@ export default function AdminCommissions() {
         const category = commission.businessCategory || 'individual';
         const amount = Number(commission.commissionAmount || 0);
 
-        if (category === 'family') {
-          acc.family.count += 1;
-          acc.family.amount += amount;
-        } else if (category === 'group') {
+        if (category === 'group') {
           acc.group.count += 1;
           acc.group.amount += amount;
         } else {
-          acc.individual.count += 1;
-          acc.individual.amount += amount;
+          acc.individualFamily.count += 1;
+          acc.individualFamily.amount += amount;
         }
 
         return acc;
       },
       {
-        individual: { count: 0, amount: 0 },
-        family: { count: 0, amount: 0 },
+        individualFamily: { count: 0, amount: 0 },
         group: { count: 0, amount: 0 },
       }
     );
@@ -397,23 +395,14 @@ export default function AdminCommissions() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Individual Business</CardTitle>
+              <CardTitle className="text-sm font-medium">Individual / Family Business</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-xl font-bold">${businessMix.individual.amount.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">{businessMix.individual.count} commissions</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Family Business</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold">${businessMix.family.amount.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">{businessMix.family.count} commissions</p>
+              <div className="text-xl font-bold">${businessMix.individualFamily.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.individualFamily.count} commissions</p>
             </CardContent>
           </Card>
           <Card>
@@ -624,9 +613,11 @@ export default function AdminCommissions() {
                         <TableHead>Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Group</TableHead>
                         <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Amount</TableHead>
+                        <TableHead>Membership Fee</TableHead>
+                        <TableHead>Commission</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Payment Date</TableHead>
                       </TableRow>
@@ -646,14 +637,18 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell>{commission.groupName || '-'}</TableCell>
                           <TableCell className="font-mono text-xs">
-                            #{commission.memberId}
+                            {commission.memberId ? `#${commission.memberId}` : '-'}
                             {commission.membershipId && (
                               <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
                             )}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${Number(commission.membershipFee || commission.totalPlanCost || 0).toFixed(2)}
                           </TableCell>
                           <TableCell className="font-semibold">
                             ${commission.commissionAmount.toFixed(2)}
@@ -696,9 +691,11 @@ export default function AdminCommissions() {
                         <TableHead>Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Group</TableHead>
                         <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Amount</TableHead>
+                        <TableHead>Membership Fee</TableHead>
+                        <TableHead>Commission</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -715,14 +712,18 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell>{commission.groupName || '-'}</TableCell>
                           <TableCell className="font-mono text-xs">
-                            #{commission.memberId}
+                            {commission.memberId ? `#${commission.memberId}` : '-'}
                             {commission.membershipId && (
                               <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
                             )}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${Number(commission.membershipFee || commission.totalPlanCost || 0).toFixed(2)}
                           </TableCell>
                           <TableCell className="font-semibold">
                             ${commission.commissionAmount.toFixed(2)}
@@ -747,9 +748,11 @@ export default function AdminCommissions() {
                         <TableHead>Scheduled Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Group</TableHead>
                         <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Amount</TableHead>
+                        <TableHead>Membership Fee</TableHead>
+                        <TableHead>Commission</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -765,14 +768,18 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell>{commission.groupName || '-'}</TableCell>
                           <TableCell className="font-mono text-xs">
-                            #{commission.memberId}
+                            {commission.memberId ? `#${commission.memberId}` : '-'}
                             {commission.membershipId && (
                               <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
                             )}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold">
+                            ${Number(commission.membershipFee || commission.totalPlanCost || 0).toFixed(2)}
                           </TableCell>
                           <TableCell className="font-semibold">
                             ${commission.commissionAmount.toFixed(2)}
@@ -797,9 +804,11 @@ export default function AdminCommissions() {
                         <TableHead>Payment Date</TableHead>
                         <TableHead>Agent</TableHead>
                         <TableHead>Member</TableHead>
+                        <TableHead>Group</TableHead>
                         <TableHead>Member ID</TableHead>
                         <TableHead>Type</TableHead>
-                        <TableHead>Amount</TableHead>
+                        <TableHead>Membership Fee</TableHead>
+                        <TableHead>Commission</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -815,14 +824,18 @@ export default function AdminCommissions() {
                           </TableCell>
                           <TableCell className="font-mono text-xs">{commission.agentNumber || commission.agentId.slice(0, 8)}</TableCell>
                           <TableCell>{commission.userName}</TableCell>
+                          <TableCell>{commission.groupName || '-'}</TableCell>
                           <TableCell className="font-mono text-xs">
-                            #{commission.memberId}
+                            {commission.memberId ? `#${commission.memberId}` : '-'}
                             {commission.membershipId && (
                               <div className="text-[11px] text-gray-500">Customer: {commission.membershipId}</div>
                             )}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{commission.planName || commission.coverageType}</Badge>
+                          </TableCell>
+                          <TableCell className="font-semibold text-green-600">
+                            ${Number(commission.membershipFee || commission.totalPlanCost || 0).toFixed(2)}
                           </TableCell>
                           <TableCell className="font-semibold text-green-600">
                             ${commission.commissionAmount.toFixed(2)}
