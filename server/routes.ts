@@ -6146,6 +6146,35 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  // Agent/Admin: recurring billing + commission lifecycle alerts
+  app.get('/api/agent/lifecycle-alerts', authMiddleware, async (req: any, res: any) => {
+    try {
+      const userRole = req.user?.role?.trim();
+      if (!hasAgentOrAdminAccess(userRole)) {
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+      }
+
+      const requestedAgentId = typeof req.query.agentId === 'string' ? req.query.agentId.trim() : '';
+      const days = Number.isFinite(Number(req.query.days))
+        ? Math.max(1, Math.min(60, Number(req.query.days)))
+        : 7;
+
+      const scopedAgentId = isAdmin(userRole) && requestedAgentId
+        ? requestedAgentId
+        : req.user.id;
+
+      const summary = await storage.getLifecycleAlertSummary({
+        agentId: scopedAgentId,
+        horizonDays: days,
+      });
+
+      res.json(summary);
+    } catch (error: any) {
+      console.error('Error fetching agent lifecycle alerts:', error);
+      res.status(500).json({ error: 'Failed to fetch lifecycle alerts', details: error.message });
+    }
+  });
+
   // Admin: Get all commission totals with agent breakdown
   app.get('/api/admin/commission-totals', authMiddleware, async (req: any, res: any) => {
     try {
@@ -6159,6 +6188,30 @@ export async function registerRoutes(app: any) {
     } catch (error: any) {
       console.error('Error fetching admin commission totals:', error);
       res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
+    }
+  });
+
+  // Admin: recurring billing + commission lifecycle alerts (global or agent scoped)
+  app.get('/api/admin/lifecycle-alerts', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const requestedAgentId = typeof req.query.agentId === 'string' ? req.query.agentId.trim() : '';
+      const days = Number.isFinite(Number(req.query.days))
+        ? Math.max(1, Math.min(60, Number(req.query.days)))
+        : 7;
+
+      const summary = await storage.getLifecycleAlertSummary({
+        agentId: requestedAgentId || undefined,
+        horizonDays: days,
+      });
+
+      res.json(summary);
+    } catch (error: any) {
+      console.error('Error fetching admin lifecycle alerts:', error);
+      res.status(500).json({ error: 'Failed to fetch lifecycle alerts', details: error.message });
     }
   });
 

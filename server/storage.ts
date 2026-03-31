@@ -124,6 +124,46 @@ export interface DuplicateMembershipGroup {
   members: Array<Record<string, any>>;
 }
 
+export interface LifecycleAlertSummary {
+  generatedAt: string;
+  horizonDays: number;
+  billing: {
+    dueSoon: number;
+    overdue: number;
+    failed: number;
+    stalePending: number;
+    totalAttention: number;
+    nextCycleDate: string | null;
+  };
+  commissions: {
+    dueSoon: number;
+    overdue: number;
+    unscheduled: number;
+    pending: number;
+    totalAttention: number;
+    nextEligibleDate: string | null;
+  };
+  totals: {
+    totalAttention: number;
+  };
+  billingItems: Array<{
+    kind: 'due_soon' | 'overdue' | 'failed' | 'stale_pending';
+    subscriptionId?: number | null;
+    memberId: number;
+    memberLabel: string;
+    referenceDate: string | null;
+    details?: string | null;
+  }>;
+  commissionItems: Array<{
+    kind: 'due_soon' | 'overdue' | 'unscheduled';
+    commissionId: string;
+    memberId: number;
+    memberLabel: string;
+    referenceDate: string | null;
+    amount: number;
+  }>;
+}
+
 export async function getPlatformSetting<T = any>(key: string): Promise<PlatformSettingRecord<T> | null> {
   try {
     const { data, error } = await supabase
@@ -665,6 +705,11 @@ export interface IStorage {
   getAgentCommissionsNew(agent_Id: string, start_Date?: string, endDate?: string): Promise<any[]>;
   getAllCommissionsNew(start_Date?: string, endDate?: string): Promise<any[]>;
   getCommissionTotals(agentId?: string): Promise<any>;
+  getLifecycleAlertSummary(options?: {
+    agentId?: string;
+    horizonDays?: number;
+    stalePendingMinutes?: number;
+  }): Promise<LifecycleAlertSummary>;
 
   // Analytics
   getAnalytics(): Promise<any>;
@@ -4299,6 +4344,371 @@ export async function getCommissionStatsNew(agentId?: string): Promise<{
   }
 }
 
+export async function getLifecycleAlertSummary(options: {
+  agentId?: string;
+  horizonDays?: number;
+  stalePendingMinutes?: number;
+} = {}): Promise<LifecycleAlertSummary> {
+  const now = new Date();
+  const horizonDays = Number.isFinite(options.horizonDays as number)
+    ? Math.max(1, Number(options.horizonDays))
+    : 7;
+  const stalePendingMinutes = Number.isFinite(options.stalePendingMinutes as number)
+    ? Math.max(1, Number(options.stalePendingMinutes))
+    : 30;
+
+  const horizonDate = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
+  const staleThreshold = new Date(now.getTime() - stalePendingMinutes * 60 * 1000);
+
+  let scopedMemberIds: number[] | null = null;
+  if (options.agentId) {
+    try {
+      const enrollments = await getEnrollmentsByAgent(options.agentId);
+      const ids = Array.from(new Set(
+        (enrollments || [])
+          .map((item: any) => parseInt(String(item?.id), 10))
+          .filter((id) => Number.isFinite(id))
+      ));
+      scopedMemberIds = ids;
+    } catch (error: any) {
+      console.warn('[Storage] getLifecycleAlertSummary could not scope member IDs:', error?.message || error);
+      scopedMemberIds = [];
+    }
+  }
+
+  const getSoonOrOverdue = (iso: string | null | undefined) => {
+    if (!iso) {
+      return 'missing';
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+      return 'missing';
+    }
+    if (date < now) {
+      return 'overdue';
+    }
+    if (date <= horizonDate) {
+      return 'soon';
+    }
+    return 'later';
+  };
+
+  let subscriptionsQuery = supabase
+    .from('subscriptions')
+    .select('id, member_id, next_billing_date, status');
+
+  if (scopedMemberIds !== null) {
+    if (scopedMemberIds.length === 0) {
+      return {
+        generatedAt: now.toISOString(),
+        horizonDays,
+        billing: {
+          dueSoon: 0,
+          overdue: 0,
+          failed: 0,
+          stalePending: 0,
+          totalAttention: 0,
+          nextCycleDate: null,
+        },
+        commissions: {
+          dueSoon: 0,
+          overdue: 0,
+          unscheduled: 0,
+          pending: 0,
+          totalAttention: 0,
+          nextEligibleDate: null,
+        },
+        totals: { totalAttention: 0 },
+        billingItems: [],
+        commissionItems: [],
+      };
+    }
+    subscriptionsQuery = subscriptionsQuery.in('member_id', scopedMemberIds);
+  }
+
+  const { data: subscriptions, error: subscriptionsError } = await subscriptionsQuery;
+  if (subscriptionsError) {
+    throw new Error(`Failed to load subscriptions for lifecycle alerts: ${subscriptionsError.message}`);
+  }
+
+  let recurringLogQuery = supabase
+    .from('recurring_billing_log')
+    .select('id, member_id, status, created_at');
+  if (scopedMemberIds !== null) {
+    recurringLogQuery = recurringLogQuery.in('member_id', scopedMemberIds);
+  }
+
+  const { data: recurringLogs, error: recurringLogsError } = await recurringLogQuery;
+  if (recurringLogsError) {
+    throw new Error(`Failed to load recurring billing logs for lifecycle alerts: ${recurringLogsError.message}`);
+  }
+
+  let commissionsQuery = supabase
+    .from('agent_commissions')
+    .select('id, agent_id, member_id, payment_status, payment_eligible_date, commission_amount, created_at');
+
+  if (options.agentId) {
+    commissionsQuery = commissionsQuery.eq('agent_id', options.agentId);
+  } else if (scopedMemberIds !== null) {
+    commissionsQuery = commissionsQuery.in('member_id', scopedMemberIds.map(String));
+  }
+
+  const { data: commissions, error: commissionsError } = await commissionsQuery;
+  if (commissionsError) {
+    throw new Error(`Failed to load commissions for lifecycle alerts: ${commissionsError.message}`);
+  }
+
+  const candidateMemberIds = new Set<number>();
+  (subscriptions || []).forEach((sub: any) => {
+    const parsed = parseInt(String(sub?.member_id), 10);
+    if (Number.isFinite(parsed)) candidateMemberIds.add(parsed);
+  });
+  (recurringLogs || []).forEach((log: any) => {
+    const parsed = parseInt(String(log?.member_id), 10);
+    if (Number.isFinite(parsed)) candidateMemberIds.add(parsed);
+  });
+  (commissions || []).forEach((commission: any) => {
+    const parsed = parseInt(String(commission?.member_id), 10);
+    if (Number.isFinite(parsed)) candidateMemberIds.add(parsed);
+  });
+
+  const memberIds = Array.from(candidateMemberIds);
+  const memberLookup = new Map<number, any>();
+  if (memberIds.length > 0) {
+    const { data: members, error: membersError } = await supabase
+      .from('members')
+      .select('id, first_name, last_name, customer_number, email')
+      .in('id', memberIds);
+
+    if (membersError) {
+      console.warn('[Storage] getLifecycleAlertSummary failed to load member labels:', membersError.message);
+    } else {
+      (members || []).forEach((member: any) => {
+        const parsed = parseInt(String(member?.id), 10);
+        if (Number.isFinite(parsed)) {
+          memberLookup.set(parsed, member);
+        }
+      });
+    }
+  }
+
+  const getMemberLabel = (memberIdRaw: unknown): string => {
+    const memberId = parseInt(String(memberIdRaw), 10);
+    if (!Number.isFinite(memberId)) {
+      return 'Member';
+    }
+
+    const member = memberLookup.get(memberId);
+    if (!member) {
+      return `Member #${memberId}`;
+    }
+
+    const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+    const customer = String(member.customer_number || '').trim();
+    if (fullName && customer) return `${fullName} (${customer})`;
+    if (fullName) return fullName;
+    if (customer) return `Member ${customer}`;
+    return member.email || `Member #${memberId}`;
+  };
+
+  const activeSubscriptions = (subscriptions || []).filter((sub: any) => {
+    const status = String(sub?.status || '').toLowerCase();
+    return status === 'active' || status === 'pending' || status === 'trialing';
+  });
+
+  let billingDueSoon = 0;
+  let billingOverdue = 0;
+  let nextCycleDateMs: number | null = null;
+  const billingItems: LifecycleAlertSummary['billingItems'] = [];
+
+  for (const sub of activeSubscriptions) {
+    const state = getSoonOrOverdue(sub?.next_billing_date);
+    if (state === 'soon') {
+      billingDueSoon += 1;
+      billingItems.push({
+        kind: 'due_soon',
+        subscriptionId: Number(sub?.id) || null,
+        memberId: Number(sub?.member_id) || 0,
+        memberLabel: getMemberLabel(sub?.member_id),
+        referenceDate: sub?.next_billing_date || null,
+        details: 'Recurring cycle due soon',
+      });
+    }
+    if (state === 'overdue') {
+      billingOverdue += 1;
+      billingItems.push({
+        kind: 'overdue',
+        subscriptionId: Number(sub?.id) || null,
+        memberId: Number(sub?.member_id) || 0,
+        memberLabel: getMemberLabel(sub?.member_id),
+        referenceDate: sub?.next_billing_date || null,
+        details: 'Recurring cycle date has passed',
+      });
+    }
+
+    const nextDate = sub?.next_billing_date ? new Date(sub.next_billing_date) : null;
+    if (nextDate && !Number.isNaN(nextDate.getTime()) && nextDate.getTime() >= now.getTime()) {
+      if (nextCycleDateMs === null || nextDate.getTime() < nextCycleDateMs) {
+        nextCycleDateMs = nextDate.getTime();
+      }
+    }
+  }
+
+  const failedRecurringRows = (recurringLogs || []).filter((row: any) => String(row?.status || '').toLowerCase() === 'failed');
+  const failedRecurring = failedRecurringRows.length;
+  failedRecurringRows.forEach((row: any) => {
+    billingItems.push({
+      kind: 'failed',
+      subscriptionId: null,
+      memberId: Number(row?.member_id) || 0,
+      memberLabel: getMemberLabel(row?.member_id),
+      referenceDate: row?.created_at || null,
+      details: 'Recurring billing attempt failed',
+    });
+  });
+
+  const stalePendingRows = (recurringLogs || []).filter((row: any) => {
+    if (String(row?.status || '').toLowerCase() !== 'pending') {
+      return false;
+    }
+    const createdAt = new Date(String(row?.created_at || ''));
+    if (Number.isNaN(createdAt.getTime())) {
+      return false;
+    }
+    return createdAt < staleThreshold;
+  });
+  const stalePending = stalePendingRows.length;
+  stalePendingRows.forEach((row: any) => {
+    billingItems.push({
+      kind: 'stale_pending',
+      subscriptionId: null,
+      memberId: Number(row?.member_id) || 0,
+      memberLabel: getMemberLabel(row?.member_id),
+      referenceDate: row?.created_at || null,
+      details: 'Pending longer than stale threshold',
+    });
+  });
+
+  let commissionDueSoon = 0;
+  let commissionOverdue = 0;
+  let commissionUnscheduled = 0;
+  let commissionPending = 0;
+  let nextEligibleMs: number | null = null;
+  const commissionItems: LifecycleAlertSummary['commissionItems'] = [];
+
+  for (const commission of commissions || []) {
+    const paymentStatus = String(commission?.payment_status || '').toLowerCase();
+    if (paymentStatus === 'paid' || paymentStatus === 'cancelled') {
+      continue;
+    }
+
+    commissionPending += 1;
+    const state = getSoonOrOverdue(commission?.payment_eligible_date);
+    if (state === 'soon') {
+      commissionDueSoon += 1;
+      commissionItems.push({
+        kind: 'due_soon',
+        commissionId: String(commission?.id || ''),
+        memberId: Number(commission?.member_id) || 0,
+        memberLabel: getMemberLabel(commission?.member_id),
+        referenceDate: commission?.payment_eligible_date || null,
+        amount: parseFloat(String(commission?.commission_amount || 0)) || 0,
+      });
+    } else if (state === 'overdue') {
+      commissionOverdue += 1;
+      commissionItems.push({
+        kind: 'overdue',
+        commissionId: String(commission?.id || ''),
+        memberId: Number(commission?.member_id) || 0,
+        memberLabel: getMemberLabel(commission?.member_id),
+        referenceDate: commission?.payment_eligible_date || null,
+        amount: parseFloat(String(commission?.commission_amount || 0)) || 0,
+      });
+    } else if (state === 'missing') {
+      commissionUnscheduled += 1;
+      commissionItems.push({
+        kind: 'unscheduled',
+        commissionId: String(commission?.id || ''),
+        memberId: Number(commission?.member_id) || 0,
+        memberLabel: getMemberLabel(commission?.member_id),
+        referenceDate: null,
+        amount: parseFloat(String(commission?.commission_amount || 0)) || 0,
+      });
+    }
+
+    const eligibleDate = commission?.payment_eligible_date ? new Date(commission.payment_eligible_date) : null;
+    if (eligibleDate && !Number.isNaN(eligibleDate.getTime()) && eligibleDate.getTime() >= now.getTime()) {
+      if (nextEligibleMs === null || eligibleDate.getTime() < nextEligibleMs) {
+        nextEligibleMs = eligibleDate.getTime();
+      }
+    }
+  }
+
+  const billingAttention = billingDueSoon + billingOverdue + failedRecurring + stalePending;
+  const commissionAttention = commissionDueSoon + commissionOverdue + commissionUnscheduled;
+
+  const billingSeverity: Record<LifecycleAlertSummary['billingItems'][number]['kind'], number> = {
+    overdue: 0,
+    failed: 1,
+    stale_pending: 2,
+    due_soon: 3,
+  };
+
+  const commissionSeverity: Record<LifecycleAlertSummary['commissionItems'][number]['kind'], number> = {
+    overdue: 0,
+    unscheduled: 1,
+    due_soon: 2,
+  };
+
+  const normalizedTime = (iso: string | null) => {
+    if (!iso) return Number.MAX_SAFE_INTEGER;
+    const dt = new Date(iso).getTime();
+    return Number.isNaN(dt) ? Number.MAX_SAFE_INTEGER : dt;
+  };
+
+  const topBillingItems = billingItems
+    .sort((a, b) => {
+      const rank = billingSeverity[a.kind] - billingSeverity[b.kind];
+      if (rank !== 0) return rank;
+      return normalizedTime(a.referenceDate) - normalizedTime(b.referenceDate);
+    })
+    .slice(0, 10);
+
+  const topCommissionItems = commissionItems
+    .sort((a, b) => {
+      const rank = commissionSeverity[a.kind] - commissionSeverity[b.kind];
+      if (rank !== 0) return rank;
+      return normalizedTime(a.referenceDate) - normalizedTime(b.referenceDate);
+    })
+    .slice(0, 10);
+
+  return {
+    generatedAt: now.toISOString(),
+    horizonDays,
+    billing: {
+      dueSoon: billingDueSoon,
+      overdue: billingOverdue,
+      failed: failedRecurring,
+      stalePending,
+      totalAttention: billingAttention,
+      nextCycleDate: nextCycleDateMs ? new Date(nextCycleDateMs).toISOString() : null,
+    },
+    commissions: {
+      dueSoon: commissionDueSoon,
+      overdue: commissionOverdue,
+      unscheduled: commissionUnscheduled,
+      pending: commissionPending,
+      totalAttention: commissionAttention,
+      nextEligibleDate: nextEligibleMs ? new Date(nextEligibleMs).toISOString() : null,
+    },
+    totals: {
+      totalAttention: billingAttention + commissionAttention,
+    },
+    billingItems: topBillingItems,
+    commissionItems: topCommissionItems,
+  };
+}
+
 // Helper function to map database snake_case to camelCase for plans
 function mapPlanFromDB(data: any): Plan | null {
   if (!data) return null;
@@ -6392,6 +6802,7 @@ export const storage = {
   getAgentCommissionsNew,
   getAllCommissionsNew,
   getCommissionTotals,
+  getLifecycleAlertSummary,
   getCommissionStatsNew,
   markCommissionsAsPaid,
   updateCommissionPayoutStatus,

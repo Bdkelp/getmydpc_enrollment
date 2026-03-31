@@ -248,6 +248,13 @@ export const leads = pgTable("leads", {
   email: varchar("email", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 50 }).notNull(),
   message: text("message"),
+  source: varchar("source", { length: 50 }).default("contact_form"),
+  status: varchar("status", { length: 50 }).default("new"),
+  assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 export const groups = pgTable("groups", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -302,13 +309,6 @@ export const groupMembers = pgTable("group_members", {
   index("idx_group_members_household_member_number").on(table.householdMemberNumber),
   index("idx_group_members_status").on(table.status),
 ]);
-  source: varchar("source", { length: 50 }).default("contact_form"),
-  status: varchar("status", { length: 50 }).default("new"),
-  assignedAgentId: varchar("assigned_agent_id", { length: 255 }),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
 
 export const leadActivities = pgTable("lead_activities", {
   id: serial("id").primaryKey(),

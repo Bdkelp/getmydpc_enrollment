@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { hasAtLeastRole, normalizeRole } from "@/lib/roles";
+import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -72,11 +73,51 @@ interface PlanOption {
   price: number | string;
 }
 
+interface LifecycleAlertSummary {
+  generatedAt: string;
+  horizonDays: number;
+  billing: {
+    dueSoon: number;
+    overdue: number;
+    failed: number;
+    stalePending: number;
+    totalAttention: number;
+    nextCycleDate: string | null;
+  };
+  commissions: {
+    dueSoon: number;
+    overdue: number;
+    unscheduled: number;
+    pending: number;
+    totalAttention: number;
+    nextEligibleDate: string | null;
+  };
+  totals: {
+    totalAttention: number;
+  };
+  billingItems: Array<{
+    kind: 'due_soon' | 'overdue' | 'failed' | 'stale_pending';
+    subscriptionId?: number | null;
+    memberId: number;
+    memberLabel: string;
+    referenceDate: string | null;
+    details?: string | null;
+  }>;
+  commissionItems: Array<{
+    kind: 'due_soon' | 'overdue' | 'unscheduled';
+    commissionId: string;
+    memberId: number;
+    memberLabel: string;
+    referenceDate: string | null;
+    amount: number;
+  }>;
+}
+
 type GoalPeriodKey = "weekly" | "monthly" | "quarterly";
 type PlanGoalField = "weeklyEnrollments" | "monthlyEnrollments" | "quarterlyEnrollments";
 
 export default function AgentDashboard() {
-  const [, setLocation] = useLocation();
+  const [locationPath, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, logout } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
@@ -86,6 +127,14 @@ export default function AgentDashboard() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const viewingAgentId = selectedAgentId || user?.id;
   const isAdminViewing = isAdminUser && selectedAgentId;
+
+  const searchParams = useMemo(() => {
+    const query = locationPath.includes('?')
+      ? locationPath.slice(locationPath.indexOf('?'))
+      : window.location.search;
+    return new URLSearchParams(query);
+  }, [locationPath]);
+  const focusMemberId = searchParams.get('memberId');
   
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
@@ -107,6 +156,7 @@ export default function AgentDashboard() {
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
+  const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
   const [consentType, setConsentType] = useState<string>("");
@@ -160,12 +210,40 @@ export default function AgentDashboard() {
     enabled: !!viewingAgentId,
   });
 
+  const filteredEnrollments = useMemo(() => {
+    const all = Array.isArray(enrollments) ? enrollments : [];
+    if (!focusMemberId) return all;
+    return all.filter((enrollment) => String(enrollment.id) === focusMemberId);
+  }, [enrollments, focusMemberId]);
+
+  useEffect(() => {
+    if (hasExpandedFocusRange || !focusMemberId) {
+      return;
+    }
+
+    setDateFilter({
+      startDate: format(new Date(new Date().getFullYear() - 1, 0, 1), "yyyy-MM-dd"),
+      endDate: format(new Date(), "yyyy-MM-dd"),
+    });
+    setHasExpandedFocusRange(true);
+  }, [focusMemberId, hasExpandedFocusRange]);
+
   const { data: availablePlans = [] } = useQuery<PlanOption[]>({
     queryKey: ["/api/plans"],
     queryFn: async () => {
       const plans = await apiRequest('/api/plans');
       return Array.isArray(plans) ? plans : [];
     },
+  });
+
+  const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
+    queryKey: ["/api/agent/lifecycle-alerts", viewingAgentId],
+    queryFn: async () => {
+      const query = viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}&days=7` : '?days=7';
+      return apiRequest(`/api/agent/lifecycle-alerts${query}`);
+    },
+    enabled: !!viewingAgentId,
+    refetchInterval: 60_000,
   });
 
   // Log errors for debugging
@@ -606,6 +684,120 @@ export default function AgentDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {!!lifecycleAlerts && (
+          <Card className="mb-8 border-orange-200 bg-orange-50/40">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Recurring Lifecycle Alerts (Next {lifecycleAlerts.horizonDays} Days)
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {LIFECYCLE_ALERT_LEGEND.map((kind) => (
+                      <span key={kind} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getLifecycleAlertBadgeClasses(kind)}`}>
+                        {getLifecycleAlertLabel(kind)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-600">Billing Due Soon</p>
+                      <p className="text-lg font-semibold text-gray-900">{lifecycleAlerts.billing.dueSoon}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Billing Overdue + Failed</p>
+                      <p className="text-lg font-semibold text-red-700">{lifecycleAlerts.billing.overdue + lifecycleAlerts.billing.failed}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Commissions Due Soon</p>
+                      <p className="text-lg font-semibold text-gray-900">{lifecycleAlerts.commissions.dueSoon}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-600">Commissions Overdue + Unscheduled</p>
+                      <p className="text-lg font-semibold text-red-700">{lifecycleAlerts.commissions.overdue + lifecycleAlerts.commissions.unscheduled}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge variant={lifecycleAlerts.totals.totalAttention > 0 ? 'destructive' : 'secondary'}>
+                    {lifecycleAlerts.totals.totalAttention} Active Alerts
+                  </Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
+                      Review Billing
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setLocation('/agent/commissions')}>
+                      Review Commissions
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-orange-100 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Billing Alerts</p>
+                  {(lifecycleAlerts.billingItems || []).slice(0, 4).length > 0 ? (
+                    <div className="space-y-2">
+                      {(lifecycleAlerts.billingItems || []).slice(0, 4).map((item, idx) => (
+                        <button
+                          key={`${item.kind}-${item.memberId}-${idx}`}
+                          type="button"
+                          onClick={() => setLocation(`/agent?memberId=${item.memberId}&alertType=${item.kind}`)}
+                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-orange-50"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
+                            <p className="text-xs">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${getLifecycleAlertBadgeClasses(item.kind)}`}>
+                                {getLifecycleAlertLabel(item.kind)}
+                              </span>
+                            </p>
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {item.referenceDate ? format(new Date(item.referenceDate), 'MMM d') : 'N/A'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No billing alerts in the selected horizon.</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-orange-100 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Commission Alerts</p>
+                  {(lifecycleAlerts.commissionItems || []).slice(0, 4).length > 0 ? (
+                    <div className="space-y-2">
+                      {(lifecycleAlerts.commissionItems || []).slice(0, 4).map((item, idx) => (
+                        <button
+                          key={`${item.kind}-${item.commissionId}-${idx}`}
+                          type="button"
+                          onClick={() => setLocation(`/agent/commissions?memberId=${item.memberId}&commissionId=${item.commissionId}&alertType=${item.kind}`)}
+                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-orange-50"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
+                            <p className="text-xs text-gray-500 flex items-center gap-2">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${getLifecycleAlertBadgeClasses(item.kind)}`}>
+                                {getLifecycleAlertLabel(item.kind)}
+                              </span>
+                              <span>${item.amount.toFixed(2)}</span>
+                            </p>
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {item.referenceDate ? format(new Date(item.referenceDate), 'MMM d') : 'N/A'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No commission alerts in the selected horizon.</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         
         {performanceGoals && (
           <Card className="mb-8 border border-blue-200 bg-white shadow-soft">
@@ -755,6 +947,14 @@ export default function AgentDashboard() {
             </div>
           </CardHeader>
           <CardContent>
+            {focusMemberId && (
+              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-blue-900">Focused member view: #{focusMemberId}</p>
+                <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
+                  Clear Focus
+                </Button>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -773,7 +973,7 @@ export default function AgentDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.isArray(enrollments) && enrollments.map((enrollment: any) => (
+                  {filteredEnrollments.map((enrollment: any) => (
                     <tr 
                       key={enrollment.id} 
                       className={`border-b hover:bg-gray-50 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
@@ -851,7 +1051,7 @@ export default function AgentDashboard() {
                   ))}
                 </tbody>
               </table>
-              {(!enrollments || enrollments.length === 0) && (
+              {filteredEnrollments.length === 0 && (
                 <p className="text-center py-8 text-gray-500">No enrollments found for this period</p>
               )}
             </div>

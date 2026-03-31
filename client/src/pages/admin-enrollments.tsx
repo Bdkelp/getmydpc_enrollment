@@ -44,6 +44,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 
 interface Enrollment {
   id: string;
@@ -154,7 +155,7 @@ const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
 
 export default function AdminEnrollments() {
   const { log, logError, logWarning } = useDebugLog("AdminEnrollments");
-  const [, setLocation] = useLocation();
+  const [locationPath, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
@@ -203,6 +204,16 @@ export default function AdminEnrollments() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showMembershipOversight, setShowMembershipOversight] = useState(false);
+
+  const searchParams = React.useMemo(() => {
+    const query = locationPath.includes("?")
+      ? locationPath.slice(locationPath.indexOf("?"))
+      : window.location.search;
+    return new URLSearchParams(query);
+  }, [locationPath]);
+
+  const focusMemberId = searchParams.get("memberId")?.trim() || "";
+  const focusAlertType = searchParams.get("alertType")?.trim() || "";
 
   const statusOptions = [
     { value: "pending_activation", label: "Pending Activation" },
@@ -750,9 +761,23 @@ export default function AdminEnrollments() {
       const matchesStatus =
         statusFilter === "all" || enrollment.status === statusFilter;
 
-      return matchesSearch && matchesStatus;
+      const matchesFocusedMember =
+        !focusMemberId ||
+        String(enrollment.id || "") === focusMemberId ||
+        String(enrollment.memberPublicId || "") === focusMemberId ||
+        String(enrollment.customerNumber || "") === focusMemberId;
+
+      const normalizedPaymentStatus = String(enrollment.payment_status || "").toLowerCase();
+      const matchesAlertHint =
+        !focusAlertType ||
+        (focusAlertType === "failed" && (normalizedPaymentStatus === "failed" || normalizedPaymentStatus === "declined")) ||
+        (focusAlertType === "stale_pending" && (normalizedPaymentStatus === "pending" || enrollment.status === "pending" || enrollment.status === "pending_activation")) ||
+        (focusAlertType === "overdue" && !hasSuccessfulPayment(enrollment.payment_status)) ||
+        (focusAlertType === "due_soon");
+
+      return matchesSearch && matchesStatus && matchesFocusedMember && matchesAlertHint;
     });
-  }, [enrollments, searchTerm, statusFilter]);
+  }, [enrollments, searchTerm, statusFilter, focusMemberId, focusAlertType]);
 
   // Calculate total revenue - safe array handling
   const totalRevenue = React.useMemo(() => {
@@ -974,6 +999,26 @@ export default function AdminEnrollments() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {(focusMemberId || focusAlertType) && (
+          <Card className="mb-6 border-blue-200 bg-blue-50/60">
+            <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-blue-900">
+                Focused lifecycle view
+                {focusMemberId ? ` for member #${focusMemberId}` : ""}
+                {focusAlertType ? "." : ""}
+              </p>
+              {focusAlertType && (
+                <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${getLifecycleAlertBadgeClasses(focusAlertType)}`}>
+                  {getLifecycleAlertLabel(focusAlertType)}
+                </span>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setLocation("/admin/enrollments")}>
+                Clear Focus
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -1043,7 +1088,9 @@ export default function AdminEnrollments() {
                   </p>
                   <p className="text-2xl font-bold text-gray-900">
                     {(selectedAgentId !== "all" ? 1 : 0) +
-                      (statusFilter !== "all" ? 1 : 0)}
+                      (statusFilter !== "all" ? 1 : 0) +
+                      (focusMemberId ? 1 : 0) +
+                      (focusAlertType ? 1 : 0)}
                   </p>
                 </div>
               </div>
