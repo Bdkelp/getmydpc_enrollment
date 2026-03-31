@@ -701,13 +701,29 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
             ? (Date.now() - createdAtMs) < (20 * 60 * 1000)
             : true;
 
-          if (withinIntentWindow) {
+          const resumeSamePendingIntent = isRetryRequest
+            && Number(parsedRetryPaymentId) === Number(latestEnrollmentPayment.id);
+
+          if (withinIntentWindow && !resumeSamePendingIntent) {
             return res.status(409).json({
               success: false,
               code: 'PAYMENT_INTENT_ACTIVE',
               message: 'A payment session is already in progress for this enrollment. Please complete or fail that attempt before starting another.',
               existingPaymentId: latestEnrollmentPayment.id,
               existingTransactionId: latestTransactionId,
+            });
+          }
+
+          if (withinIntentWindow && resumeSamePendingIntent) {
+            logEPX({
+              level: 'info',
+              phase: 'create-payment',
+              message: 'Resuming existing active payment intent by explicit retry',
+              data: {
+                memberId,
+                paymentId: latestEnrollmentPayment.id,
+                transactionId: latestTransactionId,
+              }
             });
           }
         }

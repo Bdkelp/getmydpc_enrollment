@@ -114,8 +114,23 @@ const apiClient = {
     } catch (networkError: any) {
       console.error(`[API] Network error for POST ${endpoint}:`, networkError);
 
+      const message = String(networkError?.message || '');
+      const isHttpStatusError = /^\d{3}:/.test(message) || /^Network error:\s*\d{3}:/.test(message);
+
+      // Do not retry API responses that already have an HTTP status (e.g., 409 conflicts).
+      if (isHttpStatusError) {
+        throw networkError;
+      }
+
       // Retry on network errors
-      if (retryCount === 0 && (networkError?.message?.includes('fetch') || networkError?.message?.includes('Network'))) {
+      if (
+        retryCount === 0
+        && (
+          message.includes('Failed to fetch')
+          || message.includes('fetch')
+          || message.includes('Network request failed')
+        )
+      ) {
         console.log(`[API] Retrying POST ${endpoint} after network error...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         return this.post(endpoint, data, retryCount + 1);

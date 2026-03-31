@@ -3509,6 +3509,68 @@ const extractNoteToken = (notes: unknown, key: string): string | null => {
   return value.length > 0 ? value : null;
 };
 
+const normalizeFieldAlias = (value: unknown): string =>
+  String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const PBM_FLAG_ALIASES = new Set([
+  'addrxvalet',
+  'rxvaletenrolled',
+  'rxvalet',
+  'pbm',
+  'pbmenrolled',
+  'pbmselected',
+  'prochoicerx',
+  'rxaddon',
+  'pharmacybenefit',
+]);
+
+const PBM_TRUTHY_MARKERS = new Set([
+  'true',
+  '1',
+  'yes',
+  'y',
+  'on',
+  'selected',
+  'enrolled',
+  'optin',
+  'included',
+  'add',
+]);
+
+const isTruthySelection = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const normalized = normalizeFieldAlias(value);
+  return normalized.length > 0 && PBM_TRUTHY_MARKERS.has(normalized);
+};
+
+const hasTruthyAliasSelection = (source: Record<string, any> | null, aliases: Set<string>): boolean => {
+  if (!source) return false;
+
+  for (const [key, value] of Object.entries(source)) {
+    if (!aliases.has(normalizeFieldAlias(key))) {
+      continue;
+    }
+    if (isTruthySelection(value)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const resolvePbmFromNotesAndSources = (
+  notes: unknown,
+  ...sources: Array<Record<string, any> | null>
+): boolean => {
+  if (sources.some((source) => hasTruthyAliasSelection(source, PBM_FLAG_ALIASES))) {
+    return true;
+  }
+
+  const noteKeys = ['addRxValet', 'rxValetEnrolled', 'pbmEnrolled', 'pbm', 'rxValet'];
+  return noteKeys.some((key) => isTruthySelection(extractNoteToken(notes, key)));
+};
+
 const toCommissionMemberType = (tierOrRelationship: unknown): string => {
   const normalized = String(tierOrRelationship || '').trim().toLowerCase();
   if (normalized === 'spouse' || normalized.includes('spouse')) return 'member/spouse';
@@ -3611,7 +3673,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
       ? await supabase
         .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, registration_payload')
+        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, metadata, registration_payload')
         .in('id', syntheticGroupMemberIds)
       : { data: [], error: null };
 
@@ -3750,10 +3812,8 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         : String(member?.customer_number || commission.member_id || '');
       const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
       const registrationPayload = (groupMember as any)?.registration_payload;
-      const addRxValet = Boolean(
-        registrationPayload?.addRxValet
-        || registrationPayload?.rxValetEnrolled
-      );
+      const groupMetadata = (groupMember as any)?.metadata;
+      const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
       const standardCommission = isGroupCommission
         ? calculateCommission(planName, groupMemberType, addRxValet)
         : null;
@@ -3873,7 +3933,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
       ? await supabase
         .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, registration_payload')
+        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, metadata, registration_payload')
         .in('id', syntheticGroupMemberIds)
       : { data: [], error: null };
 
@@ -3995,10 +4055,8 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         : String(member?.customer_number || commission.member_id || '');
       const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
       const registrationPayload = (groupMember as any)?.registration_payload;
-      const addRxValet = Boolean(
-        registrationPayload?.addRxValet
-        || registrationPayload?.rxValetEnrolled
-      );
+      const groupMetadata = (groupMember as any)?.metadata;
+      const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
       const standardCommission = isGroupCommission
         ? calculateCommission(planName, groupMemberType, addRxValet)
         : null;
@@ -7749,6 +7807,18 @@ export const storage = {
           : parseFloat(member?.total_monthly_price || commission.base_premium || 0);
         const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
         const normalizedGroupPlan = normalizeGroupPlanName(groupPlanName, membershipFee, groupMemberType);
+        const groupRegistrationPayload = groupMember ? toObjectOrNull(groupMember.registration_payload) : null;
+        const groupMetadata = groupMember ? toObjectOrNull(groupMember.metadata) : null;
+        const addRxValet = groupMember
+          ? resolvePbmFromNotesAndSources(commission.notes, groupRegistrationPayload, groupMetadata)
+          : false;
+        const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+        const standardCommission = groupMember
+          ? calculateCommission(normalizedGroupPlan, groupMemberType, addRxValet)
+          : null;
+        const normalizedCommissionAmount = standardCommission
+          ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
+          : parseFloat(commission.commission_amount || 0);
         const memberName = groupMember
           ? `${groupMember.first_name || ''} ${groupMember.last_name || ''}`.trim()
           : (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown');
@@ -7768,7 +7838,7 @@ export const storage = {
           groupName,
           businessCategory: resolveCommissionBusinessCategory(member || groupMember, commission),
           planName: groupMember ? normalizedGroupPlan : (plan?.name || ''),
-          commissionAmount: parseFloat(commission.commission_amount || 0),
+          commissionAmount: normalizedCommissionAmount,
           totalPlanCost: membershipFee,
           status: commission.status || 'pending',
           paymentStatus: commission.payment_status || 'pending',

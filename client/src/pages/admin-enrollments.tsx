@@ -1222,7 +1222,7 @@ export default function AdminEnrollments() {
         {/* Enrollments Table */}
         <Card>
           <CardHeader>
-            <CardTitle>People Enrollment Records</CardTitle>
+            <CardTitle>Memberships</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

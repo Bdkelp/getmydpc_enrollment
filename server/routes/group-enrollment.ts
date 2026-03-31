@@ -905,6 +905,91 @@ const toCommissionMemberType = (tierOrRelationship: unknown): string => {
   return 'member only';
 };
 
+const PBM_FLAG_FIELD_ALIASES = new Set([
+  'addrxvalet',
+  'rxvaletenrolled',
+  'rxvalet',
+  'pbm',
+  'pbmenrolled',
+  'pbmselected',
+  'prochoicerx',
+  'rxaddon',
+  'pharmacybenefit',
+]);
+
+const PBM_AMOUNT_FIELD_ALIASES = new Set([
+  'rxvaletamount',
+  'pbmamount',
+  'rxaddonamount',
+  'pharmacybenefitamount',
+]);
+
+const PBM_TRUTHY_MARKERS = new Set([
+  'true',
+  '1',
+  'yes',
+  'y',
+  'on',
+  'selected',
+  'enrolled',
+  'optin',
+  'included',
+  'add',
+]);
+
+const isTruthySelection = (value: unknown): boolean => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value > 0;
+  }
+
+  const normalized = normalizeImportKey(value);
+  return normalized.length > 0 && PBM_TRUTHY_MARKERS.has(normalized);
+};
+
+const hasTruthyAliasSelection = (source: Record<string, any> | null, aliases: Set<string>): boolean => {
+  if (!source) {
+    return false;
+  }
+
+  for (const [key, value] of Object.entries(source)) {
+    if (!aliases.has(normalizeImportKey(key))) {
+      continue;
+    }
+    if (isTruthySelection(value)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const resolveGroupPbmEnabled = (...sources: Array<Record<string, any> | null>): boolean =>
+  sources.some((source) => hasTruthyAliasSelection(source, PBM_FLAG_FIELD_ALIASES));
+
+const resolveGroupPbmAmount = (...sources: Array<Record<string, any> | null>): number => {
+  for (const source of sources) {
+    if (!source) {
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(source)) {
+      if (!PBM_AMOUNT_FIELD_ALIASES.has(normalizeImportKey(key))) {
+        continue;
+      }
+
+      const parsed = parseAmountNumber(value);
+      if (parsed > 0) {
+        return roundCurrency(parsed);
+      }
+    }
+  }
+
+  return 0;
+};
+
 const resolveGroupMemberPlanName = (group: any, groupMember: any): string => {
   const payload = toObjectOrNull(groupMember?.registrationPayload) || {};
   const memberMetadata = toObjectOrNull(groupMember?.metadata) || {};
@@ -954,13 +1039,7 @@ const resolveGroupCommissionContext = (group: any, groupMember: any, membershipA
   const relationship = normalizeMemberRelationship(groupMember?.relationship, groupMember?.tier);
   const memberType = toCommissionMemberType(groupMember?.tier || relationship);
   const planName = resolveGroupMemberPlanName(group, groupMember);
-  const addRxValet = Boolean(
-    payload.addRxValet
-    || payload.rxValetEnrolled
-    || memberMetadata.addRxValet
-    || memberMetadata.rxValetEnrolled
-    || memberMetadata.pbmEnrolled
-  );
+  const addRxValet = resolveGroupPbmEnabled(payload, memberMetadata);
 
   const commissionResult = calculateCommission(planName, memberType, addRxValet);
   if (!commissionResult) {
@@ -1400,21 +1479,11 @@ const buildGroupBillingSnapshot = async (
     productMix[productLabel].count += 1;
     productMix[productLabel].amount = roundCurrency(productMix[productLabel].amount + totalAmount);
 
-    const pbmEnabled = Boolean(
-      payload.addRxValet
-      || payload.rxValetEnrolled
-      || memberMetadata.addRxValet
-      || memberMetadata.rxValetEnrolled
-      || memberMetadata.pbmEnrolled
-    );
+    const pbmEnabled = resolveGroupPbmEnabled(payload, memberMetadata);
 
     if (pbmEnabled) {
       pbmEnrolledCount += 1;
-      const pbmAmount = roundCurrency(
-        parseAmountNumber(payload.rxValetAmount)
-        || parseAmountNumber(memberMetadata.rxValetAmount)
-        || parseAmountNumber(memberMetadata.pbmAmount)
-      );
+      const pbmAmount = resolveGroupPbmAmount(payload, memberMetadata);
       pbmTotalAmount = roundCurrency(pbmTotalAmount + pbmAmount);
     }
   }

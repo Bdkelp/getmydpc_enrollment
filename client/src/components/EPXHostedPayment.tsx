@@ -4,7 +4,7 @@
  * Form is handled by EPX's post.js library
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -84,6 +84,7 @@ export default function EPXHostedPayment({
     postalCode: ''
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const sessionInitInFlightRef = useRef(false);
   const { toast } = useToast();
   const overrideAmountValue = typeof amountOverride === 'number' && Number.isFinite(amountOverride)
     ? amountOverride
@@ -207,9 +208,14 @@ export default function EPXHostedPayment({
     if (sessionData) {
       return;
     }
+
+    if (sessionInitInFlightRef.current) {
+      return;
+    }
     
     
     const initSession = async () => {
+      sessionInitInFlightRef.current = true;
       try {
         console.log('[EPX Hosted] Initializing payment session');
         
@@ -318,6 +324,8 @@ export default function EPXHostedPayment({
         console.error('[EPX Hosted] Initialization error:', err);
         setError(err.message || 'Failed to initialize payment');
         setIsLoading(false);
+      } finally {
+        sessionInitInFlightRef.current = false;
       }
     };
 
