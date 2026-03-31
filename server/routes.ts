@@ -4518,7 +4518,6 @@ router.get(
       monthStart.setHours(0, 0, 0, 0);
       const yearStart = new Date(now.getFullYear(), 0, 1);
 
-      const now = new Date();
       const membersThisMonth = filterRecordsByDate(combinedEnrollments, monthStart, now);
       const membersThisYear = filterRecordsByDate(combinedEnrollments, yearStart, now);
 
