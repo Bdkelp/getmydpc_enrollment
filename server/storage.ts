@@ -3718,6 +3718,18 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       const resolvedMembershipId = isGroupCommission
         ? String(groupMember?.household_member_number || groupMember?.member_id || '')
         : String(member?.customer_number || commission.member_id || '');
+      const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+      const registrationPayload = (groupMember as any)?.registration_payload;
+      const addRxValet = Boolean(
+        registrationPayload?.addRxValet
+        || registrationPayload?.rxValetEnrolled
+      );
+      const standardCommission = isGroupCommission
+        ? calculateCommission(planName, groupMemberType, addRxValet)
+        : null;
+      const normalizedCommissionAmount = standardCommission
+        ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
+        : parseFloat(commission.commission_amount || 0);
       const resolvedUserName = isGroupCommission
         ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || 'Unknown Group Employee')
         : (member?.first_name && member?.last_name
@@ -3731,7 +3743,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
-        commissionAmount: parseFloat(commission.commission_amount || 0),
+        commissionAmount: normalizedCommissionAmount,
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
         paymentStatus: commission.payment_status || 'unpaid',
@@ -3921,6 +3933,18 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       const resolvedMembershipId = isGroupCommission
         ? String(groupMember?.household_member_number || groupMember?.member_id || '')
         : String(member?.customer_number || commission.member_id || '');
+      const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+      const registrationPayload = (groupMember as any)?.registration_payload;
+      const addRxValet = Boolean(
+        registrationPayload?.addRxValet
+        || registrationPayload?.rxValetEnrolled
+      );
+      const standardCommission = isGroupCommission
+        ? calculateCommission(planName, groupMemberType, addRxValet)
+        : null;
+      const normalizedCommissionAmount = standardCommission
+        ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
+        : parseFloat(commission.commission_amount || 0);
 
       return {
         id: commission.id,
@@ -3929,7 +3953,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
-        commissionAmount: parseFloat(commission.commission_amount || 0),
+        commissionAmount: normalizedCommissionAmount,
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
         paymentStatus: commission.payment_status || 'unpaid',
