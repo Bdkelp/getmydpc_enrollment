@@ -88,7 +88,14 @@ type BillingAddress = {
   country?: string;
 };
 
-type PaymentRecord = ReturnType<typeof storage.getPaymentByTransactionId> extends Promise<infer T> ? T : never;
+type PaymentRecord = {
+  id: number | string;
+  member_id?: number | string | null;
+  subscription_id?: number | string | null;
+  transaction_id?: string | null;
+  metadata?: Record<string, any> | null;
+  amount?: number | string | null;
+} & Record<string, any>;
 
 type HostedCallbackMetadata = {
   status?: string | null;
@@ -401,7 +408,7 @@ async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
   }
 
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data: { user }, error } = await (supabase.auth as any).getUser(token);
     if (error || !user?.email) {
       return null;
     }
@@ -1459,6 +1466,7 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
  */
 router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
   const callbackStartTime = Date.now();
+  let currentEnvironment = 'unknown';
   
   try {
     if (!hostedCheckoutService) {
@@ -1468,7 +1476,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       });
     }
 
-    const currentEnvironment = await paymentEnvironment.getEnvironment();
+    currentEnvironment = await paymentEnvironment.getEnvironment();
 
     // Log the full callback request from EPX (headers + body)
     console.log(
@@ -1901,7 +1909,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                     amount: resolvedAmount,
                     paymentMethod: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'Hosted Checkout',
                     paymentStatus: 'succeeded',
-                    transactionId: result.transactionId || paymentRecordForLogging.transaction_id,
+                    transactionId: result.transactionId || paymentRecordForLogging.transaction_id || undefined,
                     paymentDate: new Date()
                   });
                   notificationMeta.paymentReceiptSentAt = new Date().toISOString();
@@ -1925,7 +1933,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                     amount: resolvedAmount,
                     agentName,
                     agentNumber,
-                    agentEmail: agentRecord?.email || null,
+                    agentEmail: agentRecord?.email || undefined,
                     agentUserId: agentId || null,
                     enrollmentDate: new Date()
                   });

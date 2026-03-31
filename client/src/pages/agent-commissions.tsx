@@ -34,6 +34,7 @@ interface Commission {
   planTier?: string;
   commissionAmount?: number;
   totalPlanCost?: number;
+  businessCategory?: 'individual' | 'family' | 'group';
   status?: string;
   paymentStatus?: string;
   paymentDate?: string;
@@ -221,6 +222,33 @@ export default function AgentCommissions() {
     };
   }, [stats]);
 
+  const businessMix = useMemo(() => {
+    return safeCommissions.reduce(
+      (acc, commission) => {
+        const category = commission.businessCategory || 'individual';
+        const amount = Number(commission.commissionAmount || 0);
+
+        if (category === 'family') {
+          acc.family.count += 1;
+          acc.family.amount += amount;
+        } else if (category === 'group') {
+          acc.group.count += 1;
+          acc.group.amount += amount;
+        } else {
+          acc.individual.count += 1;
+          acc.individual.amount += amount;
+        }
+
+        return acc;
+      },
+      {
+        individual: { count: 0, amount: 0 },
+        family: { count: 0, amount: 0 },
+        group: { count: 0, amount: 0 },
+      }
+    );
+  }, [safeCommissions]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -360,6 +388,36 @@ export default function AgentCommissions() {
             <CardContent>
               <div className="text-2xl font-bold">${safeStats.pending.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">Awaiting payment</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Individual Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.individual.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.individual.count} commissions</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Family Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.family.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.family.count} commissions</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Group Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.group.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.group.count} commissions</p>
             </CardContent>
           </Card>
         </div>
@@ -521,6 +579,7 @@ export default function AgentCommissions() {
                     <TableHead>Member ID</TableHead>
                     <TableHead>Plan</TableHead>
                     <TableHead>Type</TableHead>
+                    <TableHead>Segment</TableHead>
                     <TableHead>Plan Cost</TableHead>
                     <TableHead>Commission</TableHead>
                     <TableHead>Status</TableHead>
@@ -546,6 +605,7 @@ export default function AgentCommissions() {
                         </TableCell>
                         <TableCell>{commission.planName || commission.planTier || 'N/A'}</TableCell>
                         <TableCell>{commission.planType || 'N/A'}</TableCell>
+                        <TableCell className="capitalize">{commission.businessCategory || 'individual'}</TableCell>
                         <TableCell>
                           ${(commission.totalPlanCost && typeof commission.totalPlanCost === 'number') ? commission.totalPlanCost.toFixed(2) : '0.00'}
                         </TableCell>

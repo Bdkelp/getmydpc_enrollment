@@ -22,6 +22,9 @@ interface StatsData {
   // Revenue data
   totalRevenue?: number;
   monthlyRevenue?: number;
+  individualMonthlyRevenue?: number;
+  familyMonthlyRevenue?: number;
+  groupMonthlyRevenue?: number;
   yearlyRevenue?: number;
   averageRevenuePerMember?: number;
   
@@ -38,6 +41,7 @@ interface StatsData {
   totalMembers?: number;
   activeMembers?: number;
   individualEnrollments?: number;
+  familyEnrollments?: number;
   groupEnrollments?: number;
   monthlyEnrollments?: number;
   yearlyEnrollments?: number;
@@ -358,6 +362,9 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
             <p className="text-xs text-white/70 mt-2">
               {formatPercentage(stats?.revenueGrowth || 0)} vs last period
             </p>
+            <p className="text-xs text-white/70 mt-1">
+              {formatCurrency(stats?.individualMonthlyRevenue || 0)} individual | {formatCurrency(stats?.familyMonthlyRevenue || 0)} family | {formatCurrency(stats?.groupMonthlyRevenue || 0)} group
+            </p>
           </CardContent>
         </Card>
 
@@ -374,7 +381,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
               <Users className="h-8 w-8 text-white/80" />
             </div>
             <p className="text-xs text-white/70 mt-2">
-              {formatNumber(stats?.activeMembers || 0)} active | {formatNumber(stats?.individualEnrollments || 0)} individual | {formatNumber(stats?.groupEnrollments || 0)} group
+              {formatNumber(stats?.activeMembers || 0)} active | {formatNumber(stats?.individualEnrollments || 0)} individual | {formatNumber(stats?.familyEnrollments || 0)} family | {formatNumber(stats?.groupEnrollments || 0)} group
             </p>
           </CardContent>
         </Card>

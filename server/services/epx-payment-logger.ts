@@ -14,7 +14,15 @@ export interface EPXLogEvent {
     | 'general'
     | 'certification'
     | 'recurring'
-    | 'scheduler';
+    | 'scheduler'
+    | 'retry-payment'
+    | 'hosted-complete'
+    | 'record-failure'
+    | 'admin-update'
+    | 'admin-commission'
+    | 'commission-repair'
+    | 'admin-sync-price'
+    | 'admin-add-family';
   message: string;
   data?: any;
 }

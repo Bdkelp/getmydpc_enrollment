@@ -785,6 +785,86 @@ const parseAmountNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const getRegistrationPayloadRateLabel = (groupMember: any): string | null => {
+  const payload = groupMember?.registrationPayload && typeof groupMember.registrationPayload === 'object'
+    ? groupMember.registrationPayload as Record<string, any>
+    : {};
+
+  const employmentProfile = payload.employmentProfile && typeof payload.employmentProfile === 'object'
+    ? payload.employmentProfile as Record<string, any>
+    : {};
+
+  const directCandidates = [
+    payload.businessUnit,
+    payload.plantier,
+    payload.planTier,
+    payload.plan,
+    employmentProfile.businessUnit,
+  ];
+
+  for (const candidate of directCandidates) {
+    const normalized = typeof candidate === 'string' ? candidate.trim() : '';
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  return null;
+};
+
+const inferAmountFromRateLabel = (rateLabel: string | null): number => {
+  if (!rateLabel) {
+    return 0;
+  }
+
+  const matches = rateLabel.match(/\$\s*([0-9]+(?:\.[0-9]{1,2})?)/g) || [];
+  const total = matches
+    .map((match) => parseAmountNumber(match.replace(/[^0-9.]/g, '')))
+    .filter((value) => value > 0)
+    .reduce((sum, value) => sum + value, 0);
+
+  return roundCurrency(total);
+};
+
+const resolveGroupMemberBaseAmount = async (groupMember: any): Promise<number> => {
+  const currentBaseAmount = roundCurrency(
+    parseAmountNumber(groupMember.totalAmount)
+    || (parseAmountNumber(groupMember.memberAmount) + parseAmountNumber(groupMember.employerAmount))
+  );
+
+  if (currentBaseAmount > 0) {
+    return currentBaseAmount;
+  }
+
+  const inferredAmount = inferAmountFromRateLabel(getRegistrationPayloadRateLabel(groupMember));
+  if (inferredAmount <= 0 || !groupMember?.id) {
+    return 0;
+  }
+
+  const normalizedPayorType = String(groupMember.payorType || '').trim().toLowerCase();
+  const fallbackMemberAmount = normalizedPayorType === 'full' ? inferredAmount : inferredAmount;
+  const fallbackEmployerAmount = 0;
+
+  try {
+    await updateGroupMember(groupMember.id, {
+      totalAmount: parseAmount(inferredAmount),
+      memberAmount: parseAmount(fallbackMemberAmount),
+      employerAmount: parseAmount(fallbackEmployerAmount),
+    });
+
+    groupMember.totalAmount = inferredAmount;
+    groupMember.memberAmount = fallbackMemberAmount;
+    groupMember.employerAmount = fallbackEmployerAmount;
+  } catch (error) {
+    console.warn('[Group Enrollment] Failed persisting inferred group member amounts:', {
+      groupMemberId: groupMember.id,
+      error,
+    });
+  }
+
+  return inferredAmount;
+};
+
 const normalizePaymentStatus = (value: unknown): string =>
   String(value || '').trim().toLowerCase();
 
@@ -1002,10 +1082,7 @@ const createExpectedGroupMemberCommissionsForCycle = async (
     }
 
     const syntheticMemberId = buildSyntheticGroupMemberId(groupMember.id);
-    const baseAmount = roundCurrency(
-      parseAmountNumber(groupMember.totalAmount)
-      || (parseAmountNumber(groupMember.memberAmount) + parseAmountNumber(groupMember.employerAmount))
-    );
+    const baseAmount = await resolveGroupMemberBaseAmount(groupMember);
 
     if (baseAmount <= 0) {
       skipped += 1;
@@ -1268,10 +1345,7 @@ const createGroupMemberCommissionsForCapturedPayment = async (
   }
 
   const syntheticMemberId = `group_member:${groupMember.id}`;
-  const baseAmount = roundCurrency(
-    parseAmountNumber(groupMember.totalAmount)
-    || (parseAmountNumber(groupMember.memberAmount) + parseAmountNumber(groupMember.employerAmount))
-  );
+  const baseAmount = await resolveGroupMemberBaseAmount(groupMember);
 
   if (baseAmount <= 0) {
     throw new Error('Cannot create group commission because member total amount is zero');
@@ -2599,6 +2673,7 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
     }
 
     const memberRecord = await addGroupMember(groupId, {
+      groupId,
       tier: normalizedTier,
       relationship: normalizedRelationship,
       householdBaseNumber: householdIdentifiers.householdBaseNumber,
@@ -2849,8 +2924,11 @@ const resolveHouseholdIdentifiers = (
     existingDependentSuffix,
   } = options;
 
-  const explicitBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(explicitHouseholdMemberNumber || null);
-  const existingBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(existingHouseholdMemberNumber || null);
+  const normalizedExplicitHouseholdMemberNumber = toTrimmedOrNull(explicitHouseholdMemberNumber || null);
+  const normalizedExistingHouseholdMemberNumber = toTrimmedOrNull(existingHouseholdMemberNumber || null);
+
+  const explicitBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(normalizedExplicitHouseholdMemberNumber);
+  const existingBaseFromMemberNumber = extractHouseholdBaseNumberFromMemberNumber(normalizedExistingHouseholdMemberNumber);
 
   const primaryAnchor = members.find((member) =>
     Number(member.id) !== Number(excludeMemberId)
@@ -2872,11 +2950,11 @@ const resolveHouseholdIdentifiers = (
 
   if (isPrimaryMember) {
     const dependentSuffix = 0;
-    const householdMemberNumber = (isStructuredHouseholdMemberNumber(explicitHouseholdMemberNumber)
-      ? toTrimmedOrNull(explicitHouseholdMemberNumber)
+    const householdMemberNumber = (isStructuredHouseholdMemberNumber(normalizedExplicitHouseholdMemberNumber)
+      ? normalizedExplicitHouseholdMemberNumber
       : null)
-      || (isStructuredHouseholdMemberNumber(existingHouseholdMemberNumber)
-        ? toTrimmedOrNull(existingHouseholdMemberNumber)
+      || (isStructuredHouseholdMemberNumber(normalizedExistingHouseholdMemberNumber)
+        ? normalizedExistingHouseholdMemberNumber
         : null)
       || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
 
@@ -2886,8 +2964,8 @@ const resolveHouseholdIdentifiers = (
   const dependentSuffix = explicitDependentSuffix
     || existingDependentSuffix
     || getNextDependentSuffixForHousehold(members, householdBaseNumber, excludeMemberId);
-  const householdMemberNumber = (isStructuredHouseholdMemberNumber(explicitHouseholdMemberNumber)
-    ? toTrimmedOrNull(explicitHouseholdMemberNumber)
+  const householdMemberNumber = (isStructuredHouseholdMemberNumber(normalizedExplicitHouseholdMemberNumber)
+    ? normalizedExplicitHouseholdMemberNumber
     : null)
     || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
 
@@ -2981,6 +3059,7 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
         });
 
         const memberRecord = await addGroupMember(groupId, {
+          groupId,
           tier: normalizedTier,
           relationship: normalizedRelationship,
           householdBaseNumber: householdIdentifiers.householdBaseNumber,
@@ -3186,6 +3265,7 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
         }
 
         const createdRecord = await addGroupMember(groupId, {
+          groupId,
           tier: normalizedTier,
           relationship: normalizedRelationship,
           householdBaseNumber: householdIdentifiers.householdBaseNumber,
@@ -3613,10 +3693,20 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
       return res.status(404).json({ message: 'Group member not found' });
     }
 
+    const existingMetadata =
+      existingMember.metadata && typeof existingMember.metadata === 'object'
+        ? (existingMember.metadata as Record<string, any>)
+        : {};
+
+    const existingLifecycle =
+      existingMetadata.lifecycle && typeof existingMetadata.lifecycle === 'object'
+        ? (existingMetadata.lifecycle as Record<string, any>)
+        : {};
+
     const nextMetadata = {
-      ...((existingMember.metadata && typeof existingMember.metadata === 'object') ? existingMember.metadata : {}),
+      ...existingMetadata,
       lifecycle: {
-        ...(existingMember?.metadata?.lifecycle || {}),
+        ...existingLifecycle,
         previousStatus: existingMember.status || 'draft',
         terminatedAt: new Date().toISOString(),
         terminatedBy: req.user?.id || null,
@@ -3626,7 +3716,7 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
 
     const terminated = await updateGroupMember(numericMemberId, {
       status: 'terminated',
-      terminatedAt: new Date().toISOString(),
+      terminatedAt: new Date(),
       metadata: nextMetadata,
     });
 
@@ -3810,6 +3900,144 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
   } catch (error) {
     console.error('[Group Enrollment] Failed to update payment status:', error);
     const message = error instanceof Error ? error.message : 'Failed to update payment status';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/commission-pricing-repair', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can run commission pricing repair' });
+    }
+
+    const { groupId } = req.params;
+    const group = await resolveGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const allMembers = await listGroupMembers({ groupId });
+    const activeMembers = allMembers.filter((member) => member.status !== 'terminated');
+    const overrides = Array.isArray(req.body?.overrides) ? req.body.overrides : [];
+    const applyInferred = req.body?.applyInferred !== false;
+    const refreshExpectedCommissions = req.body?.refreshExpectedCommissions === true;
+
+    const appliedOverrides: Array<{ memberId: number; totalAmount: number; memberAmount: number; employerAmount: number }> = [];
+    const skippedOverrides: Array<{ memberId: number | null; reason: string }> = [];
+
+    for (const override of overrides) {
+      const memberId = Number(override?.memberId);
+      if (Number.isNaN(memberId)) {
+        skippedOverrides.push({ memberId: null, reason: 'invalid-member-id' });
+        continue;
+      }
+
+      const member = activeMembers.find((row) => row.id === memberId);
+      if (!member) {
+        skippedOverrides.push({ memberId, reason: 'member-not-found-or-terminated' });
+        continue;
+      }
+
+      let totalAmount = roundCurrency(parseAmountNumber(override?.totalAmount));
+      let memberAmount = roundCurrency(parseAmountNumber(override?.memberAmount));
+      let employerAmount = roundCurrency(parseAmountNumber(override?.employerAmount));
+
+      if (totalAmount <= 0) {
+        totalAmount = roundCurrency(memberAmount + employerAmount);
+      }
+
+      if (totalAmount <= 0) {
+        skippedOverrides.push({ memberId, reason: 'non-positive-amount' });
+        continue;
+      }
+
+      if (memberAmount <= 0 && employerAmount <= 0) {
+        memberAmount = totalAmount;
+        employerAmount = 0;
+      }
+
+      await updateGroupMember(member.id, {
+        totalAmount: parseAmount(totalAmount),
+        memberAmount: parseAmount(memberAmount),
+        employerAmount: parseAmount(employerAmount),
+      });
+
+      member.totalAmount = parseAmount(totalAmount);
+      member.memberAmount = parseAmount(memberAmount);
+      member.employerAmount = parseAmount(employerAmount);
+
+      appliedOverrides.push({ memberId, totalAmount, memberAmount, employerAmount });
+    }
+
+    const inferredApplied: Array<{ memberId: number; inferredAmount: number; rateLabel: string | null }> = [];
+    const unresolvedMembers: Array<{ memberId: number; reason: string; rateLabel: string | null }> = [];
+
+    if (applyInferred) {
+      for (const member of activeMembers) {
+        const currentAmount = roundCurrency(
+          parseAmountNumber(member.totalAmount)
+          || (parseAmountNumber(member.memberAmount) + parseAmountNumber(member.employerAmount))
+        );
+
+        if (currentAmount > 0) {
+          continue;
+        }
+
+        const rateLabel = getRegistrationPayloadRateLabel(member);
+        const resolvedAmount = await resolveGroupMemberBaseAmount(member);
+
+        if (resolvedAmount > 0) {
+          inferredApplied.push({ memberId: member.id, inferredAmount: resolvedAmount, rateLabel });
+        } else {
+          unresolvedMembers.push({ memberId: member.id, reason: 'no-parseable-rate-label', rateLabel });
+        }
+      }
+    }
+
+    let expectedCommissionResult: {
+      created: number;
+      updated: number;
+      skipped: number;
+      expectedTotal: number;
+      cycleKey: string;
+    } | null = null;
+
+    if (refreshExpectedCommissions) {
+      const metadata = group.metadata && typeof group.metadata === 'object'
+        ? (group.metadata as Record<string, any>)
+        : {};
+      const billingScheduler = metadata.billingScheduler && typeof metadata.billingScheduler === 'object'
+        ? (metadata.billingScheduler as Record<string, any>)
+        : {};
+      const cycleAnchor = parseCycleDate(
+        typeof billingScheduler.scheduledStartDate === 'string' ? billingScheduler.scheduledStartDate : null,
+      );
+
+      expectedCommissionResult = await createExpectedGroupMemberCommissionsForCycle(
+        group,
+        activeMembers,
+        cycleAnchor,
+        req.user.id,
+      );
+    }
+
+    return res.status(200).json({
+      message: 'Group commission pricing repair completed',
+      summary: {
+        appliedOverrideCount: appliedOverrides.length,
+        skippedOverrideCount: skippedOverrides.length,
+        inferredAppliedCount: inferredApplied.length,
+        unresolvedMemberCount: unresolvedMembers.length,
+      },
+      appliedOverrides,
+      skippedOverrides,
+      inferredApplied,
+      unresolvedMembers,
+      expectedCommissionResult,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed running commission pricing repair:', error);
+    const message = error instanceof Error ? error.message : 'Failed to run commission pricing repair';
     return res.status(500).json({ message });
   }
 });

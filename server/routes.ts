@@ -3957,21 +3957,21 @@ function generateCSV(reportType: string, data: any): Buffer {
 
   if (reportType === "members" && Array.isArray(data)) {
     csvContent =
-      "Name,Email,Phone,Plan,Status,Enrolled Date,Total Paid,Agent\n";
+      "Name,Email,Phone,Plan,Business Segment,Status,Enrolled Date,Total Paid,Agent\n";
     data.forEach((member: any) => {
-      csvContent += `"${member.firstName} ${member.lastName}",${member.email},${member.phone},${member.planName},${member.status},${member.enrolledDate},${member.totalPaid},${member.agentName}\n`;
+      csvContent += `"${member.firstName} ${member.lastName}",${member.email},${member.phone},${member.planName},${member.businessCategory || member.source || 'individual'},${member.status},${member.enrolledDate},${member.totalPaid},${member.agentName}\n`;
     });
   } else if (reportType === "agents" && Array.isArray(data)) {
     csvContent =
-      "Agent Name,Agent Number,Total Enrollments,Monthly Enrollments,Total Commissions,Paid Commissions,Pending Commissions,Conversion Rate\n";
+      "Agent Name,Agent Number,Total Enrollments,Individual Enrollments,Family Enrollments,Group Enrollments,Monthly Enrollments,Total Commissions,Paid Commissions,Pending Commissions,Conversion Rate\n";
     data.forEach((agent: any) => {
-      csvContent += `${agent.agentName},${agent.agentNumber},${agent.totalEnrollments},${agent.monthlyEnrollments},${agent.totalCommissions},${agent.paidCommissions},${agent.pendingCommissions},${agent.conversionRate}%\n`;
+      csvContent += `${agent.agentName},${agent.agentNumber},${agent.totalEnrollments},${agent.individualEnrollments || 0},${agent.familyEnrollments || 0},${agent.groupEnrollments || 0},${agent.monthlyEnrollments},${agent.totalCommissions},${agent.paidCommissions},${agent.pendingCommissions},${agent.conversionRate}%\n`;
     });
   } else if (reportType === "commissions" && Array.isArray(data)) {
     csvContent =
-      "Agent,Agent Number,Member,Plan,Commission Amount,Plan Cost,Status,Payment Status,Created Date\n";
+      "Agent,Agent Number,Member,Plan,Business Segment,Commission Amount,Plan Cost,Status,Payment Status,Created Date\n";
     data.forEach((commission: any) => {
-      csvContent += `${commission.agentName},${commission.agentNumber},${commission.memberName},${commission.planName},${commission.commissionAmount},${commission.totalPlanCost},${commission.status},${commission.paymentStatus},${commission.createdDate}\n`;
+      csvContent += `${commission.agentName},${commission.agentNumber},${commission.memberName},${commission.planName},${commission.businessCategory || 'individual'},${commission.commissionAmount},${commission.totalPlanCost},${commission.status},${commission.paymentStatus},${commission.createdDate}\n`;
     });
   }
 
@@ -4508,23 +4508,40 @@ router.get(
       }
 
       const allMembers = agentMembers || [];
-      const filteredMembers = filterRecordsByDate(allMembers, start, end);
+      const groupEnrollments = await getGroupEnrollmentRecordsForAgent(targetAgentId);
+      const individualEnrollmentRecords = allMembers.map((member: any) => ({ ...member, source: 'individual' }));
+      const combinedEnrollments = [...individualEnrollmentRecords, ...groupEnrollments];
+      const filteredEnrollments = filterRecordsByDate(combinedEnrollments, start, end);
 
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       monthStart.setHours(0, 0, 0, 0);
       const yearStart = new Date(now.getFullYear(), 0, 1);
 
-      const membersThisMonth = allMembers.filter((member: any) => new Date(member.created_at) >= monthStart);
-      const membersThisYear = allMembers.filter((member: any) => new Date(member.created_at) >= yearStart);
+      const now = new Date();
+      const membersThisMonth = filterRecordsByDate(combinedEnrollments, monthStart, now);
+      const membersThisYear = filterRecordsByDate(combinedEnrollments, yearStart, now);
 
-      const activeMembers = allMembers.filter((member: any) =>
-        member.status === 'active' || member.status === 'pending_activation'
+      const activeMembers = combinedEnrollments.filter((member: any) =>
+        member.status === 'active' || member.status === 'pending_activation' || member.status === 'registered' || member.isActive
       ).length;
 
-      const pendingEnrollments = filteredMembers.filter((member: any) =>
+      const pendingEnrollments = filteredEnrollments.filter((member: any) =>
         member.status && member.status.toLowerCase().includes('pending')
       ).length;
+
+      const isFamilyRecord = (record: any): boolean => {
+        const value = String(record?.memberType || record?.coverageType || record?.coverage_type || '').toLowerCase();
+        return value.includes('family') || value.includes('spouse') || value.includes('child');
+      };
+
+      const filteredIndividualRecords = filteredEnrollments.filter((record: any) => record.source !== 'group' && !isFamilyRecord(record));
+      const filteredFamilyRecords = filteredEnrollments.filter((record: any) => record.source !== 'group' && isFamilyRecord(record));
+      const filteredGroupRecords = filteredEnrollments.filter((record: any) => record.source === 'group');
+
+      const monthIndividualRecords = membersThisMonth.filter((record: any) => record.source !== 'group' && !isFamilyRecord(record));
+      const monthFamilyRecords = membersThisMonth.filter((record: any) => record.source !== 'group' && isFamilyRecord(record));
+      const monthGroupRecords = membersThisMonth.filter((record: any) => record.source === 'group');
 
       const { data: agentCommissions, error: commissionError } = await supabase
         .from('agent_commissions')
@@ -4543,12 +4560,15 @@ router.get(
 
       const roundCurrency = (value: number) => Number((value || 0).toFixed(2));
 
-      const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredMembers));
-      const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(allMembers));
+      const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredEnrollments));
+      const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(combinedEnrollments));
       const monthlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisMonth));
+      const monthlyIndividualRevenue = roundCurrency(sumEnrollmentRevenue(monthIndividualRecords));
+      const monthlyFamilyRevenue = roundCurrency(sumEnrollmentRevenue(monthFamilyRecords));
+      const monthlyGroupRevenue = roundCurrency(sumEnrollmentRevenue(monthGroupRecords));
       const yearlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisYear));
-      const averageRevenuePerMember = filteredMembers.length > 0
-        ? roundCurrency(totalRevenue / filteredMembers.length)
+      const averageRevenuePerMember = filteredEnrollments.length > 0
+        ? roundCurrency(totalRevenue / filteredEnrollments.length)
         : 0;
 
       const totalCommissionsAmount = roundCurrency(sumCommissionAmounts(filteredCommissions));
@@ -4600,10 +4620,16 @@ router.get(
         totalRevenue,
         totalRevenueAllTime,
         monthlyRevenue,
+        individualMonthlyRevenue: monthlyIndividualRevenue,
+        familyMonthlyRevenue: monthlyFamilyRevenue,
+        groupMonthlyRevenue: monthlyGroupRevenue,
         yearlyRevenue,
         averageRevenuePerMember,
-        totalEnrollments: filteredMembers.length,
-        totalMembers: allMembers.length,
+        totalEnrollments: filteredEnrollments.length,
+        totalMembers: combinedEnrollments.length,
+        individualEnrollments: filteredIndividualRecords.length,
+        familyEnrollments: filteredFamilyRecords.length,
+        groupEnrollments: filteredGroupRecords.length,
         monthlyEnrollments: membersThisMonth.length,
         yearlyEnrollments: membersThisYear.length,
         pendingEnrollments,
@@ -5991,6 +6017,12 @@ export async function registerRoutes(app: any) {
       const pendingEnrollments = reportingEnrollments.filter((e) => e.approvalStatus === 'pending' || e.status === 'pending_activation').length;
 
       const reportingIndividualEnrollments = reportingEnrollments.filter((e) => e.source !== 'group');
+      const isFamilyRecord = (record: any): boolean => {
+        const value = String(record?.memberType || record?.coverageType || record?.coverage_type || '').toLowerCase();
+        return value.includes('family') || value.includes('spouse') || value.includes('child');
+      };
+      const reportingFamilyEnrollments = reportingIndividualEnrollments.filter((record) => isFamilyRecord(record));
+      const reportingSoloEnrollments = reportingIndividualEnrollments.filter((record) => !isFamilyRecord(record));
       const reportingGroupEnrollments = reportingEnrollments.filter((e) => e.source === 'group');
 
       const revenueTotal = sumEnrollmentRevenue(reportingEnrollments);
@@ -6007,6 +6039,11 @@ export async function registerRoutes(app: any) {
       const yearlyEnrollments = yearlyEnrollmentRecords.length;
 
       const monthlyRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords);
+      const monthlyIndividualRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords.filter((record) => record.source !== 'group' && !isFamilyRecord(record)));
+      const monthlyFamilyRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords.filter((record) => record.source !== 'group' && isFamilyRecord(record)));
+      const monthlyGroupRevenue = sumEnrollmentRevenue(
+        monthlyEnrollmentRecords.filter((record) => record.source === 'group')
+      );
       const yearlyRevenue = sumEnrollmentRevenue(yearlyEnrollmentRecords);
       const averageRevenuePerMember = activeMembers > 0 ? revenueTotal / activeMembers : 0;
 
@@ -6029,10 +6066,14 @@ export async function registerRoutes(app: any) {
         totalMembers,
         activeMembers,
         pendingEnrollments,
-        individualEnrollments: reportingIndividualEnrollments.length,
+        individualEnrollments: reportingSoloEnrollments.length,
+        familyEnrollments: reportingFamilyEnrollments.length,
         groupEnrollments: reportingGroupEnrollments.length,
         totalRevenue: parseFloat(revenueTotal.toFixed(2)),
         monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
+        individualMonthlyRevenue: parseFloat(monthlyIndividualRevenue.toFixed(2)),
+        familyMonthlyRevenue: parseFloat(monthlyFamilyRevenue.toFixed(2)),
+        groupMonthlyRevenue: parseFloat(monthlyGroupRevenue.toFixed(2)),
         yearlyRevenue: parseFloat(yearlyRevenue.toFixed(2)),
         averageRevenuePerMember: parseFloat(averageRevenuePerMember.toFixed(2)),
         revenueGrowth: 0,
@@ -6332,7 +6373,7 @@ export async function registerRoutes(app: any) {
 
       if (!commissions || commissions.length === 0) {
         // Return empty CSV with headers
-        const csv = 'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status\n';
+        const csv = 'Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status\n';
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
         return res.send(csv);
@@ -6340,12 +6381,13 @@ export async function registerRoutes(app: any) {
 
       // Build CSV header
       const csv = [
-        'Date,Member,Plan,Type,Commission Amount,Plan Cost,Status,Payment Status',
+        'Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status',
         ...commissions.map(c => {
           const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
           const member = c.userName || c.userId || 'Unknown';
           const plan = c.planName || 'Unknown';
           const type = c.planType || 'Unknown';
+          const businessSegment = c.businessCategory || 'individual';
           const commission = c.commissionAmount?.toFixed(2) || '0.00';
           const cost = c.totalPlanCost?.toFixed(2) || '0.00';
           const status = c.status || 'Unknown';
@@ -6364,6 +6406,7 @@ export async function registerRoutes(app: any) {
             escapeCSV(member),
             escapeCSV(plan),
             escapeCSV(type),
+            businessSegment,
             commission,
             cost,
             status,

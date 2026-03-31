@@ -41,8 +41,10 @@ interface AnalyticsData {
     cancellationsThisMonth: number;
     sourceBreakdown?: {
       individualMembers: number;
+      familyMembers?: number;
       groupMembers: number;
       individualMonthlyRevenue: number;
+      familyMonthlyRevenue?: number;
       groupMonthlyRevenue: number;
       newIndividualEnrollmentsThisMonth: number;
       newGroupEnrollmentsThisMonth: number;
@@ -82,6 +84,9 @@ interface AnalyticsData {
     agentName: string;
     agentNumber: string;
     totalEnrollments: number;
+    individualEnrollments?: number;
+    familyEnrollments?: number;
+    groupEnrollments?: number;
     totalCommissions: number;
     paidCommissions: number;
     pendingCommissions: number;
@@ -97,6 +102,7 @@ interface AnalyticsData {
     firstName: string;
     lastName: string;
     email: string;
+    businessCategory?: 'individual' | 'family' | 'group';
     phone: string;
     planName: string;
     status: string;
@@ -113,6 +119,7 @@ interface AnalyticsData {
     agentName: string;
     agentNumber: string;
     memberName: string;
+    businessCategory?: 'individual' | 'family' | 'group';
     planName: string;
     commissionAmount: number;
     totalPlanCost: number;
@@ -129,6 +136,9 @@ interface AnalyticsData {
     netRevenue: number;
     projectedAnnualRevenue: number;
     averageRevenuePerUser: number;
+    individualRevenue?: number;
+    familyRevenue?: number;
+    groupRevenue?: number;
     revenueByMonth: Array<{
       month: string;
       revenue: number;
@@ -328,6 +338,7 @@ export default function AdminAnalytics() {
                   <p className="text-xs text-gray-500 mt-1">
                     Active subscriptions: {analytics.overview.activeSubscriptions}
                     {' | '}Individual: {analytics.overview.sourceBreakdown?.individualMembers ?? 0}
+                    {' | '}Family: {analytics.overview.sourceBreakdown?.familyMembers ?? 0}
                     {' | '}Group: {analytics.overview.sourceBreakdown?.groupMembers ?? 0}
                   </p>
                 </CardContent>
@@ -343,6 +354,11 @@ export default function AdminAnalytics() {
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(analytics.overview.monthlyRevenue)}</div>
                   <p className="text-xs text-gray-500 mt-1">Avg per member: {formatCurrency(analytics.overview.averageRevenue)}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Individual: {formatCurrency(analytics.overview.sourceBreakdown?.individualMonthlyRevenue ?? 0)}
+                    {' | '}Family: {formatCurrency(analytics.overview.sourceBreakdown?.familyMonthlyRevenue ?? 0)}
+                    {' | '}Group: {formatCurrency(analytics.overview.sourceBreakdown?.groupMonthlyRevenue ?? 0)}
+                  </p>
                 </CardContent>
               </Card>
 
@@ -561,6 +577,7 @@ export default function AdminAnalytics() {
                           <TableHead>Name</TableHead>
                           <TableHead>Member ID</TableHead>
                           <TableHead>Email</TableHead>
+                          <TableHead>Segment</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Plan</TableHead>
                           <TableHead>Status</TableHead>
@@ -589,6 +606,7 @@ export default function AdminAnalytics() {
                               )}
                             </TableCell>
                             <TableCell>{member.email}</TableCell>
+                            <TableCell className="capitalize">{member.businessCategory || 'individual'}</TableCell>
                             <TableCell>{member.phone}</TableCell>
                             <TableCell>{member.planName}</TableCell>
                             <TableCell>
@@ -614,6 +632,9 @@ export default function AdminAnalytics() {
                           <TableHead>Agent Name</TableHead>
                           <TableHead>Agent #</TableHead>
                           <TableHead className="text-right">Total Enrollments</TableHead>
+                          <TableHead className="text-right">Individual</TableHead>
+                          <TableHead className="text-right">Family</TableHead>
+                          <TableHead className="text-right">Group</TableHead>
                           <TableHead className="text-right">Monthly Enrollments</TableHead>
                           <TableHead className="text-right">Total Commissions</TableHead>
                           <TableHead className="text-right">Paid</TableHead>
@@ -627,6 +648,9 @@ export default function AdminAnalytics() {
                             <TableCell className="font-medium">{agent.agentName}</TableCell>
                             <TableCell>{agent.agentNumber}</TableCell>
                             <TableCell className="text-right">{agent.totalEnrollments}</TableCell>
+                            <TableCell className="text-right">{agent.individualEnrollments ?? 0}</TableCell>
+                            <TableCell className="text-right">{agent.familyEnrollments ?? 0}</TableCell>
+                            <TableCell className="text-right">{agent.groupEnrollments ?? 0}</TableCell>
                             <TableCell className="text-right">{agent.monthlyEnrollments}</TableCell>
                             <TableCell className="text-right">{formatCurrency(agent.totalCommissions)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(agent.paidCommissions)}</TableCell>
@@ -647,6 +671,7 @@ export default function AdminAnalytics() {
                           <TableHead>Member</TableHead>
                           <TableHead>Member ID</TableHead>
                           <TableHead>Plan</TableHead>
+                          <TableHead>Segment</TableHead>
                           <TableHead className="text-right">Commission</TableHead>
                           <TableHead className="text-right">Plan Cost</TableHead>
                           <TableHead>Status</TableHead>
@@ -674,6 +699,7 @@ export default function AdminAnalytics() {
                               )}
                             </TableCell>
                             <TableCell>{commission.planName}</TableCell>
+                            <TableCell className="capitalize">{commission.businessCategory || 'individual'}</TableCell>
                             <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(commission.totalPlanCost)}</TableCell>
                             <TableCell>
@@ -722,6 +748,18 @@ export default function AdminAnalytics() {
                           </CardHeader>
                           <CardContent>
                             <div className="text-2xl font-bold">{formatCurrency(analytics?.revenueBreakdown?.projectedAnnualRevenue || 0)}</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">Individual / Family / Group</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="text-xs text-gray-600 space-y-1">
+                              <div>Individual: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.individualRevenue || 0)}</span></div>
+                              <div>Family: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.familyRevenue || 0)}</span></div>
+                              <div>Group: <span className="font-semibold text-gray-900">{formatCurrency(analytics?.revenueBreakdown?.groupRevenue || 0)}</span></div>
+                            </div>
                           </CardContent>
                         </Card>
                       </div>

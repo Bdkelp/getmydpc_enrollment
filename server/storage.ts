@@ -3458,6 +3458,35 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
 // ========== NEW AGENT COMMISSIONS TABLE FUNCTIONS ==========
 // Using the new agent_commissions table with clean schema
 
+const resolveCommissionBusinessCategory = (member: any, commission: any): 'individual' | 'family' | 'group' => {
+  const memberId = String(commission?.member_id || '').toLowerCase();
+  const notes = String(commission?.notes || '').toLowerCase();
+  const commissionCoverage = String(commission?.coverage_type || '').toLowerCase();
+
+  if (
+    memberId.startsWith('group_member:')
+    || notes.includes('group member commission')
+    || notes.includes('group:')
+    || commissionCoverage === 'group'
+  ) {
+    return 'group';
+  }
+
+  const memberCoverage = String(member?.coverage_type || '').toLowerCase();
+  if (
+    memberCoverage.includes('family')
+    || memberCoverage.includes('spouse')
+    || memberCoverage.includes('child')
+    || commissionCoverage.includes('family')
+    || commissionCoverage.includes('spouse')
+    || commissionCoverage.includes('child')
+  ) {
+    return 'family';
+  }
+
+  return 'individual';
+};
+
 export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
   try {
     console.log('[Storage] Fetching commissions via Supabase for agent:', agentId);
@@ -3489,12 +3518,20 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
     const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
     const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
+    const numericMemberIds = memberIds
+      .map(id => parseInt(String(id), 10))
+      .filter(id => Number.isFinite(id));
+    const numericEnrollmentIds = enrollmentIds
+      .map(id => parseInt(String(id), 10))
+      .filter(id => Number.isFinite(id));
 
     // Batch fetch members data from members table (primary source for enrollees)
-    const { data: members, error: membersError } = await supabase
-      .from('members')
-      .select('id, first_name, last_name, email, customer_number, coverage_type')
-      .in('id', memberIds.map(id => parseInt(id)));
+    const { data: members, error: membersError } = numericMemberIds.length > 0
+      ? await supabase
+        .from('members')
+        .select('id, first_name, last_name, email, customer_number, coverage_type')
+        .in('id', numericMemberIds)
+      : { data: [], error: null };
 
     if (membersError) {
       console.warn('[Storage] Could not fetch member details:', membersError);
@@ -3511,16 +3548,18 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     }
 
     // Batch fetch subscription/enrollment data for plan info  
-    const { data: enrollments, error: enrollmentsError } = await supabase
-      .from('subscriptions')
-      .select(`
-        id,
-        plan_id,
-        member_id,
-        user_id,
-        plans:plans(name, tier)
-      `)
-      .in('id', enrollmentIds.map(id => parseInt(id)));
+    const { data: enrollments, error: enrollmentsError } = numericEnrollmentIds.length > 0
+      ? await supabase
+        .from('subscriptions')
+        .select(`
+          id,
+          plan_id,
+          member_id,
+          user_id,
+          plans:plans(name)
+        `)
+        .in('id', numericEnrollmentIds)
+      : { data: [], error: null };
 
     if (enrollmentsError) {
       console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
@@ -3568,10 +3607,11 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       const plan = enrollment?.plans;
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
-      const planTier = plan?.tier || 'Base';
+      const planTier = 'Base';
       const planName = plan?.name || 'MyPremierPlan';
       const coverageType = member?.coverage_type || 'Member Only';
       const planDisplay = `${planTier} - ${coverageType}`;
+      const businessCategory = resolveCommissionBusinessCategory(member, commission);
 
       return {
         id: commission.id,
@@ -3591,6 +3631,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
           : member?.email || `Member ${commission.member_id}`,
         planTier: planTier,
         planType: coverageType,
+        businessCategory,
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         notes: commission.notes || '',
         createdAt: commission.created_at,
@@ -3653,12 +3694,20 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
     const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
     const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
+    const numericMemberIds = memberIds
+      .map(id => parseInt(String(id), 10))
+      .filter(id => Number.isFinite(id));
+    const numericEnrollmentIds = enrollmentIds
+      .map(id => parseInt(String(id), 10))
+      .filter(id => Number.isFinite(id));
 
     // Batch fetch members data from members table (primary source for enrollees)
-    const { data: members, error: membersError } = await supabase
-      .from('members')
-      .select('id, first_name, last_name, email, customer_number, coverage_type')
-      .in('id', memberIds.map(id => parseInt(id)));
+    const { data: members, error: membersError } = numericMemberIds.length > 0
+      ? await supabase
+        .from('members')
+        .select('id, first_name, last_name, email, customer_number, coverage_type')
+        .in('id', numericMemberIds)
+      : { data: [], error: null };
 
     if (membersError) {
       console.warn('[Storage] Could not fetch member details:', membersError);
@@ -3675,16 +3724,18 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     }
 
     // Batch fetch subscription/enrollment data for plan info
-    const { data: enrollments, error: enrollmentsError } = await supabase
-      .from('subscriptions')
-      .select(`
-        id,
-        plan_id,
-        member_id,
-        user_id,
-        plans:plans(name, tier)
-      `)
-      .in('id', enrollmentIds.map(id => parseInt(id)));
+    const { data: enrollments, error: enrollmentsError } = numericEnrollmentIds.length > 0
+      ? await supabase
+        .from('subscriptions')
+        .select(`
+          id,
+          plan_id,
+          member_id,
+          user_id,
+          plans:plans(name)
+        `)
+        .in('id', numericEnrollmentIds)
+      : { data: [], error: null };
 
     if (enrollmentsError) {
       console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
@@ -3697,16 +3748,24 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     
     // Format for frontend - enhanced for admin view
     const formatted = commissions.map(commission => {
-      const member = membersMap.get(commission.member_id);
+      const memberKey = commission?.member_id !== undefined && commission?.member_id !== null
+        ? commission.member_id.toString()
+        : undefined;
+      const enrollmentKey = commission?.enrollment_id !== undefined && commission?.enrollment_id !== null
+        ? commission.enrollment_id.toString()
+        : undefined;
+
+      const member = memberKey ? membersMap.get(memberKey) : undefined;
       const agent = agentsMap.get(commission.agent_id);
-      const enrollment = enrollmentsMap.get(commission.enrollment_id);
+      const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
       const plan = enrollment?.plans;
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
-      const planTier = plan?.tier || 'Base';
+      const planTier = 'Base';
       const planName = plan?.name || 'MyPremierPlan';
       const coverageType = member?.coverage_type || 'Member Only';
       const planDisplay = `${planTier} - ${coverageType}`;
+      const businessCategory = resolveCommissionBusinessCategory(member, commission);
 
       return {
         id: commission.id,
@@ -3741,6 +3800,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         // Plan information
         planTier: planTier,
         planType: coverageType,
+        businessCategory,
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         planPrice: parseFloat(commission.base_premium || 0),
         totalPlanCost: parseFloat(commission.base_premium || 0),
@@ -6963,33 +7023,70 @@ export const storage = {
       const membersResult = await query('SELECT * FROM members');
       const subscriptionsResult = await query('SELECT * FROM subscriptions');
       const commissionsResult = await query('SELECT * FROM agent_commissions');
+      const groupMembersResult = await query('SELECT * FROM group_members');
 
       const allMembers = membersResult.rows || [];
       const allSubscriptions = subscriptionsResult.rows || [];
       const allCommissions = commissionsResult.rows || [];
+      const allGroupMembers = groupMembersResult.rows || [];
+
+      const parseAmount = (value: unknown): number => {
+        const amount = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+        return Number.isFinite(amount) ? amount : 0;
+      };
+
+      const isGroupMemberEligible = (groupMember: any): boolean => {
+        if (groupMember?.status === 'terminated') {
+          return false;
+        }
+
+        const groupStatus = String(groupMember?.group_status || '').toLowerCase();
+        return groupStatus === 'registered' || groupStatus === 'active';
+      };
 
       console.log('[Storage] Raw dashboard data counts:', {
         users: allUsers.length,
         members: allMembers.length,
+        groupMembers: allGroupMembers.length,
         subscriptions: allSubscriptions.length,
         commissions: allCommissions.length
       });
 
       const totalAgents = allUsers.filter(user => user.role === 'agent').length;
       const totalAdmins = allUsers.filter(user => user.role === 'admin' || user.role === 'super_admin').length;
-      const totalMembers = allMembers.length; // Total enrolled (all statuses)
-      const activeMembers = allMembers.filter(m => m.status === 'active').length;
+      const activeGroupMembers = allGroupMembers.filter(isGroupMemberEligible);
+      const activeIndividualMembers = allMembers.filter(member => {
+        if (!(member.status === 'active' || member.status === 'pending_activation')) {
+          return false;
+        }
+
+        const coverage = String(member.coverage_type || '').toLowerCase();
+        return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+      });
+      const activeFamilyMembers = allMembers.filter(member => {
+        if (!(member.status === 'active' || member.status === 'pending_activation')) {
+          return false;
+        }
+
+        const coverage = String(member.coverage_type || '').toLowerCase();
+        return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+      });
+      const totalMembers = allMembers.length + activeGroupMembers.length;
+      const activeMembers = allMembers.filter(m => m.status === 'active').length + activeGroupMembers.length;
       const totalUsers = totalAgents + totalAdmins + totalMembers;
 
       const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
       const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
       const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
 
-      // Calculate revenue from ALL members (active + pending_activation)
-      // Members table has total_monthly_price which is the actual enrolled plan price
-      const monthlyRevenue = allMembers
-        .filter(member => member.status === 'active' || member.status === 'pending_activation')
+      // Calculate revenue from individual and group enrollments.
+      const individualMonthlyRevenue = activeIndividualMembers
         .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
+      const familyMonthlyRevenue = activeFamilyMembers
+        .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
+      const groupMonthlyRevenue = activeGroupMembers
+        .reduce((total, groupMember) => total + parseAmount(groupMember.total_amount), 0);
+      const monthlyRevenue = individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
 
       // Calculate commissions
       const totalCommissions = allCommissions.reduce((total, comm) => 
@@ -7004,9 +7101,15 @@ export const storage = {
       // Calculate new enrollments (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const newEnrollments = allMembers.filter(member =>
+      const newIndividualEnrollments = allMembers.filter(member =>
         member.created_at && new Date(member.created_at) >= thirtyDaysAgo
       ).length || 0;
+      const newGroupEnrollments = allGroupMembers.filter(groupMember =>
+        isGroupMemberEligible(groupMember) &&
+        groupMember.registered_at &&
+        new Date(groupMember.registered_at) >= thirtyDaysAgo
+      ).length || 0;
+      const newEnrollments = newIndividualEnrollments + newGroupEnrollments;
 
       // Get plan distribution from members with planId
       const planDistributionResult = await query(`
@@ -7038,12 +7141,18 @@ export const storage = {
         pendingSubscriptions,
         cancelledSubscriptions,
         monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
+        individualMonthlyRevenue: parseFloat(individualMonthlyRevenue.toFixed(2)),
+        familyMonthlyRevenue: parseFloat(familyMonthlyRevenue.toFixed(2)),
+        groupMonthlyRevenue: parseFloat(groupMonthlyRevenue.toFixed(2)),
         totalCommissions: parseFloat(totalCommissions.toFixed(2)),
         paidCommissions: parseFloat(paidCommissions.toFixed(2)),
         pendingCommissions: parseFloat(pendingCommissions.toFixed(2)),
+        individualEnrollments: activeIndividualMembers.length,
+        familyEnrollments: activeFamilyMembers.length,
+        groupEnrollments: activeGroupMembers.length,
         newEnrollments,
         churnRate: totalMembers > 0 ? parseFloat(((cancelledSubscriptions / totalMembers) * 100).toFixed(2)) : 0,
-        averageRevenue: activeSubscriptions > 0 ? parseFloat((monthlyRevenue / activeSubscriptions).toFixed(2)) : 0,
+        averageRevenue: activeMembers > 0 ? parseFloat((monthlyRevenue / activeMembers).toFixed(2)) : 0,
         planDistribution,
         coverageDistribution,
         totalEnrollments: totalMembers
@@ -7064,9 +7173,15 @@ export const storage = {
         pendingSubscriptions: 0,
         cancelledSubscriptions: 0,
         monthlyRevenue: 0,
+        individualMonthlyRevenue: 0,
+        familyMonthlyRevenue: 0,
+        groupMonthlyRevenue: 0,
         totalCommissions: 0,
         paidCommissions: 0,
         pendingCommissions: 0,
+        individualEnrollments: 0,
+        familyEnrollments: 0,
+        groupEnrollments: 0,
         newEnrollments: 0,
         churnRate: 0,
         averageRevenue: 0
@@ -7151,14 +7266,25 @@ export const storage = {
       // Overview metrics - count active members from members table
       const activeMembers = allMembers.filter(member => member.status === 'active');
       const activeGroupMembers = allGroupMembers.filter(isGroupMemberEligible);
+      const activeIndividualMembers = activeMembers.filter((member) => {
+        const coverage = String(member.coverage_type || '').toLowerCase();
+        return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+      });
+      const activeFamilyMembers = activeMembers.filter((member) => {
+        const coverage = String(member.coverage_type || '').toLowerCase();
+        return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+      });
 
-      const individualMonthlyRevenue = activeMembers.reduce((total, member) =>
+      const individualMonthlyRevenue = activeIndividualMembers.reduce((total, member) =>
+        total + parseFloat(member.total_monthly_price || 0), 0
+      );
+      const familyMonthlyRevenue = activeFamilyMembers.reduce((total, member) =>
         total + parseFloat(member.total_monthly_price || 0), 0
       );
       const groupMonthlyRevenue = activeGroupMembers.reduce((total, member) =>
         total + parseAmount(member.total_amount), 0
       );
-      const monthlyRevenue = individualMonthlyRevenue + groupMonthlyRevenue;
+      const monthlyRevenue = individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
 
       // Use proper date comparison
       const newIndividualEnrollmentsThisMonth = allMembers.filter(member =>
@@ -7261,6 +7387,14 @@ export const storage = {
       const agentPerformance = allAgents.map(agent => {
         const agentCommissions = allCommissions.filter(comm => comm.agent_id === agent.id);
         const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id || m.enrolled_by_agent_id === agent.id.toString());
+        const agentIndividualMembers = agentMembers.filter((member) => {
+          const coverage = String(member.coverage_type || '').toLowerCase();
+          return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+        });
+        const agentFamilyMembers = agentMembers.filter((member) => {
+          const coverage = String(member.coverage_type || '').toLowerCase();
+          return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+        });
         const agentGroupMembers = allGroupMembers.filter((groupMember) => {
           if (!isGroupMemberEligible(groupMember)) {
             return false;
@@ -7293,7 +7427,8 @@ export const storage = {
           agentName: `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
           agentNumber: agent.agent_number || '',
           totalEnrollments: agentMembers.length + agentGroupMembers.length,
-          individualEnrollments: agentMembers.length,
+          individualEnrollments: agentIndividualMembers.length,
+          familyEnrollments: agentFamilyMembers.length,
           groupEnrollments: agentGroupMembers.length,
           monthlyEnrollments,
           totalCommissions,
@@ -7318,6 +7453,7 @@ export const storage = {
           lastName: member.last_name || '',
           email: member.email || '',
           source: 'individual',
+          businessCategory: String(member.coverage_type || '').toLowerCase().includes('family') || String(member.coverage_type || '').toLowerCase().includes('spouse') || String(member.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
           phone: member.phone || '',
           planName: plan?.name || '',
           status: member.status || 'inactive',
@@ -7343,6 +7479,7 @@ export const storage = {
             lastName: member.last_name || '',
             email: member.email || '',
             source: 'group',
+            businessCategory: 'group',
             phone: member.phone || '',
             planName: member.group_name ? `${member.group_name} (Group)` : 'Group Enrollment',
             status: member.status || 'draft',
@@ -7369,6 +7506,7 @@ export const storage = {
           agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Unknown',
           agentNumber: agent?.agent_number || '',
           memberName: member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown',
+          businessCategory: resolveCommissionBusinessCategory(member, commission),
           planName: plan?.name || '',
           commissionAmount: parseFloat(commission.commission_amount || 0),
           totalPlanCost: parseFloat(member?.total_monthly_price || 0),
@@ -7388,6 +7526,9 @@ export const storage = {
       const revenueBreakdown = {
         totalRevenue,
         subscriptionRevenue,
+        individualRevenue: individualMonthlyRevenue,
+        familyRevenue: familyMonthlyRevenue,
+        groupRevenue: groupMonthlyRevenue,
         oneTimeRevenue: 0, // Add when you have one-time payments
         refunds: 0, // Add when you track refunds
         netRevenue: totalRevenue,
@@ -7426,9 +7567,11 @@ export const storage = {
           newEnrollmentsThisMonth,
           cancellationsThisMonth,
           sourceBreakdown: {
-            individualMembers: totalIndividualMembers,
+            individualMembers: activeIndividualMembers.length,
+            familyMembers: activeFamilyMembers.length,
             groupMembers: totalGroupMembers,
             individualMonthlyRevenue,
+            familyMonthlyRevenue,
             groupMonthlyRevenue,
             newIndividualEnrollmentsThisMonth,
             newGroupEnrollmentsThisMonth,

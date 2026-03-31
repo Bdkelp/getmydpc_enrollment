@@ -63,6 +63,9 @@ import {
 interface AdminStats {
   totalUsers: number;
   monthlyRevenue: number;
+  individualMonthlyRevenue?: number;
+  familyMonthlyRevenue?: number;
+  groupMonthlyRevenue?: number;
   newEnrollments: number;
   churnRate: number;
 }

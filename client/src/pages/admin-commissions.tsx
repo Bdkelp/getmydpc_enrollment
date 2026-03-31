@@ -42,6 +42,7 @@ interface Commission {
   paymentIntentId?: string;
   paymentCapturedAt?: string;
   eligibleForPayoutAt?: string;
+  businessCategory?: 'individual' | 'family' | 'group';
   commissionType?: 'direct' | 'override';
   isClawedBack?: boolean;
   clawbackReason?: string;
@@ -236,6 +237,33 @@ export default function AdminCommissions() {
       .reduce((sum, c) => sum + (c.commissionAmount || 0), 0);
   }, [safeCommissions, selectedCommissions]);
 
+  const businessMix = useMemo(() => {
+    return safeCommissions.reduce(
+      (acc, commission) => {
+        const category = commission.businessCategory || 'individual';
+        const amount = Number(commission.commissionAmount || 0);
+
+        if (category === 'family') {
+          acc.family.count += 1;
+          acc.family.amount += amount;
+        } else if (category === 'group') {
+          acc.group.count += 1;
+          acc.group.amount += amount;
+        } else {
+          acc.individual.count += 1;
+          acc.individual.amount += amount;
+        }
+
+        return acc;
+      },
+      {
+        individual: { count: 0, amount: 0 },
+        family: { count: 0, amount: 0 },
+        group: { count: 0, amount: 0 },
+      }
+    );
+  }, [safeCommissions]);
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       const unpaidIds = unpaidCommissions.map(c => c.id);
@@ -365,6 +393,36 @@ export default function AdminCommissions() {
             <CardContent>
               <div className="text-2xl font-bold">${selectedTotal.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">{selectedCommissions.size} selected</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Individual Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.individual.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.individual.count} commissions</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Family Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.family.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.family.count} commissions</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Group Business</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold">${businessMix.group.amount.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{businessMix.group.count} commissions</p>
             </CardContent>
           </Card>
         </div>
