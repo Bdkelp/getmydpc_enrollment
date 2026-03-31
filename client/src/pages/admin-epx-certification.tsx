@@ -124,6 +124,11 @@ const AdminEPXCertification = () => {
   const [exportFileName, setExportFileName] = useState("epx-certification-samples.json");
   const [exportPreview, setExportPreview] = useState<CertificationExportResponse | null>(null);
   const [tranType, setTranType] = useState<TranType>("CCE1");
+  const [achRecurringForm, setAchRecurringForm] = useState({
+    memberId: "",
+    amount: "61.36",
+    description: "EPX token-based sale sample",
+  });
 
   // AUTH_GUID query
   const authGuidQuery = useQuery({
@@ -254,6 +259,35 @@ const AdminEPXCertification = () => {
     },
   });
 
+  const runAchRecurringMutation = useMutation({
+    mutationFn: async (payload: { memberId: number; amount: number; description?: string }) => {
+      return apiClient.post("/api/payments/ach/recurring", payload);
+    },
+    onSuccess: (data) => {
+      setLatestResult({
+        request: {
+          endpoint: "/api/payments/ach/recurring",
+          body: achRecurringForm,
+        },
+        response: data,
+      });
+      toast({
+        title: "ACH token-based test sent",
+        description: "Recurring/token sale request submitted. Refresh logs/export to capture sample.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["epx-auth-guid"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "ACH token-based test failed",
+        description: error?.message || "Unable to run recurring ACH test",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleInputChange = (field: keyof typeof formState) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }));
   };
@@ -317,6 +351,42 @@ const AdminEPXCertification = () => {
   const handlePaymentsLimitChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextValue = parseInt(event.target.value || "15", 10);
     setPaymentsLimit(Number.isFinite(nextValue) ? Math.min(Math.max(nextValue, 1), 200) : 15);
+  };
+
+  const handleAchRecurringInputChange =
+    (field: keyof typeof achRecurringForm) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setAchRecurringForm((prev) => ({ ...prev, [field]: event.target.value }));
+    };
+
+  const handleRunAchRecurring = (event: React.FormEvent) => {
+    event.preventDefault();
+
+    const memberId = parseInt(achRecurringForm.memberId.trim(), 10);
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      toast({
+        title: "Member ID required",
+        description: "Provide a valid member ID with ACH initial setup completed.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const amount = parseFloat(achRecurringForm.amount.trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Enter a positive amount for the token-based ACH sale sample.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    runAchRecurringMutation.mutate({
+      memberId,
+      amount,
+      description: achRecurringForm.description.trim() || undefined,
+    });
   };
 
   const formattedLogs = useMemo(() => logsQuery.data?.entries || [], [logsQuery.data]);
@@ -722,6 +792,54 @@ const AdminEPXCertification = () => {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Run ACH Token-Based Sale Sample (Temporary)</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Uses the stored AUTH_GUID/BRIC token via /api/payments/ach/recurring to generate EPX token-sale evidence.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <form className="grid gap-4 md:grid-cols-4" onSubmit={handleRunAchRecurring}>
+              <div>
+                <Label htmlFor="achRecurringMemberId">Member ID</Label>
+                <Input
+                  id="achRecurringMemberId"
+                  placeholder="23"
+                  value={achRecurringForm.memberId}
+                  onChange={handleAchRecurringInputChange("memberId")}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="achRecurringAmount">Amount</Label>
+                <Input
+                  id="achRecurringAmount"
+                  type="number"
+                  step="0.01"
+                  min={0.01}
+                  value={achRecurringForm.amount}
+                  onChange={handleAchRecurringInputChange("amount")}
+                  required
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Label htmlFor="achRecurringDescription">Description</Label>
+                <Input
+                  id="achRecurringDescription"
+                  value={achRecurringForm.description}
+                  onChange={handleAchRecurringInputChange("description")}
+                />
+              </div>
+              <div className="md:col-span-4">
+                <Button type="submit" disabled={runAchRecurringMutation.isPending}>
+                  {runAchRecurringMutation.isPending ? "Running ACH Token Sample..." : "Run ACH Token-Based Sale"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
         {latestResult && (
           <Card>

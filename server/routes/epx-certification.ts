@@ -40,6 +40,66 @@ const LOG_PHASES: EPXLogEvent['phase'][] = [
 const isValidLogPhase = (value: string): value is EPXLogEvent['phase'] =>
   LOG_PHASES.includes(value as EPXLogEvent['phase']);
 
+const mapRuntimeLogToCertificationEntry = (entry: EPXLogEvent): any => {
+  const eventData = entry.data && typeof entry.data === 'object' ? entry.data as Record<string, any> : {};
+  const derivedTransactionId = eventData.transactionId
+    || eventData.transaction_id
+    || eventData.epxTransactionId
+    || eventData?.request?.fields?.TRAN_NBR
+    || eventData?.response?.transactionId
+    || undefined;
+
+  return {
+    transactionId: derivedTransactionId ? String(derivedTransactionId) : undefined,
+    purpose: `runtime-${entry.phase}`,
+    amount: typeof eventData.amount === 'number' ? eventData.amount : undefined,
+    environment: eventData.environment || undefined,
+    timestamp: entry.timestamp,
+    metadata: {
+      source: 'epx-runtime',
+      phase: entry.phase,
+      level: entry.level,
+      message: entry.message,
+      data: eventData,
+    },
+    request: {
+      body: {
+        fields: eventData?.request || undefined,
+      },
+    },
+    response: {
+      body: {
+        fields: eventData?.response || undefined,
+      },
+    },
+  };
+};
+
+const getMergedCertificationEntries = (limit: number, includeRuntimeLogs: boolean = true) => {
+  const normalizedLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 2000) : 200;
+  const fileEntries = certificationLogger.getRecentEntries(normalizedLimit);
+  const runtimeEntries = includeRuntimeLogs
+    ? getRecentEPXLogs(normalizedLimit * 2).map(mapRuntimeLogToCertificationEntry)
+    : [];
+
+  const mergedEntries = [...fileEntries, ...runtimeEntries]
+    .sort((a: any, b: any) => {
+      const aTime = Date.parse(a?.timestamp || '') || 0;
+      const bTime = Date.parse(b?.timestamp || '') || 0;
+      return bTime - aTime;
+    })
+    .slice(0, normalizedLimit);
+
+  return {
+    entries: mergedEntries,
+    sources: {
+      certificationFiles: fileEntries.length,
+      runtimeEPX: runtimeEntries.length,
+      includeRuntimeLogs,
+    }
+  };
+};
+
 const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null => {
   if (!value || typeof value !== 'string') {
     return null;
@@ -510,63 +570,15 @@ router.get('/api/epx/certification/logs', authenticateToken, requireSuperAdmin, 
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
   const includeRuntimeLogs = String(req.query.includeRuntimeLogs ?? 'true').toLowerCase() !== 'false';
 
-  const fileEntries = certificationLogger.getRecentEntries(limit);
-
-  const runtimeEntries = includeRuntimeLogs
-    ? getRecentEPXLogs(limit * 2).map((entry) => {
-        const eventData = entry.data && typeof entry.data === 'object' ? entry.data as Record<string, any> : {};
-        const derivedTransactionId = eventData.transactionId
-          || eventData.transaction_id
-          || eventData.epxTransactionId
-          || eventData?.request?.fields?.TRAN_NBR
-          || eventData?.response?.transactionId
-          || undefined;
-
-        return {
-          transactionId: derivedTransactionId ? String(derivedTransactionId) : undefined,
-          purpose: `runtime-${entry.phase}`,
-          amount: typeof eventData.amount === 'number' ? eventData.amount : undefined,
-          environment: eventData.environment || undefined,
-          timestamp: entry.timestamp,
-          metadata: {
-            source: 'epx-runtime',
-            phase: entry.phase,
-            level: entry.level,
-            message: entry.message,
-            data: eventData,
-          },
-          request: {
-            body: {
-              fields: eventData?.request || undefined,
-            },
-          },
-          response: {
-            body: {
-              fields: eventData?.response || undefined,
-            },
-          },
-        };
-      })
-    : [];
-
-  const mergedEntries = [...fileEntries, ...runtimeEntries]
-    .sort((a: any, b: any) => {
-      const aTime = Date.parse(a?.timestamp || '') || 0;
-      const bTime = Date.parse(b?.timestamp || '') || 0;
-      return bTime - aTime;
-    })
-    .slice(0, limit);
+  const merged = getMergedCertificationEntries(limit, includeRuntimeLogs);
+  const mergedEntries = merged.entries;
 
   res.json({
     success: true,
     entries: mergedEntries,
     totalEntries: mergedEntries.length,
     limit,
-    sources: {
-      certificationFiles: fileEntries.length,
-      runtimeEPX: runtimeEntries.length,
-      includeRuntimeLogs,
-    }
+    sources: merged.sources,
   });
 });
 
@@ -736,12 +748,17 @@ router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmi
       console.warn('[EPX Certification] Failed to parse exported log file', { parseError });
     }
 
+    const merged = getMergedCertificationEntries(2000, true);
+    const mergedEntries = merged.entries;
+    const responseEntries = Array.isArray(entries) && entries.length > 0 ? entries : mergedEntries;
+
     res.json({
       success: true,
       fileName: path.basename(filePath),
       filePath,
-      totalEntries: Array.isArray(entries) ? entries.length : 0,
-      entries
+      totalEntries: Array.isArray(responseEntries) ? responseEntries.length : 0,
+      entries: responseEntries,
+      sources: merged.sources,
     });
   } catch (error: any) {
     console.error('[EPX Certification] Export failed', { error: error?.message });
@@ -755,7 +772,8 @@ router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmi
 router.get('/api/epx/certification/export-txt', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
   const limitParam = parseInt((req.query.limit as string) || '1000', 10);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 25), 2000) : 1000;
-  const entries = certificationLogger.getRecentEntries(limit);
+  const merged = getMergedCertificationEntries(limit, true);
+  const entries = merged.entries;
   const textPayload = buildPlainTextCertificationSamples(entries);
   const fileName = `epx-certification-samples-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
 
