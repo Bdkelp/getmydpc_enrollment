@@ -576,7 +576,7 @@ export default function AdminAnalytics() {
                         <TableRow>
                           <TableHead>Name</TableHead>
                           <TableHead>Member ID</TableHead>
-                          <TableHead>Group</TableHead>
+                          <TableHead>Group Association</TableHead>
                           <TableHead>Email</TableHead>
                           <TableHead>Segment</TableHead>
                           <TableHead>Phone</TableHead>
@@ -672,7 +672,7 @@ export default function AdminAnalytics() {
                           <TableHead>Agent #</TableHead>
                           <TableHead>Member</TableHead>
                           <TableHead>Member ID</TableHead>
-                          <TableHead>Group</TableHead>
+                          <TableHead>Group Association</TableHead>
                           <TableHead>Plan</TableHead>
                           <TableHead>Segment</TableHead>
                           <TableHead className="text-right">Commission</TableHead>

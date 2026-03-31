@@ -849,10 +849,10 @@ export default function AdminEnrollments() {
               </Button>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900">
-                    Enrollment Records
+                    Membership Operations
                   </h1>
                   <p className="text-gray-600 mt-1">
-                    People view: manage individual enrollment records across all agents
+                    People view: manage individual and family records with assignment, payment, and lifecycle status
                   </p>
                 </div>
               </div>
@@ -897,7 +897,7 @@ export default function AdminEnrollments() {
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">People Filters</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">People View Filters</p>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                   <label htmlFor="admin-enrollments-search" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1222,7 +1222,7 @@ export default function AdminEnrollments() {
         {/* Enrollments Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Enrollment Records</CardTitle>
+            <CardTitle>People Enrollment Records</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">

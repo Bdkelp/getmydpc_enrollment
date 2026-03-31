@@ -1179,7 +1179,7 @@ export default function Admin() {
                     onClick={() => setLocation(getEnrollmentRecordsRoute())}
                   >
                     <Users className="h-5 w-5 mb-1" />
-                    <span className="text-sm font-medium">Enrollment Records</span>
+                    <span className="text-sm font-medium">Membership Operations</span>
                   </Button>
                   <Button
                     variant="outline"
