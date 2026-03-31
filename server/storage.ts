@@ -3487,6 +3487,20 @@ const resolveCommissionBusinessCategory = (member: any, commission: any): 'indiv
   return 'individual';
 };
 
+const toExclusiveDateUpperBound = (endDate: string): string => {
+  const [yearStr, monthStr, dayStr] = endDate.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return endDate;
+  }
+
+  const nextDay = new Date(Date.UTC(year, month - 1, day + 1));
+  return nextDay.toISOString().slice(0, 10);
+};
+
 export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
   try {
     console.log('[Storage] Fetching commissions via Supabase for agent:', agentId);
@@ -3498,7 +3512,8 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       .eq('agent_id', agentId);
 
     if (startDate && endDate) {
-      query = query.gte('created_at', startDate).lte('created_at', endDate);
+      const endExclusive = toExclusiveDateUpperBound(endDate);
+      query = query.gte('created_at', startDate).lt('created_at', endExclusive);
     }
 
     const { data: commissions, error } = await query.order('created_at', { ascending: false });
@@ -3674,7 +3689,8 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       .select('*');
 
     if (startDate && endDate) {
-      query = query.gte('created_at', startDate).lte('created_at', endDate);
+      const endExclusive = toExclusiveDateUpperBound(endDate);
+      query = query.gte('created_at', startDate).lt('created_at', endExclusive);
     }
 
     const { data: commissions, error } = await query.order('created_at', { ascending: false });
