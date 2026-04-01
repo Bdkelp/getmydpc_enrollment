@@ -439,6 +439,9 @@ type MemberFormState = {
   terminationReason: string;
   rehireDate: string;
   ssn: string;
+  selectedPlanId: string;
+  selectedPlanName: string;
+  selectedPlanTier: string;
   tier: string;
   payorType: string;
   status: string;
@@ -1561,6 +1564,9 @@ export default function GroupEnrollment() {
     terminationReason: "",
     rehireDate: "",
     ssn: "",
+    selectedPlanId: "",
+    selectedPlanName: "",
+    selectedPlanTier: "",
     tier: "member",
     payorType: "full",
     status: "draft",
@@ -1586,6 +1592,9 @@ export default function GroupEnrollment() {
     setMemberForm({
       ...defaultMemberForm,
       payorType: selectedGroup?.data?.payorType === "member" ? "member" : "full",
+      selectedPlanId: groupProfileForm.selectedPlanId || "",
+      selectedPlanName: groupProfileForm.selectedPlanName || "",
+      selectedPlanTier: groupProfileForm.selectedPlanTier || "",
       ...overrides,
     });
   };
@@ -2143,6 +2152,17 @@ export default function GroupEnrollment() {
         payorType: memberForm.payorType,
         status: memberForm.status,
         metadata: {
+          planSelection: {
+            planId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
+            planName: memberForm.selectedPlanName || null,
+            planTier: memberForm.selectedPlanTier || null,
+          },
+          planId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
+          planName: memberForm.selectedPlanName || null,
+          planTier: memberForm.selectedPlanTier || null,
+          selectedPlanId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
+          selectedPlanName: memberForm.selectedPlanName || null,
+          selectedPlanTier: memberForm.selectedPlanTier || null,
           employmentProfile: {
             middleName: memberForm.middleName,
             suffix: memberForm.suffix,
@@ -2179,6 +2199,12 @@ export default function GroupEnrollment() {
           },
         },
         registrationPayload: {
+          planId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
+          planName: memberForm.selectedPlanName || null,
+          planTier: memberForm.selectedPlanTier || null,
+          selectedPlanId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
+          selectedPlanName: memberForm.selectedPlanName || null,
+          selectedPlanTier: memberForm.selectedPlanTier || null,
           employmentProfile: {
             middleName: memberForm.middleName,
             suffix: memberForm.suffix,
@@ -2802,8 +2828,34 @@ export default function GroupEnrollment() {
 
   const handleEditMemberClick = (member: GroupMemberRecord) => {
     const employment = toEmploymentProfile(member);
+    const memberMetadata = (member.metadata || {}) as Record<string, any>;
     const payload = (member.registrationPayload || {}) as Record<string, any>;
     const normalizedRelationship = member.relationship || "primary";
+    const payloadPlanId = payload.selectedPlanId ?? payload.planId;
+    const metadataPlanId = memberMetadata.selectedPlanId ?? memberMetadata.planId;
+    const resolvedPlanIdRaw = payloadPlanId ?? metadataPlanId ?? groupProfileForm.selectedPlanId;
+    const resolvedPlanId =
+      resolvedPlanIdRaw === null || resolvedPlanIdRaw === undefined || resolvedPlanIdRaw === ""
+        ? ""
+        : String(resolvedPlanIdRaw);
+    const resolvedPlanName =
+      String(
+        payload.selectedPlanName
+        || payload.planName
+        || memberMetadata.selectedPlanName
+        || memberMetadata.planName
+        || groupProfileForm.selectedPlanName
+        || "",
+      );
+    const resolvedPlanTier =
+      String(
+        payload.selectedPlanTier
+        || payload.planTier
+        || memberMetadata.selectedPlanTier
+        || memberMetadata.planTier
+        || groupProfileForm.selectedPlanTier
+        || "",
+      );
     setEditingMember(member);
     resetMemberForm({
       id: member.id,
@@ -2844,6 +2896,9 @@ export default function GroupEnrollment() {
       terminationReason: employment.terminationReason,
       rehireDate: employment.rehireDate,
       ssn: member.ssn || "",
+      selectedPlanId: resolvedPlanId,
+      selectedPlanName: resolvedPlanName,
+      selectedPlanTier: resolvedPlanTier,
       tier: deriveTierFromRelationship(normalizedRelationship, member.tier),
       payorType: member.payorType || selectedGroup?.data?.payorType || "full",
       status: member.status || "draft",
@@ -5534,6 +5589,35 @@ export default function GroupEnrollment() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div>
+                <Label>Employee Plan Tier</Label>
+                <Select
+                  value={memberForm.selectedPlanId}
+                  onValueChange={(value) => {
+                    const selectedPlan = planCatalogById.get(value);
+                    setMemberForm((prev) => ({
+                      ...prev,
+                      selectedPlanId: value,
+                      selectedPlanName: selectedPlan?.name || "",
+                      selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select employee plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePlans.map((plan) => (
+                      <SelectItem key={plan.id} value={String(plan.id)}>
+                        {plan.name} {plan.price !== null ? `- $${plan.price.toFixed(2)}/mo` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {memberForm.selectedPlanTier ? (
+                  <p className="text-xs text-slate-500 mt-1">Resolved tier: {memberForm.selectedPlanTier}</p>
+                ) : null}
               </div>
               <div>
                 <Label>Status</Label>
