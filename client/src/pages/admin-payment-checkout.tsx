@@ -75,6 +75,8 @@ interface AgentMemberLookupResponse {
   } | null;
 }
 
+const CONFIRMATION_CACHE_KEY = "confirmationPayloadV1";
+
 const parseBooleanParam = (value: string | null): boolean => {
   if (!value) {
     return false;
@@ -287,6 +289,20 @@ export default function AdminPaymentCheckoutPage() {
         sessionStorage.setItem('lastTransactionId', transactionId);
       }
 
+      // Keep a durable confirmation payload so refresh/reopen still shows member details.
+      localStorage.setItem(
+        CONFIRMATION_CACHE_KEY,
+        JSON.stringify({
+          createdAt: Date.now(),
+          transactionId: transactionId || null,
+          memberData: confirmationMemberData,
+          planId: derivedPlanId || null,
+          totalMonthlyPrice: typeof derivedAmount === 'number' && Number.isFinite(derivedAmount)
+            ? derivedAmount
+            : null,
+        }),
+      );
+
       const params = new URLSearchParams();
       if (transactionId) {
         params.set('transaction', transactionId);
@@ -297,6 +313,7 @@ export default function AdminPaymentCheckoutPage() {
       if (derivedPlanId) {
         params.set('planId', String(derivedPlanId));
       }
+      params.set('memberId', String(member.id));
 
       toast({
         title: 'Payment complete',

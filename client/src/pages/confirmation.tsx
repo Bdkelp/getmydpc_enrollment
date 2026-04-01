@@ -11,6 +11,18 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { hasAtLeastRole } from "@/lib/roles";
 
+const CONFIRMATION_CACHE_KEY = "confirmationPayloadV1";
+const CONFIRMATION_CACHE_TTL_MS = 1000 * 60 * 60;
+
+const readJsonStorage = (storage: Storage, key: string) => {
+  try {
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function Confirmation() {
   console.log("[Confirmation] Component rendering - v1.1");
   
@@ -43,26 +55,37 @@ export default function Confirmation() {
       });
     }
 
-    // Get stored member data from registration
-    const storedMemberData = sessionStorage.getItem("memberData");
-    let memberInfo = null;
-    if (storedMemberData) {
-      try {
-        memberInfo = JSON.parse(storedMemberData);
-        console.log("[Confirmation] Loaded member data from session:", memberInfo);
-        console.log("[Confirmation] Member has firstName?", !!memberInfo?.firstName, "lastName?", !!memberInfo?.lastName);
-      } catch (e) {
-        console.error("Failed to parse member data:", e);
-      }
+    const cachedPayload = readJsonStorage(localStorage, CONFIRMATION_CACHE_KEY);
+    const isCachedPayloadFresh = cachedPayload?.createdAt
+      && Number.isFinite(Number(cachedPayload.createdAt))
+      && (Date.now() - Number(cachedPayload.createdAt)) <= CONFIRMATION_CACHE_TTL_MS;
+
+    // Get stored member data from session first, then durable local cache.
+    const sessionMemberInfo = readJsonStorage(sessionStorage, "memberData");
+    const memberInfo = sessionMemberInfo || (isCachedPayloadFresh ? cachedPayload?.memberData : null);
+    if (memberInfo) {
+      console.log("[Confirmation] Loaded member data:", {
+        source: sessionMemberInfo ? "sessionStorage" : "localStorage-cache",
+        hasFirstName: !!memberInfo?.firstName,
+        hasLastName: !!memberInfo?.lastName,
+      });
     } else {
-      console.warn("[Confirmation] ⚠️ NO memberData found in sessionStorage!");
+      console.warn("[Confirmation] ⚠️ NO memberData found in session/local confirmation cache!");
     }
 
     // Try URL first (most reliable after redirect), then sessionStorage
-    const planId = urlPlanId || sessionStorage.getItem("selectedPlanId");
-    const totalPrice = sessionStorage.getItem("totalMonthlyPrice");
+    const planId = urlPlanId
+      || sessionStorage.getItem("selectedPlanId")
+      || (isCachedPayloadFresh && cachedPayload?.planId ? String(cachedPayload.planId) : null);
+    const totalPrice = sessionStorage.getItem("totalMonthlyPrice")
+      || (isCachedPayloadFresh && cachedPayload?.totalMonthlyPrice !== null && cachedPayload?.totalMonthlyPrice !== undefined
+        ? String(cachedPayload.totalMonthlyPrice)
+        : null);
     const rxValet = sessionStorage.getItem("rxValet") === "yes";
     const coverageType = sessionStorage.getItem("coverageType");
+    const effectiveTransactionId = epxTransaction
+      || (isCachedPayloadFresh ? cachedPayload?.transactionId : null)
+      || sessionStorage.getItem("lastTransactionId");
     const initialMemberPublicId = memberInfo?.memberPublicId || memberInfo?.customerNumber || "Pending";
 
     console.log("Confirmation page - Loading data from URL and session:", { 
@@ -73,7 +96,7 @@ export default function Confirmation() {
       coverageType, 
       rxValet,
       memberInfo,
-      epxTransaction,
+      epxTransaction: effectiveTransactionId,
       epxAmount,
       allSessionStorage: Object.fromEntries(Object.entries(sessionStorage))
     });
@@ -87,7 +110,7 @@ export default function Confirmation() {
       totalMonthlyPrice: totalPrice ? parseFloat(totalPrice) : (epxAmount ? parseFloat(epxAmount) : null),
       addRxValet: rxValet,
       coverageType: coverageType || "individual",
-      transactionId: epxTransaction || `TXN${Date.now()}`,
+      transactionId: effectiveTransactionId || `TXN${Date.now()}`,
       // Use actual member data if available
       customerNumber: memberInfo?.customerNumber || "Pending",
       memberPublicId: initialMemberPublicId,
@@ -111,7 +134,25 @@ export default function Confirmation() {
     // Set immediately - don't block on auth
     setMembershipData(immediateData);
 
-    if (!planId && !epxTransaction && retryCount >= 3) {
+    localStorage.setItem(
+      CONFIRMATION_CACHE_KEY,
+      JSON.stringify({
+        createdAt: Date.now(),
+        transactionId: immediateData.transactionId || null,
+        memberData: {
+          id: immediateData.memberId,
+          firstName: immediateData.firstName,
+          lastName: immediateData.lastName,
+          email: immediateData.email,
+          customerNumber: immediateData.customerNumber,
+          memberPublicId: immediateData.memberPublicId,
+        },
+        planId: immediateData.planId || null,
+        totalMonthlyPrice: immediateData.totalMonthlyPrice || null,
+      }),
+    );
+
+    if (!planId && !effectiveTransactionId && retryCount >= 3) {
       console.error("No plan ID or transaction found after retries");
       toast({
         title: "Session Expired",
@@ -123,10 +164,8 @@ export default function Confirmation() {
       }, 2000);
     }
 
-    // Clear session storage after a longer delay to prevent issues
+    // Keep confirmation-critical fields available across refresh; clear only transient registration artifacts.
     setTimeout(() => {
-      sessionStorage.removeItem("selectedPlanId");
-      sessionStorage.removeItem("totalMonthlyPrice");
       sessionStorage.removeItem("rxValet");
       sessionStorage.removeItem("coverageType");
       sessionStorage.removeItem("primaryAddress");
@@ -134,12 +173,9 @@ export default function Confirmation() {
       sessionStorage.removeItem("basePlanPrice");
       sessionStorage.removeItem("registrationData"); // Clear payment-first flow data
       sessionStorage.removeItem("paymentAttempts"); // Clear attempt counter
-      sessionStorage.removeItem("memberData");
       sessionStorage.removeItem("familyMembers");
       sessionStorage.removeItem("tempRegistrationId");
-      sessionStorage.removeItem("lastTransactionId");
-      sessionStorage.removeItem("lastPaymentAmount");
-    }, 5000); // Increased to 5 seconds
+    }, 5000);
   }, [user, setLocation, toast, retryCount]);
 
   const { data: plans = [] } = useQuery<any[]>({
@@ -180,8 +216,26 @@ export default function Confirmation() {
         lastName: paymentData.member.lastName || prev.lastName,
         email: paymentData.member.email || prev.email
       }));
+
+      localStorage.setItem(
+        CONFIRMATION_CACHE_KEY,
+        JSON.stringify({
+          createdAt: Date.now(),
+          transactionId: paymentData.payment.transactionId || epxTransaction || null,
+          memberData: {
+            id: paymentData.member.id,
+            firstName: paymentData.member.firstName,
+            lastName: paymentData.member.lastName,
+            email: paymentData.member.email,
+            customerNumber: paymentData.member.customerNumber || paymentData.member.id,
+            memberPublicId: paymentData.member.memberPublicId || paymentData.member.member_public_id || null,
+          },
+          planId: membershipData?.planId || null,
+          totalMonthlyPrice: membershipData?.totalMonthlyPrice || null,
+        }),
+      );
     }
-  }, [paymentData]);
+  }, [paymentData, epxTransaction, membershipData?.planId, membershipData?.totalMonthlyPrice]);
 
   // Only show loading if we're actively processing a payment
   // Don't block on auth loading - agents need immediate confirmation for back-to-back enrollments

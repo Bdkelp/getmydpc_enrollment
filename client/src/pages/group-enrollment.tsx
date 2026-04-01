@@ -116,6 +116,14 @@ const isPrimaryRelationshipValue = (relationship: string | undefined | null): bo
   return true;
 };
 
+const deriveTierFromRelationship = (relationship: string | undefined | null, fallbackTier = "member"): string => {
+  const normalized = String(relationship || "").trim().toLowerCase();
+  if (normalized === "spouse") return "spouse";
+  if (normalized === "dependent" || normalized === "child") return "child";
+  if (isPrimaryRelationshipValue(normalized)) return "member";
+  return fallbackTier || "member";
+};
+
 const formatRelationshipLabel = (value?: string | null): string => {
   if (!value) return "Primary";
   const normalized = value.trim().toLowerCase();
@@ -1978,6 +1986,7 @@ export default function GroupEnrollment() {
       const normalizedWorkEmail = normalizeOptionalEmailInput(memberForm.workEmail);
       const normalizedPersonalEmail = normalizeOptionalEmailInput(memberForm.personalEmail);
       const primaryEmail = normalizedWorkEmail || normalizedPersonalEmail || null;
+      const normalizedTier = deriveTierFromRelationship(memberForm.relationship, memberForm.tier);
 
       const payload = {
         relationship: memberForm.relationship,
@@ -1988,7 +1997,7 @@ export default function GroupEnrollment() {
         phone: memberForm.mobilePhone.trim() || null,
         email: primaryEmail,
         ssn: memberForm.ssn.trim() || null,
-        tier: memberForm.tier,
+        tier: normalizedTier,
         payorType: memberForm.payorType,
         status: memberForm.status,
         metadata: {
@@ -2652,10 +2661,11 @@ export default function GroupEnrollment() {
   const handleEditMemberClick = (member: GroupMemberRecord) => {
     const employment = toEmploymentProfile(member);
     const payload = (member.registrationPayload || {}) as Record<string, any>;
+    const normalizedRelationship = member.relationship || "primary";
     setEditingMember(member);
     resetMemberForm({
       id: member.id,
-      relationship: member.relationship || "primary",
+      relationship: normalizedRelationship,
       firstName: member.firstName || String(payload.firstName || payload.first_name || ""),
       middleName: employment.middleName,
       lastName: member.lastName || String(payload.lastName || payload.last_name || ""),
@@ -2692,7 +2702,7 @@ export default function GroupEnrollment() {
       terminationReason: employment.terminationReason,
       rehireDate: employment.rehireDate,
       ssn: member.ssn || "",
-      tier: member.tier,
+      tier: deriveTierFromRelationship(normalizedRelationship, member.tier),
       payorType: member.payorType || selectedGroup?.data?.payorType || "full",
       status: member.status || "draft",
     });
@@ -4785,7 +4795,11 @@ export default function GroupEnrollment() {
                 <Label>Relationship</Label>
                 <Select
                   value={memberForm.relationship}
-                  onValueChange={(value) => setMemberForm((prev) => ({ ...prev, relationship: value }))}
+                  onValueChange={(value) => setMemberForm((prev) => ({
+                    ...prev,
+                    relationship: value,
+                    tier: deriveTierFromRelationship(value, prev.tier),
+                  }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Relationship" />
