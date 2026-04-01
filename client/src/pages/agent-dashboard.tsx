@@ -575,7 +575,7 @@ export default function AgentDashboard() {
                 onClick={() => setLocation('/agent/groups')}
               >
                 <Users className="mr-2 h-4 w-4" />
-                Enroll a Group
+                New Group Setup
               </Button>
               <Button
                 variant="outline"

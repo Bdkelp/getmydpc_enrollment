@@ -2911,7 +2911,7 @@ export default function GroupEnrollment() {
             <div className="flex flex-col sm:flex-row gap-3">
               <Button onClick={() => setNewGroupOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
-                Enroll a Group
+                New Group Setup
               </Button>
               <Button variant="outline" onClick={refreshGroups}>
                 Refresh
@@ -3086,7 +3086,7 @@ export default function GroupEnrollment() {
               <div className="text-center py-12 text-gray-500">
                 <Users className="h-10 w-10 mx-auto mb-4 text-gray-400" />
                 <p>No groups created yet.</p>
-                <p className="text-sm">Use the "Enroll a Group" button to start.</p>
+                <p className="text-sm">Use the "New Group Setup" button to start.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -3160,8 +3160,8 @@ export default function GroupEnrollment() {
       <Dialog open={newGroupOpen} onOpenChange={setNewGroupOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Enroll a New Group</DialogTitle>
-            <DialogDescription>Capture the basic employer information to begin manual registration.</DialogDescription>
+            <DialogTitle>Start New Group Setup</DialogTitle>
+            <DialogDescription>Capture the basic employer information to begin group setup.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
