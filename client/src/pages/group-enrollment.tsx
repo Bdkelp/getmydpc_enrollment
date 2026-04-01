@@ -220,6 +220,11 @@ type GroupAssignmentHistoryRecord = {
 
 type GroupProfile = {
   ein: string;
+  businessAddressLine1: string;
+  businessAddressLine2: string;
+  businessCity: string;
+  businessState: string;
+  businessZipCode: string;
   responsiblePersonName: string;
   responsiblePersonEmail: string;
   responsiblePersonPhone: string;
@@ -242,6 +247,13 @@ type GroupProfile = {
 type GroupProfileContext = {
   profile: {
     ein: string | null;
+    businessAddress: {
+      line1: string | null;
+      line2: string | null;
+      city: string | null;
+      state: string | null;
+      zipCode: string | null;
+    };
     responsiblePerson: { name: string | null; email: string | null; phone: string | null };
     contactPerson: { name: string | null; email: string | null; phone: string | null };
     payorMix: {
@@ -662,6 +674,11 @@ const IN_HOUSE_AGENT_OPTION_VALUE = "__in_house_admin_serviced__";
 
 const defaultGroupProfileForm: GroupProfile = {
   ein: "",
+  businessAddressLine1: "",
+  businessAddressLine2: "",
+  businessCity: "",
+  businessState: "",
+  businessZipCode: "",
   responsiblePersonName: "",
   responsiblePersonEmail: "",
   responsiblePersonPhone: "",
@@ -697,6 +714,11 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
   if (!ctx?.profile) return { ...defaultGroupProfileForm };
   return {
     ein: ctx.profile.ein || "",
+    businessAddressLine1: ctx.profile.businessAddress?.line1 || "",
+    businessAddressLine2: ctx.profile.businessAddress?.line2 || "",
+    businessCity: ctx.profile.businessAddress?.city || "",
+    businessState: ctx.profile.businessAddress?.state || "",
+    businessZipCode: ctx.profile.businessAddress?.zipCode || "",
     responsiblePersonName: ctx.profile.responsiblePerson?.name || "",
     responsiblePersonEmail: ctx.profile.responsiblePerson?.email || "",
     responsiblePersonPhone: ctx.profile.responsiblePerson?.phone || "",
@@ -725,6 +747,13 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
 
 const buildGroupProfilePayload = (form: GroupProfile) => ({
   ein: form.ein,
+  businessAddress: {
+    line1: form.businessAddressLine1,
+    line2: form.businessAddressLine2,
+    city: form.businessCity,
+    state: form.businessState,
+    zipCode: form.businessZipCode,
+  },
   responsiblePerson: {
     name: form.responsiblePersonName,
     email: form.responsiblePersonEmail,
@@ -4047,6 +4076,64 @@ export default function GroupEnrollment() {
                         setGroupProfileForm((prev) => ({ ...prev, contactPersonPhone: event.target.value }))
                       }
                     />
+                  </div>
+                </div>
+
+                <div className="space-y-3 border rounded-md p-3 bg-slate-50">
+                  <h4 className="text-sm font-semibold text-slate-800">Business Address</h4>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <Label htmlFor="detail-business-address-line1">Address Line 1</Label>
+                      <Input
+                        id="detail-business-address-line1"
+                        value={groupProfileForm.businessAddressLine1}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, businessAddressLine1: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label htmlFor="detail-business-address-line2">Address Line 2</Label>
+                      <Input
+                        id="detail-business-address-line2"
+                        value={groupProfileForm.businessAddressLine2}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, businessAddressLine2: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <Label htmlFor="detail-business-city">City</Label>
+                      <Input
+                        id="detail-business-city"
+                        value={groupProfileForm.businessCity}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, businessCity: event.target.value }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-business-state">State</Label>
+                      <Input
+                        id="detail-business-state"
+                        value={groupProfileForm.businessState}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, businessState: event.target.value.toUpperCase() }))
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-business-zip">ZIP</Label>
+                      <Input
+                        id="detail-business-zip"
+                        value={groupProfileForm.businessZipCode}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, businessZipCode: event.target.value }))
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
 

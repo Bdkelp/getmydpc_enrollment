@@ -225,6 +225,11 @@ export default function AdminEnrollments() {
     { value: "archived", label: "Archived" },
   ];
 
+  const statusTransitionOptions = statusOptions.filter((option) => option.value !== "pending");
+
+  const normalizeStatusForApi = (status: string) =>
+    status === "pending" ? "pending_activation" : status;
+
   // Fetch all agents for the filter dropdown
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["/api/agents"],
@@ -551,7 +556,7 @@ export default function AdminEnrollments() {
 
   const handleStatusChange = (memberId: string, newStatus: string) => {
     if (!newStatus) return;
-    updateStatusMutation.mutate({ memberId, status: newStatus });
+    updateStatusMutation.mutate({ memberId, status: normalizeStatusForApi(newStatus) });
   };
 
   const handleActivateNow = (enrollment: Enrollment) => {
@@ -1288,7 +1293,7 @@ export default function AdminEnrollments() {
                               <SelectValue placeholder="Set status" />
                             </SelectTrigger>
                             <SelectContent>
-                              {statusOptions.map((option) => (
+                              {statusTransitionOptions.map((option) => (
                                 <SelectItem key={option.value} value={option.value}>
                                   {option.label}
                                 </SelectItem>

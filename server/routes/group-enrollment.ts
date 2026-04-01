@@ -178,6 +178,13 @@ type PaymentResponsibilityMode = 'group_invoice' | 'member_self_pay' | 'hybrid_s
 
 type GroupProfile = {
   ein: string | null;
+  businessAddress: {
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+  };
   responsiblePerson: {
     name: string | null;
     email: string | null;
@@ -457,6 +464,13 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
 
   return {
     ein,
+    businessAddress: {
+      line1: toTrimmedOrNull(raw?.businessAddress?.line1),
+      line2: toTrimmedOrNull(raw?.businessAddress?.line2),
+      city: toTrimmedOrNull(raw?.businessAddress?.city),
+      state: toTrimmedOrNull(raw?.businessAddress?.state)?.toUpperCase() || null,
+      zipCode: toTrimmedOrNull(raw?.businessAddress?.zipCode),
+    },
     responsiblePerson: {
       name: toTrimmedOrNull(raw?.responsiblePerson?.name),
       email: toTrimmedOrNull(raw?.responsiblePerson?.email)?.toLowerCase() || null,
