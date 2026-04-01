@@ -3602,6 +3602,43 @@ const normalizeGroupPlanName = (rawPlan: string | null, membershipFee: number, m
   return bestPlan;
 };
 
+const resolveCommissionAmountForReport = (
+  commission: any,
+  params: {
+    planName: string;
+    memberType: string;
+    addRxValet: boolean;
+    splitPercent: number;
+    membershipFee: number;
+    forceCalculated?: boolean;
+  },
+): number => {
+  const {
+    planName,
+    memberType,
+    addRxValet,
+    splitPercent,
+    membershipFee,
+    forceCalculated = false,
+  } = params;
+
+  const storedCommission = parseFloat(String(commission?.commission_amount || 0)) || 0;
+  const calculated = calculateCommission(planName, memberType, addRxValet);
+
+  const calculatedCommission = calculated
+    ? Math.round((calculated.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
+    : null;
+
+  const membershipFeeAmount = Number.isFinite(membershipFee) ? membershipFee : 0;
+  const looksLikeMembershipFee = membershipFeeAmount > 0 && Math.abs(storedCommission - membershipFeeAmount) < 0.01;
+
+  if (calculatedCommission !== null && (forceCalculated || storedCommission <= 0 || looksLikeMembershipFee)) {
+    return calculatedCommission;
+  }
+
+  return storedCommission;
+};
+
 const toExclusiveDateUpperBound = (endDate: string): string => {
   const [yearStr, monthStr, dayStr] = endDate.split('-');
   const year = Number(yearStr);
@@ -3814,12 +3851,17 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
       const registrationPayload = (groupMember as any)?.registration_payload;
       const groupMetadata = (groupMember as any)?.metadata;
       const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
-      const standardCommission = isGroupCommission
-        ? calculateCommission(planName, groupMemberType, addRxValet)
-        : null;
-      const normalizedCommissionAmount = standardCommission
-        ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
-        : parseFloat(commission.commission_amount || 0);
+      const memberTypeForCommission = isGroupCommission
+        ? groupMemberType
+        : toCommissionMemberType(member?.coverage_type || commission.coverage_type || noteMemberType);
+      const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
+        planName,
+        memberType: memberTypeForCommission,
+        addRxValet,
+        splitPercent,
+        membershipFee,
+        forceCalculated: isGroupCommission,
+      });
       const resolvedUserName = isGroupCommission
         ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || `Group Employee ${resolvedMemberId || commission.member_id || ''}`.trim())
         : (member?.first_name && member?.last_name
@@ -4057,12 +4099,17 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
       const registrationPayload = (groupMember as any)?.registration_payload;
       const groupMetadata = (groupMember as any)?.metadata;
       const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
-      const standardCommission = isGroupCommission
-        ? calculateCommission(planName, groupMemberType, addRxValet)
-        : null;
-      const normalizedCommissionAmount = standardCommission
-        ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
-        : parseFloat(commission.commission_amount || 0);
+      const memberTypeForCommission = isGroupCommission
+        ? groupMemberType
+        : toCommissionMemberType(member?.coverage_type || commission.coverage_type || noteMemberType);
+      const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
+        planName,
+        memberType: memberTypeForCommission,
+        addRxValet,
+        splitPercent,
+        membershipFee,
+        forceCalculated: isGroupCommission,
+      });
 
       return {
         id: commission.id,
@@ -7813,12 +7860,17 @@ export const storage = {
           ? resolvePbmFromNotesAndSources(commission.notes, groupRegistrationPayload, groupMetadata)
           : false;
         const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
-        const standardCommission = groupMember
-          ? calculateCommission(normalizedGroupPlan, groupMemberType, addRxValet)
-          : null;
-        const normalizedCommissionAmount = standardCommission
-          ? Math.round((standardCommission.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
-          : parseFloat(commission.commission_amount || 0);
+        const memberTypeForCommission = groupMember
+          ? groupMemberType
+          : toCommissionMemberType(member?.coverage_type || commission.coverage_type);
+        const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
+          planName: groupMember ? normalizedGroupPlan : (plan?.name || 'MyPremierPlan Base'),
+          memberType: memberTypeForCommission,
+          addRxValet,
+          splitPercent,
+          membershipFee,
+          forceCalculated: Boolean(groupMember),
+        });
         const memberName = groupMember
           ? `${groupMember.first_name || ''} ${groupMember.last_name || ''}`.trim()
           : (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown');
