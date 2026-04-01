@@ -178,6 +178,12 @@ type PaymentResponsibilityMode = 'group_invoice' | 'member_self_pay' | 'hybrid_s
 
 type GroupProfile = {
   ein: string | null;
+  planSelection: {
+    planId: number | null;
+    planName: string | null;
+    planTier: string | null;
+    pbmProgram: string | null;
+  };
   businessAddress: {
     line1: string | null;
     line2: string | null;
@@ -445,6 +451,10 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
   const ein = normalizedEinDigits && normalizedEinDigits.length === 9
     ? `${normalizedEinDigits.slice(0, 2)}-${normalizedEinDigits.slice(2)}`
     : einRaw;
+  const rawPlanId = raw?.planSelection?.planId;
+  const normalizedPlanId = Number.isFinite(Number(rawPlanId)) && Number(rawPlanId) > 0
+    ? Number(rawPlanId)
+    : null;
 
   const mode = normalizePayorMixMode(raw?.payorMix?.mode, fallbackPayorType);
   const derivedPaymentResponsibilityMode: PaymentResponsibilityMode = mode === 'full'
@@ -464,6 +474,12 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
 
   return {
     ein,
+    planSelection: {
+      planId: normalizedPlanId,
+      planName: toTrimmedOrNull(raw?.planSelection?.planName),
+      planTier: toTrimmedOrNull(raw?.planSelection?.planTier),
+      pbmProgram: toTrimmedOrNull(raw?.planSelection?.pbmProgram),
+    },
     businessAddress: {
       line1: toTrimmedOrNull(raw?.businessAddress?.line1),
       line2: toTrimmedOrNull(raw?.businessAddress?.line2),
@@ -2326,6 +2342,31 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
       groupProfile: normalizedProfile,
     };
 
+    if (normalizedProfile.planSelection.planName) {
+      nextMetadata.planName = normalizedProfile.planSelection.planName;
+      nextMetadata.selectedPlanName = normalizedProfile.planSelection.planName;
+    } else {
+      delete nextMetadata.planName;
+      delete nextMetadata.selectedPlanName;
+    }
+    if (normalizedProfile.planSelection.planId) {
+      nextMetadata.planId = normalizedProfile.planSelection.planId;
+      nextMetadata.selectedPlanId = normalizedProfile.planSelection.planId;
+    } else {
+      delete nextMetadata.planId;
+      delete nextMetadata.selectedPlanId;
+    }
+    if (normalizedProfile.planSelection.planTier) {
+      nextMetadata.planTier = normalizedProfile.planSelection.planTier;
+    } else {
+      delete nextMetadata.planTier;
+    }
+    if (normalizedProfile.planSelection.pbmProgram) {
+      nextMetadata.pbmProgram = normalizedProfile.planSelection.pbmProgram;
+    } else {
+      delete nextMetadata.pbmProgram;
+    }
+
     let currentAssignedAgentId: string | null = null;
 
     if (isAdminOrHigher) {
@@ -2663,6 +2704,30 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
       const normalizedProfile = normalizeGroupProfile(groupProfile, normalizedPayorType);
       mergedMetadata.groupProfile = normalizedProfile;
       normalizedPayorType = payorMixModeToPayorType(normalizedProfile.payorMix.mode);
+      if (normalizedProfile.planSelection.planName) {
+        mergedMetadata.planName = normalizedProfile.planSelection.planName;
+        mergedMetadata.selectedPlanName = normalizedProfile.planSelection.planName;
+      } else {
+        delete mergedMetadata.planName;
+        delete mergedMetadata.selectedPlanName;
+      }
+      if (normalizedProfile.planSelection.planId) {
+        mergedMetadata.planId = normalizedProfile.planSelection.planId;
+        mergedMetadata.selectedPlanId = normalizedProfile.planSelection.planId;
+      } else {
+        delete mergedMetadata.planId;
+        delete mergedMetadata.selectedPlanId;
+      }
+      if (normalizedProfile.planSelection.planTier) {
+        mergedMetadata.planTier = normalizedProfile.planSelection.planTier;
+      } else {
+        delete mergedMetadata.planTier;
+      }
+      if (normalizedProfile.planSelection.pbmProgram) {
+        mergedMetadata.pbmProgram = normalizedProfile.planSelection.pbmProgram;
+      } else {
+        delete mergedMetadata.pbmProgram;
+      }
     }
 
     const existingAssignmentState = getGroupAssignmentState(existingMetadata);

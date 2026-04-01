@@ -228,6 +228,10 @@ type GroupAssignmentHistoryRecord = {
 
 type GroupProfile = {
   ein: string;
+  selectedPlanId: string;
+  selectedPlanName: string;
+  selectedPlanTier: string;
+  pbmProgram: string;
   businessAddressLine1: string;
   businessAddressLine2: string;
   businessCity: string;
@@ -255,6 +259,12 @@ type GroupProfile = {
 type GroupProfileContext = {
   profile: {
     ein: string | null;
+    planSelection: {
+      planId: number | null;
+      planName: string | null;
+      planTier: string | null;
+      pbmProgram: string | null;
+    };
     businessAddress: {
       line1: string | null;
       line2: string | null;
@@ -682,6 +692,10 @@ const IN_HOUSE_AGENT_OPTION_VALUE = "__in_house_admin_serviced__";
 
 const defaultGroupProfileForm: GroupProfile = {
   ein: "",
+  selectedPlanId: "",
+  selectedPlanName: "",
+  selectedPlanTier: "",
+  pbmProgram: "BestChoice Rx Pro Premium-5 Medication Program (optional add-on)",
   businessAddressLine1: "",
   businessAddressLine2: "",
   businessCity: "",
@@ -706,6 +720,55 @@ const defaultGroupProfileForm: GroupProfile = {
   achAccountType: "checking",
 };
 
+type PlanCatalogItem = {
+  id: number;
+  name: string;
+  price: number | null;
+  billingPeriod: string;
+  features: string[];
+};
+
+type CoveragePricingRow = {
+  coverageLabel: string;
+  monthlyPrice: number;
+  agentCommission: number;
+};
+
+const GROUP_COMMISSION_MATRIX: Record<string, CoveragePricingRow[]> = {
+  base: [
+    { coverageLabel: "Member Only (EE)", monthlyPrice: 59, agentCommission: 9 },
+    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 99, agentCommission: 15 },
+    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 129, agentCommission: 17 },
+    { coverageLabel: "Family (FAM)", monthlyPrice: 149, agentCommission: 17 },
+  ],
+  plus: [
+    { coverageLabel: "Member Only (EE)", monthlyPrice: 99, agentCommission: 20 },
+    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 179, agentCommission: 40 },
+    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 229, agentCommission: 40 },
+    { coverageLabel: "Family (FAM)", monthlyPrice: 279, agentCommission: 40 },
+  ],
+  elite: [
+    { coverageLabel: "Member Only (EE)", monthlyPrice: 119, agentCommission: 20 },
+    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 209, agentCommission: 40 },
+    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 279, agentCommission: 40 },
+    { coverageLabel: "Family (FAM)", monthlyPrice: 349, agentCommission: 40 },
+  ],
+};
+
+const derivePlanTierFromName = (planName: string): string => {
+  const normalized = String(planName || "").toLowerCase();
+  if (normalized.includes("elite")) return "Elite";
+  if (normalized.includes("plus") || normalized.includes("+")) return "Plus";
+  return "Base";
+};
+
+const toPlanTierMatrixKey = (value: string | undefined | null): "base" | "plus" | "elite" => {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("elite")) return "elite";
+  if (normalized.includes("plus")) return "plus";
+  return "base";
+};
+
 const derivePayorTypeFromMode = (mode: GroupProfile["payorMixMode"]): string => {
   if (mode === "full") return "full";
   if (mode === "member") return "member";
@@ -722,6 +785,13 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
   if (!ctx?.profile) return { ...defaultGroupProfileForm };
   return {
     ein: ctx.profile.ein || "",
+    selectedPlanId:
+      ctx.profile.planSelection?.planId === null || ctx.profile.planSelection?.planId === undefined
+        ? ""
+        : String(ctx.profile.planSelection.planId),
+    selectedPlanName: ctx.profile.planSelection?.planName || "",
+    selectedPlanTier: ctx.profile.planSelection?.planTier || "",
+    pbmProgram: ctx.profile.planSelection?.pbmProgram || defaultGroupProfileForm.pbmProgram,
     businessAddressLine1: ctx.profile.businessAddress?.line1 || "",
     businessAddressLine2: ctx.profile.businessAddress?.line2 || "",
     businessCity: ctx.profile.businessAddress?.city || "",
@@ -755,6 +825,12 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
 
 const buildGroupProfilePayload = (form: GroupProfile) => ({
   ein: form.ein,
+  planSelection: {
+    planId: form.selectedPlanId ? Number(form.selectedPlanId) : null,
+    planName: form.selectedPlanName,
+    planTier: form.selectedPlanTier,
+    pbmProgram: form.pbmProgram,
+  },
   businessAddress: {
     line1: form.businessAddressLine1,
     line2: form.businessAddressLine2,
@@ -1546,6 +1622,62 @@ export default function GroupEnrollment() {
     enabled: !authLoading && isAuthorized,
     staleTime: 1000 * 60,
   });
+
+  const { data: plansCatalogData = [] } = useQuery<any[]>({
+    queryKey: ["/api/plans"],
+    queryFn: async () => apiRequest("/api/plans"),
+    enabled: !authLoading && isAuthorized,
+    staleTime: 1000 * 60,
+  });
+
+  const availablePlans: PlanCatalogItem[] = useMemo(() => {
+    const rawPlans = Array.isArray(plansCatalogData)
+      ? plansCatalogData
+      : Array.isArray((plansCatalogData as any)?.data)
+        ? (plansCatalogData as any).data
+        : [];
+
+    return rawPlans
+      .filter((plan: any) => Number.isFinite(Number(plan?.id)))
+      .map((plan: any) => ({
+        id: Number(plan.id),
+        name: String(plan.name || "Plan"),
+        price: Number.isFinite(Number(plan.price)) ? Number(plan.price) : null,
+        billingPeriod: String(plan.billingPeriod || "monthly"),
+        features: Array.isArray(plan.features) ? plan.features.map((feature: unknown) => String(feature)) : [],
+      }));
+  }, [plansCatalogData]);
+
+  const planCatalogById = useMemo(() => {
+    const map = new Map<string, PlanCatalogItem>();
+    availablePlans.forEach((plan) => {
+      map.set(String(plan.id), plan);
+    });
+    return map;
+  }, [availablePlans]);
+
+  const selectedDetailPlan = useMemo(
+    () => planCatalogById.get(groupProfileForm.selectedPlanId),
+    [planCatalogById, groupProfileForm.selectedPlanId],
+  );
+  const selectedNewGroupPlan = useMemo(
+    () => planCatalogById.get(newGroupProfileForm.selectedPlanId),
+    [planCatalogById, newGroupProfileForm.selectedPlanId],
+  );
+
+  const detailPlanPricingRows = useMemo(() => {
+    const resolvedTier = groupProfileForm.selectedPlanTier
+      || (selectedDetailPlan ? derivePlanTierFromName(selectedDetailPlan.name) : "");
+    if (!resolvedTier) return [];
+    return GROUP_COMMISSION_MATRIX[toPlanTierMatrixKey(resolvedTier)] || [];
+  }, [groupProfileForm.selectedPlanTier, selectedDetailPlan]);
+
+  const newPlanPricingRows = useMemo(() => {
+    const resolvedTier = newGroupProfileForm.selectedPlanTier
+      || (selectedNewGroupPlan ? derivePlanTierFromName(selectedNewGroupPlan.name) : "");
+    if (!resolvedTier) return [];
+    return GROUP_COMMISSION_MATRIX[toPlanTierMatrixKey(resolvedTier)] || [];
+  }, [newGroupProfileForm.selectedPlanTier, selectedNewGroupPlan]);
 
   const groups: GroupRecord[] = useMemo(() => {
     if (Array.isArray(data)) {
@@ -3342,6 +3474,79 @@ export default function GroupEnrollment() {
                 placeholder="12-3456789"
               />
             </div>
+            <div className="space-y-3 border rounded-md p-3 bg-slate-50">
+              <div>
+                <Label>Group Plan Tier</Label>
+                <Select
+                  value={newGroupProfileForm.selectedPlanId}
+                  onValueChange={(value) => {
+                    const selectedPlan = planCatalogById.get(value);
+                    setNewGroupProfileForm((prev) => ({
+                      ...prev,
+                      selectedPlanId: value,
+                      selectedPlanName: selectedPlan?.name || "",
+                      selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
+                      pbmProgram: prev.pbmProgram || defaultGroupProfileForm.pbmProgram,
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a plan tier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePlans.map((plan) => (
+                      <SelectItem key={plan.id} value={String(plan.id)}>
+                        {plan.name} {plan.price !== null ? `- $${plan.price.toFixed(2)}/mo` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="new-group-pbm-program">PBM Program</Label>
+                <Input
+                  id="new-group-pbm-program"
+                  value={newGroupProfileForm.pbmProgram}
+                  onChange={(event) =>
+                    setNewGroupProfileForm((prev) => ({ ...prev, pbmProgram: event.target.value }))
+                  }
+                  placeholder="PBM program details"
+                />
+              </div>
+              {newGroupProfileForm.selectedPlanId ? (
+                <div className="text-xs text-slate-700 space-y-1">
+                  <p>
+                    Plan Tier: <span className="font-medium">{newGroupProfileForm.selectedPlanTier || "-"}</span>
+                  </p>
+                  <p>
+                    Base Price: <span className="font-medium">{selectedNewGroupPlan?.price !== null && selectedNewGroupPlan?.price !== undefined ? `$${selectedNewGroupPlan.price.toFixed(2)}/mo` : "-"}</span>
+                  </p>
+                </div>
+              ) : null}
+              {newPlanPricingRows.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold text-slate-800 mb-2">Coverage Pricing and Commission</p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Coverage</TableHead>
+                        <TableHead>Monthly Price</TableHead>
+                        <TableHead>Agent Commission</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {newPlanPricingRows.map((row) => (
+                        <TableRow key={row.coverageLabel}>
+                          <TableCell>{row.coverageLabel}</TableCell>
+                          <TableCell>${row.monthlyPrice.toFixed(2)}</TableCell>
+                          <TableCell>${row.agentCommission.toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="new-responsible-name">Responsible Person Name</Label>
@@ -3966,6 +4171,83 @@ export default function GroupEnrollment() {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
+
+                <div className="space-y-3 border rounded-md p-3 bg-slate-50">
+                  <div>
+                    <Label>Group Plan Tier</Label>
+                    <Select
+                      value={groupProfileForm.selectedPlanId}
+                      onValueChange={(value) => {
+                        const selectedPlan = planCatalogById.get(value);
+                        setGroupProfileForm((prev) => ({
+                          ...prev,
+                          selectedPlanId: value,
+                          selectedPlanName: selectedPlan?.name || "",
+                          selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
+                          pbmProgram: prev.pbmProgram || defaultGroupProfileForm.pbmProgram,
+                        }));
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a plan tier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availablePlans.map((plan) => (
+                          <SelectItem key={plan.id} value={String(plan.id)}>
+                            {plan.name} {plan.price !== null ? `- $${plan.price.toFixed(2)}/mo` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="detail-pbm-program">PBM Program</Label>
+                    <Input
+                      id="detail-pbm-program"
+                      value={groupProfileForm.pbmProgram}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, pbmProgram: event.target.value }))
+                      }
+                      placeholder="PBM program details"
+                    />
+                  </div>
+
+                  {groupProfileForm.selectedPlanId ? (
+                    <div className="text-xs text-slate-700 space-y-1">
+                      <p>
+                        Plan Tier: <span className="font-medium">{groupProfileForm.selectedPlanTier || "-"}</span>
+                      </p>
+                      <p>
+                        Base Price: <span className="font-medium">{selectedDetailPlan?.price !== null && selectedDetailPlan?.price !== undefined ? `$${selectedDetailPlan.price.toFixed(2)}/mo` : "-"}</span>
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {detailPlanPricingRows.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800 mb-2">Coverage Pricing and Commission</p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Coverage</TableHead>
+                            <TableHead>Monthly Price</TableHead>
+                            <TableHead>Agent Commission</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {detailPlanPricingRows.map((row) => (
+                            <TableRow key={row.coverageLabel}>
+                              <TableCell>{row.coverageLabel}</TableCell>
+                              <TableCell>${row.monthlyPrice.toFixed(2)}</TableCell>
+                              <TableCell>${row.agentCommission.toFixed(2)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : null}
                 </div>
 
                 {groupProfileForm.payorMixMode === "fixed" && (
