@@ -131,6 +131,16 @@ const formatRelationshipLabel = (value?: string | null): string => {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 
+const getDisplayRelationshipLabel = (member: Pick<GroupMemberRecord, "relationship" | "tier">): string => {
+  if (member.relationship && String(member.relationship).trim()) {
+    return formatRelationshipLabel(member.relationship);
+  }
+
+  if (member.tier === "spouse") return "Spouse";
+  if (member.tier === "child") return "Dependent";
+  return "Primary";
+};
+
 const formatHouseholdMemberNumber = (member: GroupMemberRecord): string => {
   if (member.householdMemberNumber) return member.householdMemberNumber;
   if (member.householdBaseNumber && member.dependentSuffix !== null && member.dependentSuffix !== undefined) {
@@ -4024,6 +4034,86 @@ export default function GroupEnrollment() {
                     />
                   </div>
                 </div>
+
+                <div className="space-y-3 border rounded-md p-3 bg-slate-50">
+                  <div>
+                    <Label>Group Plan Tier</Label>
+                    <Select
+                      value={groupProfileForm.selectedPlanId}
+                      onValueChange={(value) => {
+                        const selectedPlan = planCatalogById.get(value);
+                        setGroupProfileForm((prev) => ({
+                          ...prev,
+                          selectedPlanId: value,
+                          selectedPlanName: selectedPlan?.name || "",
+                          selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
+                          pbmProgram: prev.pbmProgram || defaultGroupProfileForm.pbmProgram,
+                        }));
+                      }}
+                      disabled={!canEditSelectedGroup}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a plan tier" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availablePlans.map((plan) => (
+                          <SelectItem key={plan.id} value={String(plan.id)}>
+                            {plan.name} {plan.price !== null ? `- $${plan.price.toFixed(2)}/mo` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="detail-setup-pbm-program">PBM Program</Label>
+                    <Input
+                      id="detail-setup-pbm-program"
+                      value={groupProfileForm.pbmProgram}
+                      onChange={(event) =>
+                        setGroupProfileForm((prev) => ({ ...prev, pbmProgram: event.target.value }))
+                      }
+                      placeholder="PBM program details"
+                      disabled={!canEditSelectedGroup}
+                    />
+                  </div>
+
+                  {groupProfileForm.selectedPlanId ? (
+                    <div className="text-xs text-slate-700 space-y-1">
+                      <p>
+                        Plan Tier: <span className="font-medium">{groupProfileForm.selectedPlanTier || "-"}</span>
+                      </p>
+                      <p>
+                        Base Price: <span className="font-medium">{selectedDetailPlan?.price !== null && selectedDetailPlan?.price !== undefined ? `$${selectedDetailPlan.price.toFixed(2)}/mo` : "-"}</span>
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {detailPlanPricingRows.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-800 mb-2">Coverage Pricing and Commission</p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Coverage</TableHead>
+                            <TableHead>Monthly Price</TableHead>
+                            <TableHead>Agent Commission</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {detailPlanPricingRows.map((row) => (
+                            <TableRow key={row.coverageLabel}>
+                              <TableCell>{row.coverageLabel}</TableCell>
+                              <TableCell>${row.monthlyPrice.toFixed(2)}</TableCell>
+                              <TableCell>${row.agentCommission.toFixed(2)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ) : null}
+                </div>
+
                 {(canEditSelectedGroup || canAccessAdminViews) && (
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
@@ -4747,7 +4837,7 @@ export default function GroupEnrollment() {
                                   <p className="text-xs text-gray-500">{member.email}</p>
                                 </div>
                               </TableCell>
-                              <TableCell>{formatRelationshipLabel(member.relationship)}</TableCell>
+                              <TableCell>{getDisplayRelationshipLabel(member)}</TableCell>
                               <TableCell>{formatHouseholdMemberNumber(member)}</TableCell>
                               <TableCell>{formatMemberPhone(member.phone)}</TableCell>
                               <TableCell>{formatMemberDateOfBirth(member.dateOfBirth)}</TableCell>

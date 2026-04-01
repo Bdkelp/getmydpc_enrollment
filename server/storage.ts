@@ -6491,6 +6491,13 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
 
 const GROUP_TABLE = 'groups';
 const GROUP_MEMBER_TABLE = 'group_members';
+const REQUIRED_GROUP_MEMBER_COLUMNS = new Set([
+  'relationship',
+  'tier',
+  'household_base_number',
+  'household_member_number',
+  'dependent_suffix',
+]);
 
 const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | null => {
   const message = typeof error?.message === 'string' ? error.message : '';
@@ -6502,12 +6509,24 @@ const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | nu
   }
 
   if ((error as any)?.code === 'PGRST204' && source.toLowerCase().includes('schema cache')) {
+    if (source.includes('relationship')) return 'relationship';
+    if (source.includes('tier')) return 'tier';
     if (source.includes('dependent_suffix')) return 'dependent_suffix';
     if (source.includes('household_base_number')) return 'household_base_number';
     if (source.includes('household_member_number')) return 'household_member_number';
   }
 
   return null;
+};
+
+const shouldFailOnMissingGroupMemberColumn = (missingColumn: string, payload: Record<string, any>): boolean => {
+  return REQUIRED_GROUP_MEMBER_COLUMNS.has(missingColumn) && Object.prototype.hasOwnProperty.call(payload, missingColumn);
+};
+
+const buildMissingGroupMemberColumnError = (missingColumn: string): Error => {
+  return new Error(
+    `Failed to save group member: required column '${missingColumn}' is missing in group_members. Apply the latest database migrations before retrying.`,
+  );
 };
 
 const isGroupMemberRlsError = (error: any): boolean => {
@@ -6812,6 +6831,11 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
       break;
     }
 
+    if (shouldFailOnMissingGroupMemberColumn(missingColumn, nextPayload)) {
+      console.error(`[Storage] addGroupMember missing required column: ${missingColumn}`);
+      throw buildMissingGroupMemberColumnError(missingColumn);
+    }
+
     const fallbackPayload = { ...nextPayload };
     delete fallbackPayload[missingColumn];
     console.warn(`[Storage] addGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`);
@@ -6857,6 +6881,11 @@ export async function updateGroupMember(id: number, updates: Partial<GroupMember
     const missingColumn = extractMissingGroupMemberColumnFromSchemaError(error);
     if (!missingColumn || !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)) {
       break;
+    }
+
+    if (shouldFailOnMissingGroupMemberColumn(missingColumn, nextPayload)) {
+      console.error(`[Storage] updateGroupMember missing required column: ${missingColumn}`);
+      throw buildMissingGroupMemberColumnError(missingColumn);
     }
 
     const fallbackPayload = { ...nextPayload };
