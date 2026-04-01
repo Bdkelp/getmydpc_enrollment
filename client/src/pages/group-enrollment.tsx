@@ -2777,7 +2777,9 @@ export default function GroupEnrollment() {
   const readinessComplete = isEnrollmentComplete;
   const canOpenProfileStep = true;
   const canOpenMembersStep = true;
-  const canOpenReadinessStep = profileComplete && (membersComplete || readinessComplete);
+  // Allow opening Enrollment step once members exist so teams can review readiness gaps in one place.
+  // Final completion/activation still enforces profile completeness and required member data.
+  const canOpenReadinessStep = membersComplete || readinessComplete;
   const navigateDetailStep = (nextStep: DetailStep) => {
     if (nextStep === "setup") {
       setDetailStep("setup");
@@ -2803,7 +2805,7 @@ export default function GroupEnrollment() {
     if (nextStep === "readiness" && !canOpenReadinessStep) {
       toast({
         title: "Enrollment step is locked",
-        description: "Complete Group Profile and add at least one active member first.",
+        description: "Add at least one active member first.",
       });
       return;
     }
@@ -2820,6 +2822,8 @@ export default function GroupEnrollment() {
     : (groupSetupForm.industry || INDUSTRY_NOT_SET_VALUE);
   const selectedGroupCurrentAgentId = getAssignedAgentIdFromMetadata(selectedGroup?.data?.metadata) || "";
   const selectedGroupOriginalAgentId = getOriginalAssignedAgentIdFromMetadata(selectedGroup?.data?.metadata) || "";
+  const canEditSelectedGroup = canAccessAdminViews
+    || (!!user?.id && selectedGroupCurrentAgentId === user.id);
   const canSubmitReassignment = Boolean(
     selectedGroup?.data?.id
     && reassignmentForm.newAgentId
@@ -3694,10 +3698,10 @@ export default function GroupEnrollment() {
               <div className="border rounded-lg p-4 bg-white space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-base font-semibold text-slate-900">Group Setup</h3>
-                  <Badge variant="secondary">Admin Editable</Badge>
+                  <Badge variant="secondary">{canEditSelectedGroup ? "Editable" : "Read only"}</Badge>
                 </div>
                 <p className="text-xs text-slate-600">
-                  Group setup can be edited by admins here. Payor Matrix Option is configured in the Profile step.
+                  Group setup can be edited by the assigned agent or admin. Payor Matrix Option is configured in the Profile step.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -3706,7 +3710,7 @@ export default function GroupEnrollment() {
                       id="detail-group-name"
                       value={groupSetupForm.name}
                       onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, name: event.target.value }))}
-                      disabled={!canAccessAdminViews}
+                      disabled={!canEditSelectedGroup}
                     />
                   </div>
                   <div>
@@ -3715,7 +3719,7 @@ export default function GroupEnrollment() {
                       id="detail-group-type"
                       value={groupSetupForm.groupType}
                       onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, groupType: event.target.value }))}
-                      disabled={!canAccessAdminViews}
+                      disabled={!canEditSelectedGroup}
                     />
                   </div>
                 </div>
@@ -3739,7 +3743,7 @@ export default function GroupEnrollment() {
 
                         setGroupSetupForm((prev) => ({ ...prev, industry: value }));
                       }}
-                      disabled={!canAccessAdminViews}
+                      disabled={!canEditSelectedGroup}
                     >
                       <SelectTrigger id="detail-group-industry">
                         <SelectValue placeholder="Select industry" />
@@ -3759,7 +3763,7 @@ export default function GroupEnrollment() {
                         placeholder="Enter custom industry"
                         value={groupSetupForm.industry}
                         onChange={(event) => setGroupSetupForm((prev) => ({ ...prev, industry: event.target.value }))}
-                        disabled={!canAccessAdminViews}
+                        disabled={!canEditSelectedGroup}
                       />
                     )}
                   </div>
@@ -3772,11 +3776,11 @@ export default function GroupEnrollment() {
                       onChange={(event) =>
                         setGroupSetupForm((prev) => ({ ...prev, discountCode: event.target.value.toUpperCase() }))
                       }
-                      disabled={!canAccessAdminViews}
+                      disabled={!canEditSelectedGroup}
                     />
                   </div>
                 </div>
-                {canAccessAdminViews && (
+                {(canEditSelectedGroup || canAccessAdminViews) && (
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       variant="outline"
@@ -3784,20 +3788,24 @@ export default function GroupEnrollment() {
                     >
                       Go To Profile Step
                     </Button>
-                    <Button
-                      variant="outline"
-                      disabled={updateGroupAssignmentMutation.isPending}
-                      onClick={() => updateGroupAssignmentMutation.mutate()}
-                    >
-                      {updateGroupAssignmentMutation.isPending ? "Saving..." : "Save Agent Assignment"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={updateGroupSetupMutation.isPending || !groupSetupForm.name.trim()}
-                      onClick={() => updateGroupSetupMutation.mutate()}
-                    >
-                      {updateGroupSetupMutation.isPending ? "Saving..." : "Save Group Setup"}
-                    </Button>
+                    {canAccessAdminViews && (
+                      <Button
+                        variant="outline"
+                        disabled={updateGroupAssignmentMutation.isPending}
+                        onClick={() => updateGroupAssignmentMutation.mutate()}
+                      >
+                        {updateGroupAssignmentMutation.isPending ? "Saving..." : "Save Agent Assignment"}
+                      </Button>
+                    )}
+                    {canEditSelectedGroup && (
+                      <Button
+                        variant="outline"
+                        disabled={updateGroupSetupMutation.isPending || !groupSetupForm.name.trim()}
+                        onClick={() => updateGroupSetupMutation.mutate()}
+                      >
+                        {updateGroupSetupMutation.isPending ? "Saving..." : "Save Group Setup"}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -3879,6 +3887,13 @@ export default function GroupEnrollment() {
                     Missing fields: {groupProfileContext.missingFields.join(", ")}
                   </p>
                 ) : null}
+                {!canEditSelectedGroup ? (
+                  <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+                    Profile is read only for this group assignment.
+                  </p>
+                ) : null}
+
+                <fieldset disabled={!canEditSelectedGroup} className="space-y-4">
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -4141,11 +4156,12 @@ export default function GroupEnrollment() {
                     </div>
                   </div>
                 )}
+                </fieldset>
 
                 <div className="flex justify-end">
                   <Button
                     variant="outline"
-                    disabled={updateGroupProfileMutation.isPending}
+                    disabled={updateGroupProfileMutation.isPending || !canEditSelectedGroup}
                     onClick={() => updateGroupProfileMutation.mutate()}
                   >
                     {updateGroupProfileMutation.isPending ? "Saving..." : "Save Group Profile"}

@@ -65,6 +65,9 @@ interface Enrollment {
   customerNumber?: string | null;
   payment_status?: string | null;
   payment_id?: number | null;
+  businessCategory?: 'individual' | 'family' | 'group' | string;
+  source?: 'individual' | 'group' | string;
+  groupName?: string | null;
 }
 
 interface PlanOption {
@@ -156,6 +159,7 @@ export default function AgentDashboard() {
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
+  const [businessFilter, setBusinessFilter] = useState<'all' | 'individual' | 'group'>('all');
   const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
@@ -212,9 +216,15 @@ export default function AgentDashboard() {
 
   const filteredEnrollments = useMemo(() => {
     const all = Array.isArray(enrollments) ? enrollments : [];
-    if (!focusMemberId) return all;
-    return all.filter((enrollment) => String(enrollment.id) === focusMemberId);
-  }, [enrollments, focusMemberId]);
+    const segmentFiltered = all.filter((enrollment: any) => {
+      if (businessFilter === 'all') return true;
+      const category = String(enrollment.businessCategory || enrollment.source || '').toLowerCase();
+      const isGroup = category === 'group' || Boolean(enrollment.groupName);
+      return businessFilter === 'group' ? isGroup : !isGroup;
+    });
+    if (!focusMemberId) return segmentFiltered;
+    return segmentFiltered.filter((enrollment) => String(enrollment.id) === focusMemberId);
+  }, [enrollments, focusMemberId, businessFilter]);
 
   useEffect(() => {
     if (hasExpandedFocusRange || !focusMemberId) {
@@ -928,6 +938,29 @@ export default function AgentDashboard() {
             <div className="flex justify-between items-center">
               <CardTitle>Recent Enrollments</CardTitle>
               <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1 rounded-md border bg-white p-1">
+                  <Button
+                    variant={businessFilter === 'all' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setBusinessFilter('all')}
+                  >
+                    All
+                  </Button>
+                  <Button
+                    variant={businessFilter === 'individual' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setBusinessFilter('individual')}
+                  >
+                    Individual
+                  </Button>
+                  <Button
+                    variant={businessFilter === 'group' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setBusinessFilter('group')}
+                  >
+                    Group
+                  </Button>
+                </div>
                 <div className="flex items-center gap-2">
                   <label htmlFor="dashboardStartDate" className="text-sm text-gray-600">From:</label>
                   <input
@@ -1037,6 +1070,12 @@ export default function AgentDashboard() {
                       </td>
                       <td className="py-2">
                         {(() => {
+                          const enrollmentCategory = String(enrollment.businessCategory || enrollment.source || '').toLowerCase();
+                          const isGroupEnrollment = enrollmentCategory === 'group' || Boolean((enrollment as any).groupName);
+                          if (isGroupEnrollment) {
+                            return null;
+                          }
+
                           const paymentStatus = getEnrollmentPaymentStatus(enrollment);
                           const canAttemptPayment = !hasSuccessfulPayment(paymentStatus);
 

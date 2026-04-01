@@ -1847,6 +1847,48 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
     sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
+
+    const groupParams: any[] = [allAgentIds];
+    let groupParamCount = 2;
+    let groupSql = `
+      SELECT
+        gm.id AS group_member_id,
+        gm.member_id AS group_member_code,
+        gm.household_member_number,
+        gm.first_name,
+        gm.last_name,
+        gm.middle_name,
+        gm.email,
+        gm.phone,
+        gm.date_of_birth,
+        gm.relationship,
+        gm.tier,
+        gm.total_amount,
+        gm.status,
+        gm.registered_at,
+        gm.updated_at,
+        g.id AS group_id,
+        g.name AS group_name,
+        g.status AS group_status,
+        g.metadata AS group_metadata
+      FROM group_members gm
+      JOIN groups g ON g.id = gm.group_id
+      WHERE COALESCE(
+        g.metadata->'assignment'->>'currentAssignedAgentId',
+        g.metadata->>'assignedAgentId'
+      ) = ANY($1::text[])
+      AND LOWER(COALESCE(g.status, '')) IN ('active', 'registered')
+    `;
+
+    if (startDate && endDate) {
+      const endExclusive = toExclusiveDateUpperBound(endDate);
+      groupSql += ` AND COALESCE(gm.registered_at, gm.updated_at, g.created_at)::date >= $${groupParamCount++}::date AND COALESCE(gm.registered_at, gm.updated_at, g.created_at)::date < $${groupParamCount++}::date`;
+      groupParams.push(startDate, endExclusive);
+    }
+
+    groupSql += ' ORDER BY COALESCE(gm.registered_at, gm.updated_at, g.created_at) DESC';
+
+    const groupResult = await query(groupSql, groupParams);
     
     console.log('[Storage] getEnrollmentsByAgent - Query params:', { 
       agentCount: allAgentIds.length,
@@ -1866,7 +1908,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
     }
     
     // Map member data to User format for compatibility, including plan and commission data
-    return result.rows.map((row: any) => {
+    const memberEnrollments = result.rows.map((row: any) => {
       // Determine if this enrollment is from a downline agent or self
       const isSelfEnrollment = row.enrolled_by_agent_id === agentId;
       const enrolledByLabel = isSelfEnrollment 
@@ -1912,6 +1954,8 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         commissionStatus: row.commission_status,
         payment_status: row.payment_status || row.commission_status || null,
         payment_id: row.payment_id || null,
+        businessCategory: String(row.coverage_type || '').toLowerCase().includes('family') || String(row.coverage_type || '').toLowerCase().includes('spouse') || String(row.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
+        source: 'individual',
         status: row.status,
         enrolledBy: enrolledByLabel,
         enrolledByAgentEmail: row.agent_email,
@@ -1921,6 +1965,46 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         enrollingAgentNumber: row.enrolling_agent_number,
         subscriptionId: row.subscription_id
       } as any;
+    });
+
+    const groupEnrollments = (groupResult.rows || []).map((row: any) => ({
+      id: `group-${row.group_id}-${row.group_member_id}`,
+      email: row.email,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      middleName: row.middle_name,
+      phone: row.phone,
+      dateOfBirth: row.date_of_birth,
+      role: 'member',
+      isActive: row.status !== 'terminated',
+      enrolledByAgentId: agentId,
+      memberType: row.tier || row.relationship || 'group',
+      createdAt: row.registered_at || row.updated_at,
+      updatedAt: row.updated_at,
+      customerNumber: row.household_member_number,
+      memberPublicId: row.household_member_number,
+      planId: null,
+      planName: row.group_name ? `${row.group_name} (Group)` : 'Group Enrollment',
+      totalMonthlyPrice: parseFloat(String(row.total_amount || 0)) || 0,
+      commissionAmount: 0,
+      commissionStatus: null,
+      payment_status: null,
+      payment_id: null,
+      businessCategory: 'group',
+      source: 'group',
+      groupName: row.group_name || '',
+      status: row.status || 'draft',
+      enrolledBy: 'Group',
+      enrolledByAgentEmail: null,
+      enrolledByAgentName: null,
+      enrollingAgentNumber: null,
+      subscriptionId: null,
+    } as any));
+
+    return [...memberEnrollments, ...groupEnrollments].sort((a: any, b: any) => {
+      const left = new Date(a.createdAt || 0).getTime();
+      const right = new Date(b.createdAt || 0).getTime();
+      return right - left;
     });
   } catch (error: any) {
     console.error('Error fetching agent enrollments:', error);
