@@ -242,6 +242,8 @@ type GroupProfile = {
   selectedPlanName: string;
   selectedPlanTier: string;
   pbmProgram: string;
+  pbmEnabled: boolean;
+  pbmAmount: string;
   businessAddressLine1: string;
   businessAddressLine2: string;
   businessCity: string;
@@ -274,6 +276,8 @@ type GroupProfileContext = {
       planName: string | null;
       planTier: string | null;
       pbmProgram: string | null;
+      pbmEnabled: boolean | null;
+      pbmAmount: number | null;
     };
     businessAddress: {
       line1: string | null;
@@ -709,6 +713,8 @@ const defaultGroupProfileForm: GroupProfile = {
   selectedPlanName: "",
   selectedPlanTier: "",
   pbmProgram: "BestChoice Rx Pro Premium-5 Medication Program (optional add-on)",
+  pbmEnabled: false,
+  pbmAmount: "",
   businessAddressLine1: "",
   businessAddressLine2: "",
   businessCity: "",
@@ -805,6 +811,11 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
     selectedPlanName: ctx.profile.planSelection?.planName || "",
     selectedPlanTier: ctx.profile.planSelection?.planTier || "",
     pbmProgram: ctx.profile.planSelection?.pbmProgram || defaultGroupProfileForm.pbmProgram,
+    pbmEnabled: Boolean(ctx.profile.planSelection?.pbmEnabled),
+    pbmAmount:
+      ctx.profile.planSelection?.pbmAmount === null || ctx.profile.planSelection?.pbmAmount === undefined
+        ? ""
+        : String(ctx.profile.planSelection.pbmAmount),
     businessAddressLine1: ctx.profile.businessAddress?.line1 || "",
     businessAddressLine2: ctx.profile.businessAddress?.line2 || "",
     businessCity: ctx.profile.businessAddress?.city || "",
@@ -843,6 +854,8 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
     planName: form.selectedPlanName,
     planTier: form.selectedPlanTier,
     pbmProgram: form.pbmProgram,
+    pbmEnabled: form.pbmEnabled,
+    pbmAmount: form.pbmAmount.trim() ? Number(form.pbmAmount) : null,
   },
   businessAddress: {
     line1: form.businessAddressLine1,
@@ -3578,6 +3591,40 @@ export default function GroupEnrollment() {
                   placeholder="PBM program details"
                 />
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label>PBM Enabled</Label>
+                  <Select
+                    value={newGroupProfileForm.pbmEnabled ? "enabled" : "disabled"}
+                    onValueChange={(value) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, pbmEnabled: value === "enabled" }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="PBM selection" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="disabled">Disabled</SelectItem>
+                      <SelectItem value="enabled">Enabled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="new-group-pbm-amount">PBM Monthly Amount ($)</Label>
+                  <Input
+                    id="new-group-pbm-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newGroupProfileForm.pbmAmount}
+                    onChange={(event) =>
+                      setNewGroupProfileForm((prev) => ({ ...prev, pbmAmount: event.target.value }))
+                    }
+                    placeholder="0.00"
+                    disabled={!newGroupProfileForm.pbmEnabled}
+                  />
+                </div>
+              </div>
               {newGroupProfileForm.selectedPlanId ? (
                 <div className="text-xs text-slate-700 space-y-1">
                   <p>
@@ -4132,6 +4179,41 @@ export default function GroupEnrollment() {
                       disabled={!canEditSelectedGroup}
                     />
                   </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label>PBM Enabled</Label>
+                      <Select
+                        value={groupProfileForm.pbmEnabled ? "enabled" : "disabled"}
+                        onValueChange={(value) =>
+                          setGroupProfileForm((prev) => ({ ...prev, pbmEnabled: value === "enabled" }))
+                        }
+                        disabled={!canEditSelectedGroup}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="PBM selection" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="disabled">Disabled</SelectItem>
+                          <SelectItem value="enabled">Enabled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-setup-pbm-amount">PBM Monthly Amount ($)</Label>
+                      <Input
+                        id="detail-setup-pbm-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={groupProfileForm.pbmAmount}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, pbmAmount: event.target.value }))
+                        }
+                        placeholder="0.00"
+                        disabled={!canEditSelectedGroup || !groupProfileForm.pbmEnabled}
+                      />
+                    </div>
+                  </div>
 
                   {groupProfileForm.selectedPlanId ? (
                     <div className="text-xs text-slate-700 space-y-1">
@@ -4357,6 +4439,40 @@ export default function GroupEnrollment() {
                       }
                       placeholder="PBM program details"
                     />
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <Label>PBM Enabled</Label>
+                      <Select
+                        value={groupProfileForm.pbmEnabled ? "enabled" : "disabled"}
+                        onValueChange={(value) =>
+                          setGroupProfileForm((prev) => ({ ...prev, pbmEnabled: value === "enabled" }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="PBM selection" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="disabled">Disabled</SelectItem>
+                          <SelectItem value="enabled">Enabled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="detail-pbm-amount">PBM Monthly Amount ($)</Label>
+                      <Input
+                        id="detail-pbm-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={groupProfileForm.pbmAmount}
+                        onChange={(event) =>
+                          setGroupProfileForm((prev) => ({ ...prev, pbmAmount: event.target.value }))
+                        }
+                        placeholder="0.00"
+                        disabled={!groupProfileForm.pbmEnabled}
+                      />
+                    </div>
                   </div>
 
                   {groupProfileForm.selectedPlanId ? (

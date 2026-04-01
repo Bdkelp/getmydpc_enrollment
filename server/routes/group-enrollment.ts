@@ -183,6 +183,8 @@ type GroupProfile = {
     planName: string | null;
     planTier: string | null;
     pbmProgram: string | null;
+    pbmEnabled: boolean | null;
+    pbmAmount: number | null;
   };
   businessAddress: {
     line1: string | null;
@@ -479,6 +481,10 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
       planName: toTrimmedOrNull(raw?.planSelection?.planName),
       planTier: toTrimmedOrNull(raw?.planSelection?.planTier),
       pbmProgram: toTrimmedOrNull(raw?.planSelection?.pbmProgram),
+      pbmEnabled: typeof raw?.planSelection?.pbmEnabled === 'boolean'
+        ? raw.planSelection.pbmEnabled
+        : null,
+      pbmAmount: toNumberOrNull(raw?.planSelection?.pbmAmount),
     },
     businessAddress: {
       line1: toTrimmedOrNull(raw?.businessAddress?.line1),
@@ -1066,10 +1072,11 @@ const resolveGroupMemberPlanName = (group: any, groupMember: any): string => {
 const resolveGroupCommissionContext = (group: any, groupMember: any, membershipAmount: number) => {
   const payload = toObjectOrNull(groupMember?.registrationPayload) || {};
   const memberMetadata = toObjectOrNull(groupMember?.metadata) || {};
+  const groupMetadata = toObjectOrNull(group?.metadata) || {};
   const relationship = normalizeMemberRelationship(groupMember?.relationship, groupMember?.tier);
   const memberType = toCommissionMemberType(groupMember?.tier || relationship);
   const planName = resolveGroupMemberPlanName(group, groupMember);
-  const addRxValet = resolveGroupPbmEnabled(payload, memberMetadata);
+  const addRxValet = resolveGroupPbmEnabled(payload, memberMetadata, groupMetadata);
 
   const commissionResult = calculateCommission(planName, memberType, addRxValet);
   if (!commissionResult) {
@@ -1494,6 +1501,7 @@ const buildGroupBillingSnapshot = async (
 
     const payload = toObjectOrNull(member.registrationPayload) || {};
     const memberMetadata = toObjectOrNull(member.metadata) || {};
+    const groupMetadata = toObjectOrNull(group?.metadata) || {};
     const productLabel = String(
       payload.planName
       || payload.selectedPlanName
@@ -1509,11 +1517,11 @@ const buildGroupBillingSnapshot = async (
     productMix[productLabel].count += 1;
     productMix[productLabel].amount = roundCurrency(productMix[productLabel].amount + totalAmount);
 
-    const pbmEnabled = resolveGroupPbmEnabled(payload, memberMetadata);
+    const pbmEnabled = resolveGroupPbmEnabled(payload, memberMetadata, groupMetadata);
 
     if (pbmEnabled) {
       pbmEnrolledCount += 1;
-      const pbmAmount = resolveGroupPbmAmount(payload, memberMetadata);
+      const pbmAmount = resolveGroupPbmAmount(payload, memberMetadata, groupMetadata);
       pbmTotalAmount = roundCurrency(pbmTotalAmount + pbmAmount);
     }
   }
@@ -2366,6 +2374,18 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
     } else {
       delete nextMetadata.pbmProgram;
     }
+    if (normalizedProfile.planSelection.pbmEnabled !== null) {
+      nextMetadata.pbmEnabled = normalizedProfile.planSelection.pbmEnabled;
+      nextMetadata.pbm = normalizedProfile.planSelection.pbmEnabled;
+    } else {
+      delete nextMetadata.pbmEnabled;
+      delete nextMetadata.pbm;
+    }
+    if (normalizedProfile.planSelection.pbmAmount !== null) {
+      nextMetadata.pbmAmount = normalizedProfile.planSelection.pbmAmount;
+    } else {
+      delete nextMetadata.pbmAmount;
+    }
 
     let currentAssignedAgentId: string | null = null;
 
@@ -2727,6 +2747,18 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
         mergedMetadata.pbmProgram = normalizedProfile.planSelection.pbmProgram;
       } else {
         delete mergedMetadata.pbmProgram;
+      }
+      if (normalizedProfile.planSelection.pbmEnabled !== null) {
+        mergedMetadata.pbmEnabled = normalizedProfile.planSelection.pbmEnabled;
+        mergedMetadata.pbm = normalizedProfile.planSelection.pbmEnabled;
+      } else {
+        delete mergedMetadata.pbmEnabled;
+        delete mergedMetadata.pbm;
+      }
+      if (normalizedProfile.planSelection.pbmAmount !== null) {
+        mergedMetadata.pbmAmount = normalizedProfile.planSelection.pbmAmount;
+      } else {
+        delete mergedMetadata.pbmAmount;
       }
     }
 
