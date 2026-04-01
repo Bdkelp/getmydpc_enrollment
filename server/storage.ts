@@ -1610,8 +1610,9 @@ export async function getAgentEnrollments(
     `;
 
     if (startDate && endDate) {
-      sql += ` AND m.created_at >= $${paramCount} AND m.created_at <= $${paramCount + 1}`;
-      params.push(startDate, endDate);
+      const endExclusive = toExclusiveDateUpperBound(endDate);
+      sql += ` AND m.created_at >= $${paramCount}::date AND m.created_at < $${paramCount + 1}::date`;
+      params.push(startDate, endExclusive);
       paramCount += 2;
     }
 

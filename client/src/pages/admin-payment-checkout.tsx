@@ -254,6 +254,72 @@ export default function AdminPaymentCheckoutPage() {
     ? (memberDisplayName === `Member #${member.id}` ? member.email : memberDisplayName)
     : member?.email || "Member";
 
+  const handleCheckoutSuccess = (transactionId?: string | null, paidAmount?: number | null) => {
+    if (!member) {
+      setHasLaunchedPayment(false);
+      return;
+    }
+
+    try {
+      const derivedPlanId = member.planId || subscription?.id;
+      const derivedAmount = typeof paidAmount === 'number' && Number.isFinite(paidAmount)
+        ? paidAmount
+        : amount;
+
+      const confirmationMemberData = {
+        id: member.id,
+        firstName: member.firstName || '',
+        lastName: member.lastName || '',
+        email: member.email || '',
+        customerNumber: (member as any).customerNumber || '',
+        memberPublicId: (member as any).memberPublicId || '',
+        totalMonthlyPrice: derivedAmount,
+      };
+
+      sessionStorage.setItem('memberData', JSON.stringify(confirmationMemberData));
+      if (derivedPlanId) {
+        sessionStorage.setItem('selectedPlanId', String(derivedPlanId));
+      }
+      if (typeof derivedAmount === 'number' && Number.isFinite(derivedAmount)) {
+        sessionStorage.setItem('totalMonthlyPrice', derivedAmount.toFixed(2));
+      }
+      if (transactionId) {
+        sessionStorage.setItem('lastTransactionId', transactionId);
+      }
+
+      const params = new URLSearchParams();
+      if (transactionId) {
+        params.set('transaction', transactionId);
+      }
+      if (typeof derivedAmount === 'number' && Number.isFinite(derivedAmount)) {
+        params.set('amount', derivedAmount.toFixed(2));
+      }
+      if (derivedPlanId) {
+        params.set('planId', String(derivedPlanId));
+      }
+
+      toast({
+        title: 'Payment complete',
+        description: transactionId
+          ? `Transaction ${transactionId} was accepted.`
+          : 'Payment processed successfully.',
+      });
+
+      setHasLaunchedPayment(false);
+      setTimeout(() => {
+        setLocation(`/confirmation${params.toString() ? `?${params.toString()}` : ''}`);
+      }, 900);
+    } catch (error) {
+      console.error('[AdminPaymentCheckout] Failed to prepare confirmation redirect', error);
+      setHasLaunchedPayment(false);
+      toast({
+        title: 'Payment complete',
+        description: 'Payment succeeded, but confirmation redirect failed. Please open Confirmation manually.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   if (isLoading || (isAuthenticated && isAgentOrAbove && memberQuery.isLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -407,16 +473,10 @@ export default function AdminPaymentCheckoutPage() {
                       description={descriptionParam || `Manual admin checkout for member #${member.id}`}
                       redirectOnSuccess={false}
                       onSuccess={(transactionId, paidAmount) => {
-                        toast({
-                          title: "Payment complete",
-                          description: transactionId
-                            ? `Transaction ${transactionId} was accepted.`
-                            : "ACH payment processed successfully.",
-                        });
                         if (paidAmount) {
                           console.info("ACH payment amount", paidAmount);
                         }
-                        setHasLaunchedPayment(false);
+                        handleCheckoutSuccess(transactionId, paidAmount);
                       }}
                       onError={(message) => {
                         toast({
@@ -444,16 +504,10 @@ export default function AdminPaymentCheckoutPage() {
                       }}
                       redirectOnSuccess={false}
                       onSuccess={(transactionId, paidAmount) => {
-                        toast({
-                          title: "Payment complete",
-                          description: transactionId
-                            ? `Transaction ${transactionId} was accepted.`
-                            : "Hosted checkout finished successfully.",
-                        });
                         if (paidAmount) {
                           console.info("Hosted checkout amount", paidAmount);
                         }
-                        setHasLaunchedPayment(false);
+                        handleCheckoutSuccess(transactionId, paidAmount);
                       }}
                       onError={(message) => {
                         toast({
