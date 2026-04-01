@@ -151,6 +151,7 @@ function Router() {
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
               <Route path="/confirmation" component={Confirmation} />
               <Route path="/confirmation/:userId" component={Confirmation} />
+              <Route path="/payments/checkout" component={AdminPaymentCheckout} />
               <Route path="/payments/update" component={PaymentUpdate} />
               <Route path="/payments/group-checkout" component={GroupPaymentCheckout} />
             </>

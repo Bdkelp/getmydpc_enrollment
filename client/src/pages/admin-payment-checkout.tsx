@@ -53,6 +53,28 @@ interface EnrollmentDetailsResponse {
   subscriptionId?: number | null;
 }
 
+interface AgentMemberLookupResponse {
+  id?: number | string;
+  firstName?: string;
+  first_name?: string;
+  lastName?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  zip_code?: string;
+  planId?: number;
+  subscription?: {
+    id?: number;
+    planId?: number;
+    planName?: string;
+  } | null;
+}
+
 const parseBooleanParam = (value: string | null): boolean => {
   if (!value) {
     return false;
@@ -69,6 +91,7 @@ const formatCurrency = (amount: number): string => amount.toLocaleString(undefin
 export default function AdminPaymentCheckoutPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
+  const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [hasLaunchedPayment, setHasLaunchedPayment] = useState(false);
@@ -117,7 +140,39 @@ export default function AdminPaymentCheckoutPage() {
     queryKey: ["/api/admin/members", memberId],
     enabled: isAuthenticated && isAgentOrAbove && Number.isFinite(memberId) && !validationError,
     queryFn: async () => {
-      const response = await apiRequest(`/api/admin/enrollment/${memberId}`) as EnrollmentDetailsResponse;
+      if (isAdminUser) {
+        const response = await apiRequest(`/api/admin/enrollment/${memberId}`) as EnrollmentDetailsResponse;
+        if (!response?.id) {
+          throw new Error("Member lookup failed");
+        }
+
+        const parsedId = Number(response.id);
+        return {
+          success: true,
+          member: {
+            id: Number.isFinite(parsedId) ? parsedId : memberId,
+            firstName: response.firstName,
+            lastName: response.lastName,
+            email: response.email || "",
+            phone: response.phone,
+            address: response.address,
+            address2: response.address2,
+            city: response.city,
+            state: response.state,
+            zipCode: response.zipCode,
+            planId: response.planId,
+            totalMonthlyPrice: response.totalMonthlyPrice,
+          },
+          subscription: response.subscriptionId
+            ? {
+                id: response.subscriptionId,
+                planName: response.planName,
+              }
+            : null,
+        };
+      }
+
+      const response = await apiRequest(`/api/agent/members/${memberId}`) as AgentMemberLookupResponse;
       if (!response?.id) {
         throw new Error("Member lookup failed");
       }
@@ -127,22 +182,22 @@ export default function AdminPaymentCheckoutPage() {
         success: true,
         member: {
           id: Number.isFinite(parsedId) ? parsedId : memberId,
-          firstName: response.firstName,
-          lastName: response.lastName,
+          firstName: response.firstName || response.first_name,
+          lastName: response.lastName || response.last_name,
           email: response.email || "",
           phone: response.phone,
           address: response.address,
           address2: response.address2,
           city: response.city,
           state: response.state,
-          zipCode: response.zipCode,
-          planId: response.planId,
-          totalMonthlyPrice: response.totalMonthlyPrice,
+          zipCode: response.zipCode || response.zip_code,
+          planId: response.planId || response.subscription?.planId,
+          totalMonthlyPrice: undefined,
         },
-        subscription: response.subscriptionId
+        subscription: response.subscription?.id
           ? {
-              id: response.subscriptionId,
-              planName: response.planName,
+              id: response.subscription.id,
+              planName: response.subscription.planName,
             }
           : null,
       };

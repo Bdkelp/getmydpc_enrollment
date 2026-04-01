@@ -375,7 +375,7 @@ export default function AgentDashboard() {
       params.set('retryMemberId', String(enrollment.id));
     }
 
-    setLocation(`/admin/payments/checkout?${params.toString()}`);
+    setLocation(`/payments/checkout?${params.toString()}`);
   };
 
   const handleResolvePending = async () => {
