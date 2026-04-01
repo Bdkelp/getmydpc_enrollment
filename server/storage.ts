@@ -6494,9 +6494,6 @@ const GROUP_MEMBER_TABLE = 'group_members';
 const REQUIRED_GROUP_MEMBER_COLUMNS = new Set([
   'relationship',
   'tier',
-  'household_base_number',
-  'household_member_number',
-  'dependent_suffix',
 ]);
 
 const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | null => {

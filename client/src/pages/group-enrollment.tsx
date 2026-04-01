@@ -82,13 +82,6 @@ const industryOptions = [
 const isPresetIndustryValue = (value: string): boolean =>
   industryOptions.some((option) => option.value.toLowerCase() === value.trim().toLowerCase());
 
-const tierOptions = [
-  { value: "member", label: "Member Only" },
-  { value: "spouse", label: "Member + Spouse" },
-  { value: "child", label: "Member + Child(ren)" },
-  { value: "family", label: "Member + Family" },
-];
-
 const statusOptions = [
   { value: "draft", label: "Draft" },
   { value: "ready", label: "Ready" },
@@ -446,6 +439,8 @@ type MemberFormState = {
   selectedPlanId: string;
   selectedPlanName: string;
   selectedPlanTier: string;
+  pbmEnabled: boolean;
+  pbmAmount: string;
   tier: string;
   payorType: string;
   status: string;
@@ -786,6 +781,28 @@ const toPlanTierMatrixKey = (value: string | undefined | null): "base" | "plus" 
   if (normalized.includes("elite")) return "elite";
   if (normalized.includes("plus")) return "plus";
   return "base";
+};
+
+const resolveMemberCoverageMonthlyPrice = (
+  relationship: string,
+  selectedPlanTier: string,
+  selectedPlanName: string,
+): number | null => {
+  const tierValue = selectedPlanTier || (selectedPlanName ? derivePlanTierFromName(selectedPlanName) : "");
+  if (!tierValue) return null;
+
+  const rows = GROUP_COMMISSION_MATRIX[toPlanTierMatrixKey(tierValue)] || [];
+  const normalizedRelationship = String(relationship || "").trim().toLowerCase();
+
+  if (normalizedRelationship === "spouse") {
+    return rows.find((row) => row.coverageLabel.includes("Spouse"))?.monthlyPrice ?? null;
+  }
+
+  if (normalizedRelationship === "dependent" || normalizedRelationship === "child") {
+    return rows.find((row) => row.coverageLabel.includes("Child"))?.monthlyPrice ?? null;
+  }
+
+  return rows.find((row) => row.coverageLabel.includes("Member Only"))?.monthlyPrice ?? null;
 };
 
 const derivePayorTypeFromMode = (mode: GroupProfile["payorMixMode"]): string => {
@@ -1580,6 +1597,8 @@ export default function GroupEnrollment() {
     selectedPlanId: "",
     selectedPlanName: "",
     selectedPlanTier: "",
+    pbmEnabled: false,
+    pbmAmount: "",
     tier: "member",
     payorType: "full",
     status: "draft",
@@ -1608,6 +1627,8 @@ export default function GroupEnrollment() {
       selectedPlanId: groupProfileForm.selectedPlanId || "",
       selectedPlanName: groupProfileForm.selectedPlanName || "",
       selectedPlanTier: groupProfileForm.selectedPlanTier || "",
+      pbmEnabled: groupProfileForm.pbmEnabled,
+      pbmAmount: groupProfileForm.pbmAmount || "",
       ...overrides,
     });
   };
@@ -2151,6 +2172,25 @@ export default function GroupEnrollment() {
       const normalizedPersonalEmail = normalizeOptionalEmailInput(memberForm.personalEmail);
       const primaryEmail = normalizedWorkEmail || normalizedPersonalEmail || null;
       const normalizedTier = deriveTierFromRelationship(memberForm.relationship, memberForm.tier);
+      const coverageMonthlyPrice = resolveMemberCoverageMonthlyPrice(
+        memberForm.relationship,
+        memberForm.selectedPlanTier,
+        memberForm.selectedPlanName,
+      );
+      const pbmMonthlyAmount = memberForm.pbmEnabled ? Math.max(0, Number(memberForm.pbmAmount || 0)) : 0;
+      const computedMonthlyTotal = coverageMonthlyPrice === null
+        ? null
+        : Number((coverageMonthlyPrice + pbmMonthlyAmount).toFixed(2));
+      const computedEmployerAmount = computedMonthlyTotal === null
+        ? null
+        : memberForm.payorType === "full"
+          ? computedMonthlyTotal
+          : 0;
+      const computedMemberAmount = computedMonthlyTotal === null
+        ? null
+        : memberForm.payorType === "member"
+          ? computedMonthlyTotal
+          : 0;
 
       const payload = {
         relationship: memberForm.relationship,
@@ -2164,11 +2204,17 @@ export default function GroupEnrollment() {
         tier: normalizedTier,
         payorType: memberForm.payorType,
         status: memberForm.status,
+        employerAmount: computedEmployerAmount,
+        memberAmount: computedMemberAmount,
+        discountAmount: 0,
+        totalAmount: computedMonthlyTotal,
         metadata: {
           planSelection: {
             planId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
             planName: memberForm.selectedPlanName || null,
             planTier: memberForm.selectedPlanTier || null,
+            pbmEnabled: memberForm.pbmEnabled,
+            pbmAmount: memberForm.pbmAmount.trim() ? Number(memberForm.pbmAmount) : null,
           },
           planId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
           planName: memberForm.selectedPlanName || null,
@@ -2176,6 +2222,9 @@ export default function GroupEnrollment() {
           selectedPlanId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
           selectedPlanName: memberForm.selectedPlanName || null,
           selectedPlanTier: memberForm.selectedPlanTier || null,
+          pbmEnabled: memberForm.pbmEnabled,
+          pbm: memberForm.pbmEnabled,
+          pbmAmount: memberForm.pbmAmount.trim() ? Number(memberForm.pbmAmount) : null,
           employmentProfile: {
             middleName: memberForm.middleName,
             suffix: memberForm.suffix,
@@ -2218,6 +2267,9 @@ export default function GroupEnrollment() {
           selectedPlanId: memberForm.selectedPlanId ? Number(memberForm.selectedPlanId) : null,
           selectedPlanName: memberForm.selectedPlanName || null,
           selectedPlanTier: memberForm.selectedPlanTier || null,
+          pbmEnabled: memberForm.pbmEnabled,
+          pbm: memberForm.pbmEnabled,
+          pbmAmount: memberForm.pbmAmount.trim() ? Number(memberForm.pbmAmount) : null,
           employmentProfile: {
             middleName: memberForm.middleName,
             suffix: memberForm.suffix,
@@ -2843,6 +2895,8 @@ export default function GroupEnrollment() {
     const employment = toEmploymentProfile(member);
     const memberMetadata = (member.metadata || {}) as Record<string, any>;
     const payload = (member.registrationPayload || {}) as Record<string, any>;
+      const memberPbmEnabledRaw = payload.pbmEnabled ?? payload.pbm ?? memberMetadata.pbmEnabled ?? memberMetadata.pbm;
+      const memberPbmAmountRaw = payload.pbmAmount ?? memberMetadata.pbmAmount;
     const normalizedRelationship = member.relationship || "primary";
     const payloadPlanId = payload.selectedPlanId ?? payload.planId;
     const metadataPlanId = memberMetadata.selectedPlanId ?? memberMetadata.planId;
@@ -2912,6 +2966,11 @@ export default function GroupEnrollment() {
       selectedPlanId: resolvedPlanId,
       selectedPlanName: resolvedPlanName,
       selectedPlanTier: resolvedPlanTier,
+      pbmEnabled: Boolean(memberPbmEnabledRaw),
+      pbmAmount:
+        memberPbmAmountRaw === null || memberPbmAmountRaw === undefined || memberPbmAmountRaw === ""
+          ? (groupProfileForm.pbmAmount || "")
+          : String(memberPbmAmountRaw),
       tier: deriveTierFromRelationship(normalizedRelationship, member.tier),
       payorType: member.payorType || selectedGroup?.data?.payorType || "full",
       status: member.status || "draft",
@@ -2921,6 +2980,18 @@ export default function GroupEnrollment() {
 
   const missingMemberFields = collectMissingMemberFields(memberForm);
   const isMemberFormValid = missingMemberFields.length === 0;
+  const memberCoverageMonthlyPrice = useMemo(
+    () => resolveMemberCoverageMonthlyPrice(memberForm.relationship, memberForm.selectedPlanTier, memberForm.selectedPlanName),
+    [memberForm.relationship, memberForm.selectedPlanTier, memberForm.selectedPlanName],
+  );
+  const memberPbmMonthlyAmount = useMemo(
+    () => (memberForm.pbmEnabled ? Math.max(0, Number(memberForm.pbmAmount || 0)) : 0),
+    [memberForm.pbmEnabled, memberForm.pbmAmount],
+  );
+  const memberCalculatedMonthlyTotal = useMemo(
+    () => (memberCoverageMonthlyPrice === null ? null : Number((memberCoverageMonthlyPrice + memberPbmMonthlyAmount).toFixed(2))),
+    [memberCoverageMonthlyPrice, memberPbmMonthlyAmount],
+  );
 
   const memberDialogTitle = editingMember ? "Edit Group Member" : "Add Group Member";
   const memberDialogDescription = editingMember
@@ -5689,25 +5760,7 @@ export default function GroupEnrollment() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <Label>Tier</Label>
-                <Select
-                  value={memberForm.tier}
-                  onValueChange={(value) => setMemberForm((prev) => ({ ...prev, tier: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select tier" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tierOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Employee Plan Tier</Label>
+                <Label>Employee Plan Selection</Label>
                 <Select
                   value={memberForm.selectedPlanId}
                   onValueChange={(value) => {
@@ -5736,6 +5789,23 @@ export default function GroupEnrollment() {
                 ) : null}
               </div>
               <div>
+                <Label>PBM Enabled</Label>
+                <Select
+                  value={memberForm.pbmEnabled ? "enabled" : "disabled"}
+                  onValueChange={(value) =>
+                    setMemberForm((prev) => ({ ...prev, pbmEnabled: value === "enabled" }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="PBM selection" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disabled">Disabled</SelectItem>
+                    <SelectItem value="enabled">Enabled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label>Status</Label>
                 <Select
                   value={memberForm.status}
@@ -5752,6 +5822,22 @@ export default function GroupEnrollment() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="member-pbm-amount">PBM Monthly Amount ($)</Label>
+                <Input
+                  id="member-pbm-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={memberForm.pbmAmount}
+                  onChange={(event) => setMemberForm((prev) => ({ ...prev, pbmAmount: event.target.value }))}
+                  placeholder="0.00"
+                  disabled={!memberForm.pbmEnabled}
+                />
               </div>
             </div>
 
@@ -5778,6 +5864,11 @@ export default function GroupEnrollment() {
               </Select>
               {selectedGroup?.data?.payorType && selectedGroup.data.payorType !== 'mixed' && (
                 <p className="text-xs text-gray-500 mt-1">Payor mirrors the group setting.</p>
+              )}
+              {memberCalculatedMonthlyTotal !== null && (
+                <p className="text-xs text-slate-600 mt-1">
+                  Calculated monthly total: ${memberCalculatedMonthlyTotal.toFixed(2)}
+                </p>
               )}
             </div>
 
