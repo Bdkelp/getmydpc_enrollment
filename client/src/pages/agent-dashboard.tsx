@@ -1038,10 +1038,7 @@ export default function AgentDashboard() {
                       <td className="py-2">
                         {(() => {
                           const paymentStatus = getEnrollmentPaymentStatus(enrollment);
-                          const canAttemptPayment = !hasSuccessfulPayment(paymentStatus) && (
-                            isRetryablePaymentStatus(paymentStatus)
-                            || enrollment.status === 'pending'
-                          );
+                          const canAttemptPayment = !hasSuccessfulPayment(paymentStatus);
 
                           if (!canAttemptPayment) {
                             return null;
@@ -1049,7 +1046,7 @@ export default function AgentDashboard() {
 
                           const buttonLabel = paymentStatus === 'failed' || paymentStatus === 'declined'
                             ? 'Retry'
-                            : 'Start';
+                            : 'Launch';
 
                           return (
                           <Button

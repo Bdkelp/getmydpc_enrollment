@@ -267,6 +267,18 @@ type GroupProfileContext = {
 type GroupDetailResponse = {
   data: GroupRecord;
   members?: GroupMemberRecord[];
+  groupFinancialSummary?: {
+    asOf: string;
+    activeMemberCount: number;
+    terminatedMemberCount: number;
+    monthlyRevenue: number;
+    yearlyProjectedRevenue: number;
+    projectedMonthlyCommission: number;
+    projectedYearlyCommission: number;
+    employerTotal: number;
+    memberTotal: number;
+    discountTotal: number;
+  };
   assignmentHistory?: GroupAssignmentHistoryRecord[];
   effectiveDateContext?: GroupEffectiveDateContext;
   groupProfileContext?: GroupProfileContext;
@@ -2719,6 +2731,12 @@ export default function GroupEnrollment() {
     };
   }, [activeGroupMembers, selectedGroup?.data?.payorType]);
   const groupProfileContext = selectedGroup?.groupProfileContext;
+  const groupFinancialSummary = selectedGroup?.groupFinancialSummary;
+  const monthlyRevenueDisplay = groupFinancialSummary?.monthlyRevenue ?? groupFinancialSnapshot.invoiceTotal;
+  const yearlyRevenueDisplay = groupFinancialSummary?.yearlyProjectedRevenue ?? (monthlyRevenueDisplay * 12);
+  const projectedMonthlyCommissionDisplay = groupFinancialSummary?.projectedMonthlyCommission ?? 0;
+  const projectedYearlyCommissionDisplay = groupFinancialSummary?.projectedYearlyCommission ?? (projectedMonthlyCommissionDisplay * 12);
+  const activeMemberCountDisplay = groupFinancialSummary?.activeMemberCount ?? activeGroupMembers.length;
   const profileComplete = Boolean(groupProfileContext?.isComplete);
   const paymentResponsibilityMode = groupProfileContext?.profile?.paymentResponsibilityMode || "group_invoice";
   const allowsMemberPaymentCollection = paymentResponsibilityMode === "member_self_pay" || paymentResponsibilityMode === "hybrid_split";
@@ -4254,11 +4272,22 @@ export default function GroupEnrollment() {
                 <div className="mb-3 grid gap-3 lg:grid-cols-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-xs uppercase text-gray-500">Group Invoice Total</CardTitle>
+                      <CardTitle className="text-xs uppercase text-gray-500">Revenue Run Rate</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-2xl font-semibold">{formatCurrencyDisplay(groupFinancialSnapshot.invoiceTotal.toFixed(2))}</p>
-                      <p className="text-xs text-gray-500">Across {activeGroupMembers.length} active members</p>
+                      <p className="text-2xl font-semibold">{formatCurrencyDisplay(monthlyRevenueDisplay.toFixed(2))}</p>
+                      <p className="text-xs text-gray-500">Monthly across {activeMemberCountDisplay} active members</p>
+                      <p className="text-xs text-gray-500">Yearly projected: <span className="font-medium">{formatCurrencyDisplay(yearlyRevenueDisplay.toFixed(2))}</span></p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs uppercase text-gray-500">Projected Commission</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1 text-sm">
+                      <p>Monthly: <span className="font-medium">{formatCurrencyDisplay(projectedMonthlyCommissionDisplay.toFixed(2))}</span></p>
+                      <p>Yearly projected: <span className="font-medium">{formatCurrencyDisplay(projectedYearlyCommissionDisplay.toFixed(2))}</span></p>
+                      <p className="text-xs text-gray-500">Based on active members and configured group plan/tier assumptions.</p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -4266,9 +4295,9 @@ export default function GroupEnrollment() {
                       <CardTitle className="text-xs uppercase text-gray-500">Employer vs Member</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-1 text-sm">
-                      <p>Employer: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.employerTotal.toFixed(2))}</span></p>
-                      <p>Member: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.memberTotal.toFixed(2))}</span></p>
-                      <p>Discounts: <span className="font-medium">{formatCurrencyDisplay(groupFinancialSnapshot.discountTotal.toFixed(2))}</span></p>
+                      <p>Employer: <span className="font-medium">{formatCurrencyDisplay((groupFinancialSummary?.employerTotal ?? groupFinancialSnapshot.employerTotal).toFixed(2))}</span></p>
+                      <p>Member: <span className="font-medium">{formatCurrencyDisplay((groupFinancialSummary?.memberTotal ?? groupFinancialSnapshot.memberTotal).toFixed(2))}</span></p>
+                      <p>Discounts: <span className="font-medium">{formatCurrencyDisplay((groupFinancialSummary?.discountTotal ?? groupFinancialSnapshot.discountTotal).toFixed(2))}</span></p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -4285,22 +4314,7 @@ export default function GroupEnrollment() {
                           </p>
                         ))
                       )}
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-xs uppercase text-gray-500">Scorekeeping Health</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-1 text-sm">
-                      <p>
-                        Missing member totals: <span className="font-medium">{groupFinancialSnapshot.membersMissingTotalAmount}</span>
-                      </p>
-                      <p>
-                        PBM tracking: <span className="font-medium">Not captured in group enrollment model</span>
-                      </p>
-                      <p>
-                        Product tracking: <span className="font-medium">Inferred by tier/payor only</span>
-                      </p>
+                      <p className="text-xs text-gray-500">Terminated members: <span className="font-medium">{groupFinancialSummary?.terminatedMemberCount ?? Math.max(0, memberCount - activeMemberCountDisplay)}</span></p>
                     </CardContent>
                   </Card>
                 </div>

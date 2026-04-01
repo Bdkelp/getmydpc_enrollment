@@ -7554,9 +7554,16 @@ export const storage = {
       // Query from Supabase database - where all data lives
       // Include all members regardless of is_active flag
       const membersResult = await query('SELECT * FROM members ORDER BY created_at DESC');
-      const agentsResult = await query('SELECT * FROM users WHERE role = $1 ORDER BY created_at DESC', ['agent']);
       const commissionsResult = await query('SELECT * FROM agent_commissions ORDER BY created_at DESC');
       const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
+      const { data: agentsData, error: agentsError } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, email, agent_number, role, created_at')
+        .eq('role', 'agent')
+        .order('created_at', { ascending: false });
+      if (agentsError) {
+        console.warn('[Storage] Could not fetch agents for analytics:', agentsError.message || agentsError);
+      }
       const groupMembersResult = await query(
         `SELECT
           gm.*,
@@ -7571,7 +7578,7 @@ export const storage = {
       );
 
       const allMembers = membersResult.rows || [];
-      const allAgents = agentsResult.rows || [];
+      const allAgents = agentsData || [];
       const allCommissions = commissionsResult.rows || [];
       const allPlans = plansResult.rows || [];
       const allGroupMembers = groupMembersResult.rows || [];

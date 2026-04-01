@@ -1528,6 +1528,59 @@ const buildGroupBillingSnapshot = async (
   };
 };
 
+const buildGroupFinancialSummary = (
+  group: any,
+  groupMembers: any[],
+) => {
+  let monthlyRevenue = 0;
+  let employerTotal = 0;
+  let memberTotal = 0;
+  let discountTotal = 0;
+  let projectedMonthlyCommission = 0;
+  let activeMemberCount = 0;
+  let terminatedMemberCount = 0;
+
+  for (const groupMember of groupMembers) {
+    if (groupMember.status === 'terminated') {
+      terminatedMemberCount += 1;
+      continue;
+    }
+
+    activeMemberCount += 1;
+
+    const employerAmount = parseAmountNumber(groupMember.employerAmount);
+    const memberAmount = parseAmountNumber(groupMember.memberAmount);
+    const discountAmount = parseAmountNumber(groupMember.discountAmount);
+    const explicitTotal = parseAmountNumber(groupMember.totalAmount);
+    const membershipAmount = roundCurrency(
+      explicitTotal > 0 ? explicitTotal : (employerAmount + memberAmount - discountAmount)
+    );
+
+    monthlyRevenue = roundCurrency(monthlyRevenue + membershipAmount);
+    employerTotal = roundCurrency(employerTotal + employerAmount);
+    memberTotal = roundCurrency(memberTotal + memberAmount);
+    discountTotal = roundCurrency(discountTotal + discountAmount);
+
+    const commissionContext = resolveGroupCommissionContext(group, groupMember, membershipAmount);
+    projectedMonthlyCommission = roundCurrency(
+      projectedMonthlyCommission + roundCurrency(commissionContext.commissionBaseAmount || 0)
+    );
+  }
+
+  return {
+    asOf: new Date().toISOString(),
+    activeMemberCount,
+    terminatedMemberCount,
+    monthlyRevenue,
+    yearlyProjectedRevenue: roundCurrency(monthlyRevenue * 12),
+    projectedMonthlyCommission,
+    projectedYearlyCommission: roundCurrency(projectedMonthlyCommission * 12),
+    employerTotal,
+    memberTotal,
+    discountTotal,
+  };
+};
+
 const createGroupMemberCommissionsForCapturedPayment = async (
   group: any,
   groupMember: any,
@@ -2312,6 +2365,7 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
     }
 
     const members = await listGroupMembers({ groupId });
+    const financialSummary = buildGroupFinancialSummary(group, members);
     const assignmentHistory = await fetchGroupAssignmentHistory(groupId);
     const includeFullSsn = shouldRevealMemberSsn(req);
     const effectiveDateContext = getGroupEffectiveDateContext(req, group.metadata);
@@ -2325,6 +2379,7 @@ router.get('/api/groups/:groupId', async (req: AuthRequest, res: Response) => {
         hasReassignmentHistory: assignmentState.reassignmentCount > 0,
       },
       members: members.map((member) => toMemberResponse(member, includeFullSsn)),
+      groupFinancialSummary: financialSummary,
       assignmentHistory,
       effectiveDateContext,
       groupProfileContext,
