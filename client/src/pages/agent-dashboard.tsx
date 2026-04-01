@@ -363,6 +363,22 @@ export default function AgentDashboard() {
     return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
   };
 
+  const getEnrollmentPaymentStatus = (enrollment: Enrollment): string => {
+    return String(
+      enrollment.payment_status
+      || (enrollment as any).paymentStatus
+      || (enrollment as any).commissionStatus
+      || (enrollment as any).commission_status
+      || ''
+    ).trim().toLowerCase();
+  };
+
+  const isRetryablePaymentStatus = (paymentStatus?: string | null): boolean => {
+    const normalized = String(paymentStatus || '').trim().toLowerCase();
+    if (!normalized) return false;
+    return ['failed', 'declined', 'canceled', 'cancelled', 'error', 'pending', 'requires_action'].includes(normalized);
+  };
+
   const openEnrollmentCheckout = (enrollment: Enrollment) => {
     const params = new URLSearchParams({
       memberId: String(enrollment.id),
@@ -1020,7 +1036,22 @@ export default function AgentDashboard() {
                         </span>
                       </td>
                       <td className="py-2">
-                        {!hasSuccessfulPayment(enrollment.payment_status) && (enrollment.status === 'pending' || enrollment.payment_status?.toLowerCase() === 'failed') && (
+                        {(() => {
+                          const paymentStatus = getEnrollmentPaymentStatus(enrollment);
+                          const canAttemptPayment = !hasSuccessfulPayment(paymentStatus) && (
+                            isRetryablePaymentStatus(paymentStatus)
+                            || enrollment.status === 'pending'
+                          );
+
+                          if (!canAttemptPayment) {
+                            return null;
+                          }
+
+                          const buttonLabel = paymentStatus === 'failed' || paymentStatus === 'declined'
+                            ? 'Retry'
+                            : 'Start';
+
+                          return (
                           <Button
                             type="button"
                             variant="outline"
@@ -1030,9 +1061,10 @@ export default function AgentDashboard() {
                               openEnrollmentCheckout(enrollment);
                             }}
                           >
-                            {enrollment.payment_status?.toLowerCase() === 'failed' ? 'Retry' : 'Start'}
+                            {buttonLabel}
                           </Button>
-                        )}
+                          );
+                        })()}
                       </td>
                       <td className="py-2">
                         <Button
