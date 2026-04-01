@@ -254,6 +254,13 @@ export default function AdminAnalytics() {
     }).format(amount);
   };
 
+  const formatDateSafe = (value: string | null | undefined) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '-';
+    return format(parsed, 'MMM dd, yyyy');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow-sm border-b">
@@ -556,7 +563,7 @@ export default function AdminAnalytics() {
                             <TableCell>{enrollment.email}</TableCell>
                             <TableCell>{enrollment.planName}</TableCell>
                             <TableCell className="text-right">{formatCurrency(enrollment.amount)}</TableCell>
-                            <TableCell>{format(new Date(enrollment.enrolledDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell>{formatDateSafe(enrollment.enrolledDate)}</TableCell>
                             <TableCell>
                               <span className={`px-2 py-1 text-xs rounded-full ${
                                 enrollment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
@@ -618,7 +625,7 @@ export default function AdminAnalytics() {
                                 {member.status}
                               </span>
                             </TableCell>
-                            <TableCell>{format(new Date(member.enrolledDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell>{formatDateSafe(member.enrolledDate)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(member.totalPaid)}</TableCell>
                             <TableCell>{member.agentName}</TableCell>
                           </TableRow>
@@ -720,7 +727,7 @@ export default function AdminAnalytics() {
                                 {commission.paymentStatus}
                               </span>
                             </TableCell>
-                            <TableCell>{format(new Date(commission.createdDate), 'MMM dd, yyyy')}</TableCell>
+                            <TableCell>{formatDateSafe(commission.createdDate)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
