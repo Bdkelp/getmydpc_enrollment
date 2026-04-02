@@ -3193,10 +3193,10 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       email: persistedEmail,
       phone,
       dateOfBirth: normalizeGroupMemberDateOfBirth(dateOfBirth),
-      employerAmount: parseAmount(employerAmount),
-      memberAmount: parseAmount(memberAmount),
-      discountAmount: parseAmount(discountAmount),
-      totalAmount: parseAmount(totalAmount),
+      employerAmount: isPrimaryMember ? parseAmount(employerAmount) : parseAmount(0),
+      memberAmount: isPrimaryMember ? parseAmount(memberAmount) : parseAmount(0),
+      discountAmount: isPrimaryMember ? parseAmount(discountAmount) : parseAmount(0),
+      totalAmount: isPrimaryMember ? parseAmount(totalAmount) : parseAmount(0),
       metadata: memberDataWithHousehold.metadata,
       registrationPayload: memberDataWithHousehold.registrationPayload,
       status: status || 'draft',
@@ -3548,6 +3548,10 @@ const autoLinkDependentsForPrimaryCoverage = async (
       householdBaseNumber: nextIdentifiers.householdBaseNumber,
       householdMemberNumber: nextIdentifiers.householdMemberNumber,
       dependentSuffix: nextIdentifiers.dependentSuffix,
+      employerAmount: parseAmount(0),
+      memberAmount: parseAmount(0),
+      discountAmount: parseAmount(0),
+      totalAmount: parseAmount(0),
       metadata: memberDataWithHousehold.metadata,
       registrationPayload: memberDataWithHousehold.registrationPayload,
     });
@@ -3665,10 +3669,10 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           email,
           phone: toDigitsOrNull(source.phone),
           dateOfBirth: normalizedDateOfBirth,
-          employerAmount: parseAmount(source.employerAmount),
-          memberAmount: parseAmount(source.memberAmount),
-          discountAmount: parseAmount(source.discountAmount),
-          totalAmount: parseAmount(source.totalAmount),
+          employerAmount: isPrimaryMember ? parseAmount(source.employerAmount) : parseAmount(0),
+          memberAmount: isPrimaryMember ? parseAmount(source.memberAmount) : parseAmount(0),
+          discountAmount: isPrimaryMember ? parseAmount(source.discountAmount) : parseAmount(0),
+          totalAmount: isPrimaryMember ? parseAmount(source.totalAmount) : parseAmount(0),
           metadata: memberDataWithHousehold.metadata,
           registrationPayload: memberDataWithHousehold.registrationPayload,
           status: normalizeMemberStatus(source.status),
@@ -3828,10 +3832,10 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
             email: isPrimaryMember ? email : (matched.email || email),
             phone: toDigitsOrNull(source.phone),
             dateOfBirth: normalizedDateOfBirth,
-            employerAmount: parseAmount(source.employerAmount),
-            memberAmount: parseAmount(source.memberAmount),
-            discountAmount: parseAmount(source.discountAmount),
-            totalAmount: parseAmount(source.totalAmount),
+            employerAmount: isPrimaryMember ? parseAmount(source.employerAmount) : parseAmount(0),
+            memberAmount: isPrimaryMember ? parseAmount(source.memberAmount) : parseAmount(0),
+            discountAmount: isPrimaryMember ? parseAmount(source.discountAmount) : parseAmount(0),
+            totalAmount: isPrimaryMember ? parseAmount(source.totalAmount) : parseAmount(0),
             metadata: memberDataWithHousehold.metadata,
             registrationPayload: memberDataWithHousehold.registrationPayload,
             status: normalizeMemberStatus(source.status || matched.status),
@@ -3883,10 +3887,10 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           email,
           phone: toDigitsOrNull(source.phone),
           dateOfBirth: normalizedDateOfBirth,
-          employerAmount: parseAmount(source.employerAmount),
-          memberAmount: parseAmount(source.memberAmount),
-          discountAmount: parseAmount(source.discountAmount),
-          totalAmount: parseAmount(source.totalAmount),
+          employerAmount: isPrimaryMember ? parseAmount(source.employerAmount) : parseAmount(0),
+          memberAmount: isPrimaryMember ? parseAmount(source.memberAmount) : parseAmount(0),
+          discountAmount: isPrimaryMember ? parseAmount(source.discountAmount) : parseAmount(0),
+          totalAmount: isPrimaryMember ? parseAmount(source.totalAmount) : parseAmount(0),
           metadata: memberDataWithHousehold.metadata,
           registrationPayload: memberDataWithHousehold.registrationPayload,
           status: normalizeMemberStatus(source.status),
@@ -4144,19 +4148,10 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.householdBaseNumber = householdIdentifiers.householdBaseNumber;
       updatePayload.dependentSuffix = householdIdentifiers.dependentSuffix;
       updatePayload.householdMemberNumber = householdIdentifiers.householdMemberNumber;
-
-      if (!hasOwn(incomingBody, 'memberAmount')) {
-        updatePayload.memberAmount = null;
-      }
-      if (!hasOwn(incomingBody, 'totalAmount')) {
-        updatePayload.totalAmount = null;
-      }
-      if (!hasOwn(incomingBody, 'employerAmount')) {
-        updatePayload.employerAmount = null;
-      }
-      if (!hasOwn(incomingBody, 'discountAmount')) {
-        updatePayload.discountAmount = null;
-      }
+      updatePayload.employerAmount = parseAmount(0);
+      updatePayload.memberAmount = parseAmount(0);
+      updatePayload.discountAmount = parseAmount(0);
+      updatePayload.totalAmount = parseAmount(0);
     } else {
       const allMembers = await listGroupMembers({ groupId });
       const householdIdentifiers = resolveHouseholdIdentifiers({

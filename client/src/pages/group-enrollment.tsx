@@ -3091,6 +3091,11 @@ export default function GroupEnrollment() {
   const allowsMemberPaymentCollection = paymentResponsibilityMode === "member_self_pay" || paymentResponsibilityMode === "hybrid_split";
   const allowsGroupInvoiceCollection = paymentResponsibilityMode === "group_invoice" || paymentResponsibilityMode === "hybrid_split";
   const usesPayrollExternalCollection = paymentResponsibilityMode === "payroll_external";
+  const canCollectPaymentFromMemberModal = Boolean(
+    editingMember
+    && editingMember.status !== "terminated"
+    && allowsMemberPaymentCollection,
+  );
   const groupStatus = selectedGroup?.data?.status || "draft";
   const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
   const isGroupActive = groupStatus === "active";
@@ -5926,6 +5931,17 @@ export default function GroupEnrollment() {
           <DialogFooter className="px-6 py-4 border-t bg-white">
             <Button variant="ghost" onClick={() => handleMemberDialogToggle(false)}>
               Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (editingMember) {
+                  handleOpenMemberHostedCheckout(editingMember);
+                }
+              }}
+              disabled={!canCollectPaymentFromMemberModal}
+            >
+              Collect Payment
             </Button>
             <Button
               onClick={() => upsertMemberMutation.mutate()}

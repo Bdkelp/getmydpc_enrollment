@@ -392,6 +392,177 @@ const extractGroupPaymentContext = (metadata: Record<string, any>): { groupId: s
   return { groupId, groupMemberId };
 };
 
+const parseNumericValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = parseFloat(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const toObject = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, any>;
+};
+
+const resolveGroupMemberPlanId = (groupMember: any, paymentMetadata: Record<string, any>): number | null => {
+  const memberMetadata = toObject(groupMember?.metadata);
+  const memberPlanSelection = toObject(memberMetadata?.planSelection);
+  const memberPayload = toObject(groupMember?.registration_payload ?? groupMember?.registrationPayload);
+  const payloadPlanSelection = toObject(memberPayload?.planSelection);
+
+  const rawPlanId =
+    paymentMetadata.planId
+    ?? memberPlanSelection?.planId
+    ?? memberMetadata?.selectedPlanId
+    ?? memberMetadata?.planId
+    ?? payloadPlanSelection?.planId
+    ?? memberPayload?.selectedPlanId
+    ?? memberPayload?.planId;
+
+  const parsedPlanId = parseNumericValue(rawPlanId);
+  return parsedPlanId && parsedPlanId > 0 ? Math.trunc(parsedPlanId) : null;
+};
+
+async function ensureRecurringArtifactsForGroupPayment(options: {
+  groupId: string;
+  groupMemberId: number;
+  paymentRecord: PaymentRecord;
+  paymentMetadata: Record<string, any>;
+  bricToken: string;
+  paymentMethodType: string;
+}): Promise<{ memberId: number | null; subscriptionId: number | null }> {
+  const { groupId, groupMemberId, paymentRecord, paymentMetadata, bricToken, paymentMethodType } = options;
+
+  const { data: groupMember, error: groupMemberError } = await supabase
+    .from('group_members')
+    .select('*')
+    .eq('id', groupMemberId)
+    .eq('group_id', groupId)
+    .maybeSingle();
+
+  if (groupMemberError || !groupMember) {
+    logEPX({
+      level: 'warn',
+      phase: 'callback',
+      message: 'Unable to resolve group member for recurring artifact setup',
+      data: { groupId, groupMemberId, error: groupMemberError?.message || null }
+    });
+    return { memberId: null, subscriptionId: null };
+  }
+
+  const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const currentAmount = parseNumericValue(paymentRecord.amount) ?? parseNumericValue(groupMember.total_amount) ?? 0;
+  const planId = resolveGroupMemberPlanId(groupMember, paymentMetadata);
+
+  let memberId = parseNumericValue(groupMember.member_id);
+  if (memberId) {
+    memberId = Math.trunc(memberId);
+  }
+
+  if (!memberId) {
+    if (!planId) {
+      logEPX({
+        level: 'warn',
+        phase: 'callback',
+        message: 'Group member recurring setup skipped because planId is missing',
+        data: { groupId, groupMemberId, paymentId: paymentRecord.id }
+      });
+      return { memberId: null, subscriptionId: null };
+    }
+
+    const createdMember = await storage.createMember({
+      firstName: groupMember.first_name || 'Group',
+      lastName: groupMember.last_name || 'Member',
+      email: groupMember.email || `group-member-${groupMemberId}@getmydpc.local`,
+      phone: groupMember.phone || null,
+      dateOfBirth: groupMember.date_of_birth || null,
+      memberType: groupMember.relationship === 'primary' ? 'employee' : (groupMember.relationship || 'dependent'),
+      planId,
+      coverageType: groupMember.tier || null,
+      totalMonthlyPrice: currentAmount > 0 ? currentAmount : null,
+      paymentToken: bricToken,
+      paymentMethodType: normalizedMethodType,
+      status: 'active',
+      isActive: true,
+      firstPaymentDate: new Date().toISOString(),
+      membershipStartDate: new Date().toISOString(),
+    });
+
+    memberId = Number(createdMember.id);
+
+    await supabase
+      .from('group_members')
+      .update({ member_id: memberId, updated_at: new Date().toISOString() })
+      .eq('id', groupMemberId)
+      .eq('group_id', groupId);
+  } else {
+    await storage.updateMember(memberId, {
+      paymentToken: bricToken,
+      paymentMethodType: normalizedMethodType,
+      status: 'active',
+      isActive: true,
+      firstPaymentDate: new Date().toISOString(),
+    });
+  }
+
+  await storage.upsertMemberPaymentToken({
+    memberId,
+    paymentMethodType: normalizedMethodType,
+    token: bricToken,
+  });
+
+  const { data: existingSubscription } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('member_id', memberId)
+    .in('status', ['active', 'pending', 'pending_payment'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const nextBillingDate = new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)).toISOString();
+  let subscriptionId: number | null = null;
+
+  if (existingSubscription?.id) {
+    subscriptionId = Number(existingSubscription.id);
+    await storage.updateSubscription(subscriptionId, {
+      status: 'active',
+      amount: currentAmount > 0 ? currentAmount : parseNumericValue(existingSubscription.amount) || 0,
+      nextBillingDate,
+      updatedAt: new Date(),
+    });
+  } else if (planId) {
+    const createdSubscription = await storage.createSubscription({
+      userId: null,
+      memberId,
+      planId,
+      status: 'active',
+      amount: currentAmount > 0 ? currentAmount : 0,
+      startDate: new Date(),
+      nextBillingDate: new Date(nextBillingDate),
+      updatedAt: new Date(),
+    } as any);
+    subscriptionId = Number(createdSubscription.id);
+  }
+
+  if (subscriptionId) {
+    await storage.updatePayment(Number(paymentRecord.id), {
+      memberId,
+      subscriptionId: String(subscriptionId),
+    });
+  }
+
+  return { memberId, subscriptionId };
+}
+
 async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
   if (req.user) {
     return req.user;
@@ -1578,6 +1749,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       if (groupPaymentContext && paymentRecordForLogging) {
         try {
+          const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
+
           const transitionReference = [
             `payment:${paymentRecordForLogging.id}`,
             result.transactionId ? `transaction:${result.transactionId}` : null,
@@ -1600,6 +1773,24 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             lastTransitionResult: transitionResult,
           };
 
+          const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
+            groupId: groupPaymentContext.groupId,
+            groupMemberId: groupPaymentContext.groupMemberId,
+            paymentRecord: paymentRecordForLogging,
+            paymentMetadata,
+            bricToken: result.bricToken,
+            paymentMethodType: callbackPaymentMethodType,
+          });
+
+          paymentMetadata.groupPaymentContext = {
+            ...paymentMetadata.groupPaymentContext,
+            recurringSetup: {
+              attemptedAt: new Date().toISOString(),
+              memberId: recurringArtifactResult.memberId,
+              subscriptionId: recurringArtifactResult.subscriptionId,
+            },
+          };
+
           await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
 
           logEPX({
@@ -1613,6 +1804,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               skippedCount: transitionResult.skippedCount,
               missingExpectedCommissions: transitionResult.missingExpectedCommissions,
               cycleKey: transitionResult.cycleKey,
+              recurringMemberId: recurringArtifactResult.memberId,
+              recurringSubscriptionId: recurringArtifactResult.subscriptionId,
             }
           });
         } catch (groupTransitionError: any) {
