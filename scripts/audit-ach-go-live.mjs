@@ -5,10 +5,17 @@ import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 
 const cwd = process.cwd();
-const envPath = path.join(cwd, '.env');
+const defaultEnvPath = path.join(cwd, '.env');
 const strictMode = process.argv.includes('--strict');
+const envFileArg = process.argv.find((arg) => arg.startsWith('--env-file='));
+const explicitEnvPath = envFileArg ? envFileArg.slice('--env-file='.length).trim() : '';
+const shouldSkipEnvFile = process.argv.includes('--no-env-file');
+const envPath = shouldSkipEnvFile
+  ? null
+  : (explicitEnvPath ? path.resolve(cwd, explicitEnvPath) : defaultEnvPath);
+let loadedEnvFile = null;
 
-if (fs.existsSync(envPath)) {
+if (envPath && fs.existsSync(envPath)) {
   const content = fs.readFileSync(envPath, 'utf8');
   for (const line of content.split(/\r?\n/)) {
     if (!line || line.trim().startsWith('#')) continue;
@@ -20,6 +27,7 @@ if (fs.existsSync(envPath)) {
       process.env[key] = value;
     }
   }
+  loadedEnvFile = envPath;
 }
 
 const normalize = (value) => String(value || '').replace(/["']/g, '').trim();
@@ -33,8 +41,8 @@ const boolFromEnv = (value, defaultValue = false) => {
 };
 
 const checks = [];
-const addCheck = (name, pass, value, expected, notes = '') => {
-  checks.push({ name, pass: !!pass, value, expected, notes });
+const addCheck = (name, pass, value, expected, notes = '', severity = 'required') => {
+  checks.push({ name, pass: !!pass, value, expected, notes, severity });
 };
 
 const paymentProvider = normalizeLower(process.env.PAYMENT_PROVIDER);
@@ -51,20 +59,6 @@ const epxDbaNbr = normalize(process.env.EPX_DBA_NBR);
 const epxMerchNbr = normalize(process.env.EPX_MERCH_NBR);
 const epxTerminalNbr = normalize(process.env.EPX_TERMINAL_NBR);
 const epxMac = normalize(process.env.EPX_MAC);
-
-addCheck('PAYMENT_PROVIDER is not mock', paymentProvider !== 'mock', paymentProvider || '(empty)', 'non-mock provider for live charges');
-addCheck('EPX_ENVIRONMENT is production', epxEnvironment === 'production', epxEnvironment || '(empty)', 'production');
-addCheck('BILLING_SCHEDULER_ENABLED', schedulerEnabled, String(schedulerEnabled), 'true');
-addCheck('BILLING_SCHEDULER_DRY_RUN disabled', schedulerDryRun === false, String(schedulerDryRun), 'false');
-addCheck('ACH_RECURRING_ENABLED', achRecurringEnabled, String(achRecurringEnabled), 'true');
-addCheck('ACH_RECURRING_ALLOW_PRODUCTION', achRecurringAllowProduction, String(achRecurringAllowProduction), 'true');
-addCheck('EPX_PUBLIC_KEY set', !!epxPublicKey, epxPublicKey ? 'set' : 'missing', 'set');
-addCheck('EPX_TERMINAL_PROFILE_ID set', !!epxTerminalProfileId, epxTerminalProfileId ? 'set' : 'missing', 'set');
-addCheck('EPX_CUST_NBR set', !!epxCustNbr, epxCustNbr ? 'set' : 'missing', 'set');
-addCheck('EPX_DBA_NBR set', !!epxDbaNbr, epxDbaNbr ? 'set' : 'missing', 'set');
-addCheck('EPX_MERCH_NBR set', !!epxMerchNbr, epxMerchNbr ? 'set' : 'missing', 'set');
-addCheck('EPX_TERMINAL_NBR set', !!epxTerminalNbr, epxTerminalNbr ? 'set' : 'missing', 'set');
-addCheck('EPX_MAC set', !!epxMac, epxMac ? 'set' : 'missing', 'set');
 
 const supabaseUrl = normalize(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
 const supabaseServiceKey = normalize(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
@@ -122,17 +116,116 @@ if (platformCheckSkipped) {
   );
 }
 
+const runtimeEnvironment = platformPaymentEnvironment || epxEnvironment || 'production';
+const runtimeSuffix = runtimeEnvironment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+
+const resolveScoped = (baseKey) => {
+  const scopedValue = normalize(process.env[`${baseKey}_${runtimeSuffix}`]);
+  if (scopedValue) {
+    return { value: scopedValue, source: `${baseKey}_${runtimeSuffix}` };
+  }
+
+  const fallback = normalize(process.env[baseKey]);
+  if (fallback) {
+    return { value: fallback, source: baseKey };
+  }
+
+  return { value: '', source: '(missing)' };
+};
+
+const resolvedPublicKey = resolveScoped('EPX_PUBLIC_KEY');
+const resolvedTerminalProfileId = resolveScoped('EPX_TERMINAL_PROFILE_ID');
+const resolvedCustNbr = resolveScoped('EPX_CUST_NBR');
+const resolvedDbaNbr = resolveScoped('EPX_DBA_NBR');
+const resolvedMerchNbr = resolveScoped('EPX_MERCH_NBR');
+const resolvedTerminalNbr = resolveScoped('EPX_TERMINAL_NBR');
+const resolvedMac = resolveScoped('EPX_MAC');
+
+addCheck(
+  'EPX runtime environment aligns (warning only)',
+  !platformPaymentEnvironment || platformPaymentEnvironment === epxEnvironment || !epxEnvironment,
+  `platform=${platformPaymentEnvironment || '(unknown)'}, EPX_ENVIRONMENT=${epxEnvironment || '(empty)'}`,
+  'both production (or EPX_ENVIRONMENT omitted)',
+  'platform_settings.payment_environment is treated as authoritative runtime source',
+  'warning',
+);
+
+addCheck(
+  'PAYMENT_PROVIDER is not mock (warning only)',
+  paymentProvider !== 'mock',
+  paymentProvider || '(empty)',
+  'non-mock provider for live charges',
+  'local .env may still be mock while hosted production uses different env vars',
+  'warning',
+);
+
+addCheck('BILLING_SCHEDULER_ENABLED', schedulerEnabled, String(schedulerEnabled), 'true');
+addCheck('BILLING_SCHEDULER_DRY_RUN disabled', schedulerDryRun === false, String(schedulerDryRun), 'false');
+addCheck('ACH_RECURRING_ENABLED', achRecurringEnabled, String(achRecurringEnabled), 'true');
+addCheck('ACH_RECURRING_ALLOW_PRODUCTION', achRecurringAllowProduction, String(achRecurringAllowProduction), 'true');
+
+addCheck(
+  `EPX_PUBLIC_KEY resolved for ${runtimeEnvironment}`,
+  !!resolvedPublicKey.value,
+  resolvedPublicKey.value ? `set via ${resolvedPublicKey.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_TERMINAL_PROFILE_ID resolved for ${runtimeEnvironment}`,
+  !!resolvedTerminalProfileId.value,
+  resolvedTerminalProfileId.value ? `set via ${resolvedTerminalProfileId.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_CUST_NBR resolved for ${runtimeEnvironment}`,
+  !!resolvedCustNbr.value,
+  resolvedCustNbr.value ? `set via ${resolvedCustNbr.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_DBA_NBR resolved for ${runtimeEnvironment}`,
+  !!resolvedDbaNbr.value,
+  resolvedDbaNbr.value ? `set via ${resolvedDbaNbr.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_MERCH_NBR resolved for ${runtimeEnvironment}`,
+  !!resolvedMerchNbr.value,
+  resolvedMerchNbr.value ? `set via ${resolvedMerchNbr.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_TERMINAL_NBR resolved for ${runtimeEnvironment}`,
+  !!resolvedTerminalNbr.value,
+  resolvedTerminalNbr.value ? `set via ${resolvedTerminalNbr.source}` : 'missing',
+  'set',
+);
+addCheck(
+  `EPX_MAC resolved for ${runtimeEnvironment}`,
+  !!resolvedMac.value,
+  resolvedMac.value ? `set via ${resolvedMac.source}` : 'missing',
+  'set',
+);
+
+const requiredChecks = checks.filter((c) => c.severity !== 'warning');
+const warningChecks = checks.filter((c) => c.severity === 'warning');
 const passCount = checks.filter((c) => c.pass).length;
 const failCount = checks.length - passCount;
+const requiredFailCount = requiredChecks.filter((c) => !c.pass).length;
+const warningFailCount = warningChecks.filter((c) => !c.pass).length;
 
 console.log('\\nACH Go-Live Audit');
 console.log('=================');
 console.log(`Mode: ${strictMode ? 'strict' : 'report-only'}`);
-console.log(`Checks: ${checks.length}, Passed: ${passCount}, Failed: ${failCount}\\n`);
+console.log(`Runtime environment target: ${runtimeEnvironment}`);
+console.log(`Env file loaded: ${loadedEnvFile || '(none)'}`);
+console.log(`Checks: ${checks.length}, Passed: ${passCount}, Failed: ${failCount}`);
+console.log(`Required failures: ${requiredFailCount}, Warnings: ${warningFailCount}\n`);
 
 for (const check of checks) {
-  const status = check.pass ? 'PASS' : 'FAIL';
-  console.log(`[${status}] ${check.name}`);
+  const status = check.pass ? 'PASS' : (check.severity === 'warning' ? 'WARN' : 'FAIL');
+  const badge = check.severity === 'warning' ? '[warning]' : '[required]';
+  console.log(`[${status}] ${check.name} ${badge}`);
   console.log(`       value:    ${check.value}`);
   console.log(`       expected: ${check.expected}`);
   if (check.notes) {
@@ -140,7 +233,7 @@ for (const check of checks) {
   }
 }
 
-const readyForLiveAchRecurring = failCount === 0;
+const readyForLiveAchRecurring = requiredFailCount === 0;
 console.log('');
 console.log(`ACH recurring live readiness: ${readyForLiveAchRecurring ? 'READY' : 'NOT READY'}`);
 
