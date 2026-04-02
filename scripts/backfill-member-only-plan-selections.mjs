@@ -60,6 +60,15 @@ const toBooleanOrNull = (value) => {
   return null;
 };
 
+const pickValue = (row, keys) => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key) && row[key] !== undefined) {
+      return row[key];
+    }
+  }
+  return null;
+};
+
 const toPlanTierMatrixKey = (value) => {
   const normalized = String(value || '').toLowerCase();
   if (normalized.includes('elite')) return 'elite';
@@ -180,7 +189,7 @@ async function main() {
 
   const { data, error } = await supabase
     .from('group_members')
-    .select('id, group_id, relationship, tier, payor_type, employer_amount, member_amount, discount_amount, total_amount, status, metadata, registration_payload')
+    .select('*')
     .order('id', { ascending: true });
 
   if (error) {
@@ -191,7 +200,8 @@ async function main() {
   stats.scanned = rows.length;
 
   for (const row of rows) {
-    if (!INCLUDE_TERMINATED && String(row.status || '').toLowerCase() === 'terminated') {
+    const rowStatus = String(pickValue(row, ['status']) || '').toLowerCase();
+    if (!INCLUDE_TERMINATED && rowStatus === 'terminated') {
       stats.skipped += 1;
       continue;
     }
@@ -216,7 +226,7 @@ async function main() {
       updated_at: new Date().toISOString(),
     };
 
-    const payorType = String(row.payor_type || '').toLowerCase();
+    const payorType = String(pickValue(row, ['payor_type', 'payorType']) || '').toLowerCase();
     if (payorType === 'full') {
       nextPayload.employer_amount = totalAmount;
       nextPayload.member_amount = 0;
@@ -241,15 +251,22 @@ async function main() {
     nextPayload.metadata = nextMetadata;
     nextPayload.registration_payload = nextRegistrationPayload;
 
+    const relationshipValue = String(pickValue(row, ['relationship', 'relation', 'member_relationship']) || '').toLowerCase();
+    const tierValue = String(pickValue(row, ['tier', 'coverage_type', 'coverageType']) || '').toLowerCase();
+    const totalAmountValue = pickValue(row, ['total_amount', 'totalAmount']);
+    const discountAmountValue = pickValue(row, ['discount_amount', 'discountAmount']);
+    const employerAmountValue = pickValue(row, ['employer_amount', 'employerAmount']);
+    const memberAmountValue = pickValue(row, ['member_amount', 'memberAmount']);
+
     const hasChanges =
-      String(row.relationship || '').toLowerCase() !== 'primary'
-      || String(row.tier || '').toLowerCase() !== 'member'
-      || toNumberOrNull(row.total_amount) !== totalAmount
-      || toNumberOrNull(row.discount_amount) !== 0
+      relationshipValue !== 'primary'
+      || tierValue !== 'member'
+      || toNumberOrNull(totalAmountValue) !== totalAmount
+      || toNumberOrNull(discountAmountValue) !== 0
       || JSON.stringify(row.metadata || {}) !== JSON.stringify(nextMetadata)
       || JSON.stringify(row.registration_payload || {}) !== JSON.stringify(nextRegistrationPayload)
-      || (payorType === 'full' && (toNumberOrNull(row.employer_amount) !== totalAmount || toNumberOrNull(row.member_amount) !== 0))
-      || (payorType === 'member' && (toNumberOrNull(row.employer_amount) !== 0 || toNumberOrNull(row.member_amount) !== totalAmount));
+      || (payorType === 'full' && (toNumberOrNull(employerAmountValue) !== totalAmount || toNumberOrNull(memberAmountValue) !== 0))
+      || (payorType === 'member' && (toNumberOrNull(employerAmountValue) !== 0 || toNumberOrNull(memberAmountValue) !== totalAmount));
 
     if (!hasChanges) {
       stats.unchanged += 1;
