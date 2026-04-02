@@ -6491,10 +6491,7 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
 
 const GROUP_TABLE = 'groups';
 const GROUP_MEMBER_TABLE = 'group_members';
-const REQUIRED_GROUP_MEMBER_COLUMNS = new Set([
-  'relationship',
-  'tier',
-]);
+const REQUIRED_GROUP_MEMBER_COLUMNS = new Set<string>();
 
 const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | null => {
   const message = typeof error?.message === 'string' ? error.message : '';
