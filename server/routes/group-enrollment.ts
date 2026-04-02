@@ -1841,6 +1841,87 @@ const normalizeDependentSuffix = (value: unknown): number | null => {
   return parsed;
 };
 
+const resolveCoverageTierFromPlanName = (value: unknown): 'member' | 'spouse' | 'child' | 'family' => {
+  const normalized = toTrimmedOrNull(value)?.toLowerCase() || '';
+  if (normalized.includes('family') || normalized.includes('fam')) return 'family';
+  if (normalized.includes('spouse') || normalized.includes('+ spouse')) return 'spouse';
+  if (normalized.includes('child') || normalized.includes('children') || normalized.includes('+ child')) return 'child';
+  return 'member';
+};
+
+const resolveHouseholdIdentifiersFromRecord = (member: any): {
+  householdBaseNumber: string | null;
+  householdMemberNumber: string | null;
+  dependentSuffix: number | null;
+} => {
+  const metadata = toObjectOrNull(member?.metadata);
+  const registrationPayload = toObjectOrNull(member?.registrationPayload);
+  const metadataHouseholdLink = toObjectOrNull(metadata?.householdLink);
+  const payloadHouseholdLink = toObjectOrNull(registrationPayload?.householdLink);
+
+  const householdBaseNumber =
+    toTrimmedOrNull(member?.householdBaseNumber)
+    || toTrimmedOrNull(metadata?.householdBaseNumber)
+    || toTrimmedOrNull(metadataHouseholdLink?.householdBaseNumber)
+    || toTrimmedOrNull(registrationPayload?.householdBaseNumber)
+    || toTrimmedOrNull(payloadHouseholdLink?.householdBaseNumber)
+    || null;
+
+  const householdMemberNumber =
+    toTrimmedOrNull(member?.householdMemberNumber)
+    || toTrimmedOrNull(metadata?.householdMemberNumber)
+    || toTrimmedOrNull(metadataHouseholdLink?.householdMemberNumber)
+    || toTrimmedOrNull(registrationPayload?.householdMemberNumber)
+    || toTrimmedOrNull(payloadHouseholdLink?.householdMemberNumber)
+    || null;
+
+  const dependentSuffix =
+    normalizeDependentSuffix(member?.dependentSuffix)
+    ?? normalizeDependentSuffix(metadata?.dependentSuffix)
+    ?? normalizeDependentSuffix(metadataHouseholdLink?.dependentSuffix)
+    ?? normalizeDependentSuffix(registrationPayload?.dependentSuffix)
+    ?? normalizeDependentSuffix(payloadHouseholdLink?.dependentSuffix)
+    ?? null;
+
+  return {
+    householdBaseNumber,
+    householdMemberNumber,
+    dependentSuffix,
+  };
+};
+
+const applyHouseholdIdentifiersToMemberData = (
+  metadata: unknown,
+  registrationPayload: unknown,
+  identifiers: { householdBaseNumber: string; householdMemberNumber: string; dependentSuffix: number },
+): { metadata: Record<string, any>; registrationPayload: Record<string, any> } => {
+  const nextMetadata = toObjectOrNull(metadata) || {};
+  const nextRegistrationPayload = toObjectOrNull(registrationPayload) || {};
+
+  nextMetadata.householdBaseNumber = identifiers.householdBaseNumber;
+  nextMetadata.householdMemberNumber = identifiers.householdMemberNumber;
+  nextMetadata.dependentSuffix = identifiers.dependentSuffix;
+  nextMetadata.householdLink = {
+    householdBaseNumber: identifiers.householdBaseNumber,
+    householdMemberNumber: identifiers.householdMemberNumber,
+    dependentSuffix: identifiers.dependentSuffix,
+  };
+
+  nextRegistrationPayload.householdBaseNumber = identifiers.householdBaseNumber;
+  nextRegistrationPayload.householdMemberNumber = identifiers.householdMemberNumber;
+  nextRegistrationPayload.dependentSuffix = identifiers.dependentSuffix;
+  nextRegistrationPayload.householdLink = {
+    householdBaseNumber: identifiers.householdBaseNumber,
+    householdMemberNumber: identifiers.householdMemberNumber,
+    dependentSuffix: identifiers.dependentSuffix,
+  };
+
+  return {
+    metadata: nextMetadata,
+    registrationPayload: nextRegistrationPayload,
+  };
+};
+
 const normalizeMemberPayorType = (value: unknown, fallbackPayorType: string): string => {
   if (fallbackPayorType !== 'mixed') {
     return fallbackPayorType;
@@ -2125,6 +2206,7 @@ const shouldRevealMemberSsn = (req: AuthRequest): boolean => {
 };
 
 const toMemberResponse = (member: any, includeFullSsn: boolean) => {
+  const household = resolveHouseholdIdentifiersFromRecord(member);
   const isPrimaryMember = isPrimaryMemberRelationship(member?.relationship, member?.tier);
   const ssnDigits = resolveMemberSsnDigits(member);
   const fullSsn = ssnDigits && isPrimaryMember
@@ -2136,6 +2218,9 @@ const toMemberResponse = (member: any, includeFullSsn: boolean) => {
 
   return {
     ...member,
+    householdBaseNumber: household.householdBaseNumber,
+    householdMemberNumber: household.householdMemberNumber,
+    dependentSuffix: household.dependentSuffix,
     metadata: stripSensitiveSsnFields(member?.metadata),
     registrationPayload: stripSensitiveSsnFields(member?.registrationPayload),
     ssn: ssnDigits && isPrimaryMember ? (includeFullSsn ? fullSsn : masked) : null,
@@ -3089,6 +3174,12 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
     }
 
+    const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+      nextMetadata,
+      sanitizedRegistrationPayload,
+      householdIdentifiers,
+    );
+
     const memberRecord = await addGroupMember(groupId, {
       groupId,
       tier: normalizedTier,
@@ -3106,10 +3197,15 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       memberAmount: parseAmount(memberAmount),
       discountAmount: parseAmount(discountAmount),
       totalAmount: parseAmount(totalAmount),
-      metadata: nextMetadata,
-      registrationPayload: sanitizedRegistrationPayload,
+      metadata: memberDataWithHousehold.metadata,
+      registrationPayload: memberDataWithHousehold.registrationPayload,
       status: status || 'draft',
     });
+
+    if (isPrimaryMember) {
+      const coverageTier = resolveCoverageTierFromPlanName(selectedPlanName);
+      await autoLinkDependentsForPrimaryCoverage(groupId, memberRecord.id, coverageTier);
+    }
 
     return res.status(201).json({ data: toMemberResponse(memberRecord, shouldRevealMemberSsn(req)) });
   } catch (error) {
@@ -3286,6 +3382,7 @@ const getNextDependentSuffixForHousehold = (
 ): number => {
   const suffixes = members
     .filter((member) => Number(member.id) !== Number(excludeMemberId))
+    .map((member) => resolveHouseholdIdentifiersFromRecord(member))
     .filter((member) => String(member.householdBaseNumber || '').trim() === householdBaseNumber)
     .map((member) => normalizeDependentSuffix(member.dependentSuffix))
     .filter((value): value is number => value !== null);
@@ -3353,8 +3450,10 @@ const resolveHouseholdIdentifiers = (
     && member.status !== 'terminated'
   );
 
-  const anchorBaseNumber = toTrimmedOrNull(primaryAnchor?.householdBaseNumber)
-    || extractHouseholdBaseNumberFromMemberNumber(toTrimmedOrNull(primaryAnchor?.householdMemberNumber))
+  const primaryAnchorHousehold = primaryAnchor ? resolveHouseholdIdentifiersFromRecord(primaryAnchor) : null;
+
+  const anchorBaseNumber = toTrimmedOrNull(primaryAnchorHousehold?.householdBaseNumber)
+    || extractHouseholdBaseNumberFromMemberNumber(toTrimmedOrNull(primaryAnchorHousehold?.householdMemberNumber))
     || (primaryAnchor ? String(primaryAnchor.id) : null);
 
   const generatedBaseNumber = `HH${groupId.replace(/-/g, '').slice(-6)}${Date.now().toString().slice(-4)}`;
@@ -3387,6 +3486,78 @@ const resolveHouseholdIdentifiers = (
     || formatHouseholdMemberNumber(householdBaseNumber, dependentSuffix);
 
   return { householdBaseNumber, householdMemberNumber, dependentSuffix };
+};
+
+const autoLinkDependentsForPrimaryCoverage = async (
+  groupId: string,
+  primaryMemberId: number,
+  coverageTier: 'member' | 'spouse' | 'child' | 'family',
+): Promise<void> => {
+  if (coverageTier === 'member') {
+    return;
+  }
+
+  const allMembers = await listGroupMembers({ groupId });
+  const primaryMember = allMembers.find((member) => Number(member.id) === Number(primaryMemberId));
+  if (!primaryMember) {
+    return;
+  }
+
+  const primaryHousehold = resolveHouseholdIdentifiersFromRecord(primaryMember);
+  const householdBaseNumber = primaryHousehold.householdBaseNumber
+    || extractHouseholdBaseNumberFromMemberNumber(primaryHousehold.householdMemberNumber)
+    || toTrimmedOrNull(primaryMember.householdBaseNumber)
+    || `HH${groupId.replace(/-/g, '').slice(-6)}${Date.now().toString().slice(-4)}`;
+
+  const dependents = allMembers.filter((member) =>
+    Number(member.id) !== Number(primaryMemberId)
+    && normalizeMemberRelationship(member.relationship, member.tier) !== 'primary'
+    && member.status !== 'terminated'
+  );
+
+  const eligibleDependents = dependents.filter((member) => {
+    const relationship = normalizeMemberRelationship(member.relationship, member.tier);
+    if (coverageTier === 'spouse') {
+      return relationship === 'spouse';
+    }
+    if (coverageTier === 'child') {
+      return relationship === 'dependent';
+    }
+    return relationship === 'spouse' || relationship === 'dependent';
+  });
+
+  for (const dependent of eligibleDependents) {
+    const nextIdentifiers = resolveHouseholdIdentifiers({
+      groupId,
+      isPrimaryMember: false,
+      members: allMembers,
+      excludeMemberId: dependent.id,
+      explicitHouseholdBaseNumber: householdBaseNumber,
+      existingHouseholdBaseNumber: resolveHouseholdIdentifiersFromRecord(dependent).householdBaseNumber,
+      existingHouseholdMemberNumber: resolveHouseholdIdentifiersFromRecord(dependent).householdMemberNumber,
+      existingDependentSuffix: resolveHouseholdIdentifiersFromRecord(dependent).dependentSuffix,
+    });
+
+    const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+      dependent.metadata,
+      dependent.registrationPayload,
+      nextIdentifiers,
+    );
+
+    await updateGroupMember(dependent.id, {
+      householdBaseNumber: nextIdentifiers.householdBaseNumber,
+      householdMemberNumber: nextIdentifiers.householdMemberNumber,
+      dependentSuffix: nextIdentifiers.dependentSuffix,
+      metadata: memberDataWithHousehold.metadata,
+      registrationPayload: memberDataWithHousehold.registrationPayload,
+    });
+
+    dependent.householdBaseNumber = nextIdentifiers.householdBaseNumber;
+    dependent.householdMemberNumber = nextIdentifiers.householdMemberNumber;
+    dependent.dependentSuffix = nextIdentifiers.dependentSuffix;
+    dependent.metadata = memberDataWithHousehold.metadata;
+    dependent.registrationPayload = memberDataWithHousehold.registrationPayload;
+  }
 };
 
 router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: Response) => {
@@ -3475,6 +3646,12 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           explicitDependentSuffix: normalizeDependentSuffix(source.dependentSuffix),
         });
 
+        const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+          nextMetadata,
+          sanitizedRegistrationPayload,
+          householdIdentifiers,
+        );
+
         const memberRecord = await addGroupMember(groupId, {
           groupId,
           tier: normalizedTier,
@@ -3492,8 +3669,8 @@ router.post('/api/groups/:groupId/members/bulk', async (req: AuthRequest, res: R
           memberAmount: parseAmount(source.memberAmount),
           discountAmount: parseAmount(source.discountAmount),
           totalAmount: parseAmount(source.totalAmount),
-          metadata: nextMetadata,
-          registrationPayload: sanitizedRegistrationPayload,
+          metadata: memberDataWithHousehold.metadata,
+          registrationPayload: memberDataWithHousehold.registrationPayload,
           status: normalizeMemberStatus(source.status),
         });
 
@@ -3633,6 +3810,12 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
             nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
           }
 
+          const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+            nextMetadata,
+            mergedRegistrationPayload,
+            householdIdentifiers,
+          );
+
           const updatedRecord = await updateGroupMember(matched.id, {
             tier: normalizedTier,
             relationship: normalizedRelationship,
@@ -3649,8 +3832,8 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
             memberAmount: parseAmount(source.memberAmount),
             discountAmount: parseAmount(source.discountAmount),
             totalAmount: parseAmount(source.totalAmount),
-            metadata: nextMetadata,
-            registrationPayload: mergedRegistrationPayload,
+            metadata: memberDataWithHousehold.metadata,
+            registrationPayload: memberDataWithHousehold.registrationPayload,
             status: normalizeMemberStatus(source.status || matched.status),
           });
 
@@ -3681,6 +3864,12 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           nextMetadata = upsertEncryptedDependentSsn(nextMetadata, dependentSsnIntent.value);
         }
 
+        const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+          nextMetadata,
+          sanitizedRegistrationPayload,
+          householdIdentifiers,
+        );
+
         const createdRecord = await addGroupMember(groupId, {
           groupId,
           tier: normalizedTier,
@@ -3698,8 +3887,8 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
           memberAmount: parseAmount(source.memberAmount),
           discountAmount: parseAmount(source.discountAmount),
           totalAmount: parseAmount(source.totalAmount),
-          metadata: nextMetadata,
-          registrationPayload: sanitizedRegistrationPayload,
+          metadata: memberDataWithHousehold.metadata,
+          registrationPayload: memberDataWithHousehold.registrationPayload,
           status: normalizeMemberStatus(source.status),
         });
 
@@ -4021,7 +4210,33 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.registrationPayload = baseRegistrationPayload;
     }
 
+    if (updatePayload.householdBaseNumber && updatePayload.householdMemberNumber && Number.isFinite(updatePayload.dependentSuffix)) {
+      const fallbackMetadata = hasOwn(updatePayload, 'metadata')
+        ? updatePayload.metadata
+        : nextMetadata;
+      const fallbackRegistrationPayload = hasOwn(updatePayload, 'registrationPayload')
+        ? updatePayload.registrationPayload
+        : baseRegistrationPayload;
+      const memberDataWithHousehold = applyHouseholdIdentifiersToMemberData(
+        fallbackMetadata,
+        fallbackRegistrationPayload,
+        {
+          householdBaseNumber: updatePayload.householdBaseNumber,
+          householdMemberNumber: updatePayload.householdMemberNumber,
+          dependentSuffix: updatePayload.dependentSuffix,
+        },
+      );
+
+      updatePayload.metadata = memberDataWithHousehold.metadata;
+      updatePayload.registrationPayload = memberDataWithHousehold.registrationPayload;
+    }
+
     const updated = await updateGroupMember(numericMemberId, updatePayload);
+
+    if (isPrimaryMember) {
+      const coverageTier = resolveCoverageTierFromPlanName(selectedPlanName);
+      await autoLinkDependentsForPrimaryCoverage(groupId, numericMemberId, coverageTier);
+    }
 
     if (includeSsnIntentRaw.provided && isPrimaryMember && canEditSsn) {
       await auditGroupMemberSsnAction(
