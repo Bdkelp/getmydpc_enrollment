@@ -19,6 +19,7 @@
     "check": "tsc",
     "test": "npm run test:scheduler",
     "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
+    "audit:ach-go-live": "node scripts/audit-ach-go-live.mjs",
     "preflight": "npm run preflight:quick && npm run build",
     "preflight:quick": "npm run check && npm run test:scheduler",
     "preflight:deploy": "npm run test:scheduler && npm run build",

@@ -9,6 +9,7 @@
  *   BILLING_SCHEDULER_DRY_RUN  – 'true' (default) logs what would happen without charging
  *   BILLING_SCHEDULER_INTERVAL_MS – cycle interval in ms (default: 3600000 = 1 hour)
  *   ACH_RECURRING_ENABLED – must be 'true' to process ACH subscriptions
+ *   ACH_RECURRING_ALLOW_PRODUCTION – must be 'true' to allow ACH recurring when payment environment is production
  *   ACH_RECURRING_TEST_MODE – defaults to true; tags ACH logs for internal/certification runs
  */
 
@@ -63,6 +64,10 @@ function isAchRecurringEnabled(): boolean {
   return process.env.ACH_RECURRING_ENABLED === 'true';
 }
 
+function isAchRecurringProductionOverrideEnabled(): boolean {
+  return process.env.ACH_RECURRING_ALLOW_PRODUCTION === 'true';
+}
+
 function isAchRecurringTestMode(): boolean {
   return process.env.ACH_RECURRING_TEST_MODE !== 'false';
 }
@@ -83,7 +88,20 @@ export function normalizeAchAccountType(accountType: string | null | undefined):
 }
 
 export function isAchRuntimeEnabled(achEnabledByFlag: boolean, paymentEnvironment: string): boolean {
-  return achEnabledByFlag && paymentEnvironment === 'sandbox';
+  const normalizedEnvironment = String(paymentEnvironment || '').trim().toLowerCase();
+  if (!achEnabledByFlag) {
+    return false;
+  }
+
+  if (normalizedEnvironment === 'sandbox') {
+    return true;
+  }
+
+  if (normalizedEnvironment === 'production') {
+    return isAchRecurringProductionOverrideEnabled();
+  }
+
+  return false;
 }
 
 function resolveAchRuntimeData(sub: BillableSubscription):
@@ -230,14 +248,15 @@ async function runBillingCycle(): Promise<void> {
   const cycleStart = Date.now();
   const dryRun = isDryRun();
   const achEnabledByFlag = isAchRecurringEnabled();
+  const achProdOverrideEnabled = isAchRecurringProductionOverrideEnabled();
   const achTestMode = isAchRecurringTestMode();
   const currentPaymentEnvironment = await paymentEnvironment.getEnvironment();
   const achEnabled = isAchRuntimeEnabled(achEnabledByFlag, currentPaymentEnvironment);
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
 
-  if (achEnabledByFlag && currentPaymentEnvironment !== 'sandbox') {
+  if (achEnabledByFlag && currentPaymentEnvironment === 'production' && !achProdOverrideEnabled) {
     console.warn(
-      `${LOG_PREFIX} ACH recurring feature flag is enabled but blocked because payment environment is ${currentPaymentEnvironment}`
+      `${LOG_PREFIX} ACH recurring is enabled but blocked in production. Set ACH_RECURRING_ALLOW_PRODUCTION=true to allow live ACH recurring charges.`
     );
   }
 
