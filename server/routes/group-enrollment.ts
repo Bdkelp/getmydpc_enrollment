@@ -2376,6 +2376,7 @@ router.post('/api/admin/census-template', authenticateToken, async (req: AuthReq
 router.get('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
     const { status, payorType, search, currentAgentId, originalAgentId, reassignedOnly } = req.query;
+    const includeFinancialSummary = normalizeBoolean(req.query.includeFinancialSummary);
     const limit = Number(req.query.limit ?? 50);
     const offset = Number(req.query.offset ?? 0);
     const isAdminOrHigher = Boolean(req.user && hasAtLeastRole(req.user.role, 'admin'));
@@ -2429,7 +2430,34 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    return res.json({ data: filteredGroups, count: filteredGroups.length ?? count ?? 0 });
+    const shouldIncludeFinancialSummary = includeFinancialSummary !== false;
+
+    if (!shouldIncludeFinancialSummary) {
+      return res.json({ data: filteredGroups, count: filteredGroups.length ?? count ?? 0 });
+    }
+
+    const groupsWithFinancialSummary = await Promise.all(
+      filteredGroups.map(async (group) => {
+        try {
+          const members = await listGroupMembers({ groupId: group.id });
+          return {
+            ...group,
+            groupFinancialSummary: buildGroupFinancialSummary(group, members),
+          };
+        } catch (summaryError) {
+          console.warn('[Group Enrollment] Failed to build list financial summary for group:', {
+            groupId: group.id,
+            error: summaryError,
+          });
+          return {
+            ...group,
+            groupFinancialSummary: null,
+          };
+        }
+      }),
+    );
+
+    return res.json({ data: groupsWithFinancialSummary, count: groupsWithFinancialSummary.length ?? count ?? 0 });
   } catch (error) {
     console.error('[Group Enrollment] Failed to list groups:', error);
     const message = error instanceof Error ? error.message : 'Failed to list groups';

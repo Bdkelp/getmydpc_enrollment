@@ -644,12 +644,15 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       retryReason,
       retryInitiatedBy,
       groupId,
-      groupMemberId
+      groupMemberId,
+      paymentScope,
     } = req.body;
 
     const explicitGroupId = typeof groupId === 'string' ? groupId.trim() : '';
     const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
     const hasGroupPaymentContext = Boolean(explicitGroupId && explicitGroupMemberId);
+    const normalizedPaymentScope = typeof paymentScope === 'string' ? paymentScope.trim().toLowerCase() : null;
+    const isGroupInvoiceScope = normalizedPaymentScope === 'group_invoice' && Boolean(explicitGroupId);
 
     const numericAmount = typeof amount === 'number'
       ? amount
@@ -916,6 +919,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         retryPaymentId: parsedRetryPaymentId || null,
         groupId: explicitGroupId || null,
         groupMemberId: explicitGroupMemberId,
+        paymentScope: normalizedPaymentScope,
         amountOverride: hasAmountOverride ? parsedAmountOverride : null,
         overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null
       }
@@ -967,6 +971,13 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
           groupId: explicitGroupId,
           groupMemberId: explicitGroupMemberId,
         };
+      }
+
+      if (isGroupInvoiceScope) {
+        paymentMetadata.groupInvoiceContext = {
+          groupId: explicitGroupId,
+        };
+        paymentMetadata.paymentScope = 'group_invoice';
       }
 
       if (hasAmountOverride) {

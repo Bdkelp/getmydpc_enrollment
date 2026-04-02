@@ -32,6 +32,7 @@ interface EPXHostedPaymentProps {
   retryMemberId?: string;
   groupId?: string;
   groupMemberId?: number | string;
+  paymentScope?: "member" | "group_invoice";
   billingAddress?: {
     streetAddress?: string;
     city?: string;
@@ -66,6 +67,7 @@ export default function EPXHostedPayment({
   retryMemberId,
   groupId,
   groupMemberId,
+  paymentScope,
   billingAddress = {},
   onSuccess,
   onError,
@@ -255,9 +257,16 @@ export default function EPXHostedPayment({
           payload.retryMemberId = retryMemberId;
         }
 
-        if (groupId && groupMemberId !== undefined && groupMemberId !== null) {
+        if (groupId) {
           payload.groupId = groupId;
+        }
+
+        if (groupMemberId !== undefined && groupMemberId !== null) {
           payload.groupMemberId = groupMemberId;
+        }
+
+        if (paymentScope) {
+          payload.paymentScope = paymentScope;
         }
 
         let response: any;

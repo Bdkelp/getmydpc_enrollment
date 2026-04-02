@@ -3682,6 +3682,115 @@ router.post(
   },
 );
 
+router.patch(
+  "/api/admin/memberships/:memberId/test",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const memberId = Number(req.params.memberId);
+    const { isTestMember, reason } = req.body || {};
+
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member id" });
+    }
+
+    if (typeof isTestMember !== "boolean") {
+      return res.status(400).json({ message: "isTestMember must be a boolean" });
+    }
+
+    try {
+      const member = await storage.setMemberTestFlag(memberId, isTestMember, {
+        reason: typeof reason === "string" ? reason : undefined,
+        updatedBy: req.user?.id || null,
+      });
+
+      res.json({
+        message: isTestMember ? "Member marked as test" : "Test flag removed",
+        member,
+      });
+    } catch (error: any) {
+      console.error("Error toggling test membership flag:", error);
+      res.status(500).json({
+        message: "Failed to update test membership flag",
+        error: error.message,
+      });
+    }
+  },
+);
+
+router.post(
+  "/api/admin/memberships/:memberId/archive",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const memberId = Number(req.params.memberId);
+    const { reason } = req.body || {};
+
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member id" });
+    }
+
+    try {
+      const member = await storage.archiveMember(memberId, {
+        reason: typeof reason === "string" ? reason : undefined,
+        archivedBy: req.user?.id || null,
+      });
+
+      res.json({
+        message: "Membership archived",
+        member,
+      });
+    } catch (error: any) {
+      console.error("Error archiving membership:", error);
+      res.status(500).json({
+        message: "Failed to archive membership",
+        error: error.message,
+      });
+    }
+  },
+);
+
+router.post(
+  "/api/admin/memberships/:memberId/restore",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const memberId = Number(req.params.memberId);
+    const { targetStatus } = req.body || {};
+
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member id" });
+    }
+
+    try {
+      const member = await storage.restoreMember(memberId, {
+        restoredBy: req.user?.id || null,
+        targetStatus: typeof targetStatus === "string" ? targetStatus : undefined,
+      });
+
+      res.json({
+        message: "Membership restored",
+        member,
+      });
+    } catch (error: any) {
+      console.error("Error restoring membership:", error);
+      res.status(500).json({
+        message: "Failed to restore membership",
+        error: error.message,
+      });
+    }
+  },
+);
+
 router.get(
   "/api/admin/memberships/overview",
   authenticateToken,

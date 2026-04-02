@@ -295,8 +295,9 @@ export default function GroupPaymentCheckoutPage() {
                   description={isGroupInvoiceMode
                     ? `Group invoice payment for ${groupData?.name || groupId}`
                     : `Group payment for ${groupData?.name || groupId} member #${member?.id}`}
-                  groupId={isGroupInvoiceMode ? undefined : groupId}
+                  groupId={groupId}
                   groupMemberId={isGroupInvoiceMode ? undefined : member?.id}
+                  paymentScope={isGroupInvoiceMode ? "group_invoice" : "member"}
                   billingAddress={{
                     streetAddress: isGroupInvoiceMode ? undefined : (member?.address1 || undefined),
                     city: isGroupInvoiceMode ? undefined : (member?.city || undefined),

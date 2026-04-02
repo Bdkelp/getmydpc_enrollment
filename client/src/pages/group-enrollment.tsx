@@ -209,6 +209,18 @@ type GroupRecord = {
   currentAssignedAgentId?: string | null;
   originalAssignedAgentId?: string | null;
   hasReassignmentHistory?: boolean;
+  groupFinancialSummary?: {
+    asOf: string;
+    activeMemberCount: number;
+    terminatedMemberCount: number;
+    monthlyRevenue: number;
+    yearlyProjectedRevenue: number;
+    projectedMonthlyCommission: number;
+    projectedYearlyCommission: number;
+    employerTotal: number;
+    memberTotal: number;
+    discountTotal: number;
+  } | null;
 };
 
 type GroupAssignmentHistoryRecord = {
@@ -1723,6 +1735,7 @@ export default function GroupEnrollment() {
           params.set("reassignedOnly", "true");
         }
       }
+      params.set("includeFinancialSummary", "true");
 
       const queryString = params.toString();
       return apiRequest(queryString ? `/api/groups?${queryString}` : "/api/groups");
@@ -1837,59 +1850,34 @@ export default function GroupEnrollment() {
       return assignedAgentId === user.id;
     }).length;
   }, [groups, user?.id]);
-  const groupsMetricKey = useMemo(
-    () => groups.map((group) => group.id).sort().join(","),
-    [groups],
-  );
-  const { data: groupPortfolioMetrics, isLoading: isGroupPortfolioMetricsLoading } = useQuery<GroupPortfolioMetrics>({
-    queryKey: ["/api/groups/portfolio-metrics", groupsMetricKey],
-    enabled: !authLoading && isAuthorized && groups.length > 0,
-    staleTime: 1000 * 30,
-    queryFn: async () => {
-      const detailResults = await Promise.allSettled(
-        groups.map((group) => apiRequest(`/api/groups/${group.id}`) as Promise<GroupDetailResponse>),
-      );
+  const groupKpiSummary = useMemo<GroupPortfolioMetrics>(() => {
+    const summary = groups.reduce(
+      (acc, group) => {
+        const financial = group.groupFinancialSummary;
+        acc.groupCount += 1;
+        acc.totalActiveMembers += Number(financial?.activeMemberCount || 0);
+        acc.totalMonthlyRevenue += Number(financial?.monthlyRevenue || 0);
+        acc.totalMonthlyCommission += Number(financial?.projectedMonthlyCommission || 0);
+        return acc;
+      },
+      {
+        groupCount: 0,
+        totalActiveMembers: 0,
+        averageActiveMembersPerGroup: 0,
+        totalMonthlyRevenue: 0,
+        totalMonthlyCommission: 0,
+      },
+    );
 
-      let totalActiveMembers = 0;
-      let totalMonthlyRevenue = 0;
-      let totalMonthlyCommission = 0;
+    summary.averageActiveMembersPerGroup = summary.groupCount > 0
+      ? Number((summary.totalActiveMembers / summary.groupCount).toFixed(2))
+      : 0;
 
-      for (const result of detailResults) {
-        if (result.status !== "fulfilled") {
-          continue;
-        }
+    summary.totalMonthlyRevenue = Number(summary.totalMonthlyRevenue.toFixed(2));
+    summary.totalMonthlyCommission = Number(summary.totalMonthlyCommission.toFixed(2));
 
-        const financialSummary = result.value?.groupFinancialSummary;
-        if (!financialSummary) {
-          continue;
-        }
-
-        totalActiveMembers += Number(financialSummary.activeMemberCount || 0);
-        totalMonthlyRevenue += Number(financialSummary.monthlyRevenue || 0);
-        totalMonthlyCommission += Number(financialSummary.projectedMonthlyCommission || 0);
-      }
-
-      const groupCount = groups.length;
-      const averageActiveMembersPerGroup = groupCount > 0
-        ? Number((totalActiveMembers / groupCount).toFixed(2))
-        : 0;
-
-      return {
-        groupCount,
-        totalActiveMembers,
-        averageActiveMembersPerGroup,
-        totalMonthlyRevenue: Number(totalMonthlyRevenue.toFixed(2)),
-        totalMonthlyCommission: Number(totalMonthlyCommission.toFixed(2)),
-      };
-    },
-  });
-  const groupKpiSummary = groupPortfolioMetrics || {
-    groupCount: groups.length,
-    totalActiveMembers: 0,
-    averageActiveMembersPerGroup: 0,
-    totalMonthlyRevenue: 0,
-    totalMonthlyCommission: 0,
-  };
+    return summary;
+  }, [groups]);
   const agentOptions: AgentOption[] = useMemo(() => {
     const rawAgents = Array.isArray(agentsData)
       ? agentsData
@@ -3482,12 +3470,10 @@ export default function GroupEnrollment() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold">
-                {isGroupPortfolioMetricsLoading ? "--" : groupKpiSummary.averageActiveMembersPerGroup.toFixed(2)}
+                {groupKpiSummary.averageActiveMembersPerGroup.toFixed(2)}
               </p>
               <p className="text-sm text-gray-500">
-                {isGroupPortfolioMetricsLoading
-                  ? "Computing active employee count per group"
-                  : `${groupKpiSummary.totalActiveMembers} active employees across all groups`}
+                {`${groupKpiSummary.totalActiveMembers} active employees across all groups`}
               </p>
             </CardContent>
           </Card>
@@ -3594,6 +3580,9 @@ export default function GroupEnrollment() {
                       {canAccessAdminViews && <TableHead>Current Agent</TableHead>}
                       {canAccessAdminViews && <TableHead>Original Agent</TableHead>}
                       <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Active EEs</TableHead>
+                      <TableHead className="text-right">Monthly Revenue</TableHead>
+                      <TableHead className="text-right">Monthly Commission</TableHead>
                       <TableHead>Discount</TableHead>
                       <TableHead>Updated</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -3634,14 +3623,38 @@ export default function GroupEnrollment() {
                             )}
                           </div>
                         </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {group.groupFinancialSummary?.activeMemberCount ?? 0}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrencyDisplay((group.groupFinancialSummary?.monthlyRevenue ?? 0).toFixed(2))}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrencyDisplay((group.groupFinancialSummary?.projectedMonthlyCommission ?? 0).toFixed(2))}
+                        </TableCell>
                         <TableCell>{group.discountCode || '—'}</TableCell>
                         <TableCell className="text-sm text-gray-500">
                           {group.updatedAt ? formatDistanceToNow(new Date(group.updatedAt), { addSuffix: true }) : 'just now'}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="sm" onClick={() => handleViewGroup(group.id)}>
-                            View
-                          </Button>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const params = new URLSearchParams({
+                                  groupId: group.id,
+                                  mode: "group_invoice",
+                                });
+                                setLocation(`/payments/group-checkout?${params.toString()}`);
+                              }}
+                            >
+                              Collect Group Payment
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => handleViewGroup(group.id)}>
+                              View
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
