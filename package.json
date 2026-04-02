@@ -20,6 +20,8 @@
     "test": "npm run test:scheduler",
     "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
     "audit:ach-go-live": "node scripts/audit-ach-go-live.mjs",
+    "enable:ach-live": "node scripts/enable-ach-live-flags.mjs --apply",
+    "ready:ach-live": "node scripts/enable-ach-live-flags.mjs --apply && node scripts/audit-ach-go-live.mjs --strict",
     "preflight": "npm run preflight:quick && npm run build",
     "preflight:quick": "npm run check && npm run test:scheduler",
     "preflight:deploy": "npm run test:scheduler && npm run build",
