@@ -55,6 +55,8 @@ export default function GroupPaymentCheckoutPage() {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
 
   const groupId = (searchParams.get("groupId") || "").trim();
+  const mode = (searchParams.get("mode") || "member").trim().toLowerCase();
+  const isGroupInvoiceMode = mode === "group_invoice";
   const groupMemberIdRaw = searchParams.get("groupMemberId") || "";
   const amountParam = searchParams.get("amount") || "";
   const groupMemberId = Number(groupMemberIdRaw);
@@ -64,7 +66,7 @@ export default function GroupPaymentCheckoutPage() {
     if (!groupId) {
       return "Group ID is required.";
     }
-    if (!Number.isFinite(groupMemberId) || groupMemberId <= 0) {
+    if (!isGroupInvoiceMode && (!Number.isFinite(groupMemberId) || groupMemberId <= 0)) {
       return "Group member ID must be a positive number.";
     }
     return null;
@@ -90,6 +92,26 @@ export default function GroupPaymentCheckoutPage() {
   });
 
   const groupData = groupQuery.data?.data;
+  const groupProfile = (groupData as any)?.groupProfileContext?.profile;
+  const invoiceContactEmail = String(
+    groupProfile?.responsiblePerson?.email
+    || groupProfile?.contactPerson?.email
+    || user?.email
+    || "",
+  ).trim();
+  const invoiceContactName = String(
+    groupProfile?.responsiblePerson?.name
+    || groupProfile?.contactPerson?.name
+    || groupData?.name
+    || user?.email
+    || "Group Billing Contact",
+  ).trim();
+
+  const activeMembers = useMemo(
+    () => (groupQuery.data?.members || []).filter((item) => item.status !== "terminated"),
+    [groupQuery.data?.members],
+  );
+
   const member = useMemo(
     () => (groupQuery.data?.members || []).find((item) => item.id === groupMemberId) || null,
     [groupMemberId, groupQuery.data?.members],
@@ -98,6 +120,18 @@ export default function GroupPaymentCheckoutPage() {
   const resolvedAmount = useMemo(() => {
     if (Number.isFinite(requestedAmount) && requestedAmount > 0) {
       return requestedAmount;
+    }
+
+    if (isGroupInvoiceMode) {
+      const aggregate = activeMembers.reduce((sum, item) => {
+        const explicit = parseCurrency(item.totalAmount);
+        if (explicit > 0) {
+          return sum + explicit;
+        }
+        const derived = parseCurrency(item.employerAmount) + parseCurrency(item.memberAmount) - parseCurrency(item.discountAmount);
+        return sum + (derived > 0 ? derived : 0);
+      }, 0);
+      return aggregate > 0 ? aggregate : 0;
     }
 
     if (!member) {
@@ -111,13 +145,22 @@ export default function GroupPaymentCheckoutPage() {
 
     const derived = parseCurrency(member.employerAmount) + parseCurrency(member.memberAmount) - parseCurrency(member.discountAmount);
     return derived > 0 ? derived : 0;
-  }, [member, requestedAmount]);
+  }, [activeMembers, isGroupInvoiceMode, member, requestedAmount]);
 
   const handleLaunch = () => {
-    if (!member) {
+    if (!isGroupInvoiceMode && !member) {
       toast({
         title: "Member not loaded",
         description: "Wait for member details before launching hosted checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isGroupInvoiceMode && !invoiceContactEmail) {
+      toast({
+        title: "Group contact missing",
+        description: "Set a responsible or contact email in Group Profile before collecting group payment.",
         variant: "destructive",
       });
       return;
@@ -185,7 +228,7 @@ export default function GroupPaymentCheckoutPage() {
           </Alert>
         )}
 
-        {!validationError && !groupQuery.isError && !member && (
+        {!validationError && !groupQuery.isError && !isGroupInvoiceMode && !member && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Group member not found</AlertTitle>
@@ -193,7 +236,7 @@ export default function GroupPaymentCheckoutPage() {
           </Alert>
         )}
 
-        {!validationError && member && (
+        {!validationError && !groupQuery.isError && (isGroupInvoiceMode || member) && (
           <Card>
             <CardContent className="pt-6 space-y-5">
               <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 uppercase tracking-wide">
@@ -205,14 +248,29 @@ export default function GroupPaymentCheckoutPage() {
                   <p className="text-gray-500">Group</p>
                   <p className="font-medium">{groupData?.name || groupId}</p>
                 </div>
-                <div>
-                  <p className="text-gray-500">Member</p>
-                  <p className="font-medium">{member.firstName} {member.lastName}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Email</p>
-                  <p className="font-medium">{member.email}</p>
-                </div>
+                {isGroupInvoiceMode ? (
+                  <>
+                    <div>
+                      <p className="text-gray-500">Scope</p>
+                      <p className="font-medium">Group Invoice ({activeMembers.length} active members)</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Billing Contact</p>
+                      <p className="font-medium">{invoiceContactEmail || "Not configured"}</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-gray-500">Member</p>
+                      <p className="font-medium">{member?.firstName} {member?.lastName}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Email</p>
+                      <p className="font-medium">{member?.email}</p>
+                    </div>
+                  </>
+                )}
                 <div>
                   <p className="text-gray-500">Amount</p>
                   <p className="font-medium">${resolvedAmount.toFixed(2)}</p>
@@ -230,16 +288,20 @@ export default function GroupPaymentCheckoutPage() {
                 <EPXHostedPayment
                   amount={resolvedAmount}
                   customerId={user?.id || ""}
-                  customerEmail={member.email || user?.email || ""}
-                  customerName={`${member.firstName || ""} ${member.lastName || ""}`.trim() || member.email}
-                  description={`Group payment for ${groupData?.name || groupId} member #${member.id}`}
-                  groupId={groupId}
-                  groupMemberId={member.id}
+                  customerEmail={isGroupInvoiceMode ? invoiceContactEmail : (member?.email || user?.email || "")}
+                  customerName={isGroupInvoiceMode
+                    ? invoiceContactName
+                    : (`${member?.firstName || ""} ${member?.lastName || ""}`.trim() || member?.email || invoiceContactName)}
+                  description={isGroupInvoiceMode
+                    ? `Group invoice payment for ${groupData?.name || groupId}`
+                    : `Group payment for ${groupData?.name || groupId} member #${member?.id}`}
+                  groupId={isGroupInvoiceMode ? undefined : groupId}
+                  groupMemberId={isGroupInvoiceMode ? undefined : member?.id}
                   billingAddress={{
-                    streetAddress: member.address1 || undefined,
-                    city: member.city || undefined,
-                    state: member.state || undefined,
-                    postalCode: member.zipCode || undefined,
+                    streetAddress: isGroupInvoiceMode ? undefined : (member?.address1 || undefined),
+                    city: isGroupInvoiceMode ? undefined : (member?.city || undefined),
+                    state: isGroupInvoiceMode ? undefined : (member?.state || undefined),
+                    postalCode: isGroupInvoiceMode ? undefined : (member?.zipCode || undefined),
                   }}
                   redirectOnSuccess={false}
                   onSuccess={(transactionId) => {

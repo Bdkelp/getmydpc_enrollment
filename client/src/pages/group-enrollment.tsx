@@ -321,6 +321,14 @@ type GroupDetailResponse = {
   groupProfileContext?: GroupProfileContext;
 };
 
+type GroupPortfolioMetrics = {
+  groupCount: number;
+  totalActiveMembers: number;
+  averageActiveMembersPerGroup: number;
+  totalMonthlyRevenue: number;
+  totalMonthlyCommission: number;
+};
+
 type GroupReassignmentFormState = {
   newAgentId: string;
   effectiveDate: string;
@@ -1829,6 +1837,59 @@ export default function GroupEnrollment() {
       return assignedAgentId === user.id;
     }).length;
   }, [groups, user?.id]);
+  const groupsMetricKey = useMemo(
+    () => groups.map((group) => group.id).sort().join(","),
+    [groups],
+  );
+  const { data: groupPortfolioMetrics, isLoading: isGroupPortfolioMetricsLoading } = useQuery<GroupPortfolioMetrics>({
+    queryKey: ["/api/groups/portfolio-metrics", groupsMetricKey],
+    enabled: !authLoading && isAuthorized && groups.length > 0,
+    staleTime: 1000 * 30,
+    queryFn: async () => {
+      const detailResults = await Promise.allSettled(
+        groups.map((group) => apiRequest(`/api/groups/${group.id}`) as Promise<GroupDetailResponse>),
+      );
+
+      let totalActiveMembers = 0;
+      let totalMonthlyRevenue = 0;
+      let totalMonthlyCommission = 0;
+
+      for (const result of detailResults) {
+        if (result.status !== "fulfilled") {
+          continue;
+        }
+
+        const financialSummary = result.value?.groupFinancialSummary;
+        if (!financialSummary) {
+          continue;
+        }
+
+        totalActiveMembers += Number(financialSummary.activeMemberCount || 0);
+        totalMonthlyRevenue += Number(financialSummary.monthlyRevenue || 0);
+        totalMonthlyCommission += Number(financialSummary.projectedMonthlyCommission || 0);
+      }
+
+      const groupCount = groups.length;
+      const averageActiveMembersPerGroup = groupCount > 0
+        ? Number((totalActiveMembers / groupCount).toFixed(2))
+        : 0;
+
+      return {
+        groupCount,
+        totalActiveMembers,
+        averageActiveMembersPerGroup,
+        totalMonthlyRevenue: Number(totalMonthlyRevenue.toFixed(2)),
+        totalMonthlyCommission: Number(totalMonthlyCommission.toFixed(2)),
+      };
+    },
+  });
+  const groupKpiSummary = groupPortfolioMetrics || {
+    groupCount: groups.length,
+    totalActiveMembers: 0,
+    averageActiveMembersPerGroup: 0,
+    totalMonthlyRevenue: 0,
+    totalMonthlyCommission: 0,
+  };
   const agentOptions: AgentOption[] = useMemo(() => {
     const rawAgents = Array.isArray(agentsData)
       ? agentsData
@@ -2933,6 +2994,36 @@ export default function GroupEnrollment() {
     setLocation(`/payments/group-checkout?${params.toString()}`);
   };
 
+  const handleOpenGroupInvoiceHostedCheckout = () => {
+    const groupId = selectedGroup?.data?.id;
+    if (!groupId) {
+      toast({
+        title: "Group not selected",
+        description: "Select a group before launching hosted checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const invoiceAmount = monthlyRevenueDisplay;
+    if (!Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
+      toast({
+        title: "Invoice amount missing",
+        description: "Add active members with valid plan totals before collecting group payment.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const params = new URLSearchParams({
+      groupId,
+      mode: "group_invoice",
+      amount: invoiceAmount.toFixed(2),
+    });
+
+    setLocation(`/payments/group-checkout?${params.toString()}`);
+  };
+
   const handleAddMemberClick = () => {
     setEditingMember(null);
     resetMemberForm();
@@ -3134,6 +3225,7 @@ export default function GroupEnrollment() {
   const allowsMemberPaymentCollection = paymentResponsibilityMode === "member_self_pay" || paymentResponsibilityMode === "hybrid_split";
   const allowsGroupInvoiceCollection = paymentResponsibilityMode === "group_invoice" || paymentResponsibilityMode === "hybrid_split";
   const usesPayrollExternalCollection = paymentResponsibilityMode === "payroll_external";
+  const canCollectGroupInvoicePayment = allowsGroupInvoiceCollection && !usesPayrollExternalCollection && activeMemberCount > 0;
   const canCollectPaymentFromMemberModal = Boolean(
     editingMember
     && editingMember.status !== "terminated"
@@ -3374,44 +3466,80 @@ export default function GroupEnrollment() {
           </Alert>
         )}
 
-        <section className="grid gap-6 md:grid-cols-3">
+        <section className="grid gap-6 md:grid-cols-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-gray-500 uppercase">Active Groups</CardTitle>
+              <CardTitle className="text-sm text-gray-500 uppercase">Total Groups</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold">{groups.length}</p>
+              <p className="text-3xl font-bold">{groupKpiSummary.groupCount}</p>
               <p className="text-sm text-gray-500">Groups currently in enrollment workflow</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-gray-500 uppercase">Payor Mix</CardTitle>
+              <CardTitle className="text-sm text-gray-500 uppercase">Avg EEs Per Group</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {[
-                { value: 'full', label: 'Employer Pays All' },
-                { value: 'member', label: 'Member Pays All' },
-                { value: 'mixed', label: 'Mixed Split' },
-              ].map((option) => {
-                const count = groups.filter((g) => g.payorType === option.value).length;
-                return (
-                  <div key={option.value} className="flex items-center justify-between text-sm">
-                    <span>{option.label}</span>
-                    <Badge variant="secondary">{count}</Badge>
-                  </div>
-                );
-              })}
+            <CardContent>
+              <p className="text-3xl font-bold">
+                {isGroupPortfolioMetricsLoading ? "--" : groupKpiSummary.averageActiveMembersPerGroup.toFixed(2)}
+              </p>
+              <p className="text-sm text-gray-500">
+                {isGroupPortfolioMetricsLoading
+                  ? "Computing active employee count per group"
+                  : `${groupKpiSummary.totalActiveMembers} active employees across all groups`}
+              </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm text-gray-500 uppercase">Next Step</CardTitle>
+              <CardTitle className="text-sm text-gray-500 uppercase">Monthly Group Revenue</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-gray-700">Add employee records, complete enrollment, then activate when the group is ready.</p>
-              <p className="text-xs text-gray-500">Payment collection can be completed later on a separate timeline.</p>
-              {canAccessAdminViews && (
+            <CardContent>
+              <p className="text-3xl font-bold">{formatCurrencyDisplay(groupKpiSummary.totalMonthlyRevenue.toFixed(2))}</p>
+              <p className="text-sm text-gray-500">Current monthly total based on active members</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm text-gray-500 uppercase">Monthly Group Commission</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{formatCurrencyDisplay(groupKpiSummary.totalMonthlyCommission.toFixed(2))}</p>
+              <p className="text-sm text-gray-500">Projected commission from current group census mix</p>
+            </CardContent>
+          </Card>
+        </section>
+
+        {canAccessAdminViews && (
+          <section className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm text-gray-500 uppercase">Payor Mix</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {[
+                  { value: "full", label: "Employer Pays All" },
+                  { value: "member", label: "Member Pays All" },
+                  { value: "mixed", label: "Mixed Split" },
+                ].map((option) => {
+                  const count = groups.filter((g) => g.payorType === option.value).length;
+                  return (
+                    <div key={option.value} className="flex items-center justify-between text-sm">
+                      <span>{option.label}</span>
+                      <Badge variant="secondary">{count}</Badge>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm text-gray-500 uppercase">Queue + Next Step</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-gray-700">Add employee records, complete enrollment, then activate when the group is ready.</p>
+                <p className="text-xs text-gray-500">Payment collection can be completed later on a separate timeline.</p>
                 <div className="pt-2 space-y-2">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <Badge variant="secondary">Unassigned queue: {unassignedQueueCount}</Badge>
@@ -3430,10 +3558,10 @@ export default function GroupEnrollment() {
                     Open Unassigned Queue
                   </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
+              </CardContent>
+            </Card>
+          </section>
+        )}
 
         <Card>
           <CardHeader>
@@ -5123,6 +5251,18 @@ export default function GroupEnrollment() {
                   </Card>
                 </div>
                 <div className="border rounded-lg bg-white overflow-x-auto">
+                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                    <p className="text-sm font-medium text-slate-700">Group Members</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenGroupInvoiceHostedCheckout}
+                      disabled={!canCollectGroupInvoicePayment}
+                    >
+                      Collect Group Payment
+                    </Button>
+                  </div>
                   {selectedGroup?.members && selectedGroup.members.length > 0 ? (
                     <Table>
                       <TableHeader>
