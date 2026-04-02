@@ -776,6 +776,21 @@ const derivePlanTierFromName = (planName: string): string => {
   return "Base";
 };
 
+const isMemberOnlyPlanName = (planName: string | undefined | null): boolean => {
+  const normalized = String(planName || "").toLowerCase();
+  return normalized.includes("member only") || /\(ee\)|\bee\b/.test(normalized);
+};
+
+const normalizeRelationshipForPlan = (
+  relationship: string,
+  selectedPlanName: string,
+): string => {
+  if (isMemberOnlyPlanName(selectedPlanName)) {
+    return "primary";
+  }
+  return relationship;
+};
+
 const toPlanTierMatrixKey = (value: string | undefined | null): "base" | "plus" | "elite" => {
   const normalized = String(value || "").toLowerCase();
   if (normalized.includes("elite")) return "elite";
@@ -792,7 +807,9 @@ const resolveMemberCoverageMonthlyPrice = (
   if (!tierValue) return null;
 
   const rows = GROUP_COMMISSION_MATRIX[toPlanTierMatrixKey(tierValue)] || [];
-  const normalizedRelationship = String(relationship || "").trim().toLowerCase();
+  const normalizedRelationship = String(
+    normalizeRelationshipForPlan(relationship, selectedPlanName) || "",
+  ).trim().toLowerCase();
 
   if (normalizedRelationship === "spouse") {
     return rows.find((row) => row.coverageLabel.includes("Spouse"))?.monthlyPrice ?? null;
@@ -2171,9 +2188,13 @@ export default function GroupEnrollment() {
       const normalizedWorkEmail = normalizeOptionalEmailInput(memberForm.workEmail);
       const normalizedPersonalEmail = normalizeOptionalEmailInput(memberForm.personalEmail);
       const primaryEmail = normalizedWorkEmail || normalizedPersonalEmail || null;
-      const normalizedTier = deriveTierFromRelationship(memberForm.relationship, memberForm.tier);
-      const coverageMonthlyPrice = resolveMemberCoverageMonthlyPrice(
+      const normalizedRelationship = normalizeRelationshipForPlan(
         memberForm.relationship,
+        memberForm.selectedPlanName,
+      );
+      const normalizedTier = deriveTierFromRelationship(normalizedRelationship, memberForm.tier);
+      const coverageMonthlyPrice = resolveMemberCoverageMonthlyPrice(
+        normalizedRelationship,
         memberForm.selectedPlanTier,
         memberForm.selectedPlanName,
       );
@@ -2193,7 +2214,7 @@ export default function GroupEnrollment() {
           : 0;
 
       const payload = {
-        relationship: memberForm.relationship,
+        relationship: normalizedRelationship,
         firstName: memberForm.firstName.trim(),
         middleName: memberForm.middleName.trim() || null,
         lastName: memberForm.lastName.trim(),
@@ -2980,8 +3001,16 @@ export default function GroupEnrollment() {
 
   const missingMemberFields = collectMissingMemberFields(memberForm);
   const isMemberFormValid = missingMemberFields.length === 0;
+  const memberPlanIsMemberOnly = useMemo(
+    () => isMemberOnlyPlanName(memberForm.selectedPlanName),
+    [memberForm.selectedPlanName],
+  );
   const memberCoverageMonthlyPrice = useMemo(
-    () => resolveMemberCoverageMonthlyPrice(memberForm.relationship, memberForm.selectedPlanTier, memberForm.selectedPlanName),
+    () => resolveMemberCoverageMonthlyPrice(
+      normalizeRelationshipForPlan(memberForm.relationship, memberForm.selectedPlanName),
+      memberForm.selectedPlanTier,
+      memberForm.selectedPlanName,
+    ),
     [memberForm.relationship, memberForm.selectedPlanTier, memberForm.selectedPlanName],
   );
   const memberPbmMonthlyAmount = useMemo(
@@ -5409,21 +5438,29 @@ export default function GroupEnrollment() {
                 <Label>Relationship</Label>
                 <Select
                   value={memberForm.relationship}
-                  onValueChange={(value) => setMemberForm((prev) => ({
-                    ...prev,
-                    relationship: value,
-                    tier: deriveTierFromRelationship(value, prev.tier),
-                  }))}
+                  onValueChange={(value) => setMemberForm((prev) => {
+                    const normalizedRelationship = normalizeRelationshipForPlan(value, prev.selectedPlanName);
+                    return {
+                      ...prev,
+                      relationship: normalizedRelationship,
+                      tier: deriveTierFromRelationship(normalizedRelationship, prev.tier),
+                    };
+                  })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Relationship" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="primary">Primary</SelectItem>
-                    <SelectItem value="spouse">Spouse</SelectItem>
-                    <SelectItem value="dependent">Dependent</SelectItem>
+                    <SelectItem value="spouse" disabled={memberPlanIsMemberOnly}>Spouse</SelectItem>
+                    <SelectItem value="dependent" disabled={memberPlanIsMemberOnly}>Dependent</SelectItem>
                   </SelectContent>
                 </Select>
+                {memberPlanIsMemberOnly ? (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Member-only plans support primary enrollment only.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label htmlFor="member-date-of-birth">Date of Birth</Label>
@@ -5765,12 +5802,18 @@ export default function GroupEnrollment() {
                   value={memberForm.selectedPlanId}
                   onValueChange={(value) => {
                     const selectedPlan = planCatalogById.get(value);
-                    setMemberForm((prev) => ({
-                      ...prev,
-                      selectedPlanId: value,
-                      selectedPlanName: selectedPlan?.name || "",
-                      selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
-                    }));
+                    setMemberForm((prev) => {
+                      const selectedPlanName = selectedPlan?.name || "";
+                      const normalizedRelationship = normalizeRelationshipForPlan(prev.relationship, selectedPlanName);
+                      return {
+                        ...prev,
+                        selectedPlanId: value,
+                        selectedPlanName,
+                        selectedPlanTier: selectedPlan ? derivePlanTierFromName(selectedPlan.name) : "",
+                        relationship: normalizedRelationship,
+                        tier: deriveTierFromRelationship(normalizedRelationship, prev.tier),
+                      };
+                    });
                   }}
                 >
                   <SelectTrigger>

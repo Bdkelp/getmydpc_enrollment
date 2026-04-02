@@ -1797,6 +1797,34 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
   return 'primary';
 };
 
+const isMemberOnlyPlanName = (value: unknown): boolean => {
+  const normalized = toTrimmedOrNull(value)?.toLowerCase() || '';
+  return normalized.includes('member only') || /\(ee\)|\bee\b/.test(normalized);
+};
+
+const resolveMemberPlanName = (value: unknown): string | null => {
+  const source = toObjectOrNull(value);
+  if (!source) {
+    return null;
+  }
+
+  const metadata = toObjectOrNull(source.metadata);
+  const metadataPlanSelection = toObjectOrNull(metadata?.planSelection);
+  const registrationPayload = toObjectOrNull(source.registrationPayload);
+  const payloadPlanSelection = toObjectOrNull(registrationPayload?.planSelection);
+
+  return (
+    toTrimmedOrNull(metadataPlanSelection?.planName)
+    || toTrimmedOrNull(metadata?.selectedPlanName)
+    || toTrimmedOrNull(metadata?.planName)
+    || toTrimmedOrNull(payloadPlanSelection?.planName)
+    || toTrimmedOrNull(registrationPayload?.selectedPlanName)
+    || toTrimmedOrNull(registrationPayload?.planName)
+    || toTrimmedOrNull(source.selectedPlanName)
+    || toTrimmedOrNull(source.planName)
+  );
+};
+
 const isPrimaryMemberRelationship = (value: unknown, fallbackTier?: string): boolean =>
   normalizeMemberRelationship(value, fallbackTier) === 'primary';
 
@@ -3013,8 +3041,13 @@ router.post('/api/groups/:groupId/members', async (req: AuthRequest, res: Respon
       status,
     } = req.body || {};
 
-    const normalizedTier = normalizeMemberTier(tier);
-    const normalizedRelationship = normalizeMemberRelationship(req.body?.relationship, normalizedTier);
+    let normalizedTier = normalizeMemberTier(tier);
+    let normalizedRelationship = normalizeMemberRelationship(req.body?.relationship, normalizedTier);
+    const selectedPlanName = resolveMemberPlanName(req.body);
+    if (isMemberOnlyPlanName(selectedPlanName)) {
+      normalizedRelationship = 'primary';
+      normalizedTier = 'member';
+    }
     const isPrimaryMember = normalizedRelationship === 'primary';
     const providedEmail = toTrimmedOrNull(email)?.toLowerCase() || null;
 
@@ -3842,13 +3875,18 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     const baseRequestedTier = bodyHasTier
       ? normalizeMemberTier(req.body?.tier)
       : normalizeMemberTier(existingMember.tier);
-    const requestedRelationship = normalizeMemberRelationship(
+    let requestedRelationship = normalizeMemberRelationship(
       bodyHasRelationship ? req.body?.relationship : existingMember.relationship,
       baseRequestedTier,
     );
-    const requestedTier = bodyHasTier
+    let requestedTier = bodyHasTier
       ? baseRequestedTier
       : inferTierFromRelationship(requestedRelationship, baseRequestedTier);
+    const selectedPlanName = resolveMemberPlanName(req.body) || resolveMemberPlanName(existingMember);
+    if (isMemberOnlyPlanName(selectedPlanName)) {
+      requestedRelationship = 'primary';
+      requestedTier = 'member';
+    }
     const isPrimaryMember = requestedRelationship === 'primary';
 
     const includeSsnIntentRaw = extractMemberSsnIntent(
