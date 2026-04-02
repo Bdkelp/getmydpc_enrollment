@@ -151,6 +151,29 @@ const formatDob = (dob?: string | null) => {
   return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
 };
 
+const estimateCommissionFromEnrollment = (enrollment: Enrollment): number => {
+  const memberType = String(enrollment.memberType || "").toLowerCase();
+  const planName = String(enrollment.planName || "").toLowerCase();
+
+  const tierKey = planName.includes("elite") ? "elite" : (planName.includes("plus") ? "plus" : "base");
+
+  const coverageKey = memberType.includes("spouse")
+    ? "spouse"
+    : (memberType.includes("child") || memberType.includes("children") || memberType.includes("dependent"))
+      ? "child"
+      : memberType.includes("family")
+        ? "family"
+        : "member";
+
+  const commissionMatrix: Record<string, Record<string, number>> = {
+    base: { member: 9, spouse: 15, child: 17, family: 17 },
+    plus: { member: 20, spouse: 40, child: 40, family: 40 },
+    elite: { member: 20, spouse: 40, child: 40, family: 40 },
+  };
+
+  return commissionMatrix[tierKey]?.[coverageKey] ?? 0;
+};
+
 const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
 
 export default function AdminEnrollments() {
@@ -799,6 +822,37 @@ export default function AdminEnrollments() {
     }, 0);
   }, [filteredEnrollments]);
 
+  const activePeopleCount = React.useMemo(() => {
+    const enrollmentsArray = Array.isArray(filteredEnrollments) ? filteredEnrollments : [];
+    return enrollmentsArray.filter((enrollment) => enrollment?.status === "active").length;
+  }, [filteredEnrollments]);
+
+  const averageActiveRevenue = React.useMemo(() => {
+    if (activePeopleCount <= 0) {
+      return 0;
+    }
+    return totalRevenue / activePeopleCount;
+  }, [activePeopleCount, totalRevenue]);
+
+  const projectedMonthlyCommission = React.useMemo(() => {
+    const enrollmentsArray = Array.isArray(filteredEnrollments)
+      ? filteredEnrollments
+      : [];
+
+    return enrollmentsArray.reduce((sum, enrollment) => {
+      if (enrollment?.status !== "active") {
+        return sum;
+      }
+      return sum + estimateCommissionFromEnrollment(enrollment);
+    }, 0);
+  }, [filteredEnrollments]);
+
+  const activeFilterCount =
+    (selectedAgentId !== "all" ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0) +
+    (focusMemberId ? 1 : 0) +
+    (focusAlertType ? 1 : 0);
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -1048,7 +1102,25 @@ export default function AdminEnrollments() {
             <CardContent className="p-6">
               <div className="flex items-center">
                 <div className="p-3 rounded-full bg-green-100">
-                  <DollarSign className="h-6 w-6 text-green-600" />
+                  <ShieldCheck className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">
+                    Active People Records
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {activePeopleCount}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-yellow-100">
+                  <DollarSign className="h-6 w-6 text-yellow-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">
@@ -1065,38 +1137,48 @@ export default function AdminEnrollments() {
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center">
-                <div className="p-3 rounded-full bg-yellow-100">
-                  <Calendar className="h-6 w-6 text-yellow-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    Date Range
-                  </p>
-                  <p className="text-sm font-bold text-gray-900">
-                    {format(new Date(dateFilter.startDate), "MMM d")} -{" "}
-                    {format(new Date(dateFilter.endDate), "MMM d")}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
                 <div className="p-3 rounded-full bg-purple-100">
                   <Filter className="h-6 w-6 text-purple-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">
-                    Active Filters
+                    Monthly Commission
                   </p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {(selectedAgentId !== "all" ? 1 : 0) +
-                      (statusFilter !== "all" ? 1 : 0) +
-                      (focusMemberId ? 1 : 0) +
-                      (focusAlertType ? 1 : 0)}
+                    ${projectedMonthlyCommission.toFixed(2)}
                   </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-blue-100">
+                  <DollarSign className="h-6 w-6 text-blue-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Avg Monthly Revenue Per Active Record</p>
+                  <p className="text-2xl font-bold text-gray-900">${averageActiveRevenue.toFixed(2)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-yellow-100">
+                  <Calendar className="h-6 w-6 text-yellow-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Date Range + Active Filters</p>
+                  <p className="text-sm font-bold text-gray-900">
+                    {format(new Date(dateFilter.startDate), "MMM d")} - {format(new Date(dateFilter.endDate), "MMM d")}
+                  </p>
+                  <p className="text-xs text-gray-500">Active filters: {activeFilterCount}</p>
                 </div>
               </div>
             </CardContent>
