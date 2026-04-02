@@ -3009,6 +3009,11 @@ export default function GroupEnrollment() {
       amount: invoiceAmount.toFixed(2),
     });
 
+    const preferredPaymentMethod = selectedGroup?.groupProfileContext?.profile?.preferredPaymentMethod;
+    if (preferredPaymentMethod === "card" || preferredPaymentMethod === "ach") {
+      params.set("preferredPaymentMethod", preferredPaymentMethod);
+    }
+
     setLocation(`/payments/group-checkout?${params.toString()}`);
   };
 

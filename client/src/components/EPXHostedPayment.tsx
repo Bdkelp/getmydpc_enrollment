@@ -33,6 +33,7 @@ interface EPXHostedPaymentProps {
   groupId?: string;
   groupMemberId?: number | string;
   paymentScope?: "member" | "group_invoice";
+  paymentMethodType?: "CreditCard" | "ACH";
   billingAddress?: {
     streetAddress?: string;
     city?: string;
@@ -68,6 +69,7 @@ export default function EPXHostedPayment({
   groupId,
   groupMemberId,
   paymentScope,
+  paymentMethodType = "CreditCard",
   billingAddress = {},
   onSuccess,
   onError,
@@ -269,6 +271,10 @@ export default function EPXHostedPayment({
           payload.paymentScope = paymentScope;
         }
 
+        if (paymentMethodType) {
+          payload.paymentMethodType = paymentMethodType;
+        }
+
         let response: any;
 
         try {
@@ -339,7 +345,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId, paymentScope, paymentMethodType]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {
@@ -775,6 +781,7 @@ export default function EPXHostedPayment({
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
           <input type="hidden" name="TerminalProfileId" value={sessionData?.terminalProfileId || ''} />
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
+          <input type="hidden" name="PaymentMethodType" value={paymentMethodType} />
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
         </form>

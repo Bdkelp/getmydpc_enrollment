@@ -34,6 +34,13 @@ type GroupDetailResponse = {
     name?: string;
   };
   members?: GroupMember[];
+  groupProfileContext?: {
+    profile?: {
+      preferredPaymentMethod?: "card" | "ach" | null;
+      responsiblePerson?: { email?: string | null; name?: string | null } | null;
+      contactPerson?: { email?: string | null; name?: string | null } | null;
+    } | null;
+  };
 };
 
 const parseCurrency = (value: unknown): number => {
@@ -59,6 +66,7 @@ export default function GroupPaymentCheckoutPage() {
   const isGroupInvoiceMode = mode === "group_invoice";
   const groupMemberIdRaw = searchParams.get("groupMemberId") || "";
   const amountParam = searchParams.get("amount") || "";
+  const preferredPaymentMethodParam = (searchParams.get("preferredPaymentMethod") || "").trim().toLowerCase();
   const groupMemberId = Number(groupMemberIdRaw);
   const requestedAmount = Number(amountParam);
 
@@ -92,7 +100,11 @@ export default function GroupPaymentCheckoutPage() {
   });
 
   const groupData = groupQuery.data?.data;
-  const groupProfile = (groupData as any)?.groupProfileContext?.profile;
+  const groupProfile = groupQuery.data?.groupProfileContext?.profile;
+  const preferredPaymentMethod = String(
+    groupProfile?.preferredPaymentMethod || preferredPaymentMethodParam || "card",
+  ).trim().toLowerCase();
+  const resolvedPaymentMethodType = preferredPaymentMethod === "ach" ? "ACH" : "CreditCard";
   const invoiceContactEmail = String(
     groupProfile?.responsiblePerson?.email
     || groupProfile?.contactPerson?.email
@@ -280,7 +292,7 @@ export default function GroupPaymentCheckoutPage() {
               {!hasLaunchedPayment ? (
                 <div className="flex flex-wrap gap-3">
                   <Button onClick={handleLaunch} disabled={resolvedAmount <= 0}>
-                    Launch Hosted Checkout
+                    {resolvedPaymentMethodType === "ACH" ? "Launch ACH Checkout" : "Launch Card Checkout"}
                   </Button>
                   <Button variant="ghost" onClick={handleBack}>Cancel</Button>
                 </div>
@@ -298,6 +310,7 @@ export default function GroupPaymentCheckoutPage() {
                   groupId={groupId}
                   groupMemberId={isGroupInvoiceMode ? undefined : member?.id}
                   paymentScope={isGroupInvoiceMode ? "group_invoice" : "member"}
+                  paymentMethodType={resolvedPaymentMethodType}
                   billingAddress={{
                     streetAddress: isGroupInvoiceMode ? undefined : (member?.address1 || undefined),
                     city: isGroupInvoiceMode ? undefined : (member?.city || undefined),

@@ -646,7 +646,12 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       groupId,
       groupMemberId,
       paymentScope,
+      paymentMethodType,
     } = req.body;
+
+    const normalizedRequestedPaymentMethodType = String(paymentMethodType || '').trim().toUpperCase() === 'ACH'
+      ? 'ACH'
+      : 'CreditCard';
 
     const explicitGroupId = typeof groupId === 'string' ? groupId.trim() : '';
     const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
@@ -920,6 +925,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         groupId: explicitGroupId || null,
         groupMemberId: explicitGroupMemberId,
         paymentScope: normalizedPaymentScope,
+        requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
         amountOverride: hasAmountOverride ? parsedAmountOverride : null,
         overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null
       }
@@ -965,6 +971,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         billingAddress: effectiveBillingAddress || null,
         requestedAmount: Number.isFinite(numericAmount) ? numericAmount : null
       };
+
+      paymentMetadata.requestedPaymentMethodType = normalizedRequestedPaymentMethodType;
 
       if (hasGroupPaymentContext) {
         paymentMetadata.groupPaymentContext = {
