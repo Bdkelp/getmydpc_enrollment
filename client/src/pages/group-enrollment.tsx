@@ -798,6 +798,32 @@ const toPlanTierMatrixKey = (value: string | undefined | null): "base" | "plus" 
   return "base";
 };
 
+const resolveCoverageBucketFromPlanName = (value: string): "member" | "spouse" | "child" | "family" | null => {
+  const normalized = String(value || "").toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes("family") || normalized.includes(" fam ") || normalized.endsWith(" fam")) {
+    return "family";
+  }
+
+  if (normalized.includes("spouse")) {
+    return "spouse";
+  }
+
+  if (normalized.includes("child") || normalized.includes("children")) {
+    return "child";
+  }
+
+  if (normalized.includes("member only") || /\(ee\)|\bee\b/.test(normalized)) {
+    return "member";
+  }
+
+  return null;
+};
+
 const resolveMemberCoverageMonthlyPrice = (
   relationship: string,
   selectedPlanTier: string,
@@ -807,9 +833,26 @@ const resolveMemberCoverageMonthlyPrice = (
   if (!tierValue) return null;
 
   const rows = GROUP_COMMISSION_MATRIX[toPlanTierMatrixKey(tierValue)] || [];
+  const planCoverageBucket = resolveCoverageBucketFromPlanName(selectedPlanName);
   const normalizedRelationship = String(
     normalizeRelationshipForPlan(relationship, selectedPlanName) || "",
   ).trim().toLowerCase();
+
+  if (planCoverageBucket === "family") {
+    return rows.find((row) => row.coverageLabel.includes("Family"))?.monthlyPrice ?? null;
+  }
+
+  if (planCoverageBucket === "spouse") {
+    return rows.find((row) => row.coverageLabel.includes("Spouse"))?.monthlyPrice ?? null;
+  }
+
+  if (planCoverageBucket === "child") {
+    return rows.find((row) => row.coverageLabel.includes("Child"))?.monthlyPrice ?? null;
+  }
+
+  if (planCoverageBucket === "member") {
+    return rows.find((row) => row.coverageLabel.includes("Member Only"))?.monthlyPrice ?? null;
+  }
 
   if (normalizedRelationship === "spouse") {
     return rows.find((row) => row.coverageLabel.includes("Spouse"))?.monthlyPrice ?? null;
