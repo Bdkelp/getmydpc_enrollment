@@ -4144,7 +4144,7 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       tier: requestedTier,
       relationship: requestedRelationship,
       dateOfBirth: hasOwn(incomingBody, 'dateOfBirth')
-        ? normalizeGroupMemberDateOfBirth(otherUpdates?.dateOfBirth)
+        ? (normalizeGroupMemberDateOfBirth(otherUpdates?.dateOfBirth) || existingMember.dateOfBirth)
         : existingMember.dateOfBirth,
       employerAmount: parseAmount(req.body?.employerAmount ?? existingMember.employerAmount),
       memberAmount: parseAmount(req.body?.memberAmount ?? existingMember.memberAmount),
@@ -4904,6 +4904,46 @@ router.post('/api/groups/:groupId/activate', async (req: AuthRequest, res: Respo
   } catch (error) {
     console.error('[Group Enrollment] Failed to activate group:', error);
     const message = error instanceof Error ? error.message : 'Failed to activate group';
+    return res.status(500).json({ message });
+  }
+});
+
+router.post('/api/groups/:groupId/unlock', async (req: AuthRequest, res: Response) => {
+  try {
+    const { groupId } = req.params;
+    const group = await resolveGroupById(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    if (!canAccessGroupByAssignment(req, group.metadata)) {
+      return res.status(403).json({ message: 'You do not have access to this group' });
+    }
+
+    if (group.status !== 'active') {
+      return res.status(400).json({ message: 'Only active groups can be unlocked.' });
+    }
+
+    const existingMetadata = (group.metadata && typeof group.metadata === 'object') ? group.metadata : {};
+    const unlockedMetadata = {
+      ...existingMetadata,
+      activationState: {
+        ...(existingMetadata as any).activationState,
+        unlockedAt: new Date().toISOString(),
+        unlockedBy: req.user?.id || null,
+      },
+    };
+
+    const updatedGroup = await updateGroup(groupId, {
+      status: 'registered',
+      metadata: unlockedMetadata,
+      updatedBy: req.user?.id,
+    });
+
+    return res.json({ data: updatedGroup });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to unlock active group:', error);
+    const message = error instanceof Error ? error.message : 'Failed to unlock group';
     return res.status(500).json({ message });
   }
 });

@@ -170,6 +170,46 @@ const formatMemberDateOfBirth = (value?: string | null): string => {
   return value;
 };
 
+const normalizeDateValueForDateInput = (value?: string | null): string => {
+  if (!value) return "";
+
+  const trimmed = String(value).trim();
+  if (!trimmed) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (/^\d{8}$/.test(digits)) {
+    const maybeMonth = Number(digits.slice(0, 2));
+    const maybeDay = Number(digits.slice(2, 4));
+    const maybeYear = Number(digits.slice(4, 8));
+    if (maybeMonth >= 1 && maybeMonth <= 12 && maybeDay >= 1 && maybeDay <= 31 && maybeYear >= 1900) {
+      return `${digits.slice(4, 8)}-${digits.slice(0, 2)}-${digits.slice(2, 4)}`;
+    }
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return "";
+};
+
+const inferRelationshipFromMember = (member: GroupMemberRecord): string => {
+  const explicitRelationship = String(member.relationship || "").trim().toLowerCase();
+  if (explicitRelationship === "primary" || explicitRelationship === "spouse" || explicitRelationship === "dependent") {
+    return explicitRelationship;
+  }
+
+  const tier = String(member.tier || "").trim().toLowerCase();
+  if (tier === "spouse") return "spouse";
+  if (tier === "child") return "dependent";
+  return "primary";
+};
+
 const formatCurrencyDisplay = (value?: string | null): string => {
   if (value === null || value === undefined || value === "") {
     return "-";
@@ -2304,13 +2344,16 @@ export default function GroupEnrollment() {
         : memberForm.payorType === "member"
           ? computedMonthlyTotal
           : 0;
+      const normalizedDateOfBirth = memberForm.dateOfBirth
+        ? memberForm.dateOfBirth
+        : (editingMember?.dateOfBirth || "");
 
       const payload = {
         relationship: normalizedRelationship,
         firstName: memberForm.firstName.trim(),
         middleName: memberForm.middleName.trim() || null,
         lastName: memberForm.lastName.trim(),
-        dateOfBirth: memberForm.dateOfBirth,
+        dateOfBirth: normalizedDateOfBirth,
         phone: memberForm.mobilePhone.trim() || null,
         email: primaryEmail,
         ssn: memberForm.ssn.trim() || null,
@@ -3045,7 +3088,7 @@ export default function GroupEnrollment() {
     const payload = (member.registrationPayload || {}) as Record<string, any>;
       const memberPbmEnabledRaw = payload.pbmEnabled ?? payload.pbm ?? memberMetadata.pbmEnabled ?? memberMetadata.pbm;
       const memberPbmAmountRaw = payload.pbmAmount ?? memberMetadata.pbmAmount;
-    const normalizedRelationship = member.relationship || "primary";
+    const normalizedRelationship = inferRelationshipFromMember(member);
     const payloadPlanId = payload.selectedPlanId ?? payload.planId;
     const metadataPlanId = memberMetadata.selectedPlanId ?? memberMetadata.planId;
     const resolvedPlanIdRaw = payloadPlanId ?? metadataPlanId ?? groupProfileForm.selectedPlanId;
@@ -3080,7 +3123,9 @@ export default function GroupEnrollment() {
       lastName: member.lastName || String(payload.lastName || payload.last_name || ""),
       suffix: employment.suffix,
       preferredName: employment.preferredName,
-      dateOfBirth: member.dateOfBirth || String(payload.dateOfBirth || payload.date_of_birth || payload.dob || ""),
+      dateOfBirth: normalizeDateValueForDateInput(
+        member.dateOfBirth || String(payload.dateOfBirth || payload.date_of_birth || payload.dob || ""),
+      ),
       sex: employment.sex,
       hireDate: employment.hireDate,
       className: employment.className,
