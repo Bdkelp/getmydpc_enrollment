@@ -141,6 +141,21 @@ const retryOnTransientGatewayError = async <T>(
   throw lastError;
 };
 
+const createOperationId = (): string =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const logMemberUpdateStep = (
+  operationId: string,
+  step: string,
+  extra?: Record<string, unknown>,
+): void => {
+  console.info('[Group Enrollment] Member update step', {
+    operationId,
+    step,
+    ...(extra || {}),
+  });
+};
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
 const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered', 'terminated']);
@@ -4129,9 +4144,21 @@ router.get('/api/groups/:groupId/members', async (req: AuthRequest, res: Respons
 });
 
 router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, res: Response) => {
+  const operationId = createOperationId();
+  const startedAt = Date.now();
   try {
     const { groupId, memberId } = req.params;
-    const group = await resolveGroupById(groupId);
+    logMemberUpdateStep(operationId, 'start', {
+      groupId,
+      memberId,
+      userId: req.user?.id || null,
+      userRole: req.user?.role || null,
+    });
+
+    const group = await retryOnTransientGatewayError(
+      () => resolveGroupById(groupId),
+      'resolve-group-by-id',
+    );
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -4145,7 +4172,10 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       return res.status(400).json({ message: 'Invalid member id' });
     }
 
-    const existingMember = await getGroupMemberById(numericMemberId);
+    const existingMember = await retryOnTransientGatewayError(
+      () => getGroupMemberById(numericMemberId),
+      'get-group-member-by-id',
+    );
     if (!existingMember || existingMember.groupId !== groupId) {
       return res.status(404).json({ message: 'Group member not found' });
     }
@@ -4221,7 +4251,10 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     };
 
     if (!isPrimaryMember) {
-      const allMembers = await listGroupMembers({ groupId });
+      const allMembers = await retryOnTransientGatewayError(
+        () => listGroupMembers({ groupId }),
+        'list-group-members-dependent-update',
+      );
       const primaryAnchor = allMembers.find((member) =>
         Number(member.id) !== Number(numericMemberId)
         && normalizeMemberRelationship(member.relationship, member.tier) === 'primary'
@@ -4265,7 +4298,10 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.discountAmount = parseAmount(0);
       updatePayload.totalAmount = parseAmount(0);
     } else {
-      const allMembers = await listGroupMembers({ groupId });
+      const allMembers = await retryOnTransientGatewayError(
+        () => listGroupMembers({ groupId }),
+        'list-group-members-primary-update',
+      );
       const householdIdentifiers = resolveHouseholdIdentifiers({
         groupId,
         isPrimaryMember: true,
@@ -4338,17 +4374,36 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.registrationPayload = memberDataWithHousehold.registrationPayload;
     }
 
+    logMemberUpdateStep(operationId, 'persist-member', {
+      isPrimaryMember,
+      requestedTier,
+      requestedRelationship,
+    });
     const updated = await retryOnTransientGatewayError(
       () => updateGroupMember(numericMemberId, updatePayload),
       'update-group-member',
     );
 
+    const warnings: string[] = [];
     if (isPrimaryMember) {
       const coverageTier = resolveCoverageTierFromPlanName(selectedPlanName);
-      await retryOnTransientGatewayError(
-        () => autoLinkDependentsForPrimaryCoverage(groupId, numericMemberId, coverageTier),
-        'auto-link-dependents',
-      );
+      try {
+        logMemberUpdateStep(operationId, 'auto-link-dependents-start', { coverageTier });
+        await retryOnTransientGatewayError(
+          () => autoLinkDependentsForPrimaryCoverage(groupId, numericMemberId, coverageTier),
+          'auto-link-dependents',
+        );
+        logMemberUpdateStep(operationId, 'auto-link-dependents-complete', { coverageTier });
+      } catch (autoLinkError) {
+        warnings.push('Member saved, but dependent auto-linking did not complete. Please retry save in a moment.');
+        console.warn('[Group Enrollment] Dependent auto-linking failed after primary update', {
+          operationId,
+          groupId,
+          memberId: numericMemberId,
+          coverageTier,
+          error: autoLinkError,
+        });
+      }
     }
 
     if (includeSsnIntentRaw.provided && isPrimaryMember && canEditSsn) {
@@ -4361,9 +4416,21 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       );
     }
 
-    return res.json({ data: toMemberResponse(updated, shouldRevealMemberSsn(req)) });
+    logMemberUpdateStep(operationId, 'complete', {
+      durationMs: Date.now() - startedAt,
+      warningCount: warnings.length,
+    });
+
+    return res.json({
+      data: toMemberResponse(updated, shouldRevealMemberSsn(req)),
+      warnings,
+    });
   } catch (error) {
-    console.error('[Group Enrollment] Failed to update group member:', error);
+    console.error('[Group Enrollment] Failed to update group member:', {
+      operationId,
+      durationMs: Date.now() - startedAt,
+      error,
+    });
     const message = sanitizeGatewayErrorMessage(error);
     if (message === 'Invalid SSN format') {
       return res.status(400).json({ message });
