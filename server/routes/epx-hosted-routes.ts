@@ -392,6 +392,21 @@ const extractGroupPaymentContext = (metadata: Record<string, any>): { groupId: s
   return { groupId, groupMemberId };
 };
 
+const extractGroupInvoiceContext = (metadata: Record<string, any>): { groupId: string } | null => {
+  const nested = metadata.groupInvoiceContext && typeof metadata.groupInvoiceContext === 'object'
+    ? metadata.groupInvoiceContext
+    : null;
+
+  const rawGroupId = nested?.groupId ?? metadata.groupId ?? metadata.group_id;
+  const groupId = typeof rawGroupId === 'string' ? rawGroupId.trim() : '';
+
+  if (!groupId) {
+    return null;
+  }
+
+  return { groupId };
+};
+
 const parseNumericValue = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -1251,9 +1266,10 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
 
     const paymentMetadata = parsePaymentMetadata(paymentRecord.metadata);
     const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
+    const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
 
     if (!numericMemberId) {
-      if (!groupPaymentContext) {
+      if (!groupPaymentContext && !groupInvoiceContext) {
         return res.status(400).json({
           success: false,
           error: 'Unable to determine member for this payment'
@@ -1271,14 +1287,31 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
         paymentMethodType
       });
 
-      const nextMetadata = {
+      const resolvedGroupId = groupPaymentContext?.groupId || groupInvoiceContext?.groupId || null;
+
+      const nextMetadata: Record<string, any> = {
         ...paymentMetadata,
         groupPaymentContext: {
-          ...groupPaymentContext,
+          ...(paymentMetadata.groupPaymentContext && typeof paymentMetadata.groupPaymentContext === 'object'
+            ? paymentMetadata.groupPaymentContext
+            : {}),
+          ...(groupPaymentContext || {}),
+          ...(resolvedGroupId ? { groupId: resolvedGroupId } : {}),
           hostedCompleteAt: new Date().toISOString(),
           hostedCompleteVia: 'frontend-complete',
         },
       };
+
+      if (groupInvoiceContext) {
+        nextMetadata.groupInvoiceContext = {
+          ...(paymentMetadata.groupInvoiceContext && typeof paymentMetadata.groupInvoiceContext === 'object'
+            ? paymentMetadata.groupInvoiceContext
+            : {}),
+          ...(resolvedGroupId ? { groupId: resolvedGroupId } : {}),
+          hostedCompleteAt: new Date().toISOString(),
+          hostedCompleteVia: 'frontend-complete',
+        };
+      }
 
       if (persistResult.paymentRecord?.id) {
         try {
