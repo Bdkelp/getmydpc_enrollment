@@ -121,7 +121,7 @@ export default function EPXHostedPayment({
     ? amountOverrideReason.trim()
     : null;
   const isAchPayment = paymentMethodType === 'ACH';
-  const epxPaymentMethodType = isAchPayment ? 'BankAccount' : 'CreditCard';
+  const epxPaymentMethodType = isAchPayment ? 'ACH' : 'CreditCard';
 
   const parseApiErrorPayload = (rawError: unknown): Record<string, any> | null => {
     if (!(rawError instanceof Error) || !rawError.message) {
