@@ -90,6 +90,12 @@ export default function EPXHostedPayment({
     postalCode: ''
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [achFormData, setAchFormData] = useState({
+    routingNumber: '',
+    accountNumber: '',
+    confirmAccountNumber: '',
+    accountType: 'Checking' as 'Checking' | 'Savings',
+  });
   const sessionInitInFlightRef = useRef(false);
   const { toast } = useToast();
   const overrideAmountValue = typeof amountOverride === 'number' && Number.isFinite(amountOverride)
@@ -98,6 +104,8 @@ export default function EPXHostedPayment({
   const overrideReasonValue = amountOverrideReason && amountOverrideReason.trim()
     ? amountOverrideReason.trim()
     : null;
+  const isAchPayment = paymentMethodType === 'ACH';
+  const epxPaymentMethodType = isAchPayment ? 'BankAccount' : 'CreditCard';
 
   const parseApiErrorPayload = (rawError: unknown): Record<string, any> | null => {
     if (!(rawError instanceof Error) || !rawError.message) {
@@ -494,6 +502,9 @@ export default function EPXHostedPayment({
     // Failure callback
     window.epxFailureCallback = async (msg: any) => {
       console.error('[EPX Hosted] Payment failed:', msg);
+      const attemptedAmount = Number.isFinite(overrideAmountValue ?? NaN)
+        ? (overrideAmountValue as number)
+        : amount;
       
       // Parse EPX response object
       let errorMessage = 'Payment failed';
@@ -525,7 +536,7 @@ export default function EPXHostedPayment({
           memberId: customerId,
           failureMessage: typeof msg === 'object' ? msg.StatusMessage : msg,
           failureStatus: typeof msg === 'object' ? msg.Status : 'Failure',
-          amount: finalAmount
+          amount: attemptedAmount
         });
         console.log('[EPX Hosted] Payment failure recorded to database');
       } catch (recordError) {
@@ -559,6 +570,27 @@ export default function EPXHostedPayment({
     if (!scriptLoaded || !window.Epx) {
       setError('Payment processor not ready. Please refresh the page.');
       return;
+    }
+
+    if (isAchPayment) {
+      const routing = achFormData.routingNumber.trim();
+      const account = achFormData.accountNumber.trim();
+      const confirm = achFormData.confirmAccountNumber.trim();
+
+      if (!/^\d{9}$/.test(routing)) {
+        setError('Routing number must be exactly 9 digits.');
+        return;
+      }
+
+      if (!/^\d{4,17}$/.test(account)) {
+        setError('Account number must be 4 to 17 digits.');
+        return;
+      }
+
+      if (account !== confirm) {
+        setError('Account numbers do not match.');
+        return;
+      }
     }
 
     let latestToken: string | null = null;
@@ -640,48 +672,125 @@ export default function EPXHostedPayment({
 
         {/* EPX Hosted Checkout Form */}
         <form id="EpxCheckoutForm" name="EpxCheckoutForm" className="space-y-4">
-          {/* Card Number */}
-          <div>
-            <Label htmlFor="PAN">Card Number</Label>
-            <Input
-              type="text"
-              id="PAN"
-              name="PAN"
-              placeholder="1234 5678 9012 3456"
-              className="font-mono"
-              required
-            />
-          </div>
+          {!isAchPayment ? (
+            <>
+              {/* Card Number */}
+              <div>
+                <Label htmlFor="PAN">Card Number</Label>
+                <Input
+                  type="text"
+                  id="PAN"
+                  name="PAN"
+                  placeholder="1234 5678 9012 3456"
+                  className="font-mono"
+                  required
+                />
+              </div>
 
-          {/* Expiry */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="Expire">Expiry (MMYY)</Label>
-              <Input
-                type="text"
-                id="Expire"
-                name="Expire"
-                placeholder="0826"
-                maxLength={4}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="CVV">CVV</Label>
-              <Input
-                type="text"
-                id="CVV"
-                name="CVV"
-                placeholder="123"
-                maxLength={4}
-                required
-              />
-            </div>
-          </div>
+              {/* Expiry */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="Expire">Expiry (MMYY)</Label>
+                  <Input
+                    type="text"
+                    id="Expire"
+                    name="Expire"
+                    placeholder="0826"
+                    maxLength={4}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="CVV">CVV</Label>
+                  <Input
+                    type="text"
+                    id="CVV"
+                    name="CVV"
+                    placeholder="123"
+                    maxLength={4}
+                    required
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <Label htmlFor="ROUTING_NBR">Routing Number</Label>
+                <Input
+                  type="text"
+                  id="ROUTING_NBR"
+                  name="ROUTING_NBR"
+                  placeholder="9-digit routing number"
+                  inputMode="numeric"
+                  maxLength={9}
+                  value={achFormData.routingNumber}
+                  onChange={(event) => setAchFormData((prev) => ({
+                    ...prev,
+                    routingNumber: event.target.value.replace(/\D/g, ''),
+                  }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="ACCOUNT_NBR">Account Number</Label>
+                <Input
+                  type="text"
+                  id="ACCOUNT_NBR"
+                  name="ACCOUNT_NBR"
+                  placeholder="4-17 digit account number"
+                  inputMode="numeric"
+                  maxLength={17}
+                  value={achFormData.accountNumber}
+                  onChange={(event) => setAchFormData((prev) => ({
+                    ...prev,
+                    accountNumber: event.target.value.replace(/\D/g, ''),
+                  }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="ACCOUNT_NBR_CONFIRM">Confirm Account Number</Label>
+                <Input
+                  type="text"
+                  id="ACCOUNT_NBR_CONFIRM"
+                  name="ACCOUNT_NBR_CONFIRM"
+                  placeholder="Re-enter account number"
+                  inputMode="numeric"
+                  maxLength={17}
+                  value={achFormData.confirmAccountNumber}
+                  onChange={(event) => setAchFormData((prev) => ({
+                    ...prev,
+                    confirmAccountNumber: event.target.value.replace(/\D/g, ''),
+                  }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="ACCOUNT_TYPE">Account Type</Label>
+                <select
+                  id="ACCOUNT_TYPE"
+                  name="ACCOUNT_TYPE"
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={achFormData.accountType}
+                  onChange={(event) => setAchFormData((prev) => ({
+                    ...prev,
+                    accountType: event.target.value === 'Savings' ? 'Savings' : 'Checking',
+                  }))}
+                >
+                  <option value="Checking">Checking</option>
+                  <option value="Savings">Savings</option>
+                </select>
+              </div>
+            </>
+          )}
 
           {/* Billing Name */}
           <div>
-            <Label htmlFor="BillingName">Billing Name</Label>
+            <Label htmlFor="BillingName">{isAchPayment ? 'Account Holder Name' : 'Billing Name'}</Label>
             <Input
               type="text"
               id="BillingName"
@@ -690,6 +799,10 @@ export default function EPXHostedPayment({
               required
             />
           </div>
+
+          {isAchPayment && (
+            <input type="hidden" name="RECV_NAME" value={customerName} />
+          )}
 
           {/* Email */}
           <div>
@@ -787,7 +900,10 @@ export default function EPXHostedPayment({
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
           <input type="hidden" name="TerminalProfileId" value={sessionData?.terminalProfileId || ''} />
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
-          <input type="hidden" name="PaymentMethodType" value={paymentMethodType} />
+          <input type="hidden" name="PaymentMethodType" value={epxPaymentMethodType} />
+          {isAchPayment && (
+            <input type="hidden" name="TRAN_TYPE" value={achFormData.accountType === 'Savings' ? 'CKS2' : 'CKC2'} />
+          )}
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
         </form>
