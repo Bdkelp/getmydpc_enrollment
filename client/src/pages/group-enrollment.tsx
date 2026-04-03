@@ -3327,6 +3327,23 @@ export default function GroupEnrollment() {
   ).length ?? 0;
   const hasEnrollmentDataGaps = !profileComplete || activeMembersMissingRequired > 0;
   const canActivateGroup = activeMemberCount > 0 && profileComplete && isEnrollmentComplete && !isGroupActive;
+  const completeEnrollmentDisabledReason = isEnrollmentComplete
+    ? "Enrollment is already complete for this group."
+    : activeMemberCount === 0
+      ? "Capture at least one active member before completing enrollment."
+      : "";
+  const setActiveDisabledReason = isGroupActive
+    ? "Group is already active."
+    : !isEnrollmentComplete
+      ? "Complete enrollment first."
+      : !profileComplete
+        ? "Finish required group profile fields before activation."
+        : activeMemberCount === 0
+          ? "At least one active member is required before activation."
+          : "";
+  const unlockGroupDisabledReason = isGroupActive
+    ? ""
+    : "Unlock is only available after a group has been set Active.";
   const paymentHandoffStatusLabel = selectedGroup?.data?.hostedCheckoutStatus || "not-started";
   const paymentHandoffBadgeClass = paymentHandoffStatusLabel === "ready"
     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -5406,6 +5423,15 @@ export default function GroupEnrollment() {
                                 <div>
                                   <p className="font-medium">{member.firstName} {member.lastName}</p>
                                   <p className="text-xs text-gray-500">{member.email}</p>
+                                  <Button
+                                    type="button"
+                                    variant="link"
+                                    size="sm"
+                                    className="h-auto px-0 text-xs"
+                                    onClick={() => handleEditMemberClick(member)}
+                                  >
+                                    Edit EE info
+                                  </Button>
                                 </div>
                               </TableCell>
                               <TableCell>{getDisplayRelationshipLabel(member)}</TableCell>
@@ -5567,6 +5593,9 @@ export default function GroupEnrollment() {
                             ? 'Completing...'
                             : 'Complete Enrollment'}
                       </Button>
+                      {completeEnrollmentDisabledReason && (
+                        <p className="text-xs text-slate-500 text-center">{completeEnrollmentDisabledReason}</p>
+                      )}
                       <Button
                         className="w-full"
                         variant="outline"
@@ -5579,6 +5608,9 @@ export default function GroupEnrollment() {
                             ? 'Activating...'
                             : 'Set Active'}
                       </Button>
+                      {setActiveDisabledReason && (
+                        <p className="text-xs text-slate-500 text-center">{setActiveDisabledReason}</p>
+                      )}
                       <Button
                         className="w-full"
                         variant="outline"
@@ -5587,6 +5619,9 @@ export default function GroupEnrollment() {
                       >
                         {unlockGroupMutation.isPending ? 'Unlocking...' : 'Unlock Group'}
                       </Button>
+                      {unlockGroupDisabledReason && (
+                        <p className="text-xs text-slate-500 text-center">{unlockGroupDisabledReason}</p>
+                      )}
                     </div>
                     {hasEnrollmentDataGaps && !isEnrollmentComplete && (
                       <p className="mt-2 text-xs text-slate-500 text-center">
@@ -5609,7 +5644,7 @@ export default function GroupEnrollment() {
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Enrollment workflow</AlertTitle>
                 <AlertDescription>
-                  Use this workspace to capture members and complete enrollment. Activation and payment handoff can happen at different times.
+                  Complete Enrollment marks the group as Registered, Set Active advances it to Active, and Unlock Group moves an Active group back to Registered so EE/profile data can be edited.
                 </AlertDescription>
               </Alert>
                 </>
