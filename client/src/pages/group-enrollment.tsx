@@ -952,6 +952,17 @@ const derivePayorTypeFromPaymentResponsibility = (mode: GroupProfile["paymentRes
   return "mixed";
 };
 
+const maskLastFour = (value: string): string => {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return "-";
+  return `****${digits.slice(-4)}`;
+};
+
+const displayOrDash = (value: string): string => {
+  const normalized = String(value || "").trim();
+  return normalized || "-";
+};
+
 const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile => {
   if (!ctx?.profile) return { ...defaultGroupProfileForm };
   return {
@@ -5225,6 +5236,44 @@ export default function GroupEnrollment() {
                     </div>
                   </div>
                 )}
+
+                <div className="space-y-3 border rounded-md p-3 bg-slate-50">
+                  <h4 className="text-sm font-semibold text-slate-800">Payment Profile On File</h4>
+                  <p className="text-xs text-slate-600">
+                    Read-only snapshot used to prefill hosted checkout for this group.
+                  </p>
+                  {groupProfileForm.preferredPaymentMethod === "ach" ? (
+                    <div className="grid gap-3 sm:grid-cols-2 text-sm text-slate-700">
+                      <p>
+                        Bank Name: <span className="font-medium text-slate-900">{displayOrDash(groupProfileForm.achBankName)}</span>
+                      </p>
+                      <p>
+                        Account Type: <span className="font-medium text-slate-900 capitalize">{displayOrDash(groupProfileForm.achAccountType)}</span>
+                      </p>
+                      <p>
+                        Routing: <span className="font-medium text-slate-900">{maskLastFour(groupProfileForm.achRoutingNumber)}</span>
+                      </p>
+                      <p>
+                        Account: <span className="font-medium text-slate-900">{maskLastFour(groupProfileForm.achAccountNumber)}</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 text-sm text-slate-700">
+                      <p>
+                        Card Ending: <span className="font-medium text-slate-900">{maskLastFour(groupProfileForm.cardLast4)}</span>
+                      </p>
+                      <p>
+                        Expiry: <span className="font-medium text-slate-900">{displayOrDash(groupProfileForm.cardExpiry)}</span>
+                      </p>
+                      <p>
+                        Billing ZIP: <span className="font-medium text-slate-900">{displayOrDash(groupProfileForm.cardBillingZip)}</span>
+                      </p>
+                      <p>
+                        Billing Name: <span className="font-medium text-slate-900">{displayOrDash(groupProfileForm.cardBillingName)}</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
                 </fieldset>
 
                 <div className="flex justify-end">
