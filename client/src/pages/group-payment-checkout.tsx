@@ -100,6 +100,8 @@ export default function GroupPaymentCheckoutPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [hasLaunchedPayment, setHasLaunchedPayment] = useState(false);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+  const [generatedPaymentLink, setGeneratedPaymentLink] = useState<string>("");
 
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
 
@@ -293,6 +295,119 @@ export default function GroupPaymentCheckoutPage() {
     setHasLaunchedPayment(true);
   };
 
+  const handleGeneratePaymentLink = async () => {
+    if (!isGroupInvoiceMode && !member) {
+      toast({
+        title: "Member not loaded",
+        description: "Wait for member details before generating payment link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isGroupInvoiceMode && !invoiceContactEmail) {
+      toast({
+        title: "Group contact missing",
+        description: "Set a responsible or contact email in Group Profile before generating a payment link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (resolvedAmount <= 0) {
+      toast({
+        title: "Amount missing",
+        description: "Set a valid amount before generating a payment link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isGroupInvoiceMode && selectedMemberIds.length === 0) {
+      toast({
+        title: "No employees selected",
+        description: "Select at least one employee before generating group payment link.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isInteger(monthsToCollect) || monthsToCollect < 1 || monthsToCollect > MAX_MONTHS_TO_COLLECT) {
+      toast({
+        title: "Invalid month count",
+        description: `Months to collect must be between 1 and ${MAX_MONTHS_TO_COLLECT}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGeneratingLink(true);
+    try {
+      const response = await apiRequest('/api/epx/hosted/create-payment', {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: resolvedAmount,
+          customerId: user?.id || '',
+          customerEmail: isGroupInvoiceMode ? invoiceContactEmail : (member?.email || user?.email || ''),
+          customerName: isGroupInvoiceMode
+            ? invoiceContactName
+            : (`${member?.firstName || ""} ${member?.lastName || ""}`.trim() || member?.email || invoiceContactName),
+          description: isGroupInvoiceMode
+            ? `Group invoice payment for ${groupData?.name || groupId} (${selectedMembers.length} employee${selectedMembers.length === 1 ? "" : "s"}, ${monthsToCollect} month${monthsToCollect === 1 ? "" : "s"})`
+            : `Group payment for ${groupData?.name || groupId} member #${member?.id} (${monthsToCollect} month${monthsToCollect === 1 ? "" : "s"})`,
+          groupId,
+          groupMemberId: isGroupInvoiceMode ? undefined : member?.id,
+          selectedGroupMemberIds: isGroupInvoiceMode ? selectedMemberIds : undefined,
+          paymentScope: isGroupInvoiceMode ? 'group_invoice' : 'member',
+          paymentMethodType: resolvedPaymentMethodType,
+          deliveryMode: 'payment_link',
+          billingAddress: {
+            streetAddress: isGroupInvoiceMode
+              ? (groupBusinessAddress?.line1 || undefined)
+              : (member?.address1 || undefined),
+            city: isGroupInvoiceMode
+              ? (groupBusinessAddress?.city || undefined)
+              : (member?.city || undefined),
+            state: isGroupInvoiceMode
+              ? (groupBusinessAddress?.state || undefined)
+              : (member?.state || undefined),
+            postalCode: isGroupInvoiceMode
+              ? (groupCardDetails?.billingZip || groupBusinessAddress?.zipCode || undefined)
+              : (member?.zipCode || undefined),
+          },
+        }),
+      });
+
+      const hostedPaymentLink = String(response?.hostedPaymentLink || '').trim();
+      if (!hostedPaymentLink) {
+        throw new Error('Hosted payment link was not returned by server.');
+      }
+
+      setGeneratedPaymentLink(hostedPaymentLink);
+
+      try {
+        await navigator.clipboard.writeText(hostedPaymentLink);
+        toast({
+          title: 'Payment link generated',
+          description: 'Hosted link copied to clipboard and ready to send.',
+        });
+      } catch {
+        toast({
+          title: 'Payment link generated',
+          description: 'Copy the link from the field below and send it to the customer.',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Unable to generate payment link',
+        description: error?.message || 'Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
   const handleBack = () => {
     if (hasAtLeastRole(user?.role, "admin")) {
       setLocation("/admin/groups");
@@ -478,6 +593,13 @@ export default function GroupPaymentCheckoutPage() {
                   <Button onClick={handleLaunch} disabled={resolvedAmount <= 0}>
                     {resolvedPaymentMethodType === "ACH" ? "Launch ACH Checkout" : "Launch Card Checkout"}
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleGeneratePaymentLink}
+                    disabled={resolvedAmount <= 0 || isGeneratingLink}
+                  >
+                    {isGeneratingLink ? 'Generating Link...' : 'Generate Payment Link'}
+                  </Button>
                   <Button variant="ghost" onClick={handleBack}>Cancel</Button>
                 </div>
               ) : (
@@ -540,6 +662,42 @@ export default function GroupPaymentCheckoutPage() {
                     });
                   }}
                 />
+              )}
+
+              {!!generatedPaymentLink && !hasLaunchedPayment && (
+                <div className="space-y-2 rounded-md border p-3 bg-slate-50">
+                  <Label htmlFor="generated-payment-link">Hosted Payment Link</Label>
+                  <Input
+                    id="generated-payment-link"
+                    value={generatedPaymentLink}
+                    readOnly
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(generatedPaymentLink);
+                          toast({ title: 'Copied', description: 'Payment link copied to clipboard.' });
+                        } catch {
+                          toast({ title: 'Copy failed', description: 'Copy manually from the field.', variant: 'destructive' });
+                        }
+                      }}
+                    >
+                      Copy Link
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(generatedPaymentLink, '_blank', 'noopener,noreferrer')}
+                    >
+                      Open Link
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

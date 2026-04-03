@@ -10,7 +10,7 @@ import { createHash } from 'crypto';
 import { EPXHostedCheckoutService, type EPXHostedCheckoutConfig } from '../services/epx-hosted-checkout-service';
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { isAtLeastAdmin } from '../auth/roles';
+import { hasAtLeastRole, isAtLeastAdmin } from '../auth/roles';
 import { supabase } from '../lib/supabaseClient';
 import { verifyRecaptcha, isRecaptchaEnabled } from '../utils/recaptcha';
 import { logEPX, getRecentEPXLogs } from '../services/epx-payment-logger';
@@ -358,6 +358,93 @@ function normalizeBillingAddress(address: any): BillingAddress | undefined {
   const hasValue = Object.values(normalized).some(Boolean);
   return hasValue ? normalized : undefined;
 }
+
+const sanitizeAlphaNumericToken = (value: string, maxLength: number): string => {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, maxLength);
+};
+
+const buildShortInvoiceNo = (customerName: string | undefined, description: string | undefined, orderNumber: string): string => {
+  const now = new Date();
+  const datePart = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+
+  const nameParts = String(customerName || '').trim().split(/\s+/).filter(Boolean);
+  const firstInitial = sanitizeAlphaNumericToken(nameParts[0] || 'X', 1) || 'X';
+  const lastNameSource = nameParts.length > 1 ? nameParts[nameParts.length - 1] : (nameParts[0] || 'USER');
+  const lastNameToken = sanitizeAlphaNumericToken(lastNameSource, 4) || 'USER';
+
+  const normalizedDescription = String(description || '').toLowerCase();
+  const tierToken = normalizedDescription.includes('elite')
+    ? 'E'
+    : normalizedDescription.includes('plus')
+      ? 'P'
+      : 'B';
+
+  const sequence = String(orderNumber || '').replace(/\D/g, '').slice(-2).padStart(2, '0');
+  return `${datePart}-${firstInitial}${lastNameToken}-${tierToken}-${sequence}`.slice(0, 25);
+};
+
+const toHostedCheckoutBaseUrl = (scriptUrl: string, environment: string): string => {
+  if (scriptUrl && scriptUrl.includes('/')) {
+    return scriptUrl.replace(/\/post\.js(?:\?.*)?$/i, '/');
+  }
+
+  return environment === 'production' ? 'https://hosted.epx.com/' : 'https://hosted.epxuap.com/';
+};
+
+const buildHostedPaymentLink = (options: {
+  scriptUrl: string;
+  environment: string;
+  terminalProfileId: string;
+  amount: string;
+  invoiceNo: string;
+  description?: string;
+  billingName?: string;
+  email?: string;
+  billingAddress?: BillingAddress;
+}): string => {
+  const baseUrl = toHostedCheckoutBaseUrl(options.scriptUrl, options.environment);
+  const params = new URLSearchParams();
+  params.set('terminal_profile_id', options.terminalProfileId);
+  params.set('amount', options.amount);
+  params.set('invoice_no', options.invoiceNo);
+
+  const safeDescription = String(options.description || '').replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 25).trim();
+  if (safeDescription) {
+    params.set('description', safeDescription);
+  }
+
+  if (options.billingName) {
+    params.set('billing_name', String(options.billingName).replace(/[^a-zA-Z0-9 ]/g, '').trim());
+  }
+
+  if (options.email) {
+    params.set('email', String(options.email).trim());
+  }
+
+  if (options.billingAddress?.streetAddress) {
+    params.set('billing_address', String(options.billingAddress.streetAddress).trim());
+  }
+  if (options.billingAddress?.city) {
+    params.set('billing_city', String(options.billingAddress.city).replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 25).trim());
+  }
+  if (options.billingAddress?.state) {
+    const state = String(options.billingAddress.state).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+    if (state) {
+      params.set('billing_state', state);
+    }
+  }
+  if (options.billingAddress?.postalCode) {
+    const postal = String(options.billingAddress.postalCode).replace(/\D/g, '').slice(0, 5);
+    if (postal) {
+      params.set('billing_postal_code', postal);
+    }
+  }
+
+  return `${baseUrl}?${params.toString()}`;
+};
 
 const parseNumericGroupMemberId = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -785,11 +872,25 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       selectedGroupMemberIds,
       paymentScope,
       paymentMethodType,
+      deliveryMode,
     } = req.body;
 
     const normalizedRequestedPaymentMethodType = String(paymentMethodType || '').trim().toUpperCase() === 'ACH'
       ? 'ACH'
       : 'CreditCard';
+    const normalizedDeliveryMode = typeof deliveryMode === 'string'
+      ? deliveryMode.trim().toLowerCase()
+      : '';
+    const isPaymentLinkMode = normalizedDeliveryMode === 'payment_link';
+
+    if (isPaymentLinkMode) {
+      if (!authenticatedUser || !hasAtLeastRole(authenticatedUser.role, 'agent')) {
+        return res.status(403).json({
+          success: false,
+          error: 'Authenticated agent/admin access is required to generate payment links'
+        });
+      }
+    }
 
     const explicitGroupId = typeof groupId === 'string' ? groupId.trim() : '';
     const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
@@ -1071,7 +1172,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     });
 
     // Server-side reCAPTCHA verification (production only or when enabled)
-    if (isRecaptchaEnabled()) {
+    if (isRecaptchaEnabled() && !isPaymentLinkMode) {
       const verifyResult = await verifyRecaptcha(captchaToken || '', 'hosted_checkout');
       logEPX({ level: verifyResult.success ? 'info' : 'warn', phase: 'recaptcha', message: 'Token verification', data: verifyResult });
       if (!verifyResult.success) {
@@ -1081,6 +1182,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     // Generate order number (transaction ID)
     const orderNumber = Date.now().toString().slice(-10);
+    const shortInvoiceNo = buildShortInvoiceNo(effectiveCustomerName, effectiveDescription, orderNumber);
 
     // Create checkout session
     const sessionResponse = hostedCheckoutService.createCheckoutSession(
@@ -1112,6 +1214,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       };
 
       paymentMetadata.requestedPaymentMethodType = normalizedRequestedPaymentMethodType;
+      paymentMetadata.deliveryMode = isPaymentLinkMode ? 'payment_link' : 'embedded_checkout';
+      paymentMetadata.shortInvoiceNo = shortInvoiceNo;
 
       if (hasGroupPaymentContext) {
         paymentMetadata.groupPaymentContext = {
@@ -1248,6 +1352,21 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       }
     };
 
+    if (isPaymentLinkMode) {
+      responsePayload.formData.invoiceNumber = shortInvoiceNo;
+      responsePayload.hostedPaymentLink = buildHostedPaymentLink({
+        scriptUrl: config.scriptUrl,
+        environment: config.environment,
+        terminalProfileId: config.terminalProfileId,
+        amount: effectiveAmount.toFixed(2),
+        invoiceNo: shortInvoiceNo,
+        description: effectiveDescription,
+        billingName: effectiveCustomerName || 'Customer',
+        email: effectiveCustomerEmail,
+        billingAddress: effectiveBillingAddress,
+      });
+    }
+
     // Log the payload we send to frontend (which frontend will use to call EPX)
     console.log(
       '[EPX Hosted Checkout - REQUEST TO FRONTEND]',
@@ -1302,7 +1421,9 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
               retryReason: retryContext?.reason || retryReason || null,
               amountOverride: hasAmountOverride ? parsedAmountOverride : null,
               amountOverrideReason: normalizedAmountOverrideReason,
-              overrideApprovedBy: overrideApprovedBy?.id || null
+              overrideApprovedBy: overrideApprovedBy?.id || null,
+              deliveryMode: isPaymentLinkMode ? 'payment_link' : 'embedded_checkout',
+              shortInvoiceNo,
             },
             ipAddress: req.ip,
             userAgent: req.get('user-agent') || undefined
