@@ -212,29 +212,20 @@ const resolvePlanName = (group, member) => {
 const resolvePbmEnabled = (group, member) => {
   const payload = toObject(member.registration_payload);
   const metadata = toObject(member.metadata);
-  const groupMeta = toObject(group.metadata);
-  const groupPlan = toObject(toObject(groupMeta.groupProfile).planSelection);
 
   return Boolean(
-    groupPlan.pbmEnabled
-    ?? payload.pbmEnabled
+    payload.pbmEnabled
     ?? payload.pbm
     ?? metadata.pbmEnabled
     ?? metadata.pbm
-    ?? groupMeta.pbmEnabled
-    ?? groupMeta.pbm
   );
 };
 
 const resolvePbmAmount = (group, member) => {
   const payload = toObject(member.registration_payload);
   const metadata = toObject(member.metadata);
-  const groupMeta = toObject(group.metadata);
-  const groupPlan = toObject(toObject(groupMeta.groupProfile).planSelection);
 
   const candidates = [
-    groupPlan.pbmAmount,
-    groupMeta.pbmAmount,
     payload.pbmAmount,
     metadata.pbmAmount,
   ];

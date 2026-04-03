@@ -1749,8 +1749,8 @@ export default function GroupEnrollment() {
       selectedPlanId: groupProfileForm.selectedPlanId || "",
       selectedPlanName: groupProfileForm.selectedPlanName || "",
       selectedPlanTier: groupProfileForm.selectedPlanTier || "",
-      pbmEnabled: groupProfileForm.pbmEnabled,
-      pbmAmount: groupProfileForm.pbmAmount || "",
+      pbmEnabled: false,
+      pbmAmount: "",
       ...overrides,
     });
   };
@@ -3210,7 +3210,7 @@ export default function GroupEnrollment() {
       pbmEnabled: Boolean(memberPbmEnabledRaw),
       pbmAmount:
         memberPbmAmountRaw === null || memberPbmAmountRaw === undefined || memberPbmAmountRaw === ""
-          ? (groupProfileForm.pbmAmount || "")
+          ? ""
           : String(memberPbmAmountRaw),
       tier: deriveTierFromRelationship(normalizedRelationship, member.tier),
       payorType: member.payorType || selectedGroup?.data?.payorType || "full",
