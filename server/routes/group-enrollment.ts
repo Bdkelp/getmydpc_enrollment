@@ -91,6 +91,56 @@ const parseAmount = (value: unknown): string | null => {
   return numeric.toFixed(2);
 };
 
+const TRANSIENT_GATEWAY_ERROR_PATTERNS = [
+  '502',
+  'bad gateway',
+  'cloudflare',
+  'sgtnzhgxlkcvtrzejobx.supabase.co',
+];
+
+const isTransientGatewayError = (error: unknown): boolean => {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const normalized = raw.toLowerCase();
+  return TRANSIENT_GATEWAY_ERROR_PATTERNS.some((pattern) => normalized.includes(pattern));
+};
+
+const sanitizeGatewayErrorMessage = (error: unknown): string => {
+  if (isTransientGatewayError(error)) {
+    return 'Temporary upstream gateway error while contacting database provider. Please retry.';
+  }
+
+  return error instanceof Error ? error.message : 'Unexpected server error';
+};
+
+const retryOnTransientGatewayError = async <T>(
+  task: () => Promise<T>,
+  label: string,
+  maxRetries = 2,
+): Promise<T> => {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientGatewayError(error) || attempt === maxRetries) {
+        throw error;
+      }
+
+      const delayMs = 200 * (attempt + 1);
+      console.warn('[Group Enrollment] Retrying transient gateway failure', {
+        label,
+        attempt: attempt + 1,
+        delayMs,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
+};
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ALLOWED_MEMBER_TIERS = new Set(['member', 'spouse', 'child', 'family']);
 const ALLOWED_MEMBER_STATUSES = new Set(['draft', 'ready', 'registered', 'terminated']);
@@ -4288,11 +4338,17 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.registrationPayload = memberDataWithHousehold.registrationPayload;
     }
 
-    const updated = await updateGroupMember(numericMemberId, updatePayload);
+    const updated = await retryOnTransientGatewayError(
+      () => updateGroupMember(numericMemberId, updatePayload),
+      'update-group-member',
+    );
 
     if (isPrimaryMember) {
       const coverageTier = resolveCoverageTierFromPlanName(selectedPlanName);
-      await autoLinkDependentsForPrimaryCoverage(groupId, numericMemberId, coverageTier);
+      await retryOnTransientGatewayError(
+        () => autoLinkDependentsForPrimaryCoverage(groupId, numericMemberId, coverageTier),
+        'auto-link-dependents',
+      );
     }
 
     if (includeSsnIntentRaw.provided && isPrimaryMember && canEditSsn) {
@@ -4308,10 +4364,15 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     return res.json({ data: toMemberResponse(updated, shouldRevealMemberSsn(req)) });
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group member:', error);
-    const message = error instanceof Error ? error.message : 'Failed to update group member';
+    const message = sanitizeGatewayErrorMessage(error);
     if (message === 'Invalid SSN format') {
       return res.status(400).json({ message });
     }
+
+    if (isTransientGatewayError(error)) {
+      return res.status(503).json({ message });
+    }
+
     return res.status(500).json({ message });
   }
 });
