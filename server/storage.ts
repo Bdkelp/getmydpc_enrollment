@@ -1018,6 +1018,39 @@ function mapUserFromDB(data: any): User | null {
 
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
+    const maskAccountLikeValue = (value: unknown): string => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const digits = raw.replace(/\D/g, '');
+      if (!digits) return '***';
+      const last4 = digits.slice(-4);
+      return `****${last4}`;
+    };
+
+    const sanitizeUserDebugData = (value: any): any => {
+      if (!value || typeof value !== 'object') {
+        return value;
+      }
+
+      const sanitized = { ...value };
+      const sensitiveKeys = [
+        'routing_number',
+        'account_number',
+        'routingNumber',
+        'accountNumber',
+        'bank_routing_number',
+        'bank_account_number',
+      ];
+
+      sensitiveKeys.forEach((key) => {
+        if (sanitized[key] !== undefined && sanitized[key] !== null) {
+          sanitized[key] = maskAccountLikeValue(sanitized[key]);
+        }
+      });
+
+      return sanitized;
+    };
+
     console.log('[Storage] getUserByEmail called with:', email);
     // Use Supabase to fetch user by email
     // The users table doesn't have an 'id' column - use email as the primary identifier
@@ -1030,7 +1063,8 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     
     // DEBUG: Log the actual data structure
     if (data) {
-      console.log('[Storage] getUserByEmail RAW data:', JSON.stringify(data, null, 2));
+      const safeDataForLog = sanitizeUserDebugData(data);
+      console.log('[Storage] getUserByEmail RAW data:', JSON.stringify(safeDataForLog, null, 2));
       console.log('[Storage] getUserByEmail data.id:', data.id);
       console.log('[Storage] getUserByEmail data keys:', Object.keys(data));
     }
