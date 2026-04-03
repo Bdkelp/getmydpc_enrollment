@@ -7,6 +7,9 @@ import { hasAtLeastRole } from "@/lib/roles";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
@@ -52,6 +55,26 @@ const parseCurrency = (value: unknown): number => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
+const MAX_MONTHS_TO_COLLECT = 24;
+
+const normalizeMonthCount = (value: unknown): number => {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 1;
+  }
+
+  const integerValue = Math.trunc(numeric);
+  if (integerValue < 1) {
+    return 1;
+  }
+
+  if (integerValue > MAX_MONTHS_TO_COLLECT) {
+    return MAX_MONTHS_TO_COLLECT;
+  }
+
+  return integerValue;
+};
+
 export default function GroupPaymentCheckoutPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
@@ -66,9 +89,12 @@ export default function GroupPaymentCheckoutPage() {
   const isGroupInvoiceMode = mode === "group_invoice";
   const groupMemberIdRaw = searchParams.get("groupMemberId") || "";
   const amountParam = searchParams.get("amount") || "";
+  const monthsParam = searchParams.get("months") || "1";
   const preferredPaymentMethodParam = (searchParams.get("preferredPaymentMethod") || "").trim().toLowerCase();
   const groupMemberId = Number(groupMemberIdRaw);
   const requestedAmount = Number(amountParam);
+  const [monthsToCollect, setMonthsToCollect] = useState<number>(() => normalizeMonthCount(monthsParam));
+  const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
 
   const validationError = (() => {
     if (!groupId) {
@@ -124,25 +150,56 @@ export default function GroupPaymentCheckoutPage() {
     [groupQuery.data?.members],
   );
 
+  useEffect(() => {
+    if (!isGroupInvoiceMode) {
+      return;
+    }
+
+    const activeIds = activeMembers
+      .map((memberItem) => memberItem.id)
+      .filter((id) => Number.isFinite(id));
+
+    setSelectedMemberIds((previous) => {
+      if (!previous.length) {
+        return activeIds;
+      }
+
+      const next = previous.filter((id) => activeIds.includes(id));
+      return next.length ? next : activeIds;
+    });
+  }, [activeMembers, isGroupInvoiceMode]);
+
+  const selectedMembers = useMemo(() => {
+    if (!isGroupInvoiceMode) {
+      return [] as GroupMember[];
+    }
+
+    const selectedSet = new Set(selectedMemberIds);
+    return activeMembers.filter((memberItem) => selectedSet.has(memberItem.id));
+  }, [activeMembers, isGroupInvoiceMode, selectedMemberIds]);
+
+  const calculateMemberMonthlyTotal = (memberItem: GroupMember): number => {
+    const explicit = parseCurrency(memberItem.totalAmount);
+    if (explicit > 0) {
+      return explicit;
+    }
+
+    const derived = parseCurrency(memberItem.employerAmount) + parseCurrency(memberItem.memberAmount) - parseCurrency(memberItem.discountAmount);
+    return derived > 0 ? derived : 0;
+  };
+
   const member = useMemo(
     () => (groupQuery.data?.members || []).find((item) => item.id === groupMemberId) || null,
     [groupMemberId, groupQuery.data?.members],
   );
 
-  const resolvedAmount = useMemo(() => {
+  const baseAmount = useMemo(() => {
     if (Number.isFinite(requestedAmount) && requestedAmount > 0) {
       return requestedAmount;
     }
 
     if (isGroupInvoiceMode) {
-      const aggregate = activeMembers.reduce((sum, item) => {
-        const explicit = parseCurrency(item.totalAmount);
-        if (explicit > 0) {
-          return sum + explicit;
-        }
-        const derived = parseCurrency(item.employerAmount) + parseCurrency(item.memberAmount) - parseCurrency(item.discountAmount);
-        return sum + (derived > 0 ? derived : 0);
-      }, 0);
+      const aggregate = selectedMembers.reduce((sum, item) => sum + calculateMemberMonthlyTotal(item), 0);
       return aggregate > 0 ? aggregate : 0;
     }
 
@@ -157,7 +214,13 @@ export default function GroupPaymentCheckoutPage() {
 
     const derived = parseCurrency(member.employerAmount) + parseCurrency(member.memberAmount) - parseCurrency(member.discountAmount);
     return derived > 0 ? derived : 0;
-  }, [activeMembers, isGroupInvoiceMode, member, requestedAmount]);
+  }, [isGroupInvoiceMode, member, requestedAmount, selectedMembers]);
+
+  const resolvedAmount = useMemo(() => {
+    const normalizedMonths = normalizeMonthCount(monthsToCollect);
+    const multipliedAmount = baseAmount * normalizedMonths;
+    return Number.isFinite(multipliedAmount) && multipliedAmount > 0 ? multipliedAmount : 0;
+  }, [baseAmount, monthsToCollect]);
 
   const handleLaunch = () => {
     if (!isGroupInvoiceMode && !member) {
@@ -187,6 +250,24 @@ export default function GroupPaymentCheckoutPage() {
       return;
     }
 
+    if (isGroupInvoiceMode && selectedMemberIds.length === 0) {
+      toast({
+        title: "No employees selected",
+        description: "Select at least one employee before launching group checkout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isInteger(monthsToCollect) || monthsToCollect < 1 || monthsToCollect > MAX_MONTHS_TO_COLLECT) {
+      toast({
+        title: "Invalid month count",
+        description: `Months to collect must be between 1 and ${MAX_MONTHS_TO_COLLECT}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setHasLaunchedPayment(true);
   };
 
@@ -196,6 +277,23 @@ export default function GroupPaymentCheckoutPage() {
       return;
     }
     setLocation("/agent/groups");
+  };
+
+  const toggleSelectedMember = (memberId: number) => {
+    setSelectedMemberIds((previous) => {
+      if (previous.includes(memberId)) {
+        return previous.filter((id) => id !== memberId);
+      }
+      return [...previous, memberId];
+    });
+  };
+
+  const selectAllMembers = () => {
+    setSelectedMemberIds(activeMembers.map((memberItem) => memberItem.id));
+  };
+
+  const clearSelectedMembers = () => {
+    setSelectedMemberIds([]);
   };
 
   if (isLoading || (isAuthenticated && isAgentOrAbove && groupQuery.isLoading)) {
@@ -264,7 +362,9 @@ export default function GroupPaymentCheckoutPage() {
                   <>
                     <div>
                       <p className="text-gray-500">Scope</p>
-                      <p className="font-medium">Group Invoice ({activeMembers.length} active members)</p>
+                      <p className="font-medium">
+                        Group Invoice ({selectedMembers.length}/{activeMembers.length} selected)
+                      </p>
                     </div>
                     <div>
                       <p className="text-gray-500">Billing Contact</p>
@@ -287,7 +387,69 @@ export default function GroupPaymentCheckoutPage() {
                   <p className="text-gray-500">Amount</p>
                   <p className="font-medium">${resolvedAmount.toFixed(2)}</p>
                 </div>
+                <div>
+                  <p className="text-gray-500">Billing Months</p>
+                  <p className="font-medium">{monthsToCollect}</p>
+                </div>
+                {monthsToCollect > 1 && (
+                  <div>
+                    <p className="text-gray-500">Monthly Base</p>
+                    <p className="font-medium">${baseAmount.toFixed(2)}</p>
+                  </div>
+                )}
               </div>
+
+              <div className="max-w-xs space-y-2">
+                <Label htmlFor="months-to-collect">Months to Collect</Label>
+                <Input
+                  id="months-to-collect"
+                  type="number"
+                  min={1}
+                  max={MAX_MONTHS_TO_COLLECT}
+                  step={1}
+                  value={monthsToCollect}
+                  onChange={(event) => {
+                    const numeric = Number(event.target.value);
+                    if (!Number.isFinite(numeric)) {
+                      setMonthsToCollect(1);
+                      return;
+                    }
+                    setMonthsToCollect(normalizeMonthCount(numeric));
+                  }}
+                />
+                <p className="text-xs text-gray-500">
+                  Collect up to {MAX_MONTHS_TO_COLLECT} months in a single hosted checkout.
+                </p>
+              </div>
+
+              {isGroupInvoiceMode && (
+                <div className="space-y-3 rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-gray-700">Employees Included In This Charge</p>
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={selectAllMembers}>Select All</Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={clearSelectedMembers}>Clear</Button>
+                    </div>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto space-y-2">
+                    {activeMembers.map((memberItem) => {
+                      const included = selectedMemberIds.includes(memberItem.id);
+                      return (
+                        <label key={memberItem.id} className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              checked={included}
+                              onCheckedChange={() => toggleSelectedMember(memberItem.id)}
+                            />
+                            <span>{memberItem.firstName} {memberItem.lastName}</span>
+                          </div>
+                          <span className="font-medium">${calculateMemberMonthlyTotal(memberItem).toFixed(2)}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {!hasLaunchedPayment ? (
                 <div className="flex flex-wrap gap-3">
@@ -305,8 +467,8 @@ export default function GroupPaymentCheckoutPage() {
                     ? invoiceContactName
                     : (`${member?.firstName || ""} ${member?.lastName || ""}`.trim() || member?.email || invoiceContactName)}
                   description={isGroupInvoiceMode
-                    ? `Group invoice payment for ${groupData?.name || groupId}`
-                    : `Group payment for ${groupData?.name || groupId} member #${member?.id}`}
+                    ? `Group invoice payment for ${groupData?.name || groupId} (${selectedMembers.length} employee${selectedMembers.length === 1 ? "" : "s"}, ${monthsToCollect} month${monthsToCollect === 1 ? "" : "s"})`
+                    : `Group payment for ${groupData?.name || groupId} member #${member?.id} (${monthsToCollect} month${monthsToCollect === 1 ? "" : "s"})`}
                   groupId={groupId}
                   groupMemberId={isGroupInvoiceMode ? undefined : member?.id}
                   paymentScope={isGroupInvoiceMode ? "group_invoice" : "member"}
