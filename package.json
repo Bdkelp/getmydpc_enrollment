@@ -20,6 +20,7 @@
     "test": "npm run test:scheduler",
     "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
     "audit:ach-go-live": "node scripts/audit-ach-go-live.mjs",
+    "audit:group-member-drift": "node scripts/audit-group-member-drift.mjs",
     "enable:ach-live": "node scripts/enable-ach-live-flags.mjs --apply",
     "disable:ach-live": "node scripts/disable-ach-live-flags.mjs --apply",
     "ready:ach-live": "node scripts/enable-ach-live-flags.mjs --apply && node scripts/audit-ach-go-live.mjs --strict",
