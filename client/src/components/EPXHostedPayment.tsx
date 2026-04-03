@@ -32,6 +32,7 @@ interface EPXHostedPaymentProps {
   retryMemberId?: string;
   groupId?: string;
   groupMemberId?: number | string;
+  selectedGroupMemberIds?: number[];
   paymentScope?: "member" | "group_invoice";
   paymentMethodType?: "CreditCard" | "ACH";
   billingAddress?: {
@@ -68,6 +69,7 @@ export default function EPXHostedPayment({
   retryMemberId,
   groupId,
   groupMemberId,
+  selectedGroupMemberIds,
   paymentScope,
   paymentMethodType = "CreditCard",
   billingAddress = {},
@@ -267,6 +269,10 @@ export default function EPXHostedPayment({
           payload.groupMemberId = groupMemberId;
         }
 
+        if (Array.isArray(selectedGroupMemberIds) && selectedGroupMemberIds.length > 0) {
+          payload.selectedGroupMemberIds = selectedGroupMemberIds;
+        }
+
         if (paymentScope) {
           payload.paymentScope = paymentScope;
         }
@@ -345,7 +351,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId, paymentScope, paymentMethodType]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId, selectedGroupMemberIds, paymentScope, paymentMethodType]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {

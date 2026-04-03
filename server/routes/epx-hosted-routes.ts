@@ -374,6 +374,22 @@ const parseNumericGroupMemberId = (value: unknown): number | null => {
   return null;
 };
 
+const parseNumericGroupMemberIdList = (value: unknown): number[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const uniqueIds = new Set<number>();
+  for (const item of value) {
+    const parsed = parseNumericGroupMemberId(item);
+    if (parsed && parsed > 0) {
+      uniqueIds.add(parsed);
+    }
+  }
+
+  return Array.from(uniqueIds);
+};
+
 const extractGroupPaymentContext = (metadata: Record<string, any>): { groupId: string; groupMemberId: number } | null => {
   const nested = metadata.groupPaymentContext && typeof metadata.groupPaymentContext === 'object'
     ? metadata.groupPaymentContext
@@ -392,7 +408,7 @@ const extractGroupPaymentContext = (metadata: Record<string, any>): { groupId: s
   return { groupId, groupMemberId };
 };
 
-const extractGroupInvoiceContext = (metadata: Record<string, any>): { groupId: string } | null => {
+const extractGroupInvoiceContext = (metadata: Record<string, any>): { groupId: string; selectedGroupMemberIds: number[] } | null => {
   const nested = metadata.groupInvoiceContext && typeof metadata.groupInvoiceContext === 'object'
     ? metadata.groupInvoiceContext
     : null;
@@ -404,7 +420,10 @@ const extractGroupInvoiceContext = (metadata: Record<string, any>): { groupId: s
     return null;
   }
 
-  return { groupId };
+  const rawSelectedMemberIds = nested?.selectedGroupMemberIds ?? metadata.selectedGroupMemberIds;
+  const selectedGroupMemberIds = parseNumericGroupMemberIdList(rawSelectedMemberIds);
+
+  return { groupId, selectedGroupMemberIds };
 };
 
 const parseNumericValue = (value: unknown): number | null => {
@@ -660,6 +679,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       retryInitiatedBy,
       groupId,
       groupMemberId,
+      selectedGroupMemberIds,
       paymentScope,
       paymentMethodType,
     } = req.body;
@@ -670,6 +690,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
 
     const explicitGroupId = typeof groupId === 'string' ? groupId.trim() : '';
     const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
+    const explicitSelectedGroupMemberIds = parseNumericGroupMemberIdList(selectedGroupMemberIds);
     const hasGroupPaymentContext = Boolean(explicitGroupId && explicitGroupMemberId);
     const normalizedPaymentScope = typeof paymentScope === 'string' ? paymentScope.trim().toLowerCase() : null;
     const isGroupInvoiceScope = normalizedPaymentScope === 'group_invoice' && Boolean(explicitGroupId);
@@ -999,6 +1020,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       if (isGroupInvoiceScope) {
         paymentMetadata.groupInvoiceContext = {
           groupId: explicitGroupId,
+          selectedGroupMemberIds: explicitSelectedGroupMemberIds,
         };
         paymentMetadata.paymentScope = 'group_invoice';
       }
@@ -1798,6 +1820,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         ? parsePaymentMetadata(paymentRecordForLogging.metadata)
         : {};
       const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
+      const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
 
       if (groupPaymentContext && paymentRecordForLogging) {
         try {
@@ -1870,6 +1893,63 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               groupId: groupPaymentContext.groupId,
               groupMemberId: groupPaymentContext.groupMemberId,
               paymentId: paymentRecordForLogging.id,
+            }
+          });
+        }
+      }
+
+      if (!groupPaymentContext && groupInvoiceContext && paymentRecordForLogging && result.bricToken) {
+        try {
+          const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
+          const recurringSetupResults: Array<{ groupMemberId: number; memberId: number | null; subscriptionId: number | null }> = [];
+
+          for (const selectedGroupMemberId of groupInvoiceContext.selectedGroupMemberIds) {
+            const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
+              groupId: groupInvoiceContext.groupId,
+              groupMemberId: selectedGroupMemberId,
+              paymentRecord: paymentRecordForLogging,
+              paymentMetadata,
+              bricToken: result.bricToken,
+              paymentMethodType: callbackPaymentMethodType,
+            });
+
+            recurringSetupResults.push({
+              groupMemberId: selectedGroupMemberId,
+              memberId: recurringArtifactResult.memberId,
+              subscriptionId: recurringArtifactResult.subscriptionId,
+            });
+          }
+
+          paymentMetadata.groupInvoiceContext = {
+            ...groupInvoiceContext,
+            recurringSetup: {
+              attemptedAt: new Date().toISOString(),
+              processedCount: recurringSetupResults.length,
+              processedMembers: recurringSetupResults,
+            },
+          };
+
+          await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
+
+          logEPX({
+            level: 'info',
+            phase: 'callback',
+            message: 'Group invoice recurring artifacts prepared for selected members',
+            data: {
+              groupId: groupInvoiceContext.groupId,
+              selectedCount: groupInvoiceContext.selectedGroupMemberIds.length,
+              processedCount: recurringSetupResults.length,
+            }
+          });
+        } catch (groupInvoiceRecurringSetupError: any) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Failed preparing recurring artifacts for group invoice payment',
+            data: {
+              error: groupInvoiceRecurringSetupError?.message,
+              groupId: groupInvoiceContext.groupId,
+              selectedGroupMemberIds: groupInvoiceContext.selectedGroupMemberIds,
             }
           });
         }

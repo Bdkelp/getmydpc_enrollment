@@ -471,6 +471,7 @@ export default function GroupPaymentCheckoutPage() {
                     : `Group payment for ${groupData?.name || groupId} member #${member?.id} (${monthsToCollect} month${monthsToCollect === 1 ? "" : "s"})`}
                   groupId={groupId}
                   groupMemberId={isGroupInvoiceMode ? undefined : member?.id}
+                  selectedGroupMemberIds={isGroupInvoiceMode ? selectedMemberIds : undefined}
                   paymentScope={isGroupInvoiceMode ? "group_invoice" : "member"}
                   paymentMethodType={resolvedPaymentMethodType}
                   billingAddress={{
