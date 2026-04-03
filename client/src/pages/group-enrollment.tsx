@@ -311,6 +311,10 @@ type GroupProfile = {
   achAccountNumber: string;
   achBankName: string;
   achAccountType: "checking" | "savings";
+  cardLast4: string;
+  cardExpiry: string;
+  cardBillingZip: string;
+  cardBillingName: string;
 };
 
 type GroupProfileContext = {
@@ -347,6 +351,12 @@ type GroupProfileContext = {
       accountNumber: string | null;
       bankName: string | null;
       accountType: string | null;
+    };
+    cardDetails: {
+      last4: string | null;
+      expiry: string | null;
+      billingZip: string | null;
+      billingName: string | null;
     };
   };
   isComplete: boolean;
@@ -793,6 +803,10 @@ const defaultGroupProfileForm: GroupProfile = {
   achAccountNumber: "",
   achBankName: "",
   achAccountType: "checking",
+  cardLast4: "",
+  cardExpiry: "",
+  cardBillingZip: "",
+  cardBillingName: "",
 };
 
 type PlanCatalogItem = {
@@ -982,6 +996,10 @@ const mapGroupProfileContextToForm = (ctx?: GroupProfileContext): GroupProfile =
     achAccountNumber: ctx.profile.achDetails?.accountNumber || "",
     achBankName: ctx.profile.achDetails?.bankName || "",
     achAccountType: (ctx.profile.achDetails?.accountType as "checking" | "savings") || "checking",
+    cardLast4: ctx.profile.cardDetails?.last4 || "",
+    cardExpiry: ctx.profile.cardDetails?.expiry || "",
+    cardBillingZip: ctx.profile.cardDetails?.billingZip || "",
+    cardBillingName: ctx.profile.cardDetails?.billingName || "",
   };
 };
 
@@ -1026,6 +1044,12 @@ const buildGroupProfilePayload = (form: GroupProfile) => ({
     accountNumber: form.achAccountNumber,
     bankName: form.achBankName,
     accountType: form.achAccountType,
+  },
+  cardDetails: {
+    last4: form.cardLast4,
+    expiry: form.cardExpiry,
+    billingZip: form.cardBillingZip,
+    billingName: form.cardBillingName,
   },
 });
 

@@ -426,6 +426,109 @@ const extractGroupInvoiceContext = (metadata: Record<string, any>): { groupId: s
   return { groupId, selectedGroupMemberIds };
 };
 
+const extractMaskedCardProfileFromCallback = (callbackBody: Record<string, any>): {
+  last4?: string;
+  expiry?: string;
+  billingZip?: string;
+  billingName?: string;
+} | null => {
+  const methodRaw = String(
+    callbackBody?.paymentMethodType || callbackBody?.PaymentMethodType || callbackBody?.PAYMENT_METHOD_TYPE || 'CreditCard',
+  ).trim().toLowerCase();
+
+  if (methodRaw.includes('ach') || methodRaw.includes('bank')) {
+    return null;
+  }
+
+  const panRaw = String(
+    callbackBody?.PAN
+    || callbackBody?.CardNumber
+    || callbackBody?.cardNumber
+    || callbackBody?.CARD_NUMBER
+    || callbackBody?.last4
+    || callbackBody?.LAST4
+    || callbackBody?.CardLast4
+    || callbackBody?.CARD_LAST4
+    || '',
+  ).trim();
+
+  const panDigits = panRaw.replace(/\D/g, '');
+  const last4 = panDigits.length >= 4 ? panDigits.slice(-4) : undefined;
+
+  const expiryRaw = String(
+    callbackBody?.Expire
+    || callbackBody?.EXPIRY
+    || callbackBody?.expiry
+    || callbackBody?.ExpDate
+    || callbackBody?.EXP_DATE
+    || '',
+  ).trim();
+
+  const billingZipRaw = String(
+    callbackBody?.BillingPostalCode
+    || callbackBody?.BillingZip
+    || callbackBody?.BILLING_ZIP
+    || callbackBody?.ZIP_CODE
+    || '',
+  ).trim();
+
+  const billingNameRaw = String(
+    callbackBody?.BillingName
+    || callbackBody?.billingName
+    || callbackBody?.CARDHOLDER_NAME
+    || '',
+  ).trim();
+
+  if (!last4 && !expiryRaw && !billingZipRaw && !billingNameRaw) {
+    return null;
+  }
+
+  return {
+    ...(last4 ? { last4 } : {}),
+    ...(expiryRaw ? { expiry: expiryRaw } : {}),
+    ...(billingZipRaw ? { billingZip: billingZipRaw } : {}),
+    ...(billingNameRaw ? { billingName: billingNameRaw } : {}),
+  };
+};
+
+const upsertGroupCardProfileFromCallback = async (groupId: string, callbackBody: Record<string, any>) => {
+  const maskedCardProfile = extractMaskedCardProfileFromCallback(callbackBody);
+  if (!maskedCardProfile) {
+    return;
+  }
+
+  const group = await storage.getGroupById(groupId);
+  if (!group) {
+    return;
+  }
+
+  const metadata = group.metadata && typeof group.metadata === 'object'
+    ? (group.metadata as Record<string, any>)
+    : {};
+  const existingGroupProfile = metadata.groupProfile && typeof metadata.groupProfile === 'object'
+    ? (metadata.groupProfile as Record<string, any>)
+    : {};
+  const existingCardDetails = existingGroupProfile.cardDetails && typeof existingGroupProfile.cardDetails === 'object'
+    ? (existingGroupProfile.cardDetails as Record<string, any>)
+    : {};
+
+  const nextGroupProfile = {
+    ...existingGroupProfile,
+    cardDetails: {
+      ...existingCardDetails,
+      ...maskedCardProfile,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  await storage.updateGroup(groupId, {
+    metadata: {
+      ...metadata,
+      groupProfile: nextGroupProfile,
+    },
+  } as any);
+};
+
 const parseNumericValue = (value: unknown): number | null => {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -1824,6 +1927,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       if (groupPaymentContext && paymentRecordForLogging) {
         try {
+          await upsertGroupCardProfileFromCallback(groupPaymentContext.groupId, req.body || {});
           const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
 
           const transitionReference = [
@@ -1900,6 +2004,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       if (!groupPaymentContext && groupInvoiceContext && paymentRecordForLogging && result.bricToken) {
         try {
+          await upsertGroupCardProfileFromCallback(groupInvoiceContext.groupId, req.body || {});
           const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
           const recurringSetupResults: Array<{ groupMemberId: number; memberId: number | null; subscriptionId: number | null }> = [];
 

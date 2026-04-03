@@ -42,6 +42,25 @@ type GroupDetailResponse = {
       preferredPaymentMethod?: "card" | "ach" | null;
       responsiblePerson?: { email?: string | null; name?: string | null } | null;
       contactPerson?: { email?: string | null; name?: string | null } | null;
+      businessAddress?: {
+        line1?: string | null;
+        line2?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zipCode?: string | null;
+      } | null;
+      achDetails?: {
+        routingNumber?: string | null;
+        accountNumber?: string | null;
+        bankName?: string | null;
+        accountType?: string | null;
+      } | null;
+      cardDetails?: {
+        last4?: string | null;
+        expiry?: string | null;
+        billingZip?: string | null;
+        billingName?: string | null;
+      } | null;
     } | null;
   };
 };
@@ -144,6 +163,9 @@ export default function GroupPaymentCheckoutPage() {
     || user?.email
     || "Group Billing Contact",
   ).trim();
+  const groupBusinessAddress = groupProfile?.businessAddress || null;
+  const groupAchDetails = groupProfile?.achDetails || null;
+  const groupCardDetails = groupProfile?.cardDetails || null;
 
   const activeMembers = useMemo(
     () => (groupQuery.data?.members || []).filter((item) => item.status !== "terminated"),
@@ -475,11 +497,31 @@ export default function GroupPaymentCheckoutPage() {
                   paymentScope={isGroupInvoiceMode ? "group_invoice" : "member"}
                   paymentMethodType={resolvedPaymentMethodType}
                   billingAddress={{
-                    streetAddress: isGroupInvoiceMode ? undefined : (member?.address1 || undefined),
-                    city: isGroupInvoiceMode ? undefined : (member?.city || undefined),
-                    state: isGroupInvoiceMode ? undefined : (member?.state || undefined),
-                    postalCode: isGroupInvoiceMode ? undefined : (member?.zipCode || undefined),
+                    streetAddress: isGroupInvoiceMode
+                      ? (groupBusinessAddress?.line1 || undefined)
+                      : (member?.address1 || undefined),
+                    city: isGroupInvoiceMode
+                      ? (groupBusinessAddress?.city || undefined)
+                      : (member?.city || undefined),
+                    state: isGroupInvoiceMode
+                      ? (groupBusinessAddress?.state || undefined)
+                      : (member?.state || undefined),
+                    postalCode: isGroupInvoiceMode
+                      ? (groupCardDetails?.billingZip || groupBusinessAddress?.zipCode || undefined)
+                      : (member?.zipCode || undefined),
                   }}
+                  initialAchDetails={isGroupInvoiceMode ? {
+                    routingNumber: groupAchDetails?.routingNumber || undefined,
+                    accountNumber: groupAchDetails?.accountNumber || undefined,
+                    accountType: groupAchDetails?.accountType || undefined,
+                    accountHolderName: invoiceContactName,
+                  } : undefined}
+                  storedCardProfile={isGroupInvoiceMode ? {
+                    last4: groupCardDetails?.last4 || undefined,
+                    expiry: groupCardDetails?.expiry || undefined,
+                    billingZip: groupCardDetails?.billingZip || groupBusinessAddress?.zipCode || undefined,
+                    billingName: groupCardDetails?.billingName || invoiceContactName,
+                  } : undefined}
                   redirectOnSuccess={false}
                   onSuccess={(transactionId) => {
                     toast({

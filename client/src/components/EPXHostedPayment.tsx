@@ -35,6 +35,18 @@ interface EPXHostedPaymentProps {
   selectedGroupMemberIds?: number[];
   paymentScope?: "member" | "group_invoice";
   paymentMethodType?: "CreditCard" | "ACH";
+  initialAchDetails?: {
+    routingNumber?: string;
+    accountNumber?: string;
+    accountType?: string;
+    accountHolderName?: string;
+  };
+  storedCardProfile?: {
+    last4?: string;
+    expiry?: string;
+    billingZip?: string;
+    billingName?: string;
+  };
   billingAddress?: {
     streetAddress?: string;
     city?: string;
@@ -72,6 +84,8 @@ export default function EPXHostedPayment({
   selectedGroupMemberIds,
   paymentScope,
   paymentMethodType = "CreditCard",
+  initialAchDetails,
+  storedCardProfile,
   billingAddress = {},
   onSuccess,
   onError,
@@ -91,10 +105,12 @@ export default function EPXHostedPayment({
   });
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [achFormData, setAchFormData] = useState({
-    routingNumber: '',
-    accountNumber: '',
-    confirmAccountNumber: '',
-    accountType: 'Checking' as 'Checking' | 'Savings',
+    routingNumber: initialAchDetails?.routingNumber || '',
+    accountNumber: initialAchDetails?.accountNumber || '',
+    confirmAccountNumber: initialAchDetails?.accountNumber || '',
+    accountType: String(initialAchDetails?.accountType || '').toLowerCase() === 'savings'
+      ? ('Savings' as 'Checking' | 'Savings')
+      : ('Checking' as 'Checking' | 'Savings'),
   });
   const sessionInitInFlightRef = useRef(false);
   const { toast } = useToast();
@@ -129,6 +145,20 @@ export default function EPXHostedPayment({
     setError(null);
     setIsLoading(true);
   }, [amount, overrideAmountValue]);
+
+  useEffect(() => {
+    const normalizedAccountType = String(initialAchDetails?.accountType || '').toLowerCase() === 'savings'
+      ? 'Savings'
+      : 'Checking';
+
+    setAchFormData((previous) => ({
+      ...previous,
+      routingNumber: initialAchDetails?.routingNumber || previous.routingNumber,
+      accountNumber: initialAchDetails?.accountNumber || previous.accountNumber,
+      confirmAccountNumber: initialAchDetails?.accountNumber || previous.confirmAccountNumber,
+      accountType: normalizedAccountType,
+    }));
+  }, [initialAchDetails]);
   
   const refreshCaptchaToken = useCallback(async (): Promise<string | null> => {
     if (!RECAPTCHA_SITE_KEY) {
@@ -697,6 +727,7 @@ export default function EPXHostedPayment({
                     name="Expire"
                     placeholder="0826"
                     maxLength={4}
+                    defaultValue={storedCardProfile?.expiry || ''}
                     required
                   />
                 </div>
@@ -788,6 +819,15 @@ export default function EPXHostedPayment({
             </>
           )}
 
+          {!isAchPayment && storedCardProfile?.last4 && (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Stored group card on file ending in {storedCardProfile.last4}. Exp: {storedCardProfile.expiry || 'N/A'}.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/* Billing Name */}
           <div>
             <Label htmlFor="BillingName">{isAchPayment ? 'Account Holder Name' : 'Billing Name'}</Label>
@@ -795,7 +835,7 @@ export default function EPXHostedPayment({
               type="text"
               id="BillingName"
               name="BillingName"
-              defaultValue={customerName}
+              defaultValue={storedCardProfile?.billingName || customerName}
               required
             />
           </div>

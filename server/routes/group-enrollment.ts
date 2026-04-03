@@ -283,6 +283,12 @@ type GroupProfile = {
     bankName: string | null;
     accountType: string | null;
   };
+  cardDetails: {
+    last4: string | null;
+    expiry: string | null;
+    billingZip: string | null;
+    billingName: string | null;
+  };
 };
 
 type CensusTemplateSettingValue = {
@@ -582,6 +588,12 @@ const normalizeGroupProfile = (raw: any, fallbackPayorType?: string): GroupProfi
       accountNumber: toDigitsOrNull(raw?.achDetails?.accountNumber),
       bankName: toTrimmedOrNull(raw?.achDetails?.bankName),
       accountType: toTrimmedOrNull(raw?.achDetails?.accountType)?.toLowerCase() || null,
+    },
+    cardDetails: {
+      last4: toTrimmedOrNull(raw?.cardDetails?.last4),
+      expiry: toTrimmedOrNull(raw?.cardDetails?.expiry),
+      billingZip: toTrimmedOrNull(raw?.cardDetails?.billingZip),
+      billingName: toTrimmedOrNull(raw?.cardDetails?.billingName),
     },
   };
 };
