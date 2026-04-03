@@ -6,11 +6,9 @@
 import { Router, type Response } from 'express';
 import { submitACHRecurringPayment } from '../services/epx-payment-service';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { hasAtLeastRole } from '../auth/roles';
 import { storage } from '../storage';
 import { logEPX } from '../services/epx-payment-logger';
 import { certificationLogger } from '../services/certification-logger';
-import { paymentEnvironment } from '../services/payment-environment-service';
 
 const router = Router();
 
@@ -94,7 +92,7 @@ function logAchCertificationEntry(options: {
   });
 }
 
-async function enforceACHCertificationAccess(req: AuthRequest, res: Response): Promise<boolean> {
+async function enforceACHPaymentAccess(req: AuthRequest, res: Response): Promise<boolean> {
   if (!req.user) {
     logAchCertificationEntry({
       req,
@@ -117,70 +115,15 @@ async function enforceACHCertificationAccess(req: AuthRequest, res: Response): P
     return false;
   }
 
-  if (!hasAtLeastRole(req.user.role, 'super_admin')) {
-    logEPX({
-      level: 'warn',
-      phase: 'recurring',
-      message: 'Blocked ACH access for non-super-admin user',
-      data: {
-        userId: req.user.id,
-        role: req.user.role
-      }
-    });
-    logAchCertificationEntry({
-      req,
-      purpose: 'ach-access-blocked',
-      endpoint: req.originalUrl,
-      responseStatus: 403,
-      responseBody: {
-        success: false,
-        error: 'ACH testing is currently restricted to super admins only'
-      },
-      metadata: {
-        reason: 'insufficient-role'
-      }
-    });
-    res.status(403).json({
-      success: false,
-      error: 'ACH testing is currently restricted to super admins only'
-    });
-    return false;
-  }
-
-  const environment = await paymentEnvironment.getEnvironment();
-  if (environment !== 'sandbox') {
-    logEPX({
-      level: 'warn',
-      phase: 'recurring',
-      message: 'Blocked ACH access because payment environment is not sandbox',
-      data: {
-        userId: req.user.id,
-        role: req.user.role,
-        paymentEnvironment: environment
-      }
-    });
-    logAchCertificationEntry({
-      req,
-      purpose: 'ach-access-blocked',
-      endpoint: req.originalUrl,
-      responseStatus: 409,
-      responseBody: {
-        success: false,
-        error: 'ACH certification mode is disabled in production payment environment',
-        paymentEnvironment: environment
-      },
-      metadata: {
-        reason: 'non-sandbox-environment',
-        paymentEnvironment: environment
-      }
-    });
-    res.status(409).json({
-      success: false,
-      error: 'ACH certification mode is disabled in production payment environment',
-      paymentEnvironment: environment
-    });
-    return false;
-  }
+  logEPX({
+    level: 'info',
+    phase: 'recurring',
+    message: 'ACH access granted',
+    data: {
+      userId: req.user.id,
+      role: req.user.role
+    }
+  });
 
   return true;
 }
@@ -196,7 +139,7 @@ async function enforceACHCertificationAccess(req: AuthRequest, res: Response): P
  */
 router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
   try {
-    if (!(await enforceACHCertificationAccess(req, res))) {
+    if (!(await enforceACHPaymentAccess(req, res))) {
       return;
     }
 
@@ -503,7 +446,7 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
  */
 router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
   try {
-    if (!(await enforceACHCertificationAccess(req, res))) {
+    if (!(await enforceACHPaymentAccess(req, res))) {
       return;
     }
 
@@ -771,7 +714,7 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
  */
 router.get('/member/:memberId', authenticateToken, async (req: AuthRequest, res) => {
   try {
-    if (!(await enforceACHCertificationAccess(req, res))) {
+    if (!(await enforceACHPaymentAccess(req, res))) {
       return;
     }
 
