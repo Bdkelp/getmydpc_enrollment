@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
-import { hasAtLeastRole } from "./auth/roles";
+import { hasAtLeastRole, isFullAccessEmail } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
 import {
   calculateCommission,
@@ -281,7 +281,7 @@ async function canManageMemberForUser(
     return false;
   }
 
-  if (isAdmin(user.role)) {
+  if (isAdmin(user.role) || isFullAccessEmail(user.email)) {
     return true;
   }
 
@@ -3785,6 +3785,55 @@ router.post(
       console.error("Error restoring membership:", error);
       res.status(500).json({
         message: "Failed to restore membership",
+        error: error.message,
+      });
+    }
+  },
+);
+
+router.delete(
+  "/api/admin/memberships/:memberId/hard",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const memberId = Number(req.params.memberId);
+    const { reason, force } = req.body || {};
+
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member id" });
+    }
+
+    try {
+      const existingMember = await storage.getMember(memberId);
+      if (!existingMember) {
+        return res.status(404).json({ message: "Member not found" });
+      }
+
+      const normalizedStatus = String(existingMember.status || "").toLowerCase();
+      const canDeleteByStatus = normalizedStatus === 'archived' || normalizedStatus === 'cancelled' || normalizedStatus === 'inactive';
+      if (!canDeleteByStatus && force !== true) {
+        return res.status(400).json({
+          message: "Archive, cancel, or inactivate the membership before hard delete (or pass force=true)",
+          status: existingMember.status,
+        });
+      }
+
+      const result = await storage.hardDeleteMember(memberId, {
+        deletedBy: req.user?.id || null,
+        reason: typeof reason === "string" ? reason : undefined,
+      });
+
+      res.json({
+        message: "Membership permanently deleted",
+        result,
+      });
+    } catch (error: any) {
+      console.error("Error hard deleting membership:", error);
+      res.status(500).json({
+        message: "Failed to hard delete membership",
         error: error.message,
       });
     }

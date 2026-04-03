@@ -33,7 +33,8 @@
     "seed:users": "tsx server/scripts/seed-users.ts",
     "fix:agent-duplicates": "tsx server/scripts/fix-agent-number-duplicates.ts",
     "backfill:dependent-census": "node server/scripts/backfill-dependent-census-fields.mjs",
-    "backfill:member-only-plans": "node scripts/backfill-member-only-plan-selections.mjs --apply"
+    "backfill:member-only-plans": "node scripts/backfill-member-only-plan-selections.mjs --apply",
+    "repair:group-member-linking": "node scripts/repair-group-member-linking.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { hasAtLeastRole } from '../auth/roles';
+import { hasAtLeastRole, isFullAccessEmail } from '../auth/roles';
 import { formatPlanStartDateISO, getUpcomingPlanStartDates } from '../../shared/planStartDates';
 import { displaySSN } from '@shared/display-ssn';
 import { supabase } from '../lib/supabaseClient';
@@ -793,7 +793,7 @@ const canAccessGroupByAssignment = (req: AuthRequest, groupMetadata: unknown): b
     return false;
   }
 
-  if (hasAtLeastRole(req.user.role, 'admin')) {
+  if (hasAtLeastRole(req.user.role, 'admin') || isFullAccessEmail(req.user.email)) {
     return true;
   }
 
@@ -1795,6 +1795,13 @@ const normalizeMemberRelationship = (value: unknown, fallbackTier?: string): str
   if (normalizedTier === 'spouse') return 'spouse';
   if (normalizedTier === 'child') return 'dependent';
   return 'primary';
+};
+
+const resolveExpectedRelationshipForTier = (value: unknown): 'spouse' | 'dependent' | null => {
+  const normalizedTier = normalizeMemberTier(value);
+  if (normalizedTier === 'spouse') return 'spouse';
+  if (normalizedTier === 'child') return 'dependent';
+  return null;
 };
 
 const isMemberOnlyPlanName = (value: unknown): boolean => {
@@ -3555,6 +3562,7 @@ const autoLinkDependentsForPrimaryCoverage = async (
   });
 
   for (const dependent of eligibleDependents) {
+    const normalizedDependentRelationship = normalizeMemberRelationship(dependent.relationship, dependent.tier);
     const nextIdentifiers = resolveHouseholdIdentifiers({
       groupId,
       isPrimaryMember: false,
@@ -3573,6 +3581,7 @@ const autoLinkDependentsForPrimaryCoverage = async (
     );
 
     await updateGroupMember(dependent.id, {
+      relationship: normalizedDependentRelationship,
       householdBaseNumber: nextIdentifiers.householdBaseNumber,
       householdMemberNumber: nextIdentifiers.householdMemberNumber,
       dependentSuffix: nextIdentifiers.dependentSuffix,
@@ -4123,10 +4132,19 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     }
 
     const incomingBody = (req.body && typeof req.body === 'object') ? req.body : {};
-    const { metadata, registrationPayload, ssn, socialSecurityNumber, social_security_number, ...otherUpdates } = incomingBody;
+    const {
+      metadata,
+      registrationPayload,
+      ssn,
+      socialSecurityNumber,
+      social_security_number,
+      enforceHouseholdLink,
+      ...otherUpdates
+    } = incomingBody;
     void ssn;
     void socialSecurityNumber;
     void social_security_number;
+    const shouldEnforceHouseholdLink = typeof enforceHouseholdLink === 'boolean' ? enforceHouseholdLink : true;
 
     const metadataProvided = hasOwn(incomingBody, 'metadata');
     const registrationPayloadProvided = hasOwn(incomingBody, 'registrationPayload');
@@ -4154,6 +4172,19 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
 
     if (!isPrimaryMember) {
       const allMembers = await listGroupMembers({ groupId });
+      const primaryAnchor = allMembers.find((member) =>
+        Number(member.id) !== Number(numericMemberId)
+        && normalizeMemberRelationship(member.relationship, member.tier) === 'primary'
+        && member.status !== 'terminated'
+      );
+      const primaryAnchorHousehold = primaryAnchor ? resolveHouseholdIdentifiersFromRecord(primaryAnchor) : null;
+      const primaryAnchorBaseNumber = primaryAnchorHousehold
+        ? (
+          toTrimmedOrNull(primaryAnchorHousehold.householdBaseNumber)
+          || extractHouseholdBaseNumberFromMemberNumber(toTrimmedOrNull(primaryAnchorHousehold.householdMemberNumber))
+        )
+        : null;
+      const expectedRelationship = resolveExpectedRelationshipForTier(requestedTier);
       const householdIdentifiers = resolveHouseholdIdentifiers({
         groupId,
         isPrimaryMember,
@@ -4161,7 +4192,7 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
         excludeMemberId: numericMemberId,
         explicitHouseholdBaseNumber: hasOwn(incomingBody, 'householdBaseNumber')
           ? toTrimmedOrNull(incomingBody?.householdBaseNumber)
-          : null,
+          : (shouldEnforceHouseholdLink ? primaryAnchorBaseNumber : null),
         explicitHouseholdMemberNumber: hasOwn(incomingBody, 'householdMemberNumber')
           ? toTrimmedOrNull(incomingBody?.householdMemberNumber)
           : null,
@@ -4176,6 +4207,9 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       updatePayload.householdBaseNumber = householdIdentifiers.householdBaseNumber;
       updatePayload.dependentSuffix = householdIdentifiers.dependentSuffix;
       updatePayload.householdMemberNumber = householdIdentifiers.householdMemberNumber;
+      if (shouldEnforceHouseholdLink && expectedRelationship) {
+        updatePayload.relationship = expectedRelationship;
+      }
       updatePayload.employerAmount = parseAmount(0);
       updatePayload.memberAmount = parseAmount(0);
       updatePayload.discountAmount = parseAmount(0);

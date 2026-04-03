@@ -460,6 +460,7 @@ type AgentOption = {
 type MemberFormState = {
   id?: number;
   relationship: string;
+  enforceHouseholdLink: boolean;
   firstName: string;
   middleName: string;
   lastName: string;
@@ -1678,6 +1679,7 @@ export default function GroupEnrollment() {
   const [editingMember, setEditingMember] = useState<GroupMemberRecord | null>(null);
   const defaultMemberForm: MemberFormState = {
     relationship: "primary",
+    enforceHouseholdLink: true,
     firstName: "",
     middleName: "",
     lastName: "",
@@ -2350,6 +2352,7 @@ export default function GroupEnrollment() {
 
       const payload = {
         relationship: normalizedRelationship,
+        enforceHouseholdLink: memberForm.enforceHouseholdLink,
         firstName: memberForm.firstName.trim(),
         middleName: memberForm.middleName.trim() || null,
         lastName: memberForm.lastName.trim(),
@@ -2534,6 +2537,28 @@ export default function GroupEnrollment() {
     },
     onError: (err: any) => {
       void handleGroupMutationError(err, "Unable to restore member");
+    },
+  });
+
+  const hardDeleteMemberMutation = useMutation({
+    mutationFn: async (member: GroupMemberRecord) => {
+      if (!selectedGroup?.data?.id) throw new Error("Select a group first");
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/members/${member.id}/hard`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Member permanently deleted",
+        description: "The terminated member record was permanently removed.",
+      });
+    },
+    onError: (err: any) => {
+      void handleGroupMutationError(err, "Unable to permanently delete member");
     },
   });
 
@@ -2790,6 +2815,28 @@ export default function GroupEnrollment() {
     },
     onError: (err: any) => {
       void handleGroupMutationError(err, "Unable to activate group");
+    },
+  });
+
+  const unlockGroupMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedGroup?.data?.id) throw new Error("Select a group first");
+      return apiRequest(`/api/groups/${selectedGroup.data.id}/unlock`, {
+        method: "POST",
+      });
+    },
+    onSuccess: async () => {
+      if (selectedGroup?.data?.id) {
+        await fetchGroupDetail(selectedGroup.data.id);
+      }
+      refreshGroups();
+      toast({
+        title: "Group unlocked",
+        description: "Group status returned to registered so enrollment details can be edited.",
+      });
+    },
+    onError: (err: any) => {
+      void handleGroupMutationError(err, "Unable to unlock group");
     },
   });
 
@@ -3118,6 +3165,7 @@ export default function GroupEnrollment() {
     resetMemberForm({
       id: member.id,
       relationship: normalizedRelationship,
+      enforceHouseholdLink: true,
       firstName: member.firstName || String(payload.firstName || payload.first_name || ""),
       middleName: employment.middleName,
       lastName: member.lastName || String(payload.lastName || payload.last_name || ""),
@@ -3272,6 +3320,7 @@ export default function GroupEnrollment() {
   const groupStatus = selectedGroup?.data?.status || "draft";
   const isEnrollmentComplete = groupStatus === "registered" || groupStatus === "active";
   const isGroupActive = groupStatus === "active";
+  const canUnlockGroup = isGroupActive;
   const canCompleteEnrollment = activeMemberCount > 0 && !isEnrollmentComplete;
   const activeMembersMissingRequired = selectedGroup?.members?.filter((member) =>
     member.status !== "terminated" && !isMemberCompleteForEnrollment(member)
@@ -5399,14 +5448,34 @@ export default function GroupEnrollment() {
                                     </Button>
                                   )}
                                   {isTerminated ? (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      disabled={restoreMemberMutation.isPending}
-                                      onClick={() => restoreMemberMutation.mutate(member)}
-                                    >
-                                      Restore
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={restoreMemberMutation.isPending}
+                                        onClick={() => restoreMemberMutation.mutate(member)}
+                                      >
+                                        Restore
+                                      </Button>
+                                      {canAccessAdminViews && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-red-700 border-red-300 hover:bg-red-50"
+                                          disabled={hardDeleteMemberMutation.isPending}
+                                          onClick={() => {
+                                            const confirmed = window.confirm(
+                                              `Permanently delete ${member.firstName} ${member.lastName}? This cannot be undone.`,
+                                            );
+                                            if (confirmed) {
+                                              hardDeleteMemberMutation.mutate(member);
+                                            }
+                                          }}
+                                        >
+                                          Hard Delete
+                                        </Button>
+                                      )}
+                                    </div>
                                   ) : (
                                     <Button
                                       variant="ghost"
@@ -5509,6 +5578,14 @@ export default function GroupEnrollment() {
                           : activateGroupMutation.isPending
                             ? 'Activating...'
                             : 'Set Active'}
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => unlockGroupMutation.mutate()}
+                        disabled={!canUnlockGroup || unlockGroupMutation.isPending}
+                      >
+                        {unlockGroupMutation.isPending ? 'Unlocking...' : 'Unlock Group'}
                       </Button>
                     </div>
                     {hasEnrollmentDataGaps && !isEnrollmentComplete && (
@@ -5722,6 +5799,22 @@ export default function GroupEnrollment() {
                   onChange={(event) => setMemberForm((prev) => ({ ...prev, dateOfBirth: event.target.value }))}
                 />
               </div>
+            </div>
+
+            <div className="rounded-md border bg-slate-50 p-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="member-enforce-household-link"
+                  checked={memberForm.enforceHouseholdLink}
+                  onCheckedChange={(checked) =>
+                    setMemberForm((prev) => ({ ...prev, enforceHouseholdLink: Boolean(checked) }))
+                  }
+                />
+                <Label htmlFor="member-enforce-household-link">Require household linking for spouse/dependent records</Label>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                When enabled, spouse/dependent members are automatically linked to the primary household on save.
+              </p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

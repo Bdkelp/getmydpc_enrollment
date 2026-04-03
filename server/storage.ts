@@ -640,6 +640,10 @@ export interface IStorage {
     memberId: number,
     options?: { restoredBy?: string | null; targetStatus?: string },
   ): Promise<Member>;
+  hardDeleteMember(
+    memberId: number,
+    options?: { deletedBy?: string | null; reason?: string },
+  ): Promise<{ memberId: number; deleted: Record<string, number> }>;
 
   // Family member operations
   getFamilyMembers(primaryMemberOrUserId: string | number): Promise<FamilyMember[]>;
@@ -8798,6 +8802,90 @@ export const storage = {
     } catch (error: any) {
       console.error('[Storage] Error restoring membership:', error);
       throw new Error(`Failed to restore membership: ${error.message}`);
+    }
+  },
+
+  hardDeleteMember: async (
+    memberId: number,
+    options: { deletedBy?: string | null; reason?: string } = {}
+  ): Promise<{ memberId: number; deleted: Record<string, number> }> => {
+    const deleted: Record<string, number> = {};
+
+    const safeDelete = async (
+      key: string,
+      sql: string,
+      params: any[]
+    ) => {
+      try {
+        const result = await query(sql, params);
+        deleted[key] = Number(result?.rowCount || 0);
+      } catch (error: any) {
+        const message = String(error?.message || '').toLowerCase();
+        if (message.includes('does not exist')) {
+          deleted[key] = 0;
+          return;
+        }
+        throw error;
+      }
+    };
+
+    try {
+      await safeDelete(
+        'enrollment_modifications',
+        'DELETE FROM enrollment_modifications WHERE user_id = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'member_payment_tokens',
+        'DELETE FROM member_payment_tokens WHERE member_id = $1',
+        [memberId],
+      );
+      await safeDelete(
+        'payments',
+        'DELETE FROM payments WHERE member_id = $1 OR user_id = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'subscriptions',
+        'DELETE FROM subscriptions WHERE user_id = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'agent_commissions',
+        'DELETE FROM agent_commissions WHERE member_id = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'family_members',
+        'DELETE FROM family_members WHERE primary_member_id = $1',
+        [memberId],
+      );
+      await safeDelete(
+        'members',
+        'DELETE FROM members WHERE id = $1',
+        [memberId],
+      );
+
+      if ((deleted.members || 0) === 0) {
+        throw new Error('Member not found');
+      }
+
+      if (options.deletedBy) {
+        await recordEnrollmentModification({
+          user_id: memberId,
+          modified_by: options.deletedBy,
+          changes: {
+            changeType: 'membership_hard_deleted',
+            reason: options.reason || null,
+            deleted,
+          },
+        });
+      }
+
+      return { memberId, deleted };
+    } catch (error: any) {
+      console.error('[Storage] Error hard deleting membership:', error);
+      throw new Error(`Failed to hard delete membership: ${error.message}`);
     }
   }
 } as any;

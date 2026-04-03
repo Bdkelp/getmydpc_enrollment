@@ -25,6 +25,7 @@ import {
   Archive,
   Undo2,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -569,6 +570,32 @@ export default function AdminEnrollments() {
     },
   });
 
+  const hardDeleteMembershipMutation = useMutation({
+    mutationFn: async ({ memberId, reason }: { memberId: number; reason?: string }) => {
+      return apiRequest(`/api/admin/memberships/${memberId}/hard`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ reason }),
+      });
+    },
+    onSuccess: (_data, variables) => {
+      toast({
+        title: "Membership permanently deleted",
+        description: `Member #${variables.memberId} was hard deleted.`,
+      });
+      invalidateMembershipInsights();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Unable to hard delete membership",
+        description: error?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleNewEnrollment = () => {
     setLocation("/registration");
   };
@@ -668,6 +695,32 @@ export default function AdminEnrollments() {
     restoreMembershipMutation.mutate({
       memberId: member.id,
       targetStatus: targetStatus?.trim() ? targetStatus.trim() : undefined,
+    });
+  };
+
+  const handleHardDeleteMemberRecord = (member: DuplicateMembershipMember) => {
+    if (!member?.id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Permanently delete membership for ${member.firstName} ${member.lastName}? This cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    const reason = window.prompt(
+      "Optional reason for permanent deletion",
+      "Duplicate membership cleanup",
+    );
+    if (reason === null) {
+      return;
+    }
+
+    hardDeleteMembershipMutation.mutate({
+      memberId: member.id,
+      reason: reason?.trim() ? reason.trim() : undefined,
     });
   };
 
@@ -1392,6 +1445,25 @@ export default function AdminEnrollments() {
                               disabled={activateNowMutation.isPending}
                             >
                               Activate Now
+                            </Button>
+                          )}
+                          {(enrollment.status === "archived" || enrollment.status === "cancelled" || enrollment.status === "inactive") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-red-300 text-red-700 hover:bg-red-50"
+                              onClick={() =>
+                                handleHardDeleteMemberRecord({
+                                  id: Number(enrollment.id),
+                                  firstName: enrollment.firstName,
+                                  lastName: enrollment.lastName,
+                                  status: enrollment.status,
+                                })
+                              }
+                              disabled={hardDeleteMembershipMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              Hard Delete
                             </Button>
                           )}
                         </div>
