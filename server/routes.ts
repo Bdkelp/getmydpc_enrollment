@@ -1,6 +1,6 @@
 // @ts-nocheck - Temporarily disable strict type checking for legacy code
 import { Router } from "express";
-import { storage } from "./storage";
+import { storage, decryptSensitiveData, encryptSensitiveData } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { hasAtLeastRole, isFullAccessEmail } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
@@ -271,6 +271,45 @@ const shouldRevealEnrollmentSsn = (req: AuthRequest): boolean => {
   }
 
   return true;
+};
+
+const isTruthyFlag = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+};
+
+const maskLastFour = (value?: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `****${digits.slice(-4)}`;
+  }
+  return '****';
+};
+
+const resolveRawOrDecryptedBankValue = (value?: string | null): string | null => {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (!trimmed.includes(':')) {
+    return trimmed;
+  }
+
+  try {
+    return decryptSensitiveData(trimmed).trim();
+  } catch {
+    return null;
+  }
 };
 
 async function canManageMemberForUser(
@@ -3388,6 +3427,93 @@ router.patch(
     } catch (error: any) {
       console.error("Error updating enrollment personal info:", error);
       res.status(500).json({ message: "Failed to update personal info", error: error.message });
+    }
+  },
+);
+
+router.patch(
+  "/api/admin/enrollment/:enrollmentId/bank-info",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const enrollmentId = Number(req.params.enrollmentId);
+    if (!Number.isFinite(enrollmentId)) {
+      return res.status(400).json({ message: "Invalid enrollment ID" });
+    }
+
+    const { routingNumber, accountNumber, accountType, accountHolderName, reason } = req.body || {};
+    const updates: Record<string, any> = {};
+
+    if (typeof routingNumber === 'string' && routingNumber.trim().length > 0) {
+      const normalizedRouting = routingNumber.replace(/\D/g, '');
+      if (!/^\d{9}$/.test(normalizedRouting)) {
+        return res.status(400).json({ message: 'Routing number must be exactly 9 digits' });
+      }
+      updates.bankRoutingNumber = normalizedRouting;
+    }
+
+    if (typeof accountNumber === 'string' && accountNumber.trim().length > 0) {
+      const normalizedAccount = accountNumber.replace(/\D/g, '');
+      if (!/^\d{4,17}$/.test(normalizedAccount)) {
+        return res.status(400).json({ message: 'Account number must be 4-17 digits' });
+      }
+      updates.bankAccountNumber = encryptSensitiveData(normalizedAccount);
+      updates.bankAccountLastFour = normalizedAccount.slice(-4);
+    }
+
+    if (typeof accountType === 'string' && accountType.trim().length > 0) {
+      const normalizedType = accountType.trim();
+      if (!['Checking', 'Savings'].includes(normalizedType)) {
+        return res.status(400).json({ message: 'Account type must be Checking or Savings' });
+      }
+      updates.bankAccountType = normalizedType;
+    }
+
+    if (typeof accountHolderName === 'string') {
+      updates.bankAccountHolderName = accountHolderName.trim();
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ message: 'No bank fields provided' });
+    }
+
+    try {
+      await storage.updateMember(enrollmentId, updates);
+
+      try {
+        await storage.supabase.from('admin_logs').insert({
+          log_type: 'sensitive_data_update',
+          admin_id: req.user?.id,
+          admin_email: req.user?.email,
+          member_id: enrollmentId,
+          action: 'update_member_bank_info',
+          reason: typeof reason === 'string' ? reason : null,
+          metadata: {
+            updated_fields: Object.keys(updates),
+          },
+          ip_address: req.ip,
+          user_agent: req.get('user-agent'),
+          created_at: new Date().toISOString()
+        });
+      } catch (logError) {
+        console.warn('[Admin] Could not save bank info update audit log to database', logError);
+      }
+
+      res.json({
+        success: true,
+        bankInfo: {
+          routingNumberMasked: maskLastFour(updates.bankRoutingNumber),
+          accountLastFour: updates.bankAccountLastFour || null,
+          accountType: updates.bankAccountType || null,
+          accountHolderName: updates.bankAccountHolderName || null,
+        }
+      });
+    } catch (error: any) {
+      console.error('Error updating enrollment bank info:', error);
+      res.status(500).json({ message: 'Failed to update bank info' });
     }
   },
 );
@@ -7521,6 +7647,8 @@ export async function registerRoutes(app: any) {
     try {
       const { memberId } = req.params;
       const { reason } = req.query;
+      const revealSSN = isTruthyFlag(req.query?.revealSsn);
+      const revealBank = isTruthyFlag(req.query?.revealBank);
 
       if (!memberId) {
         return res.status(400).json({ 
@@ -7570,6 +7698,10 @@ export async function registerRoutes(app: any) {
         }
       }
 
+      const rawRoutingNumber = resolveRawOrDecryptedBankValue(member.bankRoutingNumber);
+      const rawAccountNumber = resolveRawOrDecryptedBankValue(member.bankAccountNumber);
+      const accountLastFour = member.bankAccountLastFour || (rawAccountNumber ? rawAccountNumber.replace(/\D/g, '').slice(-4) : null);
+
       // Log access for audit trail
       const accessLog = {
         adminEmail: req.user?.email || 'unknown',
@@ -7587,6 +7719,13 @@ export async function registerRoutes(app: any) {
 
       // Store audit log in database (if admin_logs table exists)
       try {
+        const fieldsAccessed = [
+          'ssn_masked',
+          'bank_masked',
+          ...(revealSSN ? ['ssn_raw'] : []),
+          ...(revealBank ? ['bank_raw'] : []),
+        ];
+
         await storage.supabase.from('admin_logs').insert({
           log_type: 'sensitive_data_access',
           admin_id: req.user?.id,
@@ -7595,7 +7734,9 @@ export async function registerRoutes(app: any) {
           action: 'view_sensitive_member_data',
           reason: reason || null,
           metadata: {
-            fields_accessed: ['ssn', 'bank_info'],
+            fields_accessed: fieldsAccessed,
+            reveal_ssn: revealSSN,
+            reveal_bank: revealBank,
             customer_number: member.customerNumber,
             member_email: member.email
           },
@@ -7622,19 +7763,17 @@ export async function registerRoutes(app: any) {
         },
         sensitiveData: {
           ssn: {
-            decrypted: decryptedSSN,
+            decrypted: revealSSN ? decryptedSSN : null,
             masked: maskedSSN,
             status: ssnStatus,
             reason: ssnReason,
             warning: 'This data is logged and monitored'
           },
           bankInfo: {
-            routingNumber: member.bankRoutingNumber || null,
-            routingNumberMasked: member.bankRoutingNumber
-              ? `****${String(member.bankRoutingNumber).slice(-4)}`
-              : null,
-            accountNumber: member.bankAccountNumber || null,
-            accountLastFour: member.bankAccountLastFour || null,
+            routingNumber: revealBank ? rawRoutingNumber : null,
+            routingNumberMasked: maskLastFour(rawRoutingNumber),
+            accountNumber: revealBank ? rawAccountNumber : null,
+            accountLastFour,
             accountType: member.bankAccountType || null,
             accountHolderName: member.bankAccountHolderName || null
           }

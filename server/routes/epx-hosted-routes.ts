@@ -25,6 +25,53 @@ import { transitionGroupPaymentToPayable } from '../services/group-payment-trans
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
 
+const SENSITIVE_KEY_PATTERNS = [
+  /account[_\s-]?nbr/i,
+  /routing[_\s-]?nbr/i,
+  /account[_\s-]?number/i,
+  /routing[_\s-]?number/i,
+  /^ssn$/i,
+  /social[_\s-]?security/i,
+  /bank[_\s-]?account/i,
+  /bank[_\s-]?routing/i,
+];
+
+function maskSensitiveValue(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '****';
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `****${digits.slice(-4)}`;
+  }
+
+  return '****';
+}
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+function sanitizeForLogging(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLogging(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const output: Record<string, any> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (isSensitiveKey(key)) {
+        output[key] = maskSensitiveValue(nestedValue);
+      } else {
+        output[key] = sanitizeForLogging(nestedValue);
+      }
+    }
+    return output;
+  }
+
+  return value;
+}
+
 // Initialize Hosted Checkout Service
 let hostedCheckoutService: EPXHostedCheckoutService | null = null;
 let serviceInitialized = false;
@@ -1964,19 +2011,21 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     currentEnvironment = await paymentEnvironment.getEnvironment();
 
     // Log the full callback request from EPX (headers + body)
+    const sanitizedCallbackBody = sanitizeForLogging(req.body);
+
     console.log(
       '[EPX Server Post - REQUEST]',
       JSON.stringify(
         {
           headers: req.headers,
-          body: req.body,
+          body: sanitizedCallbackBody,
         },
         null,
         2
       )
     );
 
-    logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: req.body } });
+    logEPX({ level: 'info', phase: 'callback', message: 'Callback received', data: { body: sanitizedCallbackBody } });
 
     if (certificationLoggingEnabled) {
       try {
@@ -1990,7 +2039,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             method: 'POST',
             endpoint: '/api/epx/hosted/callback',
             headers: req.headers as Record<string, any>,
-            body: req.body,
+            body: sanitizedCallbackBody,
             ipAddress: req.ip,
             userAgent: req.get('user-agent') || undefined
           }

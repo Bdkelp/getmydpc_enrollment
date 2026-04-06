@@ -7,6 +7,7 @@ import { Router, type Response } from 'express';
 import { submitACHRecurringPayment } from '../services/epx-payment-service';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { storage } from '../storage';
+import { decryptSensitiveData, encryptSensitiveData } from '../storage';
 import { logEPX } from '../services/epx-payment-logger';
 import { certificationLogger } from '../services/certification-logger';
 
@@ -48,6 +49,19 @@ function maskEpxFields(fields?: Record<string, string>): Record<string, string> 
   }
 
   return masked;
+}
+
+function resolveRawOrDecryptedBankValue(value?: string | null): string | null {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (!trimmed.includes(':')) return trimmed;
+
+  try {
+    return decryptSensitiveData(trimmed).trim();
+  } catch {
+    return null;
+  }
 }
 
 function logAchCertificationEntry(options: {
@@ -277,7 +291,7 @@ router.post('/initial', authenticateToken, async (req: AuthRequest, res) => {
         paymentToken: authGuid,
         paymentMethodType: 'ACH',
         bankRoutingNumber: routingNumber,
-        bankAccountNumber: accountNumber,
+        bankAccountNumber: encryptSensitiveData(accountNumber),
         bankAccountType: accountType,
         bankAccountHolderName: accountHolderName,
         bankAccountLastFour: lastFour
@@ -492,7 +506,10 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
     }
 
     // Verify we have bank account data
-    if (!member.bankRoutingNumber || !member.bankAccountNumber) {
+    const resolvedRoutingNumber = resolveRawOrDecryptedBankValue(member.bankRoutingNumber);
+    const resolvedAccountNumber = resolveRawOrDecryptedBankValue(member.bankAccountNumber);
+
+    if (!resolvedRoutingNumber || !resolvedAccountNumber) {
       return res.status(400).json({
         success: false,
         error: 'Bank account information missing',
@@ -520,8 +537,8 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         amount: parsedAmount,
         paymentMethodType: 'ACH',
         accountType: member.bankAccountType || 'Checking',
-        routingNumberMasked: maskLastFour(member.bankRoutingNumber),
-        accountNumberMasked: maskLastFour(member.bankAccountNumber),
+        routingNumberMasked: maskLastFour(resolvedRoutingNumber),
+        accountNumberMasked: maskLastFour(resolvedAccountNumber),
         transactionId: achTransactionId
       }
     });
@@ -537,8 +554,8 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         memberId: member.id,
         amount: parsedAmount,
         accountType: member.bankAccountType || 'Checking',
-        routingNumber: maskLastFour(member.bankRoutingNumber),
-        accountNumber: maskLastFour(member.bankAccountNumber)
+        routingNumber: maskLastFour(resolvedRoutingNumber),
+        accountNumber: maskLastFour(resolvedAccountNumber)
       },
       responseStatus: 202,
       responseBody: {
@@ -555,8 +572,8 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
       authGuid: member.paymentToken,
       member: member,
       bankAccountData: {
-        routingNumber: member.bankRoutingNumber,
-        accountNumber: member.bankAccountNumber,
+        routingNumber: resolvedRoutingNumber,
+        accountNumber: resolvedAccountNumber,
         accountType: (member.bankAccountType || 'Checking') as 'Checking' | 'Savings',
         accountHolderName: member.bankAccountHolderName || `${member.firstName} ${member.lastName}`
       },
@@ -590,8 +607,8 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         amount: parsedAmount,
         requestBody: {
           accountType: member.bankAccountType || 'Checking',
-          routingNumber: maskLastFour(member.bankRoutingNumber),
-          accountNumber: maskLastFour(member.bankAccountNumber)
+          routingNumber: maskLastFour(resolvedRoutingNumber),
+          accountNumber: maskLastFour(resolvedAccountNumber)
         },
         responseStatus: 200,
         responseBody: {
@@ -641,8 +658,8 @@ router.post('/recurring', authenticateToken, async (req: AuthRequest, res) => {
         amount: parsedAmount,
         requestBody: {
           accountType: member.bankAccountType || 'Checking',
-          routingNumber: maskLastFour(member.bankRoutingNumber),
-          accountNumber: maskLastFour(member.bankAccountNumber)
+          routingNumber: maskLastFour(resolvedRoutingNumber),
+          accountNumber: maskLastFour(resolvedAccountNumber)
         },
         responseStatus: 400,
         responseBody: {
@@ -737,6 +754,7 @@ router.get('/member/:memberId', authenticateToken, async (req: AuthRequest, res)
 
     // Only return safe data (no full account numbers)
     const hasACH = member.paymentMethodType === 'ACH' && !!member.bankAccountLastFour;
+    const resolvedRoutingNumber = resolveRawOrDecryptedBankValue(member.bankRoutingNumber);
     
     return res.json({
       success: true,
@@ -745,8 +763,8 @@ router.get('/member/:memberId', authenticateToken, async (req: AuthRequest, res)
       paymentMethod: member.paymentMethodType || 'none',
       bankAccountLastFour: hasACH ? member.bankAccountLastFour : null,
       bankAccountType: hasACH ? member.bankAccountType : null,
-      routingNumberLastFour: hasACH && member.bankRoutingNumber 
-        ? member.bankRoutingNumber.slice(-4) 
+      routingNumberLastFour: hasACH && resolvedRoutingNumber
+        ? resolvedRoutingNumber.slice(-4)
         : null
     });
   } catch (error: any) {

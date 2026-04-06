@@ -2,14 +2,23 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
 import { paymentEnvironment } from '../services/payment-environment-service';
+import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
+import { isAtLeastAdmin } from '../auth/roles';
 
 const router = Router();
 
 /**
  * Get transaction logs for admin review
  */
-router.get('/api/admin/transaction-logs', async (req: Request, res: Response) => {
+router.get('/api/admin/transaction-logs', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    if (!isAtLeastAdmin(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
     const { 
       startDate, 
       endDate, 
@@ -73,8 +82,15 @@ router.get('/api/admin/transaction-logs', async (req: Request, res: Response) =>
 /**
  * Export transaction logs as CSV for audit
  */
-router.get('/api/admin/export-logs', async (req: Request, res: Response) => {
+router.get('/api/admin/export-logs', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    if (!isAtLeastAdmin(req.user?.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Admin access required'
+      });
+    }
+
     const { startDate, endDate } = req.query;
     
     const payments = await storage.getPaymentsWithFilters({

@@ -30,6 +30,53 @@ export interface EPXLogEvent {
 const inMemoryBuffer: EPXLogEvent[] = [];
 const MAX_BUFFER = 200; // keep recent events
 
+const SENSITIVE_KEY_PATTERNS = [
+  /account[_\s-]?nbr/i,
+  /routing[_\s-]?nbr/i,
+  /account[_\s-]?number/i,
+  /routing[_\s-]?number/i,
+  /^ssn$/i,
+  /social[_\s-]?security/i,
+  /bank[_\s-]?account/i,
+  /bank[_\s-]?routing/i,
+];
+
+function maskSensitiveValue(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '****';
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 4) {
+    return `****${digits.slice(-4)}`;
+  }
+
+  return '****';
+}
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(key));
+}
+
+function sanitizeForLogging(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLogging(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const output: Record<string, any> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (isSensitiveKey(key)) {
+        output[key] = maskSensitiveValue(nestedValue);
+      } else {
+        output[key] = sanitizeForLogging(nestedValue);
+      }
+    }
+    return output;
+  }
+
+  return value;
+}
+
 function ensureDir(dir: string): boolean {
   try {
     if (!fs.existsSync(dir)) {
@@ -123,7 +170,11 @@ function matchesTransaction(event: EPXLogEvent, transactionId: string): boolean 
 }
 
 export function logEPX(event: Omit<EPXLogEvent, 'timestamp'>) {
-  const full: EPXLogEvent = { ...event, timestamp: new Date().toISOString() };
+  const full: EPXLogEvent = {
+    ...event,
+    data: sanitizeForLogging(event.data),
+    timestamp: new Date().toISOString()
+  };
   // In-memory buffer
   inMemoryBuffer.push(full);
   if (inMemoryBuffer.length > MAX_BUFFER) inMemoryBuffer.shift();

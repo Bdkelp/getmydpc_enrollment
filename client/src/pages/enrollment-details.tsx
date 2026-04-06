@@ -46,6 +46,14 @@ interface SensitiveMemberResponse {
       status?: 'decrypted' | 'masked_only' | 'not_available';
       reason?: string | null;
     };
+    bankInfo?: {
+      routingNumber?: string | null;
+      routingNumberMasked?: string | null;
+      accountNumber?: string | null;
+      accountLastFour?: string | null;
+      accountType?: string | null;
+      accountHolderName?: string | null;
+    };
   };
 }
 
@@ -206,6 +214,16 @@ export default function EnrollmentDetails() {
   const [isEditingSSN, setIsEditingSSN] = useState(false);
   const [editedSSN, setEditedSSN] = useState('');
   const [ssnUpdateReason, setSsnUpdateReason] = useState('');
+  const [isBankVisible, setIsBankVisible] = useState(false);
+  const [revealedBankInfo, setRevealedBankInfo] = useState<SensitiveMemberResponse['sensitiveData']['bankInfo'] | null>(null);
+  const [isEditingBank, setIsEditingBank] = useState(false);
+  const [editedBank, setEditedBank] = useState({
+    routingNumber: '',
+    accountNumber: '',
+    accountType: 'Checking',
+    accountHolderName: '',
+    reason: '',
+  });
   const [selectedPlanId, setSelectedPlanId] = useState<string>('');
   const [selectedMemberType, setSelectedMemberType] = useState<string>('');
   const [membershipReason, setMembershipReason] = useState('');
@@ -447,7 +465,7 @@ export default function EnrollmentDetails() {
     mutationFn: async () => {
       const memberId = enrollment?.id;
       if (!memberId) throw new Error('Member ID is missing');
-      return apiRequest(`/api/admin/member/${memberId}/sensitive?reason=${encodeURIComponent('Enrollment details SSN reveal')}`) as Promise<SensitiveMemberResponse>;
+      return apiRequest(`/api/admin/member/${memberId}/sensitive?revealSsn=true&reason=${encodeURIComponent('Enrollment details SSN reveal')}`) as Promise<SensitiveMemberResponse>;
     },
     onSuccess: (response) => {
       const decrypted = response?.sensitiveData?.ssn?.decrypted || null;
@@ -473,6 +491,26 @@ export default function EnrollmentDetails() {
       toast({
         title: 'Unable to reveal SSN',
         description: error?.message || 'Failed to retrieve sensitive member data.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const revealBankMutation = useMutation({
+    mutationFn: async () => {
+      const memberId = enrollment?.id;
+      if (!memberId) throw new Error('Member ID is missing');
+      return apiRequest(`/api/admin/member/${memberId}/sensitive?revealBank=true&reason=${encodeURIComponent('Enrollment details bank info reveal')}`) as Promise<SensitiveMemberResponse>;
+    },
+    onSuccess: (response) => {
+      const bankInfo = response?.sensitiveData?.bankInfo || null;
+      setRevealedBankInfo(bankInfo);
+      setIsBankVisible(true);
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Unable to reveal bank info',
+        description: error?.message || 'Failed to retrieve bank information.',
         variant: 'destructive',
       });
     },
@@ -504,6 +542,46 @@ export default function EnrollmentDetails() {
       toast({
         title: 'Failed to update SSN',
         description: error?.message || 'Unable to update SSN.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const updateBankMutation = useMutation({
+    mutationFn: async () => {
+      if (!enrollment?.id) throw new Error('Member ID is missing');
+      return apiRequest(`/api/admin/enrollment/${enrollment.id}/bank-info`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          routingNumber: editedBank.routingNumber,
+          accountNumber: editedBank.accountNumber,
+          accountType: editedBank.accountType,
+          accountHolderName: editedBank.accountHolderName,
+          reason: editedBank.reason,
+        }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Bank info updated',
+        description: 'Bank information has been securely updated.',
+      });
+      setIsEditingBank(false);
+      setEditedBank({
+        routingNumber: '',
+        accountNumber: '',
+        accountType: 'Checking',
+        accountHolderName: '',
+        reason: '',
+      });
+      setIsBankVisible(false);
+      setRevealedBankInfo(null);
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update bank info',
+        description: error?.message || 'Unable to update bank information.',
         variant: 'destructive',
       });
     },
@@ -1570,6 +1648,130 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     <p className="font-semibold">
                       {nextBillingDateLabel}
                     </p>
+                  </div>
+                  <div className="border-t pt-4 space-y-3">
+                    <Label className="text-gray-600">Bank Account (ACH)</Label>
+
+                    {!isEditingBank ? (
+                      <>
+                        <div className="text-sm space-y-1">
+                          <p>
+                            <span className="text-gray-600">Routing:</span>{' '}
+                            {isBankVisible
+                              ? (revealedBankInfo?.routingNumber || revealedBankInfo?.routingNumberMasked || 'Not available')
+                              : (revealedBankInfo?.routingNumberMasked || '••••')}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">Account:</span>{' '}
+                            {isBankVisible
+                              ? (revealedBankInfo?.accountNumber || (revealedBankInfo?.accountLastFour ? `****${revealedBankInfo.accountLastFour}` : 'Not available'))
+                              : (revealedBankInfo?.accountLastFour ? `****${revealedBankInfo.accountLastFour}` : '••••')}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">Type:</span>{' '}
+                            {revealedBankInfo?.accountType || 'Not provided'}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">Holder:</span>{' '}
+                            {revealedBankInfo?.accountHolderName || 'Not provided'}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              if (isBankVisible) {
+                                setIsBankVisible(false);
+                                return;
+                              }
+                              revealBankMutation.mutate();
+                            }}
+                            disabled={revealBankMutation.isPending}
+                          >
+                            {isBankVisible ? (
+                              <><EyeOff className="h-3 w-3 mr-1" /> Hide</>
+                            ) : (
+                              <><Eye className="h-3 w-3 mr-1" /> Reveal</>
+                            )}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setIsEditingBank(true);
+                              setEditedBank({
+                                routingNumber: '',
+                                accountNumber: '',
+                                accountType: revealedBankInfo?.accountType || 'Checking',
+                                accountHolderName: revealedBankInfo?.accountHolderName || '',
+                                reason: '',
+                              });
+                            }}
+                          >
+                            <Edit className="h-3 w-3 mr-1" />
+                            Update
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          value={editedBank.routingNumber}
+                          onChange={(e) => setEditedBank((prev) => ({ ...prev, routingNumber: e.target.value }))}
+                          placeholder="Routing number (9 digits)"
+                        />
+                        <Input
+                          value={editedBank.accountNumber}
+                          onChange={(e) => setEditedBank((prev) => ({ ...prev, accountNumber: e.target.value }))}
+                          placeholder="Account number"
+                        />
+                        <Select
+                          value={editedBank.accountType}
+                          onValueChange={(value) => setEditedBank((prev) => ({ ...prev, accountType: value }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select account type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Checking">Checking</SelectItem>
+                            <SelectItem value="Savings">Savings</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={editedBank.accountHolderName}
+                          onChange={(e) => setEditedBank((prev) => ({ ...prev, accountHolderName: e.target.value }))}
+                          placeholder="Account holder name"
+                        />
+                        <Input
+                          value={editedBank.reason}
+                          onChange={(e) => setEditedBank((prev) => ({ ...prev, reason: e.target.value }))}
+                          placeholder="Reason for update (optional)"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => updateBankMutation.mutate()}
+                            disabled={updateBankMutation.isPending}
+                          >
+                            {updateBankMutation.isPending ? 'Saving...' : 'Save Bank Info'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setIsEditingBank(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
