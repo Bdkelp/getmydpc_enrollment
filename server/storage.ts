@@ -8880,7 +8880,7 @@ export const storage = {
       await safeDelete(
         'enrollment_modifications',
         'public.enrollment_modifications',
-        'DELETE FROM public.enrollment_modifications WHERE user_id = $1::text OR member_id = $1',
+        'DELETE FROM public.enrollment_modifications WHERE user_id::text = $1::text OR member_id::text = $1::text',
         [memberId],
       );
       await safeDelete(
@@ -8904,12 +8904,12 @@ export const storage = {
       await safeDelete(
         'payments',
         'public.payments',
-        'DELETE FROM public.payments WHERE member_id = $1 OR user_id = $1::text',
+        'DELETE FROM public.payments WHERE member_id::text = $1::text OR user_id::text = $1::text',
         [memberId],
       );
 
       const subscriptionsToDelete = await client.query(
-        'SELECT id FROM public.subscriptions WHERE user_id = $1::text OR member_id = $1 OR member_id::text = $1::text',
+        'SELECT id FROM public.subscriptions WHERE user_id::text = $1::text OR member_id::text = $1::text',
         [memberId],
       );
       const subscriptionIds = (subscriptionsToDelete.rows || []).map((row: any) => Number(row.id)).filter((id) => Number.isFinite(id));
@@ -8927,7 +8927,7 @@ export const storage = {
       await safeDelete(
         'agent_commissions',
         'public.agent_commissions',
-        'DELETE FROM public.agent_commissions WHERE member_id = $1 OR member_id::text = $1::text',
+        'DELETE FROM public.agent_commissions WHERE member_id::text = $1::text',
         [memberId],
       );
       await safeDelete(
@@ -8938,7 +8938,7 @@ export const storage = {
       );
 
       const remainingSubscriptions = await client.query(
-        'SELECT id FROM public.subscriptions WHERE member_id = $1',
+        'SELECT id FROM public.subscriptions WHERE member_id::text = $1::text',
         [memberId],
       );
       if ((remainingSubscriptions.rowCount || 0) > 0) {
