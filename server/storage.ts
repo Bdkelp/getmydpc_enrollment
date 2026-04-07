@@ -8881,7 +8881,7 @@ export const storage = {
       );
       await safeDelete(
         'subscriptions',
-        'DELETE FROM subscriptions WHERE user_id = $1::text',
+        'DELETE FROM subscriptions WHERE user_id = $1::text OR member_id = $1',
         [memberId],
       );
       await safeDelete(
