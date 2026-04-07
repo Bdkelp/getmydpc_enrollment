@@ -8894,11 +8894,36 @@ export const storage = {
         'DELETE FROM family_members WHERE primary_member_id = $1',
         [memberId],
       );
-      await safeDelete(
-        'members',
-        'DELETE FROM members WHERE id = $1',
-        [memberId],
-      );
+
+      try {
+        await safeDelete(
+          'members',
+          'DELETE FROM members WHERE id = $1',
+          [memberId],
+        );
+      } catch (memberDeleteError: any) {
+        const message = String(memberDeleteError?.message || '').toLowerCase();
+        const isSubscriptionFkBlock =
+          message.includes('subscriptions_member_id_members_id_fk')
+          || (message.includes('violates foreign key constraint') && message.includes('subscriptions'));
+
+        if (!isSubscriptionFkBlock) {
+          throw memberDeleteError;
+        }
+
+        // Retry path for environments where subscriptions.member_id typing/schema differs.
+        await safeDelete(
+          'subscriptions_fk_retry',
+          'DELETE FROM subscriptions WHERE user_id = $1::text OR member_id = $1 OR member_id::text = $1::text',
+          [memberId],
+        );
+
+        await safeDelete(
+          'members',
+          'DELETE FROM members WHERE id = $1',
+          [memberId],
+        );
+      }
 
       if ((deleted.members || 0) === 0) {
         throw new Error('Member not found');
