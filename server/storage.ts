@@ -2159,10 +2159,35 @@ export async function activateMembershipNow(
 
 export async function recordEnrollmentModification(data: any): Promise<void> {
   try {
-    await query(
-      'INSERT INTO enrollment_modifications (user_id, modified_by, changes, created_at) VALUES ($1, $2, $3, $4)',
-      [data.user_id || data.userId, data.modified_by || data.modifiedBy, JSON.stringify(data.changes || data), new Date()]
-    );
+    try {
+      await query(
+        'INSERT INTO enrollment_modifications (user_id, modified_by, changes, created_at) VALUES ($1, $2, $3, $4)',
+        [data.user_id || data.userId, data.modified_by || data.modifiedBy, JSON.stringify(data.changes || data), new Date()]
+      );
+      return;
+    } catch (primaryInsertError: any) {
+      const message = String(primaryInsertError?.message || '').toLowerCase();
+      const isChangesColumnMissing =
+        message.includes('column')
+        && message.includes('changes')
+        && message.includes('does not exist');
+
+      if (!isChangesColumnMissing) {
+        throw primaryInsertError;
+      }
+
+      // Fallback for deployments where enrollment_modifications uses change_type/change_details.
+      await query(
+        'INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)',
+        [
+          data.user_id || data.userId,
+          data.modified_by || data.modifiedBy,
+          data?.changes?.changeType || data.changeType || 'membership_update',
+          JSON.stringify(data.changes || data),
+          new Date(),
+        ]
+      );
+    }
   } catch (error: any) {
     console.error('Error recording enrollment modification:', error);
     throw new Error(`Failed to record enrollment modification: ${error.message}`);
@@ -8984,15 +9009,20 @@ export const storage = {
       await client.query('COMMIT');
 
       if (options.deletedBy) {
-        await recordEnrollmentModification({
-          user_id: memberId,
-          modified_by: options.deletedBy,
-          changes: {
-            changeType: 'membership_hard_deleted',
-            reason: options.reason || null,
-            deleted,
-          },
-        });
+        try {
+          await recordEnrollmentModification({
+            user_id: memberId,
+            modified_by: options.deletedBy,
+            changes: {
+              changeType: 'membership_hard_deleted',
+              reason: options.reason || null,
+              deleted,
+            },
+          });
+        } catch (auditError) {
+          // Audit logging should never block a completed hard-delete operation.
+          console.warn('[Storage] Hard delete audit logging failed:', auditError);
+        }
       }
 
       return { memberId, deleted };
