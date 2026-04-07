@@ -8890,6 +8890,30 @@ export const storage = {
         [memberId],
       );
       await safeDelete(
+        'payment_tokens',
+        'public.payment_tokens',
+        'DELETE FROM public.payment_tokens WHERE member_id::text = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'billing_schedule',
+        'public.billing_schedule',
+        'DELETE FROM public.billing_schedule WHERE member_id::text = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'recurring_billing_log',
+        'public.recurring_billing_log',
+        'DELETE FROM public.recurring_billing_log WHERE member_id::text = $1::text',
+        [memberId],
+      );
+      await safeDelete(
+        'member_change_requests',
+        'public.member_change_requests',
+        'DELETE FROM public.member_change_requests WHERE member_id::text = $1::text',
+        [memberId],
+      );
+      await safeDelete(
         'group_members',
         'public.group_members',
         'DELETE FROM public.group_members WHERE member_id = $1',
