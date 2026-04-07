@@ -8845,13 +8845,14 @@ export const storage = {
   ): Promise<{ memberId: number; deleted: Record<string, number> }> => {
     const deleted: Record<string, number> = {};
 
+    const client = await neonPool.connect();
     const safeDelete = async (
       key: string,
       sql: string,
       params: any[]
     ) => {
       try {
-        const result = await query(sql, params);
+        const result = await client.query(sql, params);
         deleted[key] = Number(result?.rowCount || 0);
       } catch (error: any) {
         const message = String(error?.message || '').toLowerCase();
@@ -8864,70 +8865,90 @@ export const storage = {
     };
 
     try {
+      await client.query('BEGIN');
+
+      const lockedMember = await client.query(
+        'SELECT id FROM public.members WHERE id = $1 FOR UPDATE',
+        [memberId],
+      );
+
+      if (!lockedMember.rowCount) {
+        throw new Error('Member not found');
+      }
+
       await safeDelete(
         'enrollment_modifications',
-        'DELETE FROM enrollment_modifications WHERE user_id = $1::text',
+        'DELETE FROM public.enrollment_modifications WHERE user_id = $1::text OR member_id = $1',
         [memberId],
       );
       await safeDelete(
         'member_payment_tokens',
-        'DELETE FROM member_payment_tokens WHERE member_id = $1',
+        'DELETE FROM public.member_payment_tokens WHERE member_id = $1',
+        [memberId],
+      );
+      await safeDelete(
+        'group_members',
+        'DELETE FROM public.group_members WHERE member_id = $1',
+        [memberId],
+      );
+      await safeDelete(
+        'admin_notifications',
+        'DELETE FROM public.admin_notifications WHERE member_id = $1',
         [memberId],
       );
       await safeDelete(
         'payments',
-        'DELETE FROM payments WHERE member_id = $1 OR user_id = $1::text',
+        'DELETE FROM public.payments WHERE member_id = $1 OR user_id = $1::text',
         [memberId],
       );
-      await safeDelete(
-        'subscriptions',
-        'DELETE FROM subscriptions WHERE user_id = $1::text OR member_id = $1',
+
+      const subscriptionsToDelete = await client.query(
+        'SELECT id FROM public.subscriptions WHERE user_id = $1::text OR member_id = $1 OR member_id::text = $1::text',
         [memberId],
       );
+      const subscriptionIds = (subscriptionsToDelete.rows || []).map((row: any) => Number(row.id)).filter((id) => Number.isFinite(id));
+
+      if (subscriptionIds.length > 0) {
+        const deletedSubscriptions = await client.query(
+          'DELETE FROM public.subscriptions WHERE id = ANY($1::int[])',
+          [subscriptionIds],
+        );
+        deleted.subscriptions = Number(deletedSubscriptions?.rowCount || 0);
+      } else {
+        deleted.subscriptions = 0;
+      }
+
       await safeDelete(
         'agent_commissions',
-        'DELETE FROM agent_commissions WHERE member_id = $1::text',
+        'DELETE FROM public.agent_commissions WHERE member_id = $1 OR member_id::text = $1::text',
         [memberId],
       );
       await safeDelete(
         'family_members',
-        'DELETE FROM family_members WHERE primary_member_id = $1',
+        'DELETE FROM public.family_members WHERE primary_member_id = $1',
         [memberId],
       );
 
-      try {
-        await safeDelete(
-          'members',
-          'DELETE FROM members WHERE id = $1',
-          [memberId],
-        );
-      } catch (memberDeleteError: any) {
-        const message = String(memberDeleteError?.message || '').toLowerCase();
-        const isSubscriptionFkBlock =
-          message.includes('subscriptions_member_id_members_id_fk')
-          || (message.includes('violates foreign key constraint') && message.includes('subscriptions'));
-
-        if (!isSubscriptionFkBlock) {
-          throw memberDeleteError;
-        }
-
-        // Retry path for environments where subscriptions.member_id typing/schema differs.
-        await safeDelete(
-          'subscriptions_fk_retry',
-          'DELETE FROM subscriptions WHERE user_id = $1::text OR member_id = $1 OR member_id::text = $1::text',
-          [memberId],
-        );
-
-        await safeDelete(
-          'members',
-          'DELETE FROM members WHERE id = $1',
-          [memberId],
-        );
+      const remainingSubscriptions = await client.query(
+        'SELECT id FROM public.subscriptions WHERE member_id = $1',
+        [memberId],
+      );
+      if ((remainingSubscriptions.rowCount || 0) > 0) {
+        const ids = remainingSubscriptions.rows.map((row: any) => row.id).join(', ');
+        throw new Error(`Subscription rows still reference member before delete (ids: ${ids})`);
       }
+
+      await safeDelete(
+        'members',
+        'DELETE FROM public.members WHERE id = $1',
+        [memberId],
+      );
 
       if ((deleted.members || 0) === 0) {
         throw new Error('Member not found');
       }
+
+      await client.query('COMMIT');
 
       if (options.deletedBy) {
         await recordEnrollmentModification({
@@ -8943,8 +8964,11 @@ export const storage = {
 
       return { memberId, deleted };
     } catch (error: any) {
+      await client.query('ROLLBACK');
       console.error('[Storage] Error hard deleting membership:', error);
       throw new Error(`Failed to hard delete membership: ${error.message}`);
+    } finally {
+      client.release();
     }
   }
 } as any;
