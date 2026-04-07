@@ -8848,20 +8848,21 @@ export const storage = {
     const client = await neonPool.connect();
     const safeDelete = async (
       key: string,
+      tableName: string,
       sql: string,
       params: any[]
     ) => {
-      try {
-        const result = await client.query(sql, params);
-        deleted[key] = Number(result?.rowCount || 0);
-      } catch (error: any) {
-        const message = String(error?.message || '').toLowerCase();
-        if (message.includes('does not exist')) {
-          deleted[key] = 0;
-          return;
-        }
-        throw error;
+      const existsResult = await client.query(
+        'SELECT to_regclass($1) AS table_name',
+        [tableName],
+      );
+      if (!existsResult.rows?.[0]?.table_name) {
+        deleted[key] = 0;
+        return;
       }
+
+      const result = await client.query(sql, params);
+      deleted[key] = Number(result?.rowCount || 0);
     };
 
     try {
@@ -8878,26 +8879,31 @@ export const storage = {
 
       await safeDelete(
         'enrollment_modifications',
+        'public.enrollment_modifications',
         'DELETE FROM public.enrollment_modifications WHERE user_id = $1::text OR member_id = $1',
         [memberId],
       );
       await safeDelete(
         'member_payment_tokens',
+        'public.member_payment_tokens',
         'DELETE FROM public.member_payment_tokens WHERE member_id = $1',
         [memberId],
       );
       await safeDelete(
         'group_members',
+        'public.group_members',
         'DELETE FROM public.group_members WHERE member_id = $1',
         [memberId],
       );
       await safeDelete(
         'admin_notifications',
+        'public.admin_notifications',
         'DELETE FROM public.admin_notifications WHERE member_id = $1',
         [memberId],
       );
       await safeDelete(
         'payments',
+        'public.payments',
         'DELETE FROM public.payments WHERE member_id = $1 OR user_id = $1::text',
         [memberId],
       );
@@ -8920,11 +8926,13 @@ export const storage = {
 
       await safeDelete(
         'agent_commissions',
+        'public.agent_commissions',
         'DELETE FROM public.agent_commissions WHERE member_id = $1 OR member_id::text = $1::text',
         [memberId],
       );
       await safeDelete(
         'family_members',
+        'public.family_members',
         'DELETE FROM public.family_members WHERE primary_member_id = $1',
         [memberId],
       );
@@ -8940,6 +8948,7 @@ export const storage = {
 
       await safeDelete(
         'members',
+        'public.members',
         'DELETE FROM public.members WHERE id = $1',
         [memberId],
       );
