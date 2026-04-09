@@ -7,9 +7,12 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { DollarSign, Calendar, CheckCircle, ChevronLeft, Clock, AlertTriangle } from "lucide-react";
+import { API_URL } from "@/lib/apiClient";
+import { supabase } from "@/lib/supabase";
+import { formatLocalDate } from "@shared/localDate";
+import { DollarSign, Calendar, CheckCircle, ChevronLeft, Clock, AlertTriangle, FileText, Download, Printer } from "lucide-react";
 import { hasAtLeastRole } from "@/lib/roles";
-import { format, isFuture, isPast, isToday } from "date-fns";
+import { endOfWeek, format, isFuture, isToday, startOfWeek } from "date-fns";
 import {
   Table,
   TableBody,
@@ -23,6 +26,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 
 interface Commission {
@@ -48,6 +53,108 @@ interface Commission {
   commissionType?: 'direct' | 'override';
   isClawedBack?: boolean;
   clawbackReason?: string;
+  agentName?: string;
+  agentNumber?: string;
+  agentEmail?: string;
+  planName?: string;
+  planTier?: string;
+  effectiveDate?: string;
+}
+
+interface StatementLineItem {
+  commissionId: string;
+  memberName: string;
+  memberId?: string | null;
+  effectiveDate?: string | null;
+  membershipTier?: string | null;
+  coverageType?: string | null;
+  commissionAmount: number;
+  description: string;
+  statementStatus: 'paid' | 'scheduled' | 'unpaid';
+  isAdjustment?: boolean;
+  adjustmentReason?: string | null;
+}
+
+interface CommissionStatement {
+  statementDate: string;
+  payoutPeriod: { startDate: string; endDate: string };
+  fromCompany: { name: string; address: string };
+  agent: {
+    id: string;
+    fullName: string;
+    writingNumber?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+  } | null;
+  lineItems: StatementLineItem[];
+  subtotal: number;
+  adjustments: number;
+  totalPayout: number;
+  statementNumber: string | null;
+  payoutBatchId: string | null;
+  status: 'all' | 'paid' | 'scheduled' | 'unpaid';
+}
+
+interface PayoutBatchSummary {
+  id: string;
+  batch_name: string;
+  batch_type: '1st-cycle' | '15th-cycle';
+  cutoff_date: string;
+  scheduled_pay_date: string;
+  total_amount: number;
+  total_agents: number;
+  total_records: number;
+  status: 'draft' | 'ready' | 'exported' | 'paid';
+  created_at: string;
+  paid_at?: string | null;
+}
+
+interface PayoutDashboardSummary {
+  nextPayoutDate: string;
+  draftBatches: PayoutBatchSummary[];
+  totalPayableAmount: number;
+  totalAgents: number;
+  counts: {
+    new: number;
+    renewal: number;
+    adjustmentOrReversal: number;
+    cancellations: number;
+  };
+}
+
+interface PayoutBatchDetail {
+  batch: PayoutBatchSummary;
+  rows: Array<{
+    id: string;
+    member_name: string;
+    member_id: string;
+    membership_tier?: string | null;
+    coverage_type?: string | null;
+    commission_amount: number;
+    commission_type: string;
+    status: string;
+    cancellation_date?: string | null;
+    cancellation_reason?: string | null;
+  }>;
+  carryForwardCandidates?: Array<{
+    agentId: string;
+    agentName: string;
+    writingNumber?: string | null;
+    currentCarryForwardTotal: number;
+    existingPayableTotal: number;
+    resultingPayoutAmount: number;
+    rowCount: number;
+    rowIds: string[];
+    rows: Array<{
+      id: string;
+      member_name: string;
+      member_id?: string | null;
+      commission_amount: number;
+      commission_type: string;
+      status: string;
+    }>;
+  }>;
 }
 
 interface LifecycleAlertSummary {
@@ -106,6 +213,14 @@ export default function AdminCommissions() {
   const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
   const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
+  const [statementAgentId, setStatementAgentId] = useState<string>("all");
+  const [statementStatus, setStatementStatus] = useState<'all' | 'paid' | 'scheduled' | 'unpaid'>("all");
+  const [isStatementOpen, setIsStatementOpen] = useState(false);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [isBatchDetailOpen, setIsBatchDetailOpen] = useState(false);
+  const [isOverrideConfirmOpen, setIsOverrideConfirmOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [selectedCarryForwardCandidate, setSelectedCarryForwardCandidate] = useState<PayoutBatchDetail['carryForwardCandidates'][number] | null>(null);
 
   const searchParams = useMemo(() => {
     const query = locationPath.includes('?')
@@ -151,6 +266,46 @@ export default function AdminCommissions() {
     refetchInterval: 60_000,
   });
 
+  const { data: statementData, isFetching: isStatementLoading } = useQuery<CommissionStatement>({
+    queryKey: [
+      "/api/admin/commissions/statement",
+      dateFilter.startDate,
+      dateFilter.endDate,
+      statementAgentId,
+      statementStatus,
+      isStatementOpen,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+        status: statementStatus,
+      });
+      if (statementAgentId !== 'all') {
+        params.set('agentId', statementAgentId);
+      }
+      return await apiRequest(`/api/admin/commissions/statement?${params.toString()}`, { method: "GET" });
+    },
+    enabled: !!user && isAdminUser && isStatementOpen,
+  });
+
+  const { data: payoutDashboard, isFetching: isPayoutDashboardLoading } = useQuery<PayoutDashboardSummary>({
+    queryKey: ["/api/admin/commissions/payout-dashboard"],
+    queryFn: async () => {
+      return await apiRequest('/api/admin/commissions/payout-dashboard', { method: 'GET' });
+    },
+    enabled: !!user && isAdminUser,
+    refetchInterval: 60000,
+  });
+
+  const { data: selectedBatchDetail, isFetching: isBatchDetailLoading } = useQuery<PayoutBatchDetail>({
+    queryKey: ["/api/admin/commissions/payout-batches", selectedBatchId],
+    queryFn: async () => {
+      return await apiRequest(`/api/admin/commissions/payout-batches/${selectedBatchId}`, { method: 'GET' });
+    },
+    enabled: !!user && isAdminUser && !!selectedBatchId && isBatchDetailOpen,
+  });
+
   // Mark commissions as paid mutation
   const markAsPaidMutation = useMutation({
     mutationFn: async (data: { commissionIds: string[], paymentDate: string }) => {
@@ -174,6 +329,90 @@ export default function AdminCommissions() {
         description: error.message || "Failed to mark commissions as paid",
         variant: "destructive",
       });
+    },
+  });
+
+  const syncLedgerMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest('/api/admin/commissions/ledger/sync', {
+        method: 'POST',
+        body: JSON.stringify({
+          startDate: dateFilter.startDate,
+          endDate: dateFilter.endDate,
+        }),
+      });
+    },
+    onSuccess: (result: any) => {
+      toast({
+        title: 'Ledger Synced',
+        description: `Inserted ${result?.inserted || 0} row(s), newly eligible since last payout ${result?.newlyEligible || 0}, skipped ${result?.skipped || 0}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Sync Failed', description: error?.message || 'Unable to sync ledger.', variant: 'destructive' });
+    },
+  });
+
+  const generateBatchesMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest('/api/admin/commissions/payout-batches/generate', {
+        method: 'POST',
+        body: JSON.stringify({ cutoffDate: formatLocalDate(new Date()) }),
+      });
+    },
+    onSuccess: (result: any) => {
+      toast({
+        title: 'Draft Batches Generated',
+        description: `${result?.count || 0} payout batch(es) were generated.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Batch Generation Failed', description: error?.message || 'Unable to generate payout batches.', variant: 'destructive' });
+    },
+  });
+
+  const markBatchPaidMutation = useMutation({
+    mutationFn: async (batchId: string) => {
+      return await apiRequest(`/api/admin/commissions/payout-batches/${batchId}/mark-paid`, {
+        method: 'POST',
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Batch Marked Paid', description: 'All included ledger records were updated to paid.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
+      if (selectedBatchId) {
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
+      }
+    },
+    onError: (error: any) => {
+      toast({ title: 'Mark Paid Failed', description: error?.message || 'Unable to mark batch paid.', variant: 'destructive' });
+    },
+  });
+
+  const overrideCarryForwardMutation = useMutation({
+    mutationFn: async (payload: { batchId: string; agentId: string; reason: string }) => {
+      return await apiRequest(`/api/admin/commissions/payout-batches/${payload.batchId}/override-carry-forward`, {
+        method: 'POST',
+        body: JSON.stringify({ agentId: payload.agentId, reason: payload.reason }),
+      });
+    },
+    onSuccess: (result: any) => {
+      toast({
+        title: 'Under-Minimum Release Applied',
+        description: `Released ${result?.releasedRows || 0} row(s) for under-minimum payout override.`,
+      });
+      setIsOverrideConfirmOpen(false);
+      setOverrideReason('');
+      setSelectedCarryForwardCandidate(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
+      if (selectedBatchId) {
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
+      }
+    },
+    onError: (error: any) => {
+      toast({ title: 'Under-Minimum Release Failed', description: error?.message || 'Unable to override under-minimum payout rows.', variant: 'destructive' });
     },
   });
 
@@ -262,6 +501,22 @@ export default function AdminCommissions() {
     );
   }, [safeCommissions]);
 
+  const availableAgents = useMemo(() => {
+    const all = Array.isArray(safeCommissions) ? safeCommissions : [];
+    const map = new Map<string, { id: string; name: string; writingNumber: string }>();
+    for (const item of all) {
+      if (!item.agentId) continue;
+      if (!map.has(item.agentId)) {
+        map.set(item.agentId, {
+          id: item.agentId,
+          name: item.agentName || item.agentEmail || item.agentId,
+          writingNumber: item.agentNumber || 'N/A',
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [safeCommissions]);
+
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       const unpaidIds = unpaidCommissions.map(c => c.id);
@@ -282,18 +537,10 @@ export default function AdminCommissions() {
   };
 
   const handleMarkAsPaid = () => {
-    if (selectedCommissions.size === 0) {
-      toast({
-        title: "No Selection",
-        description: "Please select commissions to mark as paid",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    markAsPaidMutation.mutate({
-      commissionIds: Array.from(selectedCommissions),
-      paymentDate: paymentDate,
+    toast({
+      title: 'Legacy Direct Pay Disabled',
+      description: 'Use recurring payout batches: sync ledger, generate batch, export, then mark batch as paid.',
+      variant: 'destructive',
     });
   };
 
@@ -304,6 +551,233 @@ export default function AdminCommissions() {
       startDate: format(sunday, "yyyy-MM-dd"),
       endDate: format(saturday, "yyyy-MM-dd"),
     });
+  };
+
+  const handleExportQuickBooksCsv = async () => {
+    try {
+      const params = new URLSearchParams({
+        format: 'quickbooks-csv',
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+        status: statementStatus,
+      });
+      if (statementAgentId !== 'all') {
+        params.set('agentId', statementAgentId);
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_URL}/api/admin/commissions/export?${params.toString()}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Export failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `quickbooks-commissions-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'QuickBooks CSV Exported',
+        description: 'The CSV file is ready for QuickBooks bill import.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Export Failed',
+        description: error?.message || 'Unable to export QuickBooks CSV.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleExportHexonaCsv = async () => {
+    try {
+      const params = new URLSearchParams({
+        format: 'hexona-csv',
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+        status: statementStatus,
+      });
+      if (statementAgentId !== 'all') {
+        params.set('agentId', statementAgentId);
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_URL}/api/admin/commissions/export?${params.toString()}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Export failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `hexona-commissions-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Hexona CSV Exported',
+        description: 'The CSV file is ready for Hexona/HighLevel mapping.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Export Failed',
+        description: error?.message || 'Unable to export Hexona CSV.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleExportBatchCsv = async (batchId: string, formatType: 'quickbooks-csv' | 'hexona-csv') => {
+    try {
+      const params = new URLSearchParams({ format: formatType });
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_URL}/api/admin/commissions/payout-batches/${batchId}/export?${params.toString()}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Export failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const prefix = formatType === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
+      link.download = `${prefix}-payout-batch-${batchId}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
+      if (selectedBatchId) {
+        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
+      }
+
+      toast({
+        title: 'Batch Export Complete',
+        description: formatType === 'quickbooks-csv' ? 'QuickBooks CSV exported.' : 'Hexona CSV exported.',
+      });
+    } catch (error: any) {
+      toast({ title: 'Batch Export Failed', description: error?.message || 'Unable to export batch CSV.', variant: 'destructive' });
+    }
+  };
+
+  const renderStatementDocument = (statement: CommissionStatement): string => {
+    const lineRows = (statement.lineItems || []).map((item) => `
+      <tr>
+        <td>${item.memberName || ''}</td>
+        <td>${item.memberId || ''}</td>
+        <td>${item.effectiveDate ? format(new Date(item.effectiveDate), 'MM/dd/yyyy') : ''}</td>
+        <td>${item.membershipTier || ''}</td>
+        <td>${item.coverageType || ''}</td>
+        <td style="text-align:right;">$${Number(item.commissionAmount || 0).toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    return `
+      <html>
+        <head>
+          <title>Agent Commission Statement</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
+            h1 { margin: 0 0 12px 0; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 16px; }
+            .section { margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 8px; }
+            th { background: #f3f4f6; text-align: left; }
+            .totals { margin-top: 16px; width: 320px; margin-left: auto; }
+            .totals-row { display: flex; justify-content: space-between; padding: 6px 0; }
+            .total { font-weight: 700; border-top: 1px solid #111827; padding-top: 8px; }
+          </style>
+        </head>
+        <body>
+          <h1>Agent Commission Statement</h1>
+          <div class="meta">
+            <div>
+              <div><strong>${statement.fromCompany.name}</strong></div>
+              <div>${statement.fromCompany.address || ''}</div>
+            </div>
+            <div>
+              <div><strong>Statement Date:</strong> ${format(new Date(statement.statementDate), 'MM/dd/yyyy')}</div>
+              <div><strong>Payout Period:</strong> ${statement.payoutPeriod.startDate} to ${statement.payoutPeriod.endDate}</div>
+              <div><strong>Statement #:</strong> ${statement.statementNumber || ''}</div>
+              <div><strong>Batch ID:</strong> ${statement.payoutBatchId || ''}</div>
+            </div>
+          </div>
+          <div class="section">
+            <div><strong>Agent:</strong> ${statement.agent?.fullName || ''}</div>
+            <div><strong>Writing Number:</strong> ${statement.agent?.writingNumber || ''}</div>
+            <div><strong>Contact:</strong> ${statement.agent?.email || ''}${statement.agent?.phone ? ` | ${statement.agent.phone}` : ''}</div>
+            <div><strong>Address:</strong> ${statement.agent?.address || ''}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Member Name</th>
+                <th>Member ID</th>
+                <th>Effective Date</th>
+                <th>Membership Tier</th>
+                <th>Coverage Type</th>
+                <th style="text-align:right;">Commission Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lineRows}
+            </tbody>
+          </table>
+          <div class="totals">
+            <div class="totals-row"><span>Subtotal</span><span>$${Number(statement.subtotal || 0).toFixed(2)}</span></div>
+            <div class="totals-row"><span>Adjustments / Chargebacks</span><span>$${Number(statement.adjustments || 0).toFixed(2)}</span></div>
+            <div class="totals-row total"><span>Total Payout</span><span>$${Number(statement.totalPayout || 0).toFixed(2)}</span></div>
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
+  const openStatementPrintWindow = () => {
+    if (!statementData) return;
+    const popup = window.open('', '_blank', 'width=1100,height=900');
+    if (!popup) {
+      toast({ title: 'Pop-up Blocked', description: 'Please allow pop-ups to print statements.', variant: 'destructive' });
+      return;
+    }
+    popup.document.write(renderStatementDocument(statementData));
+    popup.document.close();
+    popup.focus();
+    popup.print();
   };
 
   if (isLoading) {
@@ -528,7 +1002,7 @@ export default function AdminCommissions() {
         {/* Payment Action Card */}
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Process Payment</CardTitle>
+            <CardTitle>Process Payment (Legacy Disabled)</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4 items-end">
@@ -540,13 +1014,16 @@ export default function AdminCommissions() {
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
                 />
+                <p className="text-xs text-gray-500 mt-2">
+                  Direct pay is disabled. Use payout batches: Sync Ledger, Generate Draft Payout Batches, Export, then Mark Paid.
+                </p>
               </div>
               <Button
                 onClick={handleMarkAsPaid}
-                disabled={selectedCommissions.size === 0 || markAsPaidMutation.isPending}
+                disabled={true}
                 className="mb-0"
               >
-                {markAsPaidMutation.isPending ? "Processing..." : `Mark ${selectedCommissions.size} as Paid`}
+                Use Batch Workflow
               </Button>
             </div>
           </CardContent>
@@ -584,10 +1061,168 @@ export default function AdminCommissions() {
           </CardContent>
         </Card>
 
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Statements & Accounting Export</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Agent</Label>
+                <Select value={statementAgentId} onValueChange={setStatementAgentId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Agents" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Agents</SelectItem>
+                    {availableAgents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name} ({agent.writingNumber})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Statement Status</Label>
+                <Select
+                  value={statementStatus}
+                  onValueChange={(value: 'all' | 'paid' | 'scheduled' | 'unpaid') => setStatementStatus(value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="unpaid">Unpaid</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-2">
+                <Button onClick={() => setIsStatementOpen(true)}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Generate Statement
+                </Button>
+                <Button variant="outline" onClick={handleExportQuickBooksCsv}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export QuickBooks CSV
+                </Button>
+                <Button variant="outline" onClick={handleExportHexonaCsv}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Hexona CSV
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Recurring Commission Payout Ledger</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">Next Payout Date</p>
+                <p className="text-lg font-semibold">{payoutDashboard?.nextPayoutDate ? format(new Date(payoutDashboard.nextPayoutDate), 'MM/dd/yyyy') : 'N/A'}</p>
+              </div>
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">Total Payable</p>
+                <p className="text-lg font-semibold">${Number(payoutDashboard?.totalPayableAmount || 0).toFixed(2)}</p>
+              </div>
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">Agents To Pay</p>
+                <p className="text-lg font-semibold">{payoutDashboard?.totalAgents || 0}</p>
+              </div>
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">New / Renewal / Adj-Reversal / Cancellation</p>
+                <p className="text-sm font-semibold">
+                  {(payoutDashboard?.counts?.new || 0)} / {(payoutDashboard?.counts?.renewal || 0)} / {(payoutDashboard?.counts?.adjustmentOrReversal || 0)} / {(payoutDashboard?.counts?.cancellations || 0)}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <Button variant="outline" onClick={() => syncLedgerMutation.mutate()} disabled={syncLedgerMutation.isPending || isPayoutDashboardLoading}>
+                {syncLedgerMutation.isPending ? 'Syncing...' : 'Sync Ledger From Existing Commissions'}
+              </Button>
+              <Button onClick={() => generateBatchesMutation.mutate()} disabled={generateBatchesMutation.isPending || isPayoutDashboardLoading}>
+                {generateBatchesMutation.isPending ? 'Generating...' : 'Generate Draft Payout Batches'}
+              </Button>
+            </div>
+
+            {(payoutDashboard?.draftBatches || []).length === 0 ? (
+              <p className="text-sm text-gray-500">No draft or export-ready payout batches yet.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Batch</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Cutoff</TableHead>
+                    <TableHead>Scheduled Pay Date</TableHead>
+                    <TableHead>Records</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(payoutDashboard?.draftBatches || []).map((batch) => (
+                    <TableRow key={batch.id}>
+                      <TableCell className="font-medium">{batch.batch_name}</TableCell>
+                      <TableCell>{batch.batch_type}</TableCell>
+                      <TableCell>{batch.cutoff_date}</TableCell>
+                      <TableCell>{batch.scheduled_pay_date}</TableCell>
+                      <TableCell>{batch.total_records} ({batch.total_agents} agents)</TableCell>
+                      <TableCell>${Number(batch.total_amount || 0).toFixed(2)}</TableCell>
+                      <TableCell>
+                        <Badge variant={batch.status === 'paid' ? 'secondary' : 'outline'}>{batch.status}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedBatchId(batch.id);
+                              setIsBatchDetailOpen(true);
+                            }}
+                          >
+                            View
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleExportBatchCsv(batch.id, 'quickbooks-csv')}>
+                            QB CSV
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleExportBatchCsv(batch.id, 'hexona-csv')}>
+                            Hexona CSV
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => markBatchPaidMutation.mutate(batch.id)}
+                            disabled={markBatchPaidMutation.isPending || batch.status === 'paid'}
+                          >
+                            Mark Paid
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Commission Table with Tabs */}
         <Card>
           <CardHeader>
             <CardTitle>Commission Details</CardTitle>
+            <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              These legacy commission records are historical only. Legacy direct-pay routes are disabled. Use the ledger batch workflow above for scheduling, export, and payment actions.
+            </p>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="all" className="w-full">
@@ -853,6 +1488,242 @@ export default function AdminCommissions() {
             </Tabs>
           </CardContent>
         </Card>
+
+        <Dialog open={isStatementOpen} onOpenChange={setIsStatementOpen}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Agent Commission Statement</DialogTitle>
+              <DialogDescription>
+                Statement-ready view for payout period {dateFilter.startDate} to {dateFilter.endDate}
+              </DialogDescription>
+            </DialogHeader>
+
+            {isStatementLoading ? (
+              <div className="py-10 flex justify-center">
+                <LoadingSpinner />
+              </div>
+            ) : !statementData ? (
+              <p className="text-sm text-gray-500">No statement data available.</p>
+            ) : (
+              <div className="space-y-6">
+                <div className="rounded-lg border p-4 bg-white">
+                  <div className="flex justify-between items-start gap-4">
+                    <div>
+                      <h3 className="text-xl font-semibold">Agent Commission Statement</h3>
+                      <p className="text-sm text-gray-600">{statementData.fromCompany.name}</p>
+                      <p className="text-sm text-gray-600">{statementData.fromCompany.address}</p>
+                    </div>
+                    <div className="text-sm text-right">
+                      <p><span className="font-medium">Statement Date:</span> {format(new Date(statementData.statementDate), "MM/dd/yyyy")}</p>
+                      <p><span className="font-medium">Payout Period:</span> {statementData.payoutPeriod.startDate} to {statementData.payoutPeriod.endDate}</p>
+                      <p><span className="font-medium">Statement #:</span> {statementData.statementNumber || 'N/A'}</p>
+                      <p><span className="font-medium">Batch ID:</span> {statementData.payoutBatchId || 'N/A'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-4 bg-white text-sm">
+                  <p><span className="font-medium">Agent:</span> {statementData.agent?.fullName || 'N/A'}</p>
+                  <p><span className="font-medium">Writing Number:</span> {statementData.agent?.writingNumber || 'N/A'}</p>
+                  <p><span className="font-medium">Contact:</span> {statementData.agent?.email || 'N/A'}{statementData.agent?.phone ? ` | ${statementData.agent.phone}` : ''}</p>
+                  <p><span className="font-medium">Address:</span> {statementData.agent?.address || 'N/A'}</p>
+                </div>
+
+                <div className="rounded-lg border bg-white">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Member Name</TableHead>
+                        <TableHead>Member ID</TableHead>
+                        <TableHead>Effective Date</TableHead>
+                        <TableHead>Membership Tier</TableHead>
+                        <TableHead>Coverage Type</TableHead>
+                        <TableHead className="text-right">Commission Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(statementData.lineItems || []).map((item) => (
+                        <TableRow key={item.commissionId}>
+                          <TableCell>{item.memberName}</TableCell>
+                          <TableCell>{item.memberId || '-'}</TableCell>
+                          <TableCell>{item.effectiveDate ? format(new Date(item.effectiveDate), 'MM/dd/yyyy') : '-'}</TableCell>
+                          <TableCell>{item.membershipTier || '-'}</TableCell>
+                          <TableCell>{item.coverageType || '-'}</TableCell>
+                          <TableCell className="text-right font-semibold">${Number(item.commissionAmount || 0).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="ml-auto w-full max-w-sm rounded-lg border bg-white p-4 space-y-2 text-sm">
+                  <div className="flex justify-between"><span>Subtotal</span><span>${Number(statementData.subtotal || 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span>Adjustments / Chargebacks</span><span>${Number(statementData.adjustments || 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between font-bold border-t pt-2"><span>Total Payout</span><span>${Number(statementData.totalPayout || 0).toFixed(2)}</span></div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={openStatementPrintWindow}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </Button>
+                  <Button onClick={openStatementPrintWindow}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isBatchDetailOpen} onOpenChange={setIsBatchDetailOpen}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Payout Batch Detail</DialogTitle>
+              <DialogDescription>
+                Review line items before export and mark-paid actions.
+              </DialogDescription>
+            </DialogHeader>
+
+            {isBatchDetailLoading ? (
+              <div className="py-10 flex justify-center">
+                <LoadingSpinner />
+              </div>
+            ) : !selectedBatchDetail ? (
+              <p className="text-sm text-gray-500">No batch details found.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded border p-3"><span className="font-medium">Batch:</span> {selectedBatchDetail.batch.batch_name}</div>
+                  <div className="rounded border p-3"><span className="font-medium">Type:</span> {selectedBatchDetail.batch.batch_type}</div>
+                  <div className="rounded border p-3"><span className="font-medium">Cutoff:</span> {selectedBatchDetail.batch.cutoff_date}</div>
+                  <div className="rounded border p-3"><span className="font-medium">Pay Date:</span> {selectedBatchDetail.batch.scheduled_pay_date}</div>
+                </div>
+
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Member</TableHead>
+                      <TableHead>Member ID</TableHead>
+                      <TableHead>Tier</TableHead>
+                      <TableHead>Coverage</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Cancellation</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(selectedBatchDetail.rows || []).map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>{row.member_name}</TableCell>
+                        <TableCell>{row.member_id || '-'}</TableCell>
+                        <TableCell>{row.membership_tier || '-'}</TableCell>
+                        <TableCell>{row.coverage_type || '-'}</TableCell>
+                        <TableCell>{row.commission_type}</TableCell>
+                        <TableCell>{row.status}</TableCell>
+                        <TableCell>
+                          {row.cancellation_date
+                            ? `${row.cancellation_date}${row.cancellation_reason ? ` (${row.cancellation_reason})` : ''}`
+                            : '-'}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">${Number(row.commission_amount || 0).toFixed(2)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+                {isAdminUser && Array.isArray(selectedBatchDetail.carryForwardCandidates) && selectedBatchDetail.carryForwardCandidates.length > 0 && (
+                  <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-4">
+                    <div className="text-sm font-semibold text-amber-900">Carry-Forward / Under-Minimum Overrides</div>
+                    <p className="text-xs text-amber-800">
+                      Admin and super-admin can manually release under-minimum rows. Every action requires a reason and is audit logged.
+                    </p>
+                    <div className="space-y-3">
+                      {selectedBatchDetail.carryForwardCandidates.map((candidate) => (
+                        <div key={`${candidate.agentId}-${candidate.rowCount}`} className="rounded border bg-white p-3 text-sm">
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                            <div><span className="font-medium">Agent:</span> {candidate.agentName}</div>
+                            <div><span className="font-medium">Carry Forward Total:</span> ${Number(candidate.currentCarryForwardTotal || 0).toFixed(2)}</div>
+                            <div><span className="font-medium">Rows:</span> {candidate.rowCount}</div>
+                            <div><span className="font-medium">Resulting Payout:</span> ${Number(candidate.resultingPayoutAmount || 0).toFixed(2)}</div>
+                            <div className="flex justify-start md:justify-end">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedCarryForwardCandidate(candidate);
+                                  setOverrideReason('');
+                                  setIsOverrideConfirmOpen(true);
+                                }}
+                              >
+                                Release Under-Minimum
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isOverrideConfirmOpen} onOpenChange={setIsOverrideConfirmOpen}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Confirm Under-Minimum Release</DialogTitle>
+              <DialogDescription>
+                This action will release carry-forward rows into payable status and create an audit event.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!selectedCarryForwardCandidate ? (
+              <p className="text-sm text-gray-500">No carry-forward candidate selected.</p>
+            ) : (
+              <div className="space-y-4 text-sm">
+                <div className="rounded border p-3 bg-white space-y-1">
+                  <div><span className="font-medium">Agent:</span> {selectedCarryForwardCandidate.agentName}</div>
+                  <div><span className="font-medium">Current Carry-Forward Total:</span> ${Number(selectedCarryForwardCandidate.currentCarryForwardTotal || 0).toFixed(2)}</div>
+                  <div><span className="font-medium">Rows Being Released:</span> {selectedCarryForwardCandidate.rowCount}</div>
+                  <div><span className="font-medium">Resulting Payout Amount:</span> ${Number(selectedCarryForwardCandidate.resultingPayoutAmount || 0).toFixed(2)}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="overrideReason">Reason (required)</Label>
+                  <Input
+                    id="overrideReason"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                    placeholder="Enter reason for manual under-minimum release"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsOverrideConfirmOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!selectedBatchId || !selectedCarryForwardCandidate) return;
+                      overrideCarryForwardMutation.mutate({
+                        batchId: selectedBatchId,
+                        agentId: selectedCarryForwardCandidate.agentId,
+                        reason: overrideReason.trim(),
+                      });
+                    }}
+                    disabled={overrideCarryForwardMutation.isPending || !overrideReason.trim()}
+                  >
+                    {overrideCarryForwardMutation.isPending ? 'Releasing...' : 'Confirm Release'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

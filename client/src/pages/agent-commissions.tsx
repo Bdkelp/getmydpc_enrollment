@@ -20,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 
 interface Commission {
@@ -88,6 +89,34 @@ interface LifecycleAlertSummary {
   }>;
 }
 
+interface AgentLedgerRow {
+  id: string;
+  memberId?: string | null;
+  memberName: string;
+  membershipTier?: string | null;
+  coverageType?: string | null;
+  effectiveDate?: string | null;
+  commissionType: 'new' | 'renewal' | 'adjustment' | 'reversal';
+  commissionAmount: number;
+  displayStatus: 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed';
+  payoutBatchId?: string | null;
+  payoutBatchName?: string | null;
+  scheduledPayDate?: string | null;
+  paidAt?: string | null;
+  statementNumber?: string | null;
+}
+
+interface AgentLedgerResponse {
+  rows: AgentLedgerRow[];
+  summary: {
+    pendingTotal: number;
+    scheduledTotal: number;
+    carryForwardTotal: number;
+    paidTotal: number;
+    reversalsAdjustmentsTotal: number;
+  };
+}
+
 export default function AgentCommissions() {
   const [locationPath, setLocation] = useLocation();
   const { toast } = useToast();
@@ -99,6 +128,9 @@ export default function AgentCommissions() {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
   const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
+  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'all' | 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed'>('all');
+  const [ledgerPayoutPeriodFilter, setLedgerPayoutPeriodFilter] = useState<'all' | '1st-cycle' | '15th-cycle'>('all');
+  const [ledgerMemberNameFilter, setLedgerMemberNameFilter] = useState('');
 
   const searchParams = useMemo(() => {
     const query = locationPath.includes('?')
@@ -154,6 +186,31 @@ export default function AgentCommissions() {
     enabled: !!user,
     retry: 1,
     refetchInterval: 60_000,
+  });
+
+  const { data: agentLedger, isLoading: ledgerLoading, error: ledgerError } = useQuery<AgentLedgerResponse>({
+    queryKey: [
+      '/api/agent/commission-ledger',
+      dateFilter.startDate,
+      dateFilter.endDate,
+      ledgerStatusFilter,
+      ledgerPayoutPeriodFilter,
+      ledgerMemberNameFilter,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        startDate: dateFilter.startDate,
+        endDate: dateFilter.endDate,
+        status: ledgerStatusFilter,
+        payoutPeriod: ledgerPayoutPeriodFilter,
+      });
+      if (ledgerMemberNameFilter.trim()) {
+        params.set('memberName', ledgerMemberNameFilter.trim());
+      }
+      return await apiRequest(`/api/agent/commission-ledger?${params.toString()}`, { method: 'GET' });
+    },
+    enabled: !!user,
+    retry: 1,
   });
 
   const handleExport = async () => {
@@ -275,20 +332,39 @@ export default function AgentCommissions() {
     }
   };
 
+  const getLedgerStatusBadge = (status: AgentLedgerRow['displayStatus']) => {
+    switch (status) {
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800">Pending (Earned)</Badge>;
+      case 'scheduled':
+        return <Badge className="bg-blue-100 text-blue-800">Scheduled</Badge>;
+      case 'carry_forward':
+        return <Badge className="bg-amber-100 text-amber-800">Carry Forward (&lt;$25)</Badge>;
+      case 'paid':
+        return <Badge className="bg-green-100 text-green-800">Paid</Badge>;
+      case 'held':
+        return <Badge className="bg-orange-100 text-orange-800">Held</Badge>;
+      case 'reversed':
+      default:
+        return <Badge className="bg-red-100 text-red-800">Reversed</Badge>;
+    }
+  };
+
   // Show errors if any
-  if (statsError || commissionsError) {
-    console.error('[AgentCommissions] Query errors:', { statsError, commissionsError });
+  if (statsError || commissionsError || ledgerError) {
+    console.error('[AgentCommissions] Query errors:', { statsError, commissionsError, ledgerError });
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="max-w-md p-6">
           <CardContent>
             <h2 className="text-xl font-bold text-red-600 mb-2">Failed to Load Commissions</h2>
             <p className="text-gray-600 mb-4">
-              {commissionsError ? String(commissionsError) : String(statsError)}
+              {commissionsError ? String(commissionsError) : ledgerError ? String(ledgerError) : String(statsError)}
             </p>
             <Button onClick={() => {
               queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-stats"] });
               queryClient.invalidateQueries({ queryKey: ["/api/agent/commissions"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/agent/commission-ledger"] });
             }}>
               Try Again
             </Button>
@@ -298,7 +374,7 @@ export default function AgentCommissions() {
     );
   }
 
-  if (statsLoading || commissionsLoading) {
+  if (statsLoading || commissionsLoading || ledgerLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />
@@ -561,6 +637,150 @@ export default function AgentCommissions() {
                 />
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Agent Commissions</CardTitle>
+            <p className="text-sm text-gray-500">Read-only payout lifecycle view for your commission records.</p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pending Total</CardTitle></CardHeader>
+                <CardContent><div className="text-xl font-bold">${Number(agentLedger?.summary?.pendingTotal || 0).toFixed(2)}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Scheduled Total</CardTitle></CardHeader>
+                <CardContent><div className="text-xl font-bold text-blue-700">${Number(agentLedger?.summary?.scheduledTotal || 0).toFixed(2)}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Carry Forward (&lt;$25)</CardTitle></CardHeader>
+                <CardContent><div className="text-xl font-bold text-amber-700">${Number(agentLedger?.summary?.carryForwardTotal || 0).toFixed(2)}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Paid Total</CardTitle></CardHeader>
+                <CardContent><div className="text-xl font-bold text-green-700">${Number(agentLedger?.summary?.paidTotal || 0).toFixed(2)}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Reversals/Adjustments</CardTitle></CardHeader>
+                <CardContent><div className="text-xl font-bold text-red-700">${Number(agentLedger?.summary?.reversalsAdjustmentsTotal || 0).toFixed(2)}</div></CardContent>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div>
+                <Label>Status</Label>
+                <Select value={ledgerStatusFilter} onValueChange={(value: any) => setLedgerStatusFilter(value)}>
+                  <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="carry_forward">Carry Forward (&lt;$25)</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="held">Held</SelectItem>
+                    <SelectItem value="reversed">Reversed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Payout Period</Label>
+                <Select value={ledgerPayoutPeriodFilter} onValueChange={(value: any) => setLedgerPayoutPeriodFilter(value)}>
+                  <SelectTrigger><SelectValue placeholder="All" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="1st-cycle">1st-cycle</SelectItem>
+                    <SelectItem value="15th-cycle">15th-cycle</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="ledgerMemberName">Member Name</Label>
+                <Input
+                  id="ledgerMemberName"
+                  value={ledgerMemberNameFilter}
+                  onChange={(e) => setLedgerMemberNameFilter(e.target.value)}
+                  placeholder="Search member"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setLedgerStatusFilter('all');
+                    setLedgerPayoutPeriodFilter('all');
+                    setLedgerMemberNameFilter('');
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            </div>
+
+            {Array.isArray(agentLedger?.rows) && agentLedger.rows.length > 0 ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Member Name</TableHead>
+                    <TableHead>Member ID</TableHead>
+                    <TableHead>Membership Tier</TableHead>
+                    <TableHead>Effective Date</TableHead>
+                    <TableHead>Commission Type</TableHead>
+                    <TableHead>Commission Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Payout Batch / Schedule</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {agentLedger.rows.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>{row.memberName || 'N/A'}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.memberId || '-'}</TableCell>
+                      <TableCell>{row.membershipTier || '-'}</TableCell>
+                      <TableCell>{row.effectiveDate ? format(new Date(row.effectiveDate), 'MM/dd/yyyy') : '-'}</TableCell>
+                      <TableCell className="capitalize">{row.commissionType}</TableCell>
+                      <TableCell className="font-semibold">${Number(row.commissionAmount || 0).toFixed(2)}</TableCell>
+                      <TableCell>{getLedgerStatusBadge(row.displayStatus)}</TableCell>
+                      <TableCell>
+                        {row.displayStatus === 'pending' && (
+                          <div className="text-xs text-gray-600">Earned and not yet assigned to a payout batch</div>
+                        )}
+                        {row.displayStatus === 'scheduled' && (
+                          <div className="text-xs text-blue-700">
+                            <div>Batch: {row.payoutBatchName || row.payoutBatchId || 'Pending Batch'}</div>
+                            <div>Expected Pay: {row.scheduledPayDate ? format(new Date(row.scheduledPayDate), 'MM/dd/yyyy') : 'TBD'}</div>
+                          </div>
+                        )}
+                        {row.displayStatus === 'carry_forward' && (
+                          <div className="text-xs text-amber-700">
+                            <div>Held for minimum payout threshold ($25.00)</div>
+                            <div>Will release automatically once cycle total reaches threshold</div>
+                          </div>
+                        )}
+                        {row.displayStatus === 'paid' && (
+                          <div className="text-xs text-green-700">
+                            <div>Paid: {row.paidAt ? format(new Date(row.paidAt), 'MM/dd/yyyy') : 'Recorded'}</div>
+                            <div>Ref: {row.statementNumber || row.payoutBatchId || 'N/A'}</div>
+                          </div>
+                        )}
+                        {(row.displayStatus === 'held' || row.displayStatus === 'reversed') && (
+                          <div className="text-xs text-red-700">
+                            <div>Batch: {row.payoutBatchName || row.payoutBatchId || 'N/A'}</div>
+                            {row.scheduledPayDate && <div>Cycle: {format(new Date(row.scheduledPayDate), 'MM/dd/yyyy')}</div>}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No agent commission ledger records for the selected filters.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

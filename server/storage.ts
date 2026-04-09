@@ -3851,7 +3851,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     const { data: members, error: membersError } = numericMemberIds.length > 0
       ? await supabase
         .from('members')
-        .select('id, first_name, last_name, email, customer_number, coverage_type')
+        .select('id, first_name, last_name, email, customer_number, coverage_type, membership_start_date')
         .in('id', numericMemberIds)
       : { data: [], error: null };
 
@@ -3891,7 +3891,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     // Batch fetch agents data from users table (agents/admins/super_admins)
     const { data: agents, error: agentsError } = await supabase
       .from('users')
-      .select('id, email, first_name, last_name, role, agent_number')
+      .select('id, email, first_name, last_name, role, agent_number, phone, address, address2, city, state, zip_code')
       .in('id', agentIds);
 
     if (agentsError) {
@@ -4293,6 +4293,12 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
           : agent?.email || 'Unknown Agent',
         agentFirstName: agent?.first_name || '',
         agentLastName: agent?.last_name || '',
+        agentPhone: agent?.phone || '',
+        agentAddress: agent?.address || '',
+        agentAddress2: agent?.address2 || '',
+        agentCity: agent?.city || '',
+        agentState: agent?.state || '',
+        agentZipCode: agent?.zip_code || '',
         // Plan information
         planTier: planTier,
         planType: coverageType,
@@ -4300,6 +4306,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         planPrice: membershipFee,
         totalPlanCost: membershipFee,
+        effectiveDate: isGroupCommission ? (commission.created_at || null) : (member?.membership_start_date || commission.created_at || null),
         userName: resolvedMemberName
       };
     });
@@ -4320,6 +4327,8 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
 
 export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
   try {
+    throw new Error('Legacy direct-pay workflow disabled. Use ledger batch workflow only.');
+
     console.log('[Storage] markCommissionsAsPaid - Input:', { 
       commissionIds, 
       paymentDate,
@@ -4368,6 +4377,8 @@ export async function updateCommissionPayoutStatus(
   }
 ): Promise<any> {
   try {
+    throw new Error('Legacy direct payout mutation disabled. Use ledger batch workflow only.');
+
     console.log('[Storage] Updating commission payout status:', commissionId, payoutData);
 
     const updatePayload: any = {
@@ -4411,6 +4422,8 @@ export async function updateMultipleCommissionPayouts(
   }>
 ): Promise<void> {
   try {
+    throw new Error('Legacy batch payout mutation disabled. Use ledger batch workflow only.');
+
     console.log('[Storage] Batch updating commission payouts for', updates.length, 'commissions');
 
     // Process updates in batches of 100 to avoid hitting rate limits

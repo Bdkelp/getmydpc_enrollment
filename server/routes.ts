@@ -14,7 +14,20 @@ import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInqui
 import { sendEmailVerification, sendUserCredentialsEmail } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
+import {
+  adminOverrideCarryForwardForBatch,
+  applyCancellationToLedger,
+  buildDraftPayoutBatches,
+  buildHexonaCsvFromBatch,
+  buildQuickBooksCsvFromBatch,
+  getBatchDetails,
+  getPayoutDashboardData,
+  markBatchAsPaid,
+  prepareBatchForExport,
+  syncCommissionLedgerFromFeed,
+} from "./services/commission-ledger-service";
 import { displaySSN } from "@shared/display-ssn";
+import { addDaysLocal, formatLocalDate, parseLocalDate } from "@shared/localDate";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import { 
   calculateMembershipStartDate, 
@@ -5069,6 +5082,21 @@ async function createCommissionWithCheck(
 
     console.log('[Commission Dual-Write] Creating commission with data:', commissionData);
 
+    const existingCommission = await findExistingCommissionUnit({
+      memberId: commissionData.member_id,
+      enrollmentId: commissionData.enrollment_id || null,
+      agentId: commissionData.agent_id,
+      commissionType: 'direct',
+    });
+
+    if (existingCommission) {
+      return {
+        skipped: true,
+        reason: 'commission_unit_exists',
+        existingCommissionId: existingCommission.id,
+      };
+    }
+
     // Create commission directly in Supabase
     const { data: newCommission, error: commissionError } = await supabase
       .from('agent_commissions')
@@ -5097,6 +5125,44 @@ async function createCommissionWithCheck(
     console.error("Error creating commission:", error);
     return { error: error instanceof Error ? error.message : 'Unknown error' };
   }
+}
+
+async function findExistingCommissionUnit(options: {
+  memberId: string;
+  enrollmentId: string | null;
+  agentId: string;
+  commissionType: 'direct' | 'override';
+  overrideForAgentId?: string | null;
+}): Promise<{ id: string; commission_amount: number } | null> {
+  let query = supabase
+    .from('agent_commissions')
+    .select('id, commission_amount')
+    .eq('member_id', options.memberId)
+    .eq('agent_id', options.agentId)
+    .limit(1);
+
+  if (options.enrollmentId) {
+    query = query.eq('enrollment_id', options.enrollmentId);
+  } else {
+    query = query.is('enrollment_id', null);
+  }
+
+  if (options.commissionType === 'override') {
+    query = query.eq('commission_type', 'override');
+    if (options.overrideForAgentId) {
+      query = query.eq('override_for_agent_id', options.overrideForAgentId);
+    }
+  } else {
+    query = query.or('commission_type.is.null,commission_type.eq.direct');
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to inspect existing commission unit: ${error.message}`);
+  }
+
+  return data || null;
 }
 
 export async function registerRoutes(app: any) {
@@ -5619,12 +5685,34 @@ export async function registerRoutes(app: any) {
               console.log('[Registration] Commission data:', JSON.stringify(commissionData, null, 2));
               
               try {
-                // Insert directly into Supabase agent_commissions table using service role
-                const { data: newCommission, error: commissionError } = await supabase
-                  .from('agent_commissions')
-                  .insert(commissionData)
-                  .select()
-                  .single();
+                const existingDirectCommission = await findExistingCommissionUnit({
+                  memberId: commissionData.member_id,
+                  enrollmentId: commissionData.enrollment_id || null,
+                  agentId: commissionData.agent_id,
+                  commissionType: 'direct',
+                });
+
+                let newCommission = existingDirectCommission;
+                let commissionError: any = null;
+
+                if (existingDirectCommission) {
+                  console.log('[Registration] Existing commission unit found; skipping duplicate direct commission row', {
+                    commissionId: existingDirectCommission.id,
+                    memberId: commissionData.member_id,
+                    enrollmentId: commissionData.enrollment_id,
+                    agentId: commissionData.agent_id,
+                  });
+                } else {
+                  // Insert directly into Supabase agent_commissions table using service role
+                  const insertResult = await supabase
+                    .from('agent_commissions')
+                    .insert(commissionData)
+                    .select()
+                    .single();
+
+                  newCommission = insertResult.data;
+                  commissionError = insertResult.error;
+                }
                 
                 if (commissionError) {
                   console.error("[Registration] ❌ Commission creation failed:", commissionError);
@@ -5645,32 +5733,50 @@ export async function registerRoutes(app: any) {
                     if (agentError) {
                       console.error("[Registration] Could not fetch agent upline data:", agentError);
                     } else if (agentData?.upline_agent_id && agentData.override_commission_rate > 0) {
-                      // Create override commission for upline agent
-                      const overrideCommissionData = {
-                        agent_id: agentData.upline_agent_id,
-                        member_id: member.id.toString(),
-                        enrollment_id: subscriptionId ? subscriptionId.toString() : null,
-                        commission_amount: agentData.override_commission_rate,
-                        coverage_type: coverageTypeEnum,
-                        status: 'pending',
-                        payment_status: 'unpaid',
-                        commission_type: 'override',
-                        override_for_agent_id: agentUser.id,
-                        base_premium: commissionResult.totalCost,
-                        notes: `Override for Agent #${agentData.agent_number || agentUser.id} - Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Override Rate: $${agentData.override_commission_rate}`
-                      };
-                      
-                      const { data: overrideCommission, error: overrideError } = await supabase
-                        .from('agent_commissions')
-                        .insert(overrideCommissionData)
-                        .select()
-                        .single();
-                      
-                      if (overrideError) {
-                        console.error("[Registration] ❌ Override commission creation failed:", overrideError);
+                      const existingOverrideCommission = await findExistingCommissionUnit({
+                        memberId: member.id.toString(),
+                        enrollmentId: subscriptionId ? subscriptionId.toString() : null,
+                        agentId: agentData.upline_agent_id,
+                        commissionType: 'override',
+                        overrideForAgentId: agentUser.id,
+                      });
+
+                      if (existingOverrideCommission) {
+                        console.log('[Registration] Existing override commission unit found; skipping duplicate override row', {
+                          commissionId: existingOverrideCommission.id,
+                          memberId: member.id,
+                          enrollmentId: subscriptionId,
+                          uplineAgentId: agentData.upline_agent_id,
+                          overrideForAgentId: agentUser.id,
+                        });
                       } else {
-                        console.log("[Registration] ✅ Override commission created: $" + agentData.override_commission_rate.toFixed(2) + " for upline agent " + agentData.upline_agent_id);
-                        console.log("[Registration] Override Commission ID:", overrideCommission.id);
+                        // Create override commission for upline agent
+                        const overrideCommissionData = {
+                          agent_id: agentData.upline_agent_id,
+                          member_id: member.id.toString(),
+                          enrollment_id: subscriptionId ? subscriptionId.toString() : null,
+                          commission_amount: agentData.override_commission_rate,
+                          coverage_type: coverageTypeEnum,
+                          status: 'pending',
+                          payment_status: 'unpaid',
+                          commission_type: 'override',
+                          override_for_agent_id: agentUser.id,
+                          base_premium: commissionResult.totalCost,
+                          notes: `Override for Agent #${agentData.agent_number || agentUser.id} - Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Override Rate: $${agentData.override_commission_rate}`
+                        };
+                        
+                        const { data: overrideCommission, error: overrideError } = await supabase
+                          .from('agent_commissions')
+                          .insert(overrideCommissionData)
+                          .select()
+                          .single();
+                        
+                        if (overrideError) {
+                          console.error("[Registration] ❌ Override commission creation failed:", overrideError);
+                        } else {
+                          console.log("[Registration] ✅ Override commission created: $" + agentData.override_commission_rate.toFixed(2) + " for upline agent " + agentData.upline_agent_id);
+                          console.log("[Registration] Override Commission ID:", overrideCommission.id);
+                        }
                       }
                     } else {
                       console.log("[Registration] No override commission - agent has no upline or override rate is $0");
@@ -6470,6 +6576,258 @@ export async function registerRoutes(app: any) {
     }
   });
 
+  const toCommissionDisplayStatus = (status: string): 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed' => {
+    const normalized = String(status || '').toLowerCase();
+    if (normalized === 'earned') return 'pending';
+    if (normalized === 'queued') return 'scheduled';
+    if (normalized === 'carry_forward') return 'carry_forward';
+    if (normalized === 'paid') return 'paid';
+    if (normalized === 'held') return 'held';
+    return 'reversed';
+  };
+
+  app.get('/api/agent/commission-ledger', authMiddleware, async (req: any, res: any) => {
+    try {
+      const userRole = req.user?.role?.trim();
+      if (!hasAgentOrAdminAccess(userRole)) {
+        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+      }
+
+      const {
+        status = 'all',
+        payoutPeriod = 'all',
+        startDate,
+        endDate,
+        memberName,
+        agentId,
+      } = req.query as {
+        status?: string;
+        payoutPeriod?: string;
+        startDate?: string;
+        endDate?: string;
+        memberName?: string;
+        agentId?: string;
+      };
+
+      const scopedAgentId = isAdmin(userRole) && agentId ? agentId : req.user.id;
+
+      let ledgerQuery = supabase
+        .from('commission_ledger')
+        .select('*')
+        .eq('agent_id', scopedAgentId)
+        .order('created_at', { ascending: false });
+
+      if (startDate) {
+        ledgerQuery = ledgerQuery.gte('created_at', startDate);
+      }
+      if (endDate) {
+        const endExclusive = addDaysLocal(String(endDate), 1);
+        ledgerQuery = ledgerQuery.lt('created_at', formatLocalDate(endExclusive));
+      }
+      if (memberName) {
+        ledgerQuery = ledgerQuery.ilike('member_name', `%${memberName}%`);
+      }
+      if (status !== 'all') {
+        const statusMap: Record<string, string[]> = {
+          pending: ['earned'],
+          scheduled: ['queued'],
+          carry_forward: ['carry_forward'],
+          paid: ['paid'],
+          held: ['held'],
+          reversed: ['reversed'],
+        };
+        const rawStatuses = statusMap[String(status).toLowerCase()] || [];
+        if (rawStatuses.length > 0) {
+          ledgerQuery = ledgerQuery.in('status', rawStatuses);
+        }
+      }
+
+      const { data: rows, error: ledgerError } = await ledgerQuery;
+      if (ledgerError) {
+        throw new Error(`Failed to fetch commission ledger: ${ledgerError.message}`);
+      }
+
+      const batchIds = [...new Set((rows || []).map((row: any) => row.payout_batch_id).filter(Boolean))];
+      let batchMap = new Map<string, any>();
+
+      if (batchIds.length > 0) {
+        const { data: batches, error: batchesError } = await supabase
+          .from('commission_payout_batches')
+          .select('id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at')
+          .in('id', batchIds);
+
+        if (batchesError) {
+          throw new Error(`Failed to fetch payout batch details: ${batchesError.message}`);
+        }
+
+        batchMap = new Map((batches || []).map((batch: any) => [batch.id, batch]));
+      }
+
+      const filteredByPeriod = (rows || []).filter((row: any) => {
+        if (payoutPeriod === 'all') return true;
+        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
+        return batch?.batch_type === payoutPeriod;
+      });
+
+      const normalized = filteredByPeriod.map((row: any) => {
+        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
+        const displayStatus = toCommissionDisplayStatus(row.status);
+        return {
+          id: row.id,
+          agentId: row.agent_id,
+          agentName: row.agent_name,
+          writingNumber: row.writing_number,
+          memberId: row.member_id,
+          memberName: row.member_name,
+          membershipTier: row.membership_tier,
+          coverageType: row.coverage_type,
+          effectiveDate: row.effective_date,
+          commissionPeriodStart: row.commission_period_start,
+          commissionPeriodEnd: row.commission_period_end,
+          commissionAmount: Number(row.commission_amount || 0),
+          commissionType: row.commission_type,
+          status: row.status,
+          displayStatus,
+          payoutBatchId: row.payout_batch_id,
+          payoutBatchName: batch?.batch_name || null,
+          payoutBatchType: batch?.batch_type || null,
+          scheduledPayDate: batch?.scheduled_pay_date || null,
+          paidAt: batch?.paid_at || null,
+          statementNumber: row.statement_number,
+          cancellationDate: row.cancellation_date,
+          cancellationReason: row.cancellation_reason,
+          notes: row.notes,
+          createdAt: row.created_at,
+        };
+      });
+
+      const summary = {
+        pendingTotal: normalized
+          .filter((row: any) => row.displayStatus === 'pending')
+          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
+        scheduledTotal: normalized
+          .filter((row: any) => row.displayStatus === 'scheduled')
+          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
+        carryForwardTotal: normalized
+          .filter((row: any) => row.displayStatus === 'carry_forward')
+          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
+        paidTotal: normalized
+          .filter((row: any) => row.displayStatus === 'paid')
+          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
+        reversalsAdjustmentsTotal: normalized
+          .filter((row: any) => row.commissionType === 'adjustment' || row.commissionType === 'reversal')
+          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
+      };
+
+      return res.json({ rows: normalized, summary });
+    } catch (error: any) {
+      console.error('Error fetching agent commission ledger:', error);
+      return res.status(500).json({ error: 'Failed to fetch commission ledger', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/commission-ledger', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const {
+        agentId,
+        status = 'all',
+        payoutPeriod = 'all',
+        startDate,
+        endDate,
+        memberName,
+      } = req.query as {
+        agentId?: string;
+        status?: string;
+        payoutPeriod?: string;
+        startDate?: string;
+        endDate?: string;
+        memberName?: string;
+      };
+
+      let ledgerQuery = supabase
+        .from('commission_ledger')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (agentId) {
+        ledgerQuery = ledgerQuery.eq('agent_id', agentId);
+      }
+      if (startDate) {
+        ledgerQuery = ledgerQuery.gte('created_at', startDate);
+      }
+      if (endDate) {
+        const endExclusive = addDaysLocal(String(endDate), 1);
+        ledgerQuery = ledgerQuery.lt('created_at', formatLocalDate(endExclusive));
+      }
+      if (memberName) {
+        ledgerQuery = ledgerQuery.ilike('member_name', `%${memberName}%`);
+      }
+      if (status !== 'all') {
+        const statusMap: Record<string, string[]> = {
+          pending: ['earned'],
+          scheduled: ['queued'],
+          carry_forward: ['carry_forward'],
+          paid: ['paid'],
+          held: ['held'],
+          reversed: ['reversed'],
+        };
+        const rawStatuses = statusMap[String(status).toLowerCase()] || [];
+        if (rawStatuses.length > 0) {
+          ledgerQuery = ledgerQuery.in('status', rawStatuses);
+        }
+      }
+
+      const { data: rows, error: ledgerError } = await ledgerQuery;
+      if (ledgerError) {
+        throw new Error(`Failed to fetch admin commission ledger: ${ledgerError.message}`);
+      }
+
+      const batchIds = [...new Set((rows || []).map((row: any) => row.payout_batch_id).filter(Boolean))];
+      let batchMap = new Map<string, any>();
+
+      if (batchIds.length > 0) {
+        const { data: batches, error: batchesError } = await supabase
+          .from('commission_payout_batches')
+          .select('id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at')
+          .in('id', batchIds);
+
+        if (batchesError) {
+          throw new Error(`Failed to fetch payout batches for admin ledger: ${batchesError.message}`);
+        }
+
+        batchMap = new Map((batches || []).map((batch: any) => [batch.id, batch]));
+      }
+
+      const filteredByPeriod = (rows || []).filter((row: any) => {
+        if (payoutPeriod === 'all') return true;
+        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
+        return batch?.batch_type === payoutPeriod;
+      });
+
+      const normalized = filteredByPeriod.map((row: any) => {
+        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
+        return {
+          ...row,
+          commissionAmount: Number(row.commission_amount || 0),
+          displayStatus: toCommissionDisplayStatus(row.status),
+          payoutBatchName: batch?.batch_name || null,
+          payoutBatchType: batch?.batch_type || null,
+          scheduledPayDate: batch?.scheduled_pay_date || null,
+          paidAt: batch?.paid_at || null,
+        };
+      });
+
+      return res.json({ rows: normalized });
+    } catch (error: any) {
+      console.error('Error fetching admin commission ledger:', error);
+      return res.status(500).json({ error: 'Failed to fetch admin commission ledger', details: error.message });
+    }
+  });
+
   // Agent/Admin: recurring billing + commission lifecycle alerts
   app.get('/api/agent/lifecycle-alerts', authMiddleware, async (req: any, res: any) => {
     try {
@@ -6810,100 +7168,610 @@ export async function registerRoutes(app: any) {
     }
   });
 
-  // Admin: Mark commissions as paid
-  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+  app.get('/api/admin/commissions/statement', authMiddleware, async (req: any, res: any) => {
     try {
       if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
-      const { commissionIds, paymentDate } = req.body;
+      const { startDate, endDate, agentId, status = 'all' } = req.query as {
+        startDate?: string;
+        endDate?: string;
+        agentId?: string;
+        status?: 'all' | 'paid' | 'scheduled' | 'unpaid';
+      };
 
-      console.log('[Route] mark-commissions-paid request:', {
-        commissionIds,
-        paymentDate,
-        idsCount: commissionIds?.length,
-        userRole: req.user?.role
-      });
-
-      if (!Array.isArray(commissionIds) || commissionIds.length === 0) {
-        return res.status(400).json({ error: 'Commission IDs are required' });
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'startDate and endDate are required' });
       }
 
-      await storage.markCommissionsAsPaid(commissionIds, paymentDate);
-      
-      res.json({ success: true, message: `${commissionIds.length} commission(s) marked as paid` });
-    } catch (error: any) {
-      console.error('[Route] Error marking commissions as paid:', error);
-      res.status(500).json({ 
-        error: 'Failed to mark commissions as paid',
-        message: error.message,
-        details: error.toString()
+      const allCommissions = await storage.getAllCommissionsNew(startDate, endDate);
+      const now = new Date();
+      const statusOf = (commission: any): 'paid' | 'scheduled' | 'unpaid' => {
+        if (commission.paymentStatus === 'paid') {
+          if (commission.paymentDate && parseLocalDate(String(commission.paymentDate)) > parseLocalDate(now)) {
+            return 'scheduled';
+          }
+          return 'paid';
+        }
+        return 'unpaid';
+      };
+
+      const filtered = (Array.isArray(allCommissions) ? allCommissions : []).filter((commission: any) => {
+        const agentMatches = agentId ? String(commission.agentId || '') === String(agentId) : true;
+        const statusMatches = status && status !== 'all' ? statusOf(commission) === status : true;
+        return agentMatches && statusMatches;
       });
+
+      if (filtered.length === 0) {
+        return res.json({
+          statementDate: new Date().toISOString(),
+          payoutPeriod: { startDate, endDate },
+          fromCompany: {
+            name: 'MyPremierPlans LLC',
+            address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
+          },
+          agent: null,
+          lineItems: [],
+          subtotal: 0,
+          adjustments: 0,
+          totalPayout: 0,
+          statementNumber: null,
+          payoutBatchId: null,
+          status,
+        });
+      }
+
+      const agentSeed = filtered[0];
+      const statementDate = new Date();
+      const periodStamp = String(startDate).replace(/-/g, '') + String(endDate).replace(/-/g, '');
+      const agentStamp = String(agentSeed.agentNumber || agentSeed.agentId || 'AGENT').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+      const statementNumber = `ACS-${periodStamp}-${agentStamp}`;
+      const payoutBatchId = `PB-${periodStamp}`;
+
+      const lineItems = filtered.map((commission: any) => {
+        const amount = Number(commission.commissionAmount || 0);
+        const isAdjustment = Boolean(commission.isClawedBack) || amount < 0;
+        return {
+          commissionId: commission.id,
+          memberName: commission.memberName || commission.userName || 'Unknown Member',
+          memberId: commission.memberId || null,
+          effectiveDate: commission.effectiveDate || commission.createdAt || null,
+          membershipTier: commission.planTier || null,
+          coverageType: commission.planType || commission.coverageType || null,
+          commissionAmount: amount,
+          description: commission.planName || commission.coverageType || 'Commission',
+          statementStatus: statusOf(commission),
+          isAdjustment,
+          adjustmentReason: commission.clawbackReason || commission.notes || null,
+        };
+      });
+
+      const subtotal = lineItems
+        .filter((item: any) => !item.isAdjustment)
+        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
+      const adjustments = lineItems
+        .filter((item: any) => item.isAdjustment)
+        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
+      const totalPayout = subtotal + adjustments;
+
+      res.json({
+        statementDate: statementDate.toISOString(),
+        payoutPeriod: { startDate, endDate },
+        fromCompany: {
+          name: 'MyPremierPlans LLC',
+          address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
+        },
+        agent: {
+          id: agentSeed.agentId,
+          fullName: agentSeed.agentName || `${agentSeed.agentFirstName || ''} ${agentSeed.agentLastName || ''}`.trim(),
+          writingNumber: agentSeed.agentNumber || null,
+          email: agentSeed.agentEmail || null,
+          phone: agentSeed.agentPhone || null,
+          address: [agentSeed.agentAddress, agentSeed.agentAddress2, [agentSeed.agentCity, agentSeed.agentState, agentSeed.agentZipCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+        },
+        lineItems,
+        subtotal,
+        adjustments,
+        totalPayout,
+        statementNumber,
+        payoutBatchId,
+        status,
+      });
+    } catch (error: any) {
+      console.error('Error generating commission statement:', error);
+      res.status(500).json({ error: 'Failed to generate commission statement', details: error.message });
     }
+  });
+
+  app.get('/api/admin/commissions/export', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const {
+        format = 'quickbooks-csv',
+        startDate,
+        endDate,
+        agentId,
+        status = 'all',
+        expenseAccount = 'Commissions Expense',
+      } = req.query as {
+        format?: string;
+        startDate?: string;
+        endDate?: string;
+        agentId?: string;
+        status?: 'all' | 'paid' | 'scheduled' | 'unpaid';
+        expenseAccount?: string;
+      };
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({ error: 'startDate and endDate are required' });
+      }
+
+      if (format !== 'quickbooks-csv' && format !== 'hexona-csv') {
+        return res.status(400).json({ error: `Unsupported export format: ${format}` });
+      }
+
+      const allCommissions = await storage.getAllCommissionsNew(startDate, endDate);
+      const now = new Date();
+      const statusOf = (commission: any): 'paid' | 'scheduled' | 'unpaid' => {
+        if (commission.paymentStatus === 'paid') {
+          if (commission.paymentDate && parseLocalDate(String(commission.paymentDate)) > parseLocalDate(now)) {
+            return 'scheduled';
+          }
+          return 'paid';
+        }
+        return 'unpaid';
+      };
+
+      const filtered = (Array.isArray(allCommissions) ? allCommissions : []).filter((commission: any) => {
+        const agentMatches = agentId ? String(commission.agentId || '') === String(agentId) : true;
+        const statusMatches = status && status !== 'all' ? statusOf(commission) === status : true;
+        return agentMatches && statusMatches;
+      });
+
+      const csvEscape = (value: any) => {
+        const text = value === null || value === undefined ? '' : String(value);
+        if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+          return `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+      };
+
+      const periodStamp = `${String(startDate).replace(/-/g, '')}-${String(endDate).replace(/-/g, '')}`;
+      const billDate = String(endDate);
+      const dueDate = String(endDate);
+
+      const grouped = new Map<string, any[]>();
+      for (const commission of filtered) {
+        const key = String(commission.agentId || 'unknown-agent');
+        const existing = grouped.get(key) || [];
+        existing.push(commission);
+        grouped.set(key, existing);
+      }
+
+      const rows: string[][] = [];
+      if (format === 'quickbooks-csv') {
+        rows.push([
+          'bill_number',
+          'supplier_vendor_name',
+          'bill_date',
+          'due_date',
+          'expense_account',
+          'description',
+          'line_amount',
+          'reference_memo',
+        ]);
+      } else {
+        rows.push([
+          'agent_name',
+          'writing_number',
+          'payout_period',
+          'member_name',
+          'membership_tier',
+          'commission_amount',
+          'statement_number',
+          'batch_id',
+        ]);
+      }
+
+      for (const [, items] of grouped) {
+        const seed = items[0];
+        const agentLabel = seed.agentName || seed.agentEmail || seed.agentId || 'Unknown Agent';
+        const agentNumber = seed.agentNumber || String(seed.agentId || 'AGENT').slice(0, 8);
+        const billNumber = `QB-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, '')}`;
+
+        for (const commission of items) {
+          const amount = Number(commission.commissionAmount || 0);
+          const description = `${commission.memberName || commission.userName || 'Member'} | ${commission.planName || commission.coverageType || 'Commission'} | ${commission.planType || commission.coverageType || ''}`.trim();
+          const memo = `Batch ${periodStamp} | Agent ${agentNumber} | Commission ${commission.id}`;
+
+          if (format === 'quickbooks-csv') {
+            rows.push([
+              billNumber,
+              agentLabel,
+              billDate,
+              dueDate,
+              String(expenseAccount),
+              description,
+              amount.toFixed(2),
+              memo,
+            ]);
+          } else {
+            rows.push([
+              agentLabel,
+              agentNumber,
+              `${startDate} -> ${endDate}`,
+              commission.memberName || commission.userName || 'Member',
+              commission.planTier || commission.planName || commission.coverageType || '',
+              amount.toFixed(2),
+              `ACS-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, '')}`,
+              `PB-${periodStamp}`,
+            ]);
+          }
+        }
+      }
+
+      const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      const exportName = format === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
+      res.setHeader('Content-Disposition', `attachment; filename="${exportName}-commissions-${periodStamp}.csv"`);
+      res.status(200).send(csv);
+    } catch (error: any) {
+      console.error('Error exporting commission QuickBooks CSV:', error);
+      res.status(500).json({ error: 'Failed to export QuickBooks CSV', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/commissions/ledger/sync', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const {
+        startDate,
+        endDate,
+      } = req.body || {};
+
+      const feed = await storage.getAllCommissionsNew(startDate, endDate);
+      const result = await syncCommissionLedgerFromFeed(feed || []);
+
+      return res.status(200).json({
+        message: 'Commission ledger synchronized',
+        inserted: result.inserted,
+        skipped: result.skipped,
+        newlyEligible: result.newlyEligible,
+      });
+    } catch (error: any) {
+      console.error('Error syncing commission ledger:', error);
+      return res.status(500).json({ error: 'Failed to sync commission ledger', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/commissions/payout-dashboard', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const dashboard = await getPayoutDashboardData();
+      return res.status(200).json(dashboard);
+    } catch (error: any) {
+      console.error('Error loading payout dashboard:', error);
+      return res.status(500).json({ error: 'Failed to load payout dashboard', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/commissions/payout-batches/generate', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { cutoffDate } = req.body || {};
+      const normalizedCutoffDate = cutoffDate ? formatLocalDate(String(cutoffDate)) : formatLocalDate(new Date());
+      const batches = await buildDraftPayoutBatches(normalizedCutoffDate);
+      return res.status(200).json({
+        message: 'Draft payout batches generated',
+        count: batches.length,
+        batches,
+      });
+    } catch (error: any) {
+      console.error('Error generating payout batches:', error);
+      return res.status(500).json({ error: 'Failed to generate payout batches', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/commissions/payout-batches/:batchId', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { batchId } = req.params;
+      const detail = await getBatchDetails(batchId);
+      const rows = Array.isArray(detail?.rows) ? detail.rows : [];
+      const normalizedRows = rows.map((row: any) => ({
+        ...row,
+        displayStatus: toCommissionDisplayStatus(row.status),
+      }));
+
+      const { data: carryForwardRows, error: carryForwardError } = await supabase
+        .from('commission_ledger')
+        .select('id, agent_id, agent_name, writing_number, member_name, member_id, commission_amount, commission_type, status, payout_batch_id')
+        .eq('payout_batch_id', batchId)
+        .eq('status', 'carry_forward')
+        .order('agent_name', { ascending: true })
+        .order('member_name', { ascending: true });
+
+      if (carryForwardError) {
+        throw new Error(`Failed to load carry-forward rows for batch detail: ${carryForwardError.message}`);
+      }
+
+      const payableByAgent = new Map<string, number>();
+      for (const row of normalizedRows) {
+        const key = String(row.agent_id || 'unknown');
+        const running = payableByAgent.get(key) || 0;
+        payableByAgent.set(key, running + Number(row.commission_amount || 0));
+      }
+
+      const carryByAgent = new Map<string, any[]>();
+      for (const row of (carryForwardRows || [])) {
+        const key = String(row.agent_id || 'unknown');
+        const existing = carryByAgent.get(key) || [];
+        existing.push(row);
+        carryByAgent.set(key, existing);
+      }
+
+      const carryForwardCandidates = Array.from(carryByAgent.entries()).map(([agentId, items]) => {
+        const currentCarryForwardTotal = items.reduce((sum: number, row: any) => sum + Number(row.commission_amount || 0), 0);
+        const existingPayableTotal = Number(payableByAgent.get(agentId) || 0);
+        return {
+          agentId,
+          agentName: items[0]?.agent_name || 'Unknown Agent',
+          writingNumber: items[0]?.writing_number || null,
+          currentCarryForwardTotal,
+          existingPayableTotal,
+          resultingPayoutAmount: existingPayableTotal + currentCarryForwardTotal,
+          rowCount: items.length,
+          rowIds: items.map((row: any) => row.id),
+          rows: items,
+        };
+      });
+
+      return res.status(200).json({
+        ...detail,
+        rows: normalizedRows,
+        carryForwardCandidates,
+      });
+    } catch (error: any) {
+      console.error('Error loading payout batch detail:', error);
+      return res.status(500).json({ error: 'Failed to load payout batch detail', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/commissions/payout-batches/:batchId/statement', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { batchId } = req.params;
+      const { agentId } = req.query as { agentId?: string };
+      const detail = await getBatchDetails(batchId);
+      const grouped = Array.isArray(detail?.byAgent) ? detail.byAgent : [];
+      const target = agentId
+        ? grouped.find((group: any) => String(group.agentId || '') === String(agentId))
+        : grouped[0];
+
+      if (!target) {
+        return res.status(404).json({ error: 'No statement rows found for this batch and agent filter' });
+      }
+
+      const statementNumber = `ACS-${String(detail.batch.id).slice(0, 8)}-${String(target.writingNumber || target.agentId || 'AGENT').replace(/[^A-Za-z0-9]/g, '')}`;
+
+      const lineItems = (target.items || []).map((row: any) => ({
+        ledgerId: row.id,
+        memberName: row.member_name,
+        memberId: row.member_id,
+        effectiveDate: row.effective_date,
+        membershipTier: row.membership_tier,
+        coverageType: row.coverage_type,
+        commissionAmount: Number(row.commission_amount || 0),
+        commissionType: row.commission_type,
+        status: row.status,
+        cancellationDate: row.cancellation_date,
+        cancellationReason: row.cancellation_reason,
+      }));
+
+      const subtotal = lineItems
+        .filter((item: any) => item.commissionType !== 'adjustment' && item.commissionType !== 'reversal')
+        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
+      const adjustments = lineItems
+        .filter((item: any) => item.commissionType === 'adjustment' || item.commissionType === 'reversal')
+        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
+
+      return res.status(200).json({
+        statementDate: new Date().toISOString(),
+        payoutPeriod: {
+          startDate: detail.batch.cutoff_date,
+          endDate: detail.batch.scheduled_pay_date,
+        },
+        fromCompany: {
+          name: 'MyPremierPlans LLC',
+          address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
+        },
+        agent: {
+          id: target.agentId,
+          fullName: target.agentName,
+          writingNumber: target.writingNumber,
+        },
+        lineItems,
+        subtotal,
+        adjustments,
+        totalPayout: subtotal + adjustments,
+        statementNumber,
+        payoutBatchId: detail.batch.id,
+        batchStatus: detail.batch.status,
+      });
+    } catch (error: any) {
+      console.error('Error generating payout batch statement:', error);
+      return res.status(500).json({ error: 'Failed to generate payout batch statement', details: error.message });
+    }
+  });
+
+  app.get('/api/admin/commissions/payout-batches/:batchId/export', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { batchId } = req.params;
+      const { format = 'quickbooks-csv' } = req.query as { format?: string };
+
+      if (format !== 'quickbooks-csv' && format !== 'hexona-csv') {
+        return res.status(400).json({ error: `Unsupported export format: ${format}` });
+      }
+
+      await prepareBatchForExport(batchId, format as 'quickbooks-csv' | 'hexona-csv');
+      const detail = await getBatchDetails(batchId);
+      const rows = detail.rows || [];
+      const csv = format === 'quickbooks-csv'
+        ? buildQuickBooksCsvFromBatch(detail.batch, rows)
+        : buildHexonaCsvFromBatch(detail.batch, rows);
+
+      await supabase
+        .from('commission_payout_batches')
+        .update({ status: 'exported' })
+        .eq('id', batchId)
+        .in('status', ['draft', 'ready', 'exported']);
+
+      const filePrefix = format === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filePrefix}-payout-batch-${batchId}.csv"`);
+      return res.status(200).send(csv);
+    } catch (error: any) {
+      console.error('Error exporting payout batch CSV:', error);
+      if (error?.message && error.message.includes('Payout batch totals mismatch')) {
+        return res.status(409).json({ error: 'Payout batch header mismatch', details: error.message });
+      }
+      return res.status(500).json({ error: 'Failed to export payout batch CSV', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/commissions/payout-batches/:batchId/mark-paid', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const { batchId } = req.params;
+      await markBatchAsPaid(batchId);
+      return res.status(200).json({ message: 'Payout batch marked as paid' });
+    } catch (error: any) {
+      console.error('Error marking payout batch paid:', error);
+      if (error?.message && error.message.includes('Payout batch totals mismatch')) {
+        return res.status(409).json({ error: 'Payout batch header mismatch', details: error.message });
+      }
+      return res.status(500).json({ error: 'Failed to mark payout batch as paid', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/commissions/payout-batches/:batchId/override-carry-forward', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Forbidden: admin or super_admin required for carry-forward override' });
+      }
+
+      const { batchId } = req.params;
+      const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+      if (!reason) {
+        return res.status(400).json({ error: 'Override reason is required' });
+      }
+
+      const actorRole = String(req.user?.role || '').trim();
+      if (actorRole !== 'super_admin' && !agentId) {
+        return res.status(400).json({ error: 'agentId is required for admin under-minimum release actions' });
+      }
+
+      const result = await adminOverrideCarryForwardForBatch(batchId, {
+        agentId: agentId || null,
+        actorUserId: req.user?.id || null,
+        actorRole: req.user?.role || null,
+        reason,
+      });
+
+      return res.status(200).json({
+        message: 'Carry-forward override applied',
+        ...result,
+      });
+    } catch (error: any) {
+      console.error('Error overriding carry-forward payouts:', error);
+      return res.status(500).json({ error: 'Failed to override carry-forward payouts', details: error.message });
+    }
+  });
+
+  app.post('/api/admin/commissions/cancellations/apply', authMiddleware, async (req: any, res: any) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+
+      const {
+        memberId,
+        cancellationDate,
+        cancellationReason,
+        createReversalForPaid = true,
+      } = req.body || {};
+
+      if (!memberId || !cancellationDate) {
+        return res.status(400).json({ error: 'memberId and cancellationDate are required' });
+      }
+
+      const result = await applyCancellationToLedger({
+        memberId: String(memberId),
+        cancellationDate: formatLocalDate(String(cancellationDate)),
+        cancellationReason: cancellationReason || null,
+        createReversalForPaid: Boolean(createReversalForPaid),
+      });
+
+      return res.status(200).json({
+        message: 'Cancellation applied to commission ledger',
+        ...result,
+      });
+    } catch (error: any) {
+      console.error('Error applying cancellation to ledger:', error);
+      return res.status(500).json({ error: 'Failed to apply cancellation to ledger', details: error.message });
+    }
+  });
+
+  // Admin: Mark commissions as paid
+  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
+    return res.status(410).json({
+      error: 'Legacy direct-pay workflow disabled',
+      message: 'Use payout batch workflow: generate batch, export, then mark batch as paid.',
+    });
   });
 
   // Admin: Update single commission payout
   app.post('/api/admin/commission/:commissionId/payout', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { commissionId } = req.params;
-      const { paymentStatus, paymentDate, notes } = req.body;
-
-      if (!paymentStatus) {
-        return res.status(400).json({ error: 'Payment status is required' });
-      }
-
-      if (!['paid', 'pending', 'unpaid'].includes(paymentStatus)) {
-        return res.status(400).json({ error: 'Invalid payment status' });
-      }
-
-      const result = await storage.updateCommissionPayoutStatus(commissionId, {
-        paymentStatus,
-        paymentDate,
-        notes
-      });
-
-      res.json({ success: true, commission: result });
-    } catch (error: any) {
-      console.error('Error updating commission payout:', error);
-      res.status(500).json({ error: 'Failed to update commission payout', details: error.message });
-    }
+    return res.status(410).json({
+      error: 'Legacy direct-pay workflow disabled',
+      message: 'Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.',
+    });
   });
 
   // Admin: Batch update commission payouts
   app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { updates } = req.body;
-
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return res.status(400).json({ error: 'Updates array is required' });
-      }
-
-      // Validate updates
-      for (const update of updates) {
-        if (!update.commissionId || !update.paymentStatus) {
-          return res.status(400).json({ error: 'Each update must have commissionId and paymentStatus' });
-        }
-        if (!['paid', 'pending', 'unpaid'].includes(update.paymentStatus)) {
-          return res.status(400).json({ error: `Invalid payment status: ${update.paymentStatus}` });
-        }
-      }
-
-      await storage.updateMultipleCommissionPayouts(updates);
-
-      res.json({ success: true, message: `${updates.length} commission(s) payout updated` });
-    } catch (error: any) {
-      console.error('Error batch updating commissions:', error);
-      res.status(500).json({ error: 'Failed to batch update commissions', details: error.message });
-    }
+    return res.status(410).json({
+      error: 'Legacy direct-pay workflow disabled',
+      message: 'Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.',
+    });
   });
 
   // Admin: Get commissions for payout management
