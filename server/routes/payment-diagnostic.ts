@@ -6,13 +6,81 @@
 import { Router, Response } from 'express';
 import { storage } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { isAtLeastAdmin } from '../auth/roles';
+import { hasAtLeastRole, isAtLeastAdmin } from '../auth/roles';
 import { query } from '../lib/neonDb';
 import { getRecentEPXLogs } from '../services/epx-payment-logger';
+import {
+  getRecurringBillingSchedulerStatus,
+  runRecurringBillingCycleOnce,
+} from '../services/recurring-billing-scheduler';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const router = Router();
+
+/**
+ * Diagnostic: recurring scheduler runtime status
+ */
+router.get('/api/admin/diagnostic/recurring-billing/status', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const status = getRecurringBillingSchedulerStatus();
+
+    res.json({
+      success: true,
+      scheduler: status,
+    });
+  } catch (error: any) {
+    console.error('[Diagnostic] Error fetching recurring scheduler status:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch recurring scheduler status',
+    });
+  }
+});
+
+/**
+ * Diagnostic: run recurring scheduler once (defaults to dry-run)
+ */
+router.post('/api/admin/diagnostic/recurring-billing/run-once', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const requestedDryRun = req.body?.forceDryRun;
+    const forceDryRun = typeof requestedDryRun === 'boolean' ? requestedDryRun : true;
+    const isSuperAdmin = hasAtLeastRole(req.user.role, 'super_admin');
+
+    if (forceDryRun === false && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can override dry-run mode',
+      });
+    }
+
+    const requestedBy = req.user.email || req.user.id || 'unknown-admin';
+    const result = await runRecurringBillingCycleOnce({
+      forceDryRun,
+      requestedBy,
+    });
+
+    res.json({
+      success: true,
+      run: result,
+      scheduler: getRecurringBillingSchedulerStatus(),
+    });
+  } catch (error: any) {
+    console.error('[Diagnostic] Error running recurring scheduler once:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to run recurring scheduler once',
+    });
+  }
+});
 
 /**
  * Diagnostic: Check if payment actually executed for a specific member

@@ -33,6 +33,96 @@ const LOG_PREFIX = '[Recurring Billing]';
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
 const STALE_PENDING_THRESHOLD_MINUTES = 30;
 
+type SchedulerMode = 'DRY RUN' | 'LIVE';
+type SchedulerCycleSource = 'automatic' | 'manual';
+
+interface CycleMetrics {
+  processed: number;
+  skipped: number;
+  errors: number;
+}
+
+export interface RecurringSchedulerRunResult {
+  source: SchedulerCycleSource;
+  mode: SchedulerMode;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  lockAcquired: boolean;
+  metrics: CycleMetrics;
+  requestedBy?: string;
+}
+
+export interface RecurringSchedulerStatus {
+  enabled: boolean;
+  defaultDryRun: boolean;
+  intervalMs: number;
+  achRecurringEnabled: boolean;
+  achRecurringTestMode: boolean;
+  simulationModeEnabled: boolean;
+  initializedAt: string | null;
+  lastCycle: {
+    source: SchedulerCycleSource | null;
+    mode: SchedulerMode | null;
+    requestedBy: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    durationMs: number | null;
+    lockAcquired: boolean | null;
+    lockSkippedAt: string | null;
+    metrics: CycleMetrics | null;
+    error: string | null;
+  };
+  manualRunsTriggered: number;
+}
+
+const schedulerStatusState: RecurringSchedulerStatus = {
+  enabled: false,
+  defaultDryRun: isDryRun(),
+  intervalMs: getIntervalMs(),
+  achRecurringEnabled: isAchRecurringEnabled(),
+  achRecurringTestMode: isAchRecurringTestMode(),
+  simulationModeEnabled: isSimulationModeEnabled(),
+  initializedAt: null,
+  lastCycle: {
+    source: null,
+    mode: null,
+    requestedBy: null,
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    lockAcquired: null,
+    lockSkippedAt: null,
+    metrics: null,
+    error: null,
+  },
+  manualRunsTriggered: 0,
+};
+
+function refreshSchedulerConfigState(enabledOverride?: boolean): void {
+  schedulerStatusState.enabled = typeof enabledOverride === 'boolean'
+    ? enabledOverride
+    : process.env.BILLING_SCHEDULER_ENABLED === 'true';
+  schedulerStatusState.defaultDryRun = isDryRun();
+  schedulerStatusState.intervalMs = getIntervalMs();
+  schedulerStatusState.achRecurringEnabled = isAchRecurringEnabled();
+  schedulerStatusState.achRecurringTestMode = isAchRecurringTestMode();
+  schedulerStatusState.simulationModeEnabled = isSimulationModeEnabled();
+}
+
+export function getRecurringBillingSchedulerStatus(): RecurringSchedulerStatus {
+  refreshSchedulerConfigState();
+  return {
+    ...schedulerStatusState,
+    lastCycle: {
+      ...schedulerStatusState.lastCycle,
+      metrics: schedulerStatusState.lastCycle.metrics
+        ? { ...schedulerStatusState.lastCycle.metrics }
+        : null,
+    },
+  };
+}
+
 // ────────────────────────────────────────
 // Configuration helpers
 // ────────────────────────────────────────
@@ -244,15 +334,33 @@ function truncateBillingDate(date: string | Date): string {
 // Core billing cycle
 // ────────────────────────────────────────
 
-async function runBillingCycle(): Promise<void> {
+async function runBillingCycle(options?: {
+  dryRunOverride?: boolean;
+  source?: SchedulerCycleSource;
+  requestedBy?: string;
+}): Promise<RecurringSchedulerRunResult> {
   const cycleStart = Date.now();
-  const dryRun = isDryRun();
+  const source: SchedulerCycleSource = options?.source || 'automatic';
+  const dryRun = typeof options?.dryRunOverride === 'boolean'
+    ? options.dryRunOverride
+    : isDryRun();
   const achEnabledByFlag = isAchRecurringEnabled();
   const achProdOverrideEnabled = isAchRecurringProductionOverrideEnabled();
   const achTestMode = isAchRecurringTestMode();
   const currentPaymentEnvironment = await paymentEnvironment.getEnvironment();
   const achEnabled = isAchRuntimeEnabled(achEnabledByFlag, currentPaymentEnvironment);
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
+
+  refreshSchedulerConfigState();
+  schedulerStatusState.lastCycle.source = source;
+  schedulerStatusState.lastCycle.mode = mode;
+  schedulerStatusState.lastCycle.requestedBy = options?.requestedBy || null;
+  schedulerStatusState.lastCycle.startedAt = new Date(cycleStart).toISOString();
+  schedulerStatusState.lastCycle.completedAt = null;
+  schedulerStatusState.lastCycle.durationMs = null;
+  schedulerStatusState.lastCycle.lockAcquired = null;
+  schedulerStatusState.lastCycle.metrics = null;
+  schedulerStatusState.lastCycle.error = null;
 
   if (achEnabledByFlag && currentPaymentEnvironment === 'production' && !achProdOverrideEnabled) {
     console.warn(
@@ -264,10 +372,29 @@ async function runBillingCycle(): Promise<void> {
 
   // 1. Acquire lock
   const locked = await acquireLock();
+  schedulerStatusState.lastCycle.lockAcquired = locked;
   if (!locked) {
+    const completedAt = new Date().toISOString();
+    schedulerStatusState.lastCycle.lockSkippedAt = completedAt;
+    schedulerStatusState.lastCycle.completedAt = completedAt;
+    schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
+    schedulerStatusState.lastCycle.metrics = { processed: 0, skipped: 0, errors: 0 };
     console.log(`${LOG_PREFIX} Another instance holds the lock — skipping cycle`);
-    return;
+    return {
+      source,
+      mode,
+      startedAt: new Date(cycleStart).toISOString(),
+      completedAt,
+      durationMs: Date.now() - cycleStart,
+      lockAcquired: false,
+      metrics: { processed: 0, skipped: 0, errors: 0 },
+      requestedBy: options?.requestedBy,
+    };
   }
+
+  let successCount = 0;
+  let skipCount = 0;
+  let failCount = 0;
 
   try {
     // 2. Verify and resolve stale 'pending' entries
@@ -316,7 +443,20 @@ async function runBillingCycle(): Promise<void> {
 
     if (dueSubscriptions.length === 0) {
       console.log(`${LOG_PREFIX} No subscriptions due for billing`);
-      return;
+      const completedAt = new Date().toISOString();
+      schedulerStatusState.lastCycle.completedAt = completedAt;
+      schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
+      schedulerStatusState.lastCycle.metrics = { processed: 0, skipped: 0, errors: 0 };
+      return {
+        source,
+        mode,
+        startedAt: new Date(cycleStart).toISOString(),
+        completedAt,
+        durationMs: Date.now() - cycleStart,
+        lockAcquired: true,
+        metrics: { processed: 0, skipped: 0, errors: 0 },
+        requestedBy: options?.requestedBy,
+      };
     }
 
     const cardDueCount = dueSubscriptions.filter((sub) => normalizePaymentMethodType(sub.paymentMethodType) === 'CreditCard').length;
@@ -326,10 +466,6 @@ async function runBillingCycle(): Promise<void> {
       `${LOG_PREFIX} Found ${dueSubscriptions.length} subscription(s) due ` +
       `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achEnabledByFlag=${achEnabledByFlag}, paymentEnvironment=${currentPaymentEnvironment}, achTestMode=${achTestMode})`
     );
-
-    let successCount = 0;
-    let skipCount = 0;
-    let failCount = 0;
 
     // 4. Process each subscription
     for (const sub of dueSubscriptions) {
@@ -347,10 +483,43 @@ async function runBillingCycle(): Promise<void> {
     }
 
     const elapsed = Date.now() - cycleStart;
+    const completedAt = new Date().toISOString();
+    schedulerStatusState.lastCycle.completedAt = completedAt;
+    schedulerStatusState.lastCycle.durationMs = elapsed;
+    schedulerStatusState.lastCycle.metrics = {
+      processed: successCount,
+      skipped: skipCount,
+      errors: failCount,
+    };
     console.log(
       `${LOG_PREFIX} ──── Cycle complete (${mode}) ────  ` +
       `${successCount} processed, ${skipCount} skipped, ${failCount} errors, ${elapsed}ms`
     );
+    return {
+      source,
+      mode,
+      startedAt: new Date(cycleStart).toISOString(),
+      completedAt,
+      durationMs: elapsed,
+      lockAcquired: true,
+      metrics: {
+        processed: successCount,
+        skipped: skipCount,
+        errors: failCount,
+      },
+      requestedBy: options?.requestedBy,
+    };
+  } catch (cycleError: any) {
+    const completedAt = new Date().toISOString();
+    schedulerStatusState.lastCycle.completedAt = completedAt;
+    schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
+    schedulerStatusState.lastCycle.metrics = {
+      processed: successCount,
+      skipped: skipCount,
+      errors: failCount,
+    };
+    schedulerStatusState.lastCycle.error = cycleError?.message || String(cycleError);
+    throw cycleError;
   } finally {
     await releaseLock();
   }
@@ -613,6 +782,7 @@ async function processSubscription(
 
 export function scheduleRecurringBilling(): void {
   if (process.env.BILLING_SCHEDULER_ENABLED !== 'true') {
+    refreshSchedulerConfigState(false);
     console.log(`${LOG_PREFIX} Scheduler disabled (BILLING_SCHEDULER_ENABLED !== 'true')`);
     return;
   }
@@ -624,6 +794,9 @@ export function scheduleRecurringBilling(): void {
   const achTestMode = isAchRecurringTestMode();
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
 
+  schedulerStatusState.initializedAt = new Date().toISOString();
+  refreshSchedulerConfigState(true);
+
   console.log(`${LOG_PREFIX} Scheduler initialized (${mode})`);
   console.log(`${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`);
   console.log(`${LOG_PREFIX} ACH recurring enabled: ${achEnabled}`);
@@ -634,15 +807,31 @@ export function scheduleRecurringBilling(): void {
 
   // Run first cycle after a short delay (let server finish startup)
   setTimeout(() => {
-    runBillingCycle().catch((err) =>
-      console.error(`${LOG_PREFIX} Unhandled cycle error:`, err)
-    );
+    runBillingCycle({ source: 'automatic' }).catch((err) => {
+      schedulerStatusState.lastCycle.error = err?.message || String(err);
+      console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
+    });
   }, 15_000);
 
   // Schedule recurring cycles
   setInterval(() => {
-    runBillingCycle().catch((err) =>
-      console.error(`${LOG_PREFIX} Unhandled cycle error:`, err)
-    );
+    runBillingCycle({ source: 'automatic' }).catch((err) => {
+      schedulerStatusState.lastCycle.error = err?.message || String(err);
+      console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
+    });
   }, intervalMs);
+}
+
+export async function runRecurringBillingCycleOnce(options?: {
+  forceDryRun?: boolean;
+  requestedBy?: string;
+}): Promise<RecurringSchedulerRunResult> {
+  const forceDryRun = options?.forceDryRun !== false;
+  schedulerStatusState.manualRunsTriggered += 1;
+
+  return runBillingCycle({
+    source: 'manual',
+    dryRunOverride: forceDryRun,
+    requestedBy: options?.requestedBy,
+  });
 }
