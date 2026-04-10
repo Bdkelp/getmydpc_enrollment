@@ -42,6 +42,40 @@ interface CycleMetrics {
   errors: number;
 }
 
+interface DueDecisionLogEntry {
+  at: string;
+  source: SchedulerCycleSource;
+  subscriptionId: number;
+  memberId: number;
+  groupId: string | null;
+  payerType: 'member' | 'group';
+  payerId: string;
+  paymentMethodType: string;
+  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  contactResolutionSucceeded: boolean;
+  selected: boolean;
+  skipped: boolean;
+  skipReason: string | null;
+}
+
+interface ChargeAttemptLogEntry {
+  at: string;
+  source: SchedulerCycleSource;
+  subscriptionId: number;
+  memberId: number;
+  groupId: string | null;
+  payerType: 'member' | 'group';
+  payerId: string;
+  paymentMethodType: string;
+  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  contactResolutionSucceeded: boolean;
+  selected: boolean;
+  skipped: boolean;
+  skipReason: string | null;
+  chargeAttemptResult: string;
+  billingEventId: number | null;
+}
+
 export interface RecurringSchedulerRunResult {
   source: SchedulerCycleSource;
   mode: SchedulerMode;
@@ -74,6 +108,10 @@ export interface RecurringSchedulerStatus {
     error: string | null;
   };
   manualRunsTriggered: number;
+  launchDiagnostics: {
+    recentDueDecisions: DueDecisionLogEntry[];
+    recentChargeAttempts: ChargeAttemptLogEntry[];
+  };
 }
 
 const schedulerStatusState: RecurringSchedulerStatus = {
@@ -97,7 +135,34 @@ const schedulerStatusState: RecurringSchedulerStatus = {
     error: null,
   },
   manualRunsTriggered: 0,
+  launchDiagnostics: {
+    recentDueDecisions: [],
+    recentChargeAttempts: [],
+  },
 };
+
+const MAX_DUE_DECISION_LOG_ENTRIES = 200;
+const MAX_CHARGE_ATTEMPT_LOG_ENTRIES = 200;
+
+function appendDueDecision(entry: DueDecisionLogEntry): void {
+  schedulerStatusState.launchDiagnostics.recentDueDecisions = [
+    entry,
+    ...schedulerStatusState.launchDiagnostics.recentDueDecisions,
+  ].slice(0, MAX_DUE_DECISION_LOG_ENTRIES);
+
+  // Intentionally safe fields only (ids + payer/method routing), no PAN/token data.
+  console.log(`${LOG_PREFIX} [LaunchDiag] ${JSON.stringify(entry)}`);
+}
+
+function appendChargeAttempt(entry: ChargeAttemptLogEntry): void {
+  schedulerStatusState.launchDiagnostics.recentChargeAttempts = [
+    entry,
+    ...schedulerStatusState.launchDiagnostics.recentChargeAttempts,
+  ].slice(0, MAX_CHARGE_ATTEMPT_LOG_ENTRIES);
+
+  // Intentionally safe fields only (ids + payer/method routing), no PAN/token data.
+  console.log(`${LOG_PREFIX} [LaunchDiagCharge] ${JSON.stringify(entry)}`);
+}
 
 function refreshSchedulerConfigState(enabledOverride?: boolean): void {
   schedulerStatusState.enabled = typeof enabledOverride === 'boolean'
@@ -119,6 +184,10 @@ export function getRecurringBillingSchedulerStatus(): RecurringSchedulerStatus {
       metrics: schedulerStatusState.lastCycle.metrics
         ? { ...schedulerStatusState.lastCycle.metrics }
         : null,
+    },
+    launchDiagnostics: {
+      recentDueDecisions: [...schedulerStatusState.launchDiagnostics.recentDueDecisions],
+      recentChargeAttempts: [...schedulerStatusState.launchDiagnostics.recentChargeAttempts],
     },
   };
 }
@@ -249,6 +318,87 @@ function resolveAchRuntimeData(sub: BillableSubscription):
       accountHolderName,
     },
     maskedSummary: `acct ****${lastFour}, type ${accountType}`,
+  };
+}
+
+function resolvePayerContext(sub: BillableSubscription): {
+  payerType: 'member' | 'group';
+  payerAccountId: string;
+  payerDisplayName: string;
+  payerEmail: string | null;
+  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  contactResolutionSucceeded: boolean;
+  chargeContact: {
+    id: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    customerNumber: string;
+  };
+} {
+  const normalizeEmail = (value: string | null | undefined): string | null => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (!normalized.includes('@') || normalized.startsWith('@') || normalized.endsWith('@')) return null;
+    return normalized;
+  };
+
+  const resolveGroupBillingContact = (groupSub: BillableSubscription): {
+    email: string | null;
+    source: 'responsible_person' | 'contact_person' | null;
+    resolved: boolean;
+  } => {
+    const responsibleEmail = normalizeEmail(groupSub.payerResponsibleEmail);
+    if (responsibleEmail) {
+      return { email: responsibleEmail, source: 'responsible_person', resolved: true };
+    }
+
+    const contactEmail = normalizeEmail(groupSub.payerContactEmail);
+    if (contactEmail) {
+      return { email: contactEmail, source: 'contact_person', resolved: true };
+    }
+
+    const fallback = normalizeEmail(groupSub.payerEmail);
+    if (fallback) {
+      const fallbackSource = groupSub.payerContactSource === 'contact_person' ? 'contact_person' : 'responsible_person';
+      return { email: fallback, source: fallbackSource, resolved: true };
+    }
+
+    return { email: null, source: null, resolved: false };
+  };
+
+  const payerType = sub.payerType === 'group' ? 'group' : 'member';
+  const payerAccountId = String(sub.payerAccountId || sub.memberId);
+  const memberName = `${sub.memberFirstName || ''} ${sub.memberLastName || ''}`.trim();
+  const groupName = (sub.groupName || sub.payerDisplayName || '').trim();
+
+  const payerDisplayName =
+    payerType === 'group'
+      ? (groupName || `Group ${sub.groupId || payerAccountId}`)
+      : (memberName || `Member ${sub.memberId}`);
+
+  const groupContact = payerType === 'group'
+    ? resolveGroupBillingContact(sub)
+    : null;
+
+  const payerEmail = payerType === 'group'
+    ? (groupContact?.email || null)
+    : (sub.memberEmail || null);
+
+  return {
+    payerType,
+    payerAccountId,
+    payerDisplayName,
+    payerEmail,
+    groupContactSource: payerType === 'group' ? (groupContact?.source || null) : null,
+    contactResolutionSucceeded: payerType === 'group' ? Boolean(groupContact?.resolved) : true,
+    chargeContact: {
+      id: payerType === 'group' ? `group:${payerAccountId}` : String(sub.memberId),
+      email: payerEmail,
+      firstName: payerType === 'group' ? payerDisplayName : (sub.memberFirstName || null),
+      lastName: payerType === 'group' ? null : (sub.memberLastName || null),
+      customerNumber: payerType === 'group' ? `GROUP-${payerAccountId}` : String(sub.memberId),
+    },
   };
 }
 
@@ -467,11 +617,36 @@ async function runBillingCycle(options?: {
       `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achEnabledByFlag=${achEnabledByFlag}, paymentEnvironment=${currentPaymentEnvironment}, achTestMode=${achTestMode})`
     );
 
+    for (const due of dueSubscriptions) {
+      const dueGroupContactSource = due.payerType === 'group'
+        ? (due.payerContactSource === 'contact_person' ? 'contact_person' : (due.payerContactSource === 'responsible_person' ? 'responsible_person' : null))
+        : null;
+      const dueContactResolutionSucceeded = due.payerType === 'group'
+        ? Boolean(String(due.payerResponsibleEmail || '').trim() || String(due.payerContactEmail || '').trim() || String(due.payerEmail || '').trim())
+        : true;
+
+      appendDueDecision({
+        at: new Date().toISOString(),
+        source,
+        subscriptionId: due.subscriptionId,
+        memberId: due.memberId,
+        groupId: due.groupId,
+        payerType: due.payerType,
+        payerId: due.payerAccountId,
+        paymentMethodType: due.paymentMethodType || 'UNKNOWN',
+        groupContactSource: dueGroupContactSource,
+        contactResolutionSucceeded: dueContactResolutionSucceeded,
+        selected: true,
+        skipped: false,
+        skipReason: null,
+      });
+    }
+
     // 4. Process each subscription
     for (const sub of dueSubscriptions) {
       try {
-        const processed = await processSubscription(sub, dryRun, achEnabled, achTestMode);
-        if (processed === 'processed') {
+        const processed = await processSubscription(sub, dryRun, achEnabled, achTestMode, source);
+        if (processed.outcome === 'processed') {
           successCount++;
         } else {
           skipCount++;
@@ -529,19 +704,109 @@ async function processSubscription(
   sub: BillableSubscription,
   dryRun: boolean,
   achEnabled: boolean,
-  achTestMode: boolean
-): Promise<'processed' | 'skipped'> {
+  achTestMode: boolean,
+  source: SchedulerCycleSource,
+): Promise<{ outcome: 'processed' | 'skipped'; skipReason?: string }> {
+  const payerContext = resolvePayerContext(sub);
+  const buildAttemptDiagBase = () => ({
+    at: new Date().toISOString(),
+    source,
+    subscriptionId: sub.subscriptionId,
+    memberId: sub.memberId,
+    groupId: sub.groupId,
+    payerType: payerContext.payerType,
+    payerId: payerContext.payerAccountId,
+    groupContactSource: payerContext.groupContactSource,
+    contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+  });
   const methodType = normalizePaymentMethodType(sub.paymentMethodType);
   if (methodType === 'UNKNOWN') {
     console.warn(
       `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — unsupported payment method type '${sub.paymentMethodType || 'null'}'`
     );
-    return 'skipped';
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason: 'unsupported_payment_method_type',
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      selected: true,
+      skipped: true,
+      skipReason: 'unsupported_payment_method_type',
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason: 'unsupported_payment_method_type' };
+  }
+
+  if (payerContext.payerType === 'group' && !payerContext.payerEmail) {
+    console.warn(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — missing group billing contact email`);
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      paymentMethodType: methodType,
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason: 'missing_group_contact',
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: true,
+      skipReason: 'missing_group_contact',
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason: 'missing_group_contact' };
   }
 
   if (methodType === 'ACH' && !achEnabled) {
     console.log(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — ACH_RECURRING_ENABLED is not true`);
-    return 'skipped';
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      paymentMethodType: methodType,
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason: 'ach_disabled',
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: true,
+      skipReason: 'ach_disabled',
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason: 'ach_disabled' };
   }
 
   const billingDate = truncateBillingDate(sub.nextBillingDate);
@@ -553,7 +818,31 @@ async function processSubscription(
     console.log(
       `${LOG_PREFIX} Subscription ${sub.subscriptionId} already has '${existing.status}' entry for ${billingDate} — skipping`
     );
-    return 'skipped';
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      paymentMethodType: methodType,
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason: 'already_processed_for_cycle',
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: true,
+      skipReason: 'already_processed_for_cycle',
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason: 'already_processed_for_cycle' };
   }
 
   // 6. Decrypt BRIC token
@@ -562,7 +851,7 @@ async function processSubscription(
     authGuid = decryptPaymentToken(sub.bricToken);
   } catch (err: any) {
     console.error(`${LOG_PREFIX} Failed to decrypt token for subscription ${sub.subscriptionId}:`, err.message);
-    await insertRecurringBillingLog({
+    const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentTokenId: sub.tokenId,
@@ -574,12 +863,21 @@ async function processSubscription(
       failureReason: 'Token decryption failed',
       processedAt: new Date().toISOString(),
     });
-    return 'processed';
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: false,
+      skipReason: null,
+      chargeAttemptResult: 'failed_token_decryption',
+      billingEventId,
+    });
+    return { outcome: 'processed' };
   }
 
   const achRuntimeData = methodType === 'ACH' ? resolveAchRuntimeData(sub) : null;
   if (achRuntimeData && 'error' in achRuntimeData) {
-    await insertRecurringBillingLog({
+    const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentTokenId: sub.tokenId,
@@ -593,7 +891,16 @@ async function processSubscription(
       processedAt: new Date().toISOString(),
     });
     console.error(`${LOG_PREFIX} ACH runtime data missing for subscription ${sub.subscriptionId}: ${achRuntimeData.error}`);
-    return 'processed';
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: false,
+      skipReason: null,
+      chargeAttemptResult: 'failed_ach_runtime_data',
+      billingEventId,
+    });
+    return { outcome: 'processed' };
   }
 
   // 7. DRY RUN path
@@ -604,9 +911,10 @@ async function processSubscription(
       : '';
     console.log(
       `${LOG_PREFIX} DRY RUN — Would charge subscription ${sub.subscriptionId}, ` +
-      `member ${sub.memberId}, amount $${sub.amount}, method ${methodLabel}${achMaskSuffix}`
+      `payer ${payerContext.payerType}:${payerContext.payerAccountId} (${payerContext.payerDisplayName}), ` +
+      `amount $${sub.amount}, method ${methodLabel}${achMaskSuffix}`
     );
-    await insertRecurringBillingLog({
+    const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentTokenId: sub.tokenId,
@@ -618,7 +926,16 @@ async function processSubscription(
       epxTransactionId: transactionId,
       processedAt: new Date().toISOString(),
     });
-    return 'processed';
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: false,
+      skipReason: null,
+      chargeAttemptResult: 'dry_run',
+      billingEventId,
+    });
+    return { outcome: 'processed' };
   }
 
   // 8. LIVE charge path — write pending log first
@@ -645,13 +962,14 @@ async function processSubscription(
           amount: parseFloat(sub.amount),
           transactionId,
           tranType,
-          member: {
-            id: sub.memberId,
-            email: sub.memberEmail,
-            firstName: sub.memberFirstName,
-            lastName: sub.memberLastName,
+          member: payerContext.chargeContact,
+          description: `${achTestLabel}Recurring billing — subscription ${sub.subscriptionId} — payer ${payerContext.payerType}:${payerContext.payerAccountId}`,
+          metadata: {
+            payerType: payerContext.payerType,
+            payerAccountId: payerContext.payerAccountId,
+            payerDisplayName: payerContext.payerDisplayName,
+            groupId: sub.groupId,
           },
-          description: `${achTestLabel}Recurring billing — subscription ${sub.subscriptionId}`,
           bankAccountData:
             methodType === 'ACH' && achRuntimeData && !('error' in achRuntimeData)
               ? achRuntimeData.bankAccountData
@@ -692,7 +1010,16 @@ async function processSubscription(
           `${LOG_PREFIX} ✅ ACH test success for subscription ${sub.subscriptionId} ` +
           `(transaction ${transactionId}) — post-success persistence intentionally skipped`
         );
-        return 'processed';
+        appendChargeAttempt({
+          ...buildAttemptDiagBase(),
+          paymentMethodType: methodType,
+          selected: true,
+          skipped: false,
+          skipReason: null,
+          chargeAttemptResult: 'ach_test_success',
+          billingEventId: logId,
+        });
+        return { outcome: 'processed' };
       }
 
       const persistenceResult = await persistRecurringPostSuccess({
@@ -723,7 +1050,16 @@ async function processSubscription(
           `${LOG_PREFIX} ❌ Controlled persistence failure for subscription ${sub.subscriptionId}: ` +
           `${persistenceResult.failureReason || 'unknown reason'}`
         );
-        return;
+        appendChargeAttempt({
+          ...buildAttemptDiagBase(),
+          paymentMethodType: methodType,
+          selected: true,
+          skipped: false,
+          skipReason: null,
+          chargeAttemptResult: 'failed_post_success_persistence',
+          billingEventId: logId,
+        });
+        return { outcome: 'processed' };
       }
 
       // Update log to success only after payment persistence + billing advancement + payout creation succeed.
@@ -739,8 +1075,18 @@ async function processSubscription(
 
       console.log(
         `${LOG_PREFIX} ✅ Charged ${methodType} subscription ${sub.subscriptionId} — $${sub.amount} — ` +
+        `payer ${payerContext.payerType}:${payerContext.payerAccountId} — ` +
         `auth ${result.responseFields?.AUTH_CODE || 'n/a'}`
       );
+      appendChargeAttempt({
+        ...buildAttemptDiagBase(),
+        paymentMethodType: methodType,
+        selected: true,
+        skipped: false,
+        skipReason: null,
+        chargeAttemptResult: 'success',
+        billingEventId: logId,
+      });
     } else {
       const failureResponseMessage = methodType === 'ACH' && achTestMode
         ? `${result.error || result.responseFields?.AUTH_RESP_TEXT || 'EPX declined'} [ACH_TEST_MODE]`
@@ -759,6 +1105,15 @@ async function processSubscription(
         `${LOG_PREFIX} ❌ Declined subscription ${sub.subscriptionId} — ` +
         `code ${result.responseFields?.AUTH_RESP || 'n/a'}: ${result.error || 'unknown'}`
       );
+      appendChargeAttempt({
+        ...buildAttemptDiagBase(),
+        paymentMethodType: methodType,
+        selected: true,
+        skipped: false,
+        skipReason: null,
+        chargeAttemptResult: 'declined',
+        billingEventId: logId,
+      });
     }
   } catch (epxError: any) {
     // Network / timeout / unexpected error
@@ -771,9 +1126,18 @@ async function processSubscription(
       `${LOG_PREFIX} ❌ Error charging subscription ${sub.subscriptionId}:`,
       epxError.message
     );
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: false,
+      skipReason: null,
+      chargeAttemptResult: 'failed_epx_exception',
+      billingEventId: logId,
+    });
   }
 
-  return 'processed';
+  return { outcome: 'processed' };
 }
 
 // ────────────────────────────────────────

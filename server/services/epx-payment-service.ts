@@ -622,6 +622,108 @@ function parseServerPostResponse(xml: string): Record<string, string> {
   return fields;
 }
 
+type ServerPostFetchFailureClass =
+  | 'timeout'
+  | 'dns_resolution'
+  | 'tls_or_certificate'
+  | 'connection_refused'
+  | 'connection_reset'
+  | 'network_transport'
+  | 'unknown';
+
+function classifyServerPostFetchError(fetchError: any): {
+  failureClass: ServerPostFetchFailureClass;
+  errorName: string;
+  errorMessage: string;
+  causeCode: string | null;
+  causeName: string | null;
+  causeMessage: string | null;
+} {
+  const errorName = String(fetchError?.name || 'Error');
+  const errorMessage = String(fetchError?.message || 'Unknown fetch error');
+  const causeCode = fetchError?.cause?.code ? String(fetchError.cause.code) : null;
+  const causeName = fetchError?.cause?.name ? String(fetchError.cause.name) : null;
+  const causeMessage = fetchError?.cause?.message ? String(fetchError.cause.message) : null;
+  const combined = `${errorName} ${errorMessage} ${causeCode || ''} ${causeMessage || ''}`.toLowerCase();
+
+  let failureClass: ServerPostFetchFailureClass = 'unknown';
+  if (errorName === 'AbortError' || combined.includes('timed out') || combined.includes('timeout')) {
+    failureClass = 'timeout';
+  } else if (causeCode === 'ENOTFOUND' || combined.includes('enotfound') || combined.includes('getaddrinfo')) {
+    failureClass = 'dns_resolution';
+  } else if (
+    causeCode === 'CERT_HAS_EXPIRED'
+    || causeCode === 'DEPTH_ZERO_SELF_SIGNED_CERT'
+    || causeCode === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+    || combined.includes('certificate')
+    || combined.includes('tls')
+    || combined.includes('ssl')
+  ) {
+    failureClass = 'tls_or_certificate';
+  } else if (causeCode === 'ECONNREFUSED' || combined.includes('econnrefused')) {
+    failureClass = 'connection_refused';
+  } else if (causeCode === 'ECONNRESET' || combined.includes('econnreset') || combined.includes('socket hang up')) {
+    failureClass = 'connection_reset';
+  } else if (
+    causeCode === 'ETIMEDOUT'
+    || causeCode === 'EHOSTUNREACH'
+    || causeCode === 'ENETUNREACH'
+    || causeCode === 'UND_ERR_CONNECT_TIMEOUT'
+    || combined.includes('fetch failed')
+    || combined.includes('network')
+  ) {
+    failureClass = 'network_transport';
+  }
+
+  return {
+    failureClass,
+    errorName,
+    errorMessage,
+    causeCode,
+    causeName,
+    causeMessage,
+  };
+}
+
+function buildServerPostTransportDiagnostics(credentials: ServerPostCredentials): {
+  targetHost: string;
+  targetPath: string;
+  targetProtocol: string;
+  environment: PaymentEnvironment;
+  envPresence: Record<string, boolean>;
+  hasServerPostUrlOverride: boolean;
+} {
+  let targetHost = 'invalid-url';
+  let targetPath = '/';
+  let targetProtocol = 'unknown';
+
+  try {
+    const parsed = new URL(credentials.serverPostUrl);
+    targetHost = parsed.host;
+    targetPath = parsed.pathname || '/';
+    targetProtocol = parsed.protocol.replace(':', '');
+  } catch {
+    // Preserve safe fallback values when URL parsing fails.
+  }
+
+  const envPresence = {
+    EPX_CUST_NBR: Boolean(resolveEnvScopedValue(credentials.environment, ['EPX_CUST_NBR'])),
+    EPX_MERCH_NBR: Boolean(resolveEnvScopedValue(credentials.environment, ['EPX_MERCH_NBR'])),
+    EPX_DBA_NBR: Boolean(resolveEnvScopedValue(credentials.environment, ['EPX_DBA_NBR'])),
+    EPX_TERMINAL_NBR: Boolean(resolveEnvScopedValue(credentials.environment, ['EPX_TERMINAL_NBR'])),
+    EPX_SERVER_POST_URL: Boolean(resolveEnvScopedValue(credentials.environment, ['EPX_SERVER_POST_URL'])),
+  };
+
+  return {
+    targetHost,
+    targetPath,
+    targetProtocol,
+    environment: credentials.environment,
+    envPresence,
+    hasServerPostUrlOverride: envPresence.EPX_SERVER_POST_URL,
+  };
+}
+
 function getMemberField(member: Record<string, any> | undefined | null, keys: string[]): string | undefined {
   if (!member) return undefined;
   for (const key of keys) {
@@ -821,6 +923,8 @@ export async function submitServerPostRecurringPayment(
     const maskedAuthGuid = maskAuthGuid(authGuid);
     authGuidLogValue = logAuthGuidRaw ? authGuid : maskedAuthGuid;
 
+    const transportDiagnostics = buildServerPostTransportDiagnostics(resolvedCredentials);
+
     logEPX({
       level: 'info',
       phase: 'server-post',
@@ -833,6 +937,14 @@ export async function submitServerPostRecurringPayment(
         authGuid: authGuidLogValue,
         tranType: resolvedTranType,
         paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown',
+        transport: {
+          targetHost: transportDiagnostics.targetHost,
+          targetPath: transportDiagnostics.targetPath,
+          targetProtocol: transportDiagnostics.targetProtocol,
+          environment: transportDiagnostics.environment,
+          hasServerPostUrlOverride: transportDiagnostics.hasServerPostUrlOverride,
+          envPresence: transportDiagnostics.envPresence,
+        },
         request: maskedFields
       }
     });
@@ -852,6 +964,27 @@ export async function submitServerPostRecurringPayment(
       });
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
+      const fetchDetails = classifyServerPostFetchError(fetchError);
+      logEPX({
+        level: 'error',
+        phase: 'server-post',
+        message: 'Server Post network request failed before HTTP response',
+        data: {
+          transactionId: options.transactionId || requestFields.TRAN_NBR,
+          tranType: resolvedTranType,
+          paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown',
+          failureClass: fetchDetails.failureClass,
+          errorName: fetchDetails.errorName,
+          errorMessage: fetchDetails.errorMessage,
+          causeCode: fetchDetails.causeCode,
+          causeName: fetchDetails.causeName,
+          causeMessage: fetchDetails.causeMessage,
+          targetHost: transportDiagnostics.targetHost,
+          targetPath: transportDiagnostics.targetPath,
+          environment: transportDiagnostics.environment,
+          hasServerPostUrlOverride: transportDiagnostics.hasServerPostUrlOverride,
+        }
+      });
       if (fetchError.name === 'AbortError') {
         throw new Error('EPX Server Post request timed out after 25 seconds');
       }
@@ -862,6 +995,12 @@ export async function submitServerPostRecurringPayment(
 
     rawResponse = await response.text();
     responseFields = parseServerPostResponse(rawResponse);
+    const parsedFieldCount = Object.keys(responseFields).length;
+    const responseFailureClass = !response.ok
+      ? 'http_error'
+      : parsedFieldCount === 0
+        ? 'parse_failure'
+        : 'processor_response';
     const approved = response.ok && isApprovedResponse(responseFields.AUTH_RESP);
 
     logEPX({
@@ -872,6 +1011,10 @@ export async function submitServerPostRecurringPayment(
         transactionId: requestFields.TRAN_NBR,
         tranType: resolvedTranType,
         paymentMethodType: isACHTransaction ? 'ACH' : isCreditCardTransaction ? 'CreditCard' : 'Unknown',
+        failureClass: responseFailureClass,
+        httpStatus: response.status,
+        httpOk: response.ok,
+        parsedFieldCount,
         authResp: responseFields.AUTH_RESP,
         authCode: responseFields.AUTH_CODE,
         message: responseFields.AUTH_RESP_TEXT || responseFields.RESPONSE_TEXT

@@ -3862,7 +3862,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
     const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
       ? await supabase
         .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, metadata, registration_payload')
+        .select('id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload')
         .in('id', syntheticGroupMemberIds)
       : { data: [], error: null };
 
@@ -3994,10 +3994,10 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
           ).trim()
         : '';
       const resolvedMemberId = isGroupCommission
-        ? String(groupMember?.member_id || groupMember?.household_member_number || '')
+        ? String(groupMember?.member_id || '')
         : String(commission.member_id || '');
       const resolvedMembershipId = isGroupCommission
-        ? String(groupMember?.household_member_number || groupMember?.member_id || '')
+        ? String(groupMember?.member_id || '')
         : String(member?.customer_number || commission.member_id || '');
       const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
       const registrationPayload = (groupMember as any)?.registration_payload;
@@ -4127,7 +4127,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
     const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
       ? await supabase
         .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, household_member_number, total_amount, tier, relationship, metadata, registration_payload')
+        .select('id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload')
         .in('id', syntheticGroupMemberIds)
       : { data: [], error: null };
 
@@ -4242,10 +4242,10 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
           ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})`
           : member?.email || `Member ${commission.member_id}`);
       const resolvedMemberId = isGroupCommission
-        ? String(groupMember?.member_id || groupMember?.household_member_number || '')
+        ? String(groupMember?.member_id || '')
         : String(commission.member_id || '');
       const resolvedMembershipId = isGroupCommission
-        ? String(groupMember?.household_member_number || groupMember?.member_id || '')
+        ? String(groupMember?.member_id || '')
         : String(member?.customer_number || commission.member_id || '');
       const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
       const registrationPayload = (groupMember as any)?.registration_payload;
@@ -5415,6 +5415,15 @@ export interface BillableSubscription {
   planId: number;
   amount: string;
   nextBillingDate: string;
+  payerType: 'member' | 'group';
+  payerAccountId: string;
+  payerDisplayName: string | null;
+  payerEmail: string | null;
+  payerContactSource: 'responsible_person' | 'contact_person' | null;
+  payerResponsibleEmail: string | null;
+  payerContactEmail: string | null;
+  groupId: string | null;
+  groupName: string | null;
   tokenId: number;
   bricToken: string;
   paymentMethodType: string;
@@ -5433,80 +5442,161 @@ export interface BillableSubscription {
   memberBankAccountLastFour: string | null;
 }
 
+export const RECURRING_BILLING_READY_SUBSCRIPTION_STATUSES = ['active'] as const;
+
+export function getRecurringBillingReadySubscriptionStatuses(): string[] {
+  return [...RECURRING_BILLING_READY_SUBSCRIPTION_STATUSES];
+}
+
 export async function getSubscriptionsDueForBilling(
   now: Date,
   options?: { includeACH?: boolean }
 ): Promise<BillableSubscription[]> {
   const includeACH = options?.includeACH === true;
   const supportedPaymentMethodTypes = includeACH ? ['CreditCard', 'ACH'] : ['CreditCard'];
+  const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
 
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .select(`
-      id,
-      member_id,
-      plan_id,
-      amount,
-      next_billing_date,
-      payment_tokens!inner (
-        id,
-        bric_token,
-        payment_method_type,
-        card_last_four,
-        card_type,
-        bank_routing_number,
-        bank_account_type,
-        bank_account_last_four,
-        is_active
-      ),
-      members!inner (
-        email,
-        first_name,
-        last_name,
-        bank_routing_number,
-        bank_account_number,
-        bank_account_type,
-        bank_account_holder_name,
-        bank_account_last_four
-      )
-    `)
-    .eq('status', 'active')
-    .lte('next_billing_date', now.toISOString())
-    .eq('payment_tokens.is_active', true)
-    .in('payment_tokens.payment_method_type', supportedPaymentMethodTypes);
+  const result = await query(
+    `
+      SELECT
+        s.id AS subscription_id,
+        s.member_id,
+        s.plan_id,
+        s.amount,
+        s.next_billing_date,
+        CASE WHEN gp.payer_type = 'group' THEN 'group' ELSE 'member' END AS payer_type,
+        CASE
+          WHEN gp.payer_type = 'group' THEN COALESCE(gp.group_id, s.member_id::text)
+          ELSE s.member_id::text
+        END AS payer_account_id,
+        CASE
+          WHEN gp.payer_type = 'group' THEN COALESCE(gp.group_name, CONCAT('Group ', gp.group_id))
+          ELSE TRIM(CONCAT(COALESCE(m.first_name, ''), ' ', COALESCE(m.last_name, '')))
+        END AS payer_display_name,
+        CASE
+          WHEN gp.payer_type = 'group' THEN gp.payer_email
+          ELSE m.email
+        END AS payer_email,
+        CASE
+          WHEN gp.payer_type = 'group' THEN gp.payer_contact_source
+          ELSE NULL
+        END AS payer_contact_source,
+        gp.payer_responsible_email,
+        gp.payer_contact_email,
+        gp.group_id,
+        gp.group_name,
+        t.id AS token_id,
+        t.bric_token,
+        t.payment_method_type,
+        t.card_last_four,
+        t.card_type,
+        t.bank_routing_number AS token_bank_routing_number,
+        t.bank_account_type AS token_bank_account_type,
+        t.bank_account_last_four AS token_bank_account_last_four,
+        m.email,
+        m.first_name,
+        m.last_name,
+        m.bank_routing_number AS member_bank_routing_number,
+        m.bank_account_number AS member_bank_account_number,
+        m.bank_account_type AS member_bank_account_type,
+        m.bank_account_holder_name AS member_bank_account_holder_name,
+        m.bank_account_last_four AS member_bank_account_last_four
+      FROM subscriptions s
+      INNER JOIN members m ON m.id = s.member_id
+      LEFT JOIN LATERAL (
+        SELECT
+          g.id::text AS group_id,
+          g.name AS group_name,
+          CASE
+            WHEN LOWER(COALESCE(NULLIF(gm.payor_type, ''), NULLIF(g.payor_type, ''), '')) = 'full'
+              THEN 'group'
+            ELSE 'member'
+          END AS payer_type,
+          NULLIF(g.metadata->'groupProfile'->'responsiblePerson'->>'email', '') AS payer_responsible_email,
+          NULLIF(g.metadata->'groupProfile'->'contactPerson'->>'email', '') AS payer_contact_email,
+          COALESCE(
+            NULLIF(g.metadata->'groupProfile'->'responsiblePerson'->>'email', ''),
+            NULLIF(g.metadata->'groupProfile'->'contactPerson'->>'email', '')
+          ) AS payer_email,
+          CASE
+            WHEN NULLIF(g.metadata->'groupProfile'->'responsiblePerson'->>'email', '') IS NOT NULL THEN 'responsible_person'
+            WHEN NULLIF(g.metadata->'groupProfile'->'contactPerson'->>'email', '') IS NOT NULL THEN 'contact_person'
+            ELSE NULL
+          END AS payer_contact_source
+        FROM group_members gm
+        INNER JOIN groups g ON g.id = gm.group_id
+        WHERE gm.member_id = s.member_id
+          AND COALESCE(gm.status, '') <> 'terminated'
+        ORDER BY
+          CASE
+            WHEN LOWER(COALESCE(NULLIF(gm.payor_type, ''), NULLIF(g.payor_type, ''), '')) = 'full' THEN 0
+            ELSE 1
+          END,
+          gm.updated_at DESC,
+          gm.id DESC
+        LIMIT 1
+      ) gp ON true
+      INNER JOIN LATERAL (
+        SELECT
+          pt.id,
+          pt.bric_token,
+          pt.payment_method_type,
+          pt.card_last_four,
+          pt.card_type,
+          pt.bank_routing_number,
+          pt.bank_account_type,
+          pt.bank_account_last_four
+        FROM payment_tokens pt
+        WHERE pt.member_id = s.member_id
+          AND pt.is_active = true
+          AND pt.payment_method_type = ANY($2::text[])
+        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        LIMIT 1
+      ) t ON true
+      WHERE s.status = ANY($3::text[])
+        AND s.member_id IS NOT NULL
+        AND s.next_billing_date IS NOT NULL
+        AND s.next_billing_date <= $1::timestamptz
+      ORDER BY s.next_billing_date ASC, s.id ASC
+    `,
+    [now.toISOString(), supportedPaymentMethodTypes, billingReadyStatuses],
+  );
 
-  if (error) {
-    console.error('[Recurring Billing] Error querying due subscriptions:', error);
-    throw new Error(`Failed to query due subscriptions: ${error.message}`);
-  }
+  const rows = result.rows || [];
+  if (rows.length === 0) return [];
 
-  if (!data || data.length === 0) return [];
-
-  return data.map((row: any) => {
-    const token = Array.isArray(row.payment_tokens) ? row.payment_tokens[0] : row.payment_tokens;
-    const member = Array.isArray(row.members) ? row.members[0] : row.members;
+  return rows.map((row: any) => {
     return {
-      subscriptionId: row.id,
+      subscriptionId: row.subscription_id,
       memberId: row.member_id,
       planId: row.plan_id,
       amount: row.amount,
       nextBillingDate: row.next_billing_date,
-      tokenId: token.id,
-      bricToken: token.bric_token,
-      paymentMethodType: token.payment_method_type,
-      cardLastFour: token.card_last_four,
-      cardType: token.card_type,
-      memberEmail: member?.email ?? null,
-      memberFirstName: member?.first_name ?? null,
-      memberLastName: member?.last_name ?? null,
-      tokenBankRoutingNumber: token?.bank_routing_number ?? null,
-      tokenBankAccountType: token?.bank_account_type ?? null,
-      tokenBankAccountLastFour: token?.bank_account_last_four ?? null,
-      memberBankRoutingNumber: member?.bank_routing_number ?? null,
-      memberBankAccountNumber: member?.bank_account_number ?? null,
-      memberBankAccountType: member?.bank_account_type ?? null,
-      memberBankAccountHolderName: member?.bank_account_holder_name ?? null,
-      memberBankAccountLastFour: member?.bank_account_last_four ?? null,
+      payerType: row.payer_type === 'group' ? 'group' : 'member',
+      payerAccountId: String(row.payer_account_id || row.member_id),
+      payerDisplayName: row.payer_display_name || null,
+      payerEmail: row.payer_email || null,
+      payerContactSource: row.payer_contact_source || null,
+      payerResponsibleEmail: row.payer_responsible_email || null,
+      payerContactEmail: row.payer_contact_email || null,
+      groupId: row.group_id || null,
+      groupName: row.group_name || null,
+      tokenId: row.token_id,
+      bricToken: row.bric_token,
+      paymentMethodType: row.payment_method_type,
+      cardLastFour: row.card_last_four,
+      cardType: row.card_type,
+      memberEmail: row.email ?? null,
+      memberFirstName: row.first_name ?? null,
+      memberLastName: row.last_name ?? null,
+      tokenBankRoutingNumber: row.token_bank_routing_number ?? null,
+      tokenBankAccountType: row.token_bank_account_type ?? null,
+      tokenBankAccountLastFour: row.token_bank_account_last_four ?? null,
+      memberBankRoutingNumber: row.member_bank_routing_number ?? null,
+      memberBankAccountNumber: row.member_bank_account_number ?? null,
+      memberBankAccountType: row.member_bank_account_type ?? null,
+      memberBankAccountHolderName: row.member_bank_account_holder_name ?? null,
+      memberBankAccountLastFour: row.member_bank_account_last_four ?? null,
     };
   });
 }
