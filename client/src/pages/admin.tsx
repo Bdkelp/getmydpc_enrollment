@@ -301,6 +301,8 @@ export default function Admin() {
   const [cancelConfirmPayload, setCancelConfirmPayload] = useState<{ payload: Record<string, any>; subscriptionId?: number; transactionId?: string } | null>(null);
   const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{ memberId: number; amount: number; description?: string; transactionId?: string } | null>(null);
   const [confirmLiveRecurringOpen, setConfirmLiveRecurringOpen] = useState(false);
+  const [previewRecurringDialogOpen, setPreviewRecurringDialogOpen] = useState(false);
+  const [liveRecurringOutcomeOpen, setLiveRecurringOutcomeOpen] = useState(false);
   const [recurringWorkflowResult, setRecurringWorkflowResult] = useState<RecurringWorkflowResponse | null>(null);
   const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
   const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
@@ -752,11 +754,27 @@ export default function Admin() {
     onSuccess: (data: RecurringWorkflowResponse) => {
       setRecurringWorkflowResult(data);
       const isPreview = data.mode === 'preview';
+      const summary = data.billingSummary || {};
+      const totalDue = Number(summary.totalDue || 0);
+      const succeeded = Number(summary.succeeded || 0);
+      const failed = Number(summary.failed || 0);
+      const skipped = Number(summary.skipped || 0);
+
+      if (isPreview) {
+        setPreviewRecurringDialogOpen(true);
+        setLiveRecurringOutcomeOpen(false);
+      } else {
+        setLiveRecurringOutcomeOpen(true);
+        setPreviewRecurringDialogOpen(false);
+      }
+
       toast({
         title: isPreview ? 'Recurring billing preview complete' : 'Recurring billing + commission update complete',
         description: isPreview
-          ? 'Review due records and preview estimates below. No payments or commissions were created.'
-          : 'Live recurring billing finished and commission follow-up ran for successful payments only.',
+          ? (totalDue > 0
+            ? `Found ${totalDue} due memberships/accounts in preview. No payments or commissions were created.`
+            : 'No due memberships/accounts were found in preview. No payments or commissions were created.')
+          : `Live run summary: succeeded ${succeeded}, failed ${failed}, skipped ${skipped}.`,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/stats'] });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/lifecycle-alerts'] });
@@ -779,6 +797,8 @@ export default function Admin() {
   };
 
   const handlePreviewRecurringBilling = () => {
+    setPreviewRecurringDialogOpen(false);
+    setLiveRecurringOutcomeOpen(false);
     setRecurringWorkflowResult(null);
     recurringWorkflowMutation.mutate('preview');
   };
@@ -796,9 +816,15 @@ export default function Admin() {
       return;
     }
     setConfirmLiveRecurringOpen(false);
+    setLiveRecurringOutcomeOpen(false);
     setRecurringWorkflowResult(null);
     recurringWorkflowMutation.mutate('live');
   };
+
+  const previewRows = recurringWorkflowResult?.duePreview?.rows || [];
+  const previewDueCount = Number(recurringWorkflowResult?.duePreview?.dueCount || 0);
+  const liveBillingSummary = recurringWorkflowResult?.billingSummary;
+  const liveCommissionSummary = recurringWorkflowResult?.commissionSummary;
 
   const handleManualFieldChange = (field: keyof typeof manualTransactionForm) => (
     event: ChangeEvent<HTMLInputElement>
@@ -2987,6 +3013,135 @@ export default function Admin() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog
+          open={previewRecurringDialogOpen}
+          onOpenChange={(open) => {
+            if (!recurringWorkflowMutation.isPending) {
+              setPreviewRecurringDialogOpen(open);
+            }
+          }}
+        >
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Due Memberships Preview</DialogTitle>
+              <DialogDescription>
+                {previewDueCount > 0
+                  ? `${previewDueCount} due memberships/accounts were found. Review this list, then run live billing to charge them.`
+                  : 'No due memberships/accounts were found in preview.'}
+              </DialogDescription>
+            </DialogHeader>
+
+            {previewRows.length > 0 ? (
+              <div className="max-h-[50vh] overflow-auto rounded border">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Member/Account</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">payerType</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Amount</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">next_billing_date</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-600">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {previewRows.map((row) => (
+                      <tr key={`preview-popup-${row.subscriptionId}-${row.memberId}`}>
+                        <td className="px-3 py-2 text-gray-900">{row.memberOrAccountName}</td>
+                        <td className="px-3 py-2 text-gray-700">{row.payerType}</td>
+                        <td className="px-3 py-2 text-gray-700">${Number(row.amount || 0).toFixed(2)}</td>
+                        <td className="px-3 py-2 text-gray-700">
+                          {row.nextBillingDate ? format(new Date(row.nextBillingDate), 'yyyy-MM-dd HH:mm') : 'N/A'}
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{row.readinessState}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-gray-700">
+                Nothing is due right now, so running live billing would not process any charges.
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPreviewRecurringDialogOpen(false)}
+                disabled={recurringWorkflowMutation.isPending}
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setPreviewRecurringDialogOpen(false);
+                  handleOpenLiveRecurringConfirmation();
+                }}
+                disabled={recurringWorkflowMutation.isPending || superAdminRestricted || previewDueCount === 0}
+                className="bg-indigo-600 text-white hover:bg-indigo-700"
+              >
+                Run Recurring Billing + Commission Update
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={liveRecurringOutcomeOpen}
+          onOpenChange={(open) => {
+            if (!recurringWorkflowMutation.isPending) {
+              setLiveRecurringOutcomeOpen(open);
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Recurring Billing Run Completed</DialogTitle>
+              <DialogDescription>
+                Use this proof summary, then confirm rows in your DB view.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <div className="rounded border bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Total due</p>
+                <p className="text-lg font-semibold text-gray-900">{Number(liveBillingSummary?.totalDue || 0)}</p>
+              </div>
+              <div className="rounded border bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Processed</p>
+                <p className="text-lg font-semibold text-gray-900">{Number(liveBillingSummary?.processed || 0)}</p>
+              </div>
+              <div className="rounded border bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Succeeded</p>
+                <p className="text-lg font-semibold text-emerald-700">{Number(liveBillingSummary?.succeeded || 0)}</p>
+              </div>
+              <div className="rounded border bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Failed</p>
+                <p className="text-lg font-semibold text-red-700">{Number(liveBillingSummary?.failed || 0)}</p>
+              </div>
+              <div className="rounded border bg-slate-50 p-3">
+                <p className="text-[11px] uppercase tracking-wide text-gray-500">Skipped</p>
+                <p className="text-lg font-semibold text-amber-700">{Number(liveBillingSummary?.skipped || 0)}</p>
+              </div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-gray-700">
+              Commission entries created: <span className="font-semibold">{Number(liveCommissionSummary?.totalCommissionEntriesCreated || 0)}</span>
+              <p className="mt-1 text-xs text-gray-600">
+                DB verification: check payment rows for succeeded/failed status and recurring billing log rows created in this run window.
+              </p>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={() => setLiveRecurringOutcomeOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <AlertDialog open={!!cancelConfirmPayload} onOpenChange={(open) => {
           if (!open && !cancelSubscriptionMutation.isPending) {
