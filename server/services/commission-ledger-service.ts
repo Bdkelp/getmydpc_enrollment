@@ -17,6 +17,7 @@ interface CommissionFeedItem {
   agentName?: string;
   agentNumber?: string;
   memberId?: string;
+  enrollmentId?: string;
   memberName?: string;
   userName?: string;
   planTier?: string;
@@ -111,6 +112,20 @@ function normalizePeriodFromDate(rawDate?: string): { start: string; end: string
   };
 }
 
+function buildCommissionUnitKey(item: CommissionFeedItem): string {
+  const enrollmentId = String(item.enrollmentId || '').trim();
+  if (enrollmentId) {
+    return `enrollment:${enrollmentId}`;
+  }
+
+  const memberId = String(item.memberId || '').trim();
+  if (memberId) {
+    return `member:${memberId}`;
+  }
+
+  return `source:${String(item.id || '').trim()}`;
+}
+
 function isPayableLedgerStatus(status: string): status is LedgerStatus {
   return PAYABLE_LEDGER_STATUSES.includes(String(status || '').toLowerCase() as LedgerStatus);
 }
@@ -186,14 +201,16 @@ export function buildCancellationReversalRows(paidRows: any[], cancellationDate:
     commission_period_end: String(paid.commission_period_end),
     commission_amount: -Math.abs(Number(paid.commission_amount || 0)),
     commission_type: 'reversal',
-    status: 'reversed',
+    // Keep reversal rows payable in a later batch as separate negative line items.
+    status: 'earned',
     payout_batch_id: null,
     cancellation_date: normalizedCancellationDate,
     cancellation_reason: cancellationReason || 'Cancellation reversal',
-    notes: 'Auto-created reversal after cancellation',
+    notes: 'Auto-created reversal after cancellation (pending batch assignment)',
     metadata: {
       sourceLedgerId: paid.id,
       reason: cancellationReason || null,
+      cancellationAdjustmentType: 'reversal',
     },
   }));
 }
@@ -495,7 +512,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
     memberIds.length > 0
       ? supabase
         .from('commission_cancellation_events')
-        .select('member_id, cancellation_date')
+      .select('member_id, cancellation_date, cancellation_reason')
         .in('member_id', memberIds)
       : Promise.resolve({ data: [], error: null } as any),
   ]);
@@ -516,19 +533,23 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
     (existingResult.data || []).map((row: any) => `${row.source_commission_id}|${row.commission_period_start}|${row.commission_period_end}`)
   );
   const memberAgentSeen = new Set((memberHistoryResult.data || []).map((r: any) => `${r.agent_id || ''}:${r.member_id || ''}`));
-  const cancellationByMember = new Map<string, string>();
+  const cancellationByMember = new Map<string, { date: string; reason: string | null }>();
 
   for (const row of (cancellationsResult.data || [])) {
     if (!row?.member_id || !row?.cancellation_date) continue;
     const key = String(row.member_id);
     const existing = cancellationByMember.get(key);
-    if (!existing || dateOnly(row.cancellation_date).getTime() < dateOnly(existing).getTime()) {
-      cancellationByMember.set(key, row.cancellation_date);
+    if (!existing || dateOnly(row.cancellation_date).getTime() < dateOnly(existing.date).getTime()) {
+      cancellationByMember.set(key, {
+        date: row.cancellation_date,
+        reason: row.cancellation_reason || null,
+      });
     }
   }
 
   const rowsToInsert: any[] = [];
   const eventPayloads: any[] = [];
+  const incomingUnitPeriodSeen = new Set<string>();
   let skipped = 0;
 
   for (const item of commissions) {
@@ -541,10 +562,12 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
     const rangeStart = dateOnly(periodSeed.start);
     const rangeEnd = dateOnly(new Date());
     const memberKey = String(item.memberId || '');
-    const cancellationDate = memberKey ? cancellationByMember.get(memberKey) : undefined;
+    const cancellationInfo = memberKey ? cancellationByMember.get(memberKey) : undefined;
+    const cancellationDate = cancellationInfo?.date;
 
     const periods = getRecurringPeriods(rangeStart, rangeEnd);
     const memberAgentKey = `${item.agentId || ''}:${item.memberId || ''}`;
+    const commissionUnitKey = buildCommissionUnitKey(item);
     const hasPriorForMember = memberAgentSeen.has(memberAgentKey);
 
     periods.forEach((period, index) => {
@@ -554,15 +577,32 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
         return;
       }
 
+      const unitPeriodDedupeKey = `${String(item.agentId || '')}|${commissionUnitKey}|${period.start}|${period.end}`;
+      if (incomingUnitPeriodSeen.has(unitPeriodDedupeKey)) {
+        skipped += 1;
+        return;
+      }
+
       if (cancellationDate && dateOnly(period.start).getTime() > dateOnly(cancellationDate).getTime()) {
         skipped += 1;
         return;
       }
 
+      const intersectsCancellation = Boolean(
+        cancellationDate
+        && dateOnly(period.start).getTime() <= dateOnly(cancellationDate).getTime()
+        && dateOnly(period.end).getTime() >= dateOnly(cancellationDate).getTime()
+      );
+
       const firstRowForItem = index === 0;
       const commissionType = firstRowForItem
         ? deriveCommissionType(item, hasPriorForMember)
         : 'renewal';
+
+      const paidFromFeed = item.paymentStatus === 'paid' && firstRowForItem;
+      const rowStatus: LedgerStatus = intersectsCancellation && !paidFromFeed
+        ? 'held'
+        : (paidFromFeed ? 'paid' : 'earned');
 
       const row = {
         source_commission_id: item.id,
@@ -578,16 +618,22 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
         commission_period_end: period.end,
         commission_amount: Number(item.commissionAmount || 0),
         commission_type: commissionType,
-        status: item.paymentStatus === 'paid' && firstRowForItem ? 'paid' : 'earned',
+        status: rowStatus,
+        cancellation_date: intersectsCancellation ? cancellationDate : null,
+        cancellation_reason: intersectsCancellation ? (cancellationInfo?.reason || null) : null,
         notes: item.notes || null,
         metadata: {
           importedAt: new Date().toISOString(),
           recurringSync: true,
+          cancellationIntersected: intersectsCancellation,
+          commissionUnitKey,
+          enrollmentId: item.enrollmentId || null,
         },
       };
 
       rowsToInsert.push(row);
       existingBySourcePeriod.add(dedupeKey);
+      incomingUnitPeriodSeen.add(unitPeriodDedupeKey);
     });
 
     memberAgentSeen.add(memberAgentKey);
@@ -807,6 +853,30 @@ export async function getPayoutDashboardData(): Promise<any> {
 
   ledgerRows = filterPayableBatchRows(ledgerRows);
 
+  const { data: cancellationRows, error: cancellationRowsError } = await supabase
+    .from('commission_ledger')
+    .select('id, status, commission_type, commission_amount, cancellation_date, cancellation_reason, payout_batch_id')
+    .or('cancellation_date.not.is.null,commission_type.eq.reversal')
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (cancellationRowsError) {
+    throw new Error(`Failed to load cancellation ledger rows for dashboard: ${cancellationRowsError.message}`);
+  }
+
+  const cancellationSummaryRows = cancellationRows || [];
+  const heldRows = cancellationSummaryRows.filter((row: any) => String(row.status || '').toLowerCase() === 'held');
+  const pendingReversalRows = cancellationSummaryRows.filter((row: any) => {
+    const normalizedStatus = String(row.status || '').toLowerCase();
+    const normalizedType = String(row.commission_type || '').toLowerCase();
+    return normalizedType === 'reversal' && (normalizedStatus === 'earned' || normalizedStatus === 'queued' || normalizedStatus === 'carry_forward');
+  });
+  const paidReversalRows = cancellationSummaryRows.filter((row: any) => {
+    const normalizedStatus = String(row.status || '').toLowerCase();
+    const normalizedType = String(row.commission_type || '').toLowerCase();
+    return normalizedType === 'reversal' && normalizedStatus === 'paid';
+  });
+
   const totalPayableAmount = ledgerRows.reduce((sum, row) => sum + Number(row.commission_amount || 0), 0);
   const agentCount = new Set(ledgerRows.map((row) => String(row.agent_id || 'unknown'))).size;
 
@@ -823,6 +893,14 @@ export async function getPayoutDashboardData(): Promise<any> {
     totalPayableAmount,
     totalAgents: agentCount,
     counts: countByType,
+    cancellations: {
+      heldCount: heldRows.length,
+      heldAmount: heldRows.reduce((sum: number, row: any) => sum + Number(row.commission_amount || 0), 0),
+      pendingReversalCount: pendingReversalRows.length,
+      pendingReversalAmount: pendingReversalRows.reduce((sum: number, row: any) => sum + Number(row.commission_amount || 0), 0),
+      paidReversalCount: paidReversalRows.length,
+      paidReversalAmount: paidReversalRows.reduce((sum: number, row: any) => sum + Number(row.commission_amount || 0), 0),
+    },
   };
 }
 

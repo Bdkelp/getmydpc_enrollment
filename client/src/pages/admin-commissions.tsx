@@ -544,6 +544,14 @@ export default function AdminCommissions() {
     });
   };
 
+  const showLegacyStatementExportDisabled = () => {
+    toast({
+      title: 'Legacy Statement/Export Disabled',
+      description: 'Use payout batches: open a batch, then use batch statement/export actions.',
+      variant: 'destructive',
+    });
+  };
+
   const handleQuickSelectWeek = () => {
     const sunday = startOfWeek(new Date(), { weekStartsOn: 0 });
     const saturday = endOfWeek(new Date(), { weekStartsOn: 0 });
@@ -554,101 +562,11 @@ export default function AdminCommissions() {
   };
 
   const handleExportQuickBooksCsv = async () => {
-    try {
-      const params = new URLSearchParams({
-        format: 'quickbooks-csv',
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        status: statementStatus,
-      });
-      if (statementAgentId !== 'all') {
-        params.set('agentId', statementAgentId);
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${API_URL}/api/admin/commissions/export?${params.toString()}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Export failed with status ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `quickbooks-commissions-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      toast({
-        title: 'QuickBooks CSV Exported',
-        description: 'The CSV file is ready for QuickBooks bill import.',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Export Failed',
-        description: error?.message || 'Unable to export QuickBooks CSV.',
-        variant: 'destructive',
-      });
-    }
+    showLegacyStatementExportDisabled();
   };
 
   const handleExportHexonaCsv = async () => {
-    try {
-      const params = new URLSearchParams({
-        format: 'hexona-csv',
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        status: statementStatus,
-      });
-      if (statementAgentId !== 'all') {
-        params.set('agentId', statementAgentId);
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${API_URL}/api/admin/commissions/export?${params.toString()}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Export failed with status ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `hexona-commissions-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      toast({
-        title: 'Hexona CSV Exported',
-        description: 'The CSV file is ready for Hexona/HighLevel mapping.',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Export Failed',
-        description: error?.message || 'Unable to export Hexona CSV.',
-        variant: 'destructive',
-      });
-    }
+    showLegacyStatementExportDisabled();
   };
 
   const handleExportBatchCsv = async (batchId: string, formatType: 'quickbooks-csv' | 'hexona-csv') => {
@@ -1101,7 +1019,7 @@ export default function AdminCommissions() {
                 </Select>
               </div>
               <div className="flex items-end gap-2">
-                <Button onClick={() => setIsStatementOpen(true)}>
+                <Button onClick={showLegacyStatementExportDisabled}>
                   <FileText className="h-4 w-4 mr-2" />
                   Generate Statement
                 </Button>

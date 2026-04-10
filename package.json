@@ -20,6 +20,7 @@
     "test": "npm run test:scheduler",
     "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
     "test:commission-payout-hardening": "tsx scripts/test-commission-payout-hardening.ts",
+    "audit:commission-unit-duplicates": "node scripts/audit-commission-unit-rule-duplicates.mjs",
     "audit:ach-go-live": "node scripts/audit-ach-go-live.mjs",
     "audit:group-member-drift": "node scripts/audit-group-member-drift.mjs",
     "enable:ach-live": "node scripts/enable-ach-live-flags.mjs --apply",
@@ -35,7 +36,10 @@
     "fix:agent-duplicates": "tsx server/scripts/fix-agent-number-duplicates.ts",
     "backfill:dependent-census": "node server/scripts/backfill-dependent-census-fields.mjs",
     "backfill:member-only-plans": "node scripts/backfill-member-only-plan-selections.mjs --apply",
-    "repair:group-member-linking": "node scripts/repair-group-member-linking.mjs"
+    "backfill:pending-subscriptions": "node scripts/reconcile-paid-pending-subscriptions.mjs",
+    "repair:group-member-linking": "node scripts/repair-group-member-linking.mjs",
+    "reconcile:pending-subscriptions": "node scripts/reconcile-paid-pending-subscriptions.mjs",
+    "reconcile:pending-subscriptions:apply": "node scripts/reconcile-paid-pending-subscriptions.mjs --apply"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

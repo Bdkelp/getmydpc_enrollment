@@ -65,7 +65,7 @@ function testReversalPolicyNonPayable(): void {
 
   const reversals = buildCancellationReversalRows(paidRows, '2026-04-10', 'Cancelled');
   assert.equal(reversals.length, 1);
-  assert.equal(reversals[0].status, 'reversed');
+  assert.equal(reversals[0].status, 'earned');
   assert.equal(reversals[0].payout_batch_id, null);
   assert.equal(reversals[0].commission_amount, -25);
 }
@@ -170,6 +170,30 @@ function testDependentCountLabelsDoNotMultiplyCommission(): void {
   assert.equal(childWithDependentCount!.commission, childBaseline!.commission);
 }
 
+function testCommissionUnitScenariosExplicit(): void {
+  const familyWithFiveCovered = calculateCommission('MyPremierPlan Base', 'Family (5 covered)', false);
+  const familyBaseline = calculateCommission('MyPremierPlan Base', 'Family', false);
+  const memberSpouse = calculateCommission('MyPremierPlan Base', 'Member/Spouse', false);
+  const memberOnly = calculateCommission('MyPremierPlan Base', 'Member Only', false);
+
+  assert.ok(familyWithFiveCovered && familyBaseline && memberSpouse && memberOnly);
+  assert.equal(familyWithFiveCovered!.commission, familyBaseline!.commission);
+  assert.equal(memberSpouse!.commission, 15);
+  assert.equal(memberOnly!.commission, 9);
+}
+
+function testDependentCountChangeDoesNotCreateAdditionalCommissionUnitChecks(): void {
+  const routesPath = path.resolve(process.cwd(), 'server/routes.ts');
+  const routesContent = readFileSync(routesPath, 'utf8');
+
+  // Guard must dedupe by enrollment unit and agent lane, independent of coverage/dependent labels.
+  const dedupeHelperUsesEnrollment = /findExistingCommissionUnit[\s\S]*\.eq\('enrollment_id', options\.enrollmentId\)/.test(routesContent);
+  const dedupeHelperHandlesNullEnrollment = /findExistingCommissionUnit[\s\S]*\.is\('enrollment_id', null\)/.test(routesContent);
+
+  assert.equal(dedupeHelperUsesEnrollment, true);
+  assert.equal(dedupeHelperHandlesNullEnrollment, true);
+}
+
 function testCommissionUnitDedupeGuardPresent(): void {
   const routesPath = path.resolve(process.cwd(), 'server/routes.ts');
   const routesContent = readFileSync(routesPath, 'utf8');
@@ -223,6 +247,8 @@ function run(): void {
   testAdminBypassBlocked();
   testCommissionUnitByCoverageTier();
   testDependentCountLabelsDoNotMultiplyCommission();
+  testCommissionUnitScenariosExplicit();
+  testDependentCountChangeDoesNotCreateAdditionalCommissionUnitChecks();
   testCommissionUnitDedupeGuardPresent();
   testMinimumThresholdCarryForwardRules();
   testUnderMinimumOverrideAccessAndAuditGuards();

@@ -3642,6 +3642,13 @@ router.patch(
 
         const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
 
+        await applyCancellationToLedger({
+          memberId: String(parsedMemberId),
+          cancellationDate: formatLocalDate(member?.cancellation_date || new Date()),
+          cancellationReason,
+          createReversalForPaid: true,
+        });
+
         return res.json({
           success: true,
           action: normalizedAction,
@@ -7174,6 +7181,11 @@ export async function registerRoutes(app: any) {
         return res.status(403).json({ error: 'Admin access required' });
       }
 
+      return res.status(410).json({
+        error: 'Legacy statement workflow disabled',
+        message: 'Use ledger payout batch statement endpoint: GET /api/admin/commissions/payout-batches/:batchId/statement',
+      });
+
       const { startDate, endDate, agentId, status = 'all' } = req.query as {
         startDate?: string;
         endDate?: string;
@@ -7289,6 +7301,11 @@ export async function registerRoutes(app: any) {
       if (!isAdmin(req.user?.role)) {
         return res.status(403).json({ error: 'Admin access required' });
       }
+
+      return res.status(410).json({
+        error: 'Legacy export workflow disabled',
+        message: 'Use ledger payout batch export endpoint: GET /api/admin/commissions/payout-batches/:batchId/export?format=quickbooks-csv|hexona-csv',
+      });
 
       const {
         format = 'quickbooks-csv',
@@ -7587,6 +7604,11 @@ export async function registerRoutes(app: any) {
         cancellationReason: row.cancellation_reason,
       }));
 
+      const cancellationLineItems = lineItems.filter((item: any) => {
+        const normalizedType = String(item.commissionType || '').toLowerCase();
+        return Boolean(item.cancellationDate) || normalizedType === 'reversal' || normalizedType === 'adjustment';
+      });
+
       const subtotal = lineItems
         .filter((item: any) => item.commissionType !== 'adjustment' && item.commissionType !== 'reversal')
         .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
@@ -7610,8 +7632,10 @@ export async function registerRoutes(app: any) {
           writingNumber: target.writingNumber,
         },
         lineItems,
+        cancellationLineItems,
         subtotal,
         adjustments,
+        cancellationAdjustmentsTotal: cancellationLineItems.reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0),
         totalPayout: subtotal + adjustments,
         statementNumber,
         payoutBatchId: detail.batch.id,
