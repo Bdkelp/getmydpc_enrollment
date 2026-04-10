@@ -1351,6 +1351,44 @@ export default function Admin() {
                     </Button>
                   </Link>
                 </div>
+
+                <div className="mt-4 rounded-xl border border-indigo-200 bg-white p-4">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-indigo-700">Recurring Billing Controls</h3>
+                      <p className="text-xs text-gray-600">Run a safe preview or confirmed live recurring billing + commission workflow.</p>
+                    </div>
+                    <div className="mt-1 flex w-full flex-col gap-3 sm:mt-0 sm:w-auto sm:flex-row sm:items-center">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handlePreviewRecurringBilling}
+                        disabled={recurringWorkflowMutation.isPending}
+                        className="w-full sm:w-auto"
+                      >
+                        {recurringWorkflowMutation.isPending ? 'Running preview...' : 'Preview Recurring Billing'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleOpenLiveRecurringConfirmation}
+                        disabled={recurringWorkflowMutation.isPending || superAdminRestricted}
+                        className="w-full bg-indigo-600 text-white hover:bg-indigo-700 sm:w-auto"
+                      >
+                        {recurringWorkflowMutation.isPending ? 'Running live workflow...' : 'Run Recurring Billing + Commission Update'}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-indigo-900">
+                    Safety note: the system auto-selects currently due records; manual member/account selection is disabled in this workflow.
+                  </p>
+                  {recurringWorkflowResult?.mode && (
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-700">
+                      Last run mode: <span className="font-semibold uppercase">{recurringWorkflowResult.mode}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
