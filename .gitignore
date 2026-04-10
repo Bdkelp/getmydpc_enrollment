@@ -3,7 +3,10 @@ dist
 .DS_Store
 server/public
 vite.config.ts.*
-*.tar.gzclient/dist\nclient/.env\nclient/.env.production
+*.tar.gz
+client/dist
 client/.env
 client/.env.production
+logs/
+tmp/
 
