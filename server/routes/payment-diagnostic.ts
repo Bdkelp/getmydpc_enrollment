@@ -4,7 +4,7 @@
  */
 
 import { Router, Response } from 'express';
-import { storage } from '../storage';
+import { storage, getPlatformSetting, upsertPlatformSetting } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole, isAtLeastAdmin } from '../auth/roles';
 import { query } from '../lib/neonDb';
@@ -22,8 +22,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const router = Router();
+const RECURRING_CARD_AUTH_REPAIR_SETTING_KEY = 'recurring_card_auth_guid_repair_v1';
 
 type OperatorMode = 'preview' | 'live';
+
+const maskAuthGuid = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  return normalized.length > 8
+    ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
+    : '********';
+};
 
 const isRecentCycleEntry = (entryAt: string | undefined, startedAt: string, completedAt: string): boolean => {
   if (!entryAt) return false;
@@ -323,6 +333,152 @@ router.post('/api/admin/diagnostic/recurring-billing/operator-workflow', authent
     res.status(500).json({
       success: false,
       error: error?.message || 'Failed to run operator recurring workflow',
+    });
+  }
+});
+
+/**
+ * One-time repair endpoint: backfill payment_tokens.original_network_trans_id for active card tokens.
+ * Mode defaults to preview. Use { mode: 'apply' } to persist updates.
+ */
+router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const mode = String(req.body?.mode || 'preview').toLowerCase() === 'apply' ? 'apply' : 'preview';
+    const force = req.body?.force === true;
+    const isSuperAdmin = hasAtLeastRole(req.user.role, 'super_admin');
+    const requestedBy = req.user.email || req.user.id || 'unknown-admin';
+
+    if (mode === 'apply' && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can apply recurring auth-guid repairs',
+      });
+    }
+
+    const requestedLimit = Number(req.body?.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 5000)
+      : 500;
+
+    const existingRepairSetting = await getPlatformSetting<any>(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY);
+    const priorRun = existingRepairSetting?.value || null;
+    const alreadyCompleted = Boolean(priorRun?.completedAt);
+
+    if (mode === 'apply' && alreadyCompleted && !force) {
+      return res.status(409).json({
+        success: false,
+        error: 'Recurring card auth-guid repair already completed. Set force=true to run again.',
+        alreadyCompleted: true,
+        priorRun,
+      });
+    }
+
+    const candidateResult = await query(
+      `
+        SELECT
+          pt.id AS token_id,
+          pt.member_id,
+          pt.payment_method_type,
+          pt.original_network_trans_id,
+          p.id AS payment_id,
+          p.epx_auth_guid,
+          p.created_at AS payment_created_at
+        FROM payment_tokens pt
+        INNER JOIN LATERAL (
+          SELECT id, epx_auth_guid, created_at
+          FROM payments
+          WHERE member_id = pt.member_id
+            AND epx_auth_guid IS NOT NULL
+            AND LENGTH(TRIM(epx_auth_guid)) >= 8
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        ) p ON true
+        WHERE pt.is_active = true
+          AND pt.payment_method_type = 'CreditCard'
+          AND (pt.original_network_trans_id IS NULL OR LENGTH(TRIM(pt.original_network_trans_id)) < 8)
+        ORDER BY p.created_at DESC, pt.id DESC
+        LIMIT $1
+      `,
+      [limit],
+    );
+
+    const candidates = (candidateResult.rows || []).map((row: any) => ({
+      tokenId: Number(row.token_id),
+      memberId: Number(row.member_id),
+      paymentId: Number(row.payment_id),
+      paymentCreatedAt: row.payment_created_at,
+      authGuid: String(row.epx_auth_guid || '').trim(),
+      authGuidMasked: maskAuthGuid(row.epx_auth_guid),
+    }));
+
+    if (mode === 'preview') {
+      return res.json({
+        success: true,
+        mode,
+        alreadyCompleted,
+        priorRun,
+        candidateCount: candidates.length,
+        candidates,
+        note: 'Preview only. No records were changed.',
+      });
+    }
+
+    const updated: Array<{ tokenId: number; memberId: number; paymentId: number; authGuidMasked: string | null }> = [];
+
+    for (const row of candidates) {
+      const updateResult = await query(
+        `
+          UPDATE payment_tokens
+          SET original_network_trans_id = $2,
+              last_used_at = NOW()
+          WHERE id = $1
+            AND (original_network_trans_id IS NULL OR LENGTH(TRIM(original_network_trans_id)) < 8)
+          RETURNING id
+        `,
+        [row.tokenId, row.authGuid],
+      );
+
+      if ((updateResult.rows || []).length > 0) {
+        updated.push({
+          tokenId: row.tokenId,
+          memberId: row.memberId,
+          paymentId: row.paymentId,
+          authGuidMasked: row.authGuidMasked,
+        });
+      }
+    }
+
+    const completedAt = new Date().toISOString();
+    const repairSummary = {
+      completedAt,
+      completedBy: requestedBy,
+      force,
+      limit,
+      candidateCount: candidates.length,
+      updatedCount: updated.length,
+      endpoint: '/api/admin/diagnostic/recurring-billing/repair-card-auth-guids',
+      version: 1,
+    };
+
+    await upsertPlatformSetting(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY, repairSummary, requestedBy);
+
+    return res.json({
+      success: true,
+      mode,
+      alreadyCompleted,
+      priorRun,
+      repairSummary,
+      updated,
+    });
+  } catch (error: any) {
+    console.error('[Diagnostic] Error running recurring auth-guid repair:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to run recurring auth-guid repair',
     });
   }
 });

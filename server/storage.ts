@@ -5427,6 +5427,7 @@ export interface BillableSubscription {
   tokenId: number;
   bricToken: string;
   paymentMethodType: string;
+  tokenOriginalNetworkTransId: string | null;
   cardLastFour: string | null;
   cardType: string | null;
   memberEmail: string | null;
@@ -5541,6 +5542,7 @@ export async function getSubscriptionsDueForBilling(
           pt.id,
           pt.bric_token,
           pt.payment_method_type,
+          pt.original_network_trans_id,
           pt.card_last_four,
           pt.card_type,
           pt.bank_routing_number,
@@ -5584,6 +5586,7 @@ export async function getSubscriptionsDueForBilling(
       tokenId: row.token_id,
       bricToken: row.bric_token,
       paymentMethodType: row.payment_method_type,
+      tokenOriginalNetworkTransId: row.original_network_trans_id ?? null,
       cardLastFour: row.card_last_four,
       cardType: row.card_type,
       memberEmail: row.email ?? null,

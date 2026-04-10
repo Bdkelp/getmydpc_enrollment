@@ -826,6 +826,35 @@ export default function Admin() {
   const liveBillingSummary = recurringWorkflowResult?.billingSummary;
   const liveCommissionSummary = recurringWorkflowResult?.commissionSummary;
 
+  const handleCopyLiveRecurringSummary = async () => {
+    const summaryText = [
+      'Recurring Billing Run Summary',
+      `Total due: ${Number(liveBillingSummary?.totalDue || 0)}`,
+      `Processed: ${Number(liveBillingSummary?.processed || 0)}`,
+      `Succeeded: ${Number(liveBillingSummary?.succeeded || 0)}`,
+      `Failed: ${Number(liveBillingSummary?.failed || 0)}`,
+      `Skipped: ${Number(liveBillingSummary?.skipped || 0)}`,
+      `Commission entries created: ${Number(liveCommissionSummary?.totalCommissionEntriesCreated || 0)}`,
+    ].join('\n');
+
+    try {
+      if (!navigator?.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.writeText(summaryText);
+      toast({
+        title: 'Run summary copied',
+        description: 'Recurring run proof details copied to clipboard.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Unable to copy summary',
+        description: error?.message || 'Copy failed. Please copy values manually from this dialog.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleManualFieldChange = (field: keyof typeof manualTransactionForm) => (
     event: ChangeEvent<HTMLInputElement>
   ) => {
@@ -3136,6 +3165,9 @@ export default function Admin() {
             </div>
 
             <DialogFooter>
+              <Button type="button" variant="outline" onClick={handleCopyLiveRecurringSummary}>
+                Copy run summary
+              </Button>
               <Button type="button" onClick={() => setLiveRecurringOutcomeOpen(false)}>
                 Close
               </Button>

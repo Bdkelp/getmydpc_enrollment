@@ -486,6 +486,46 @@ function truncateBillingDate(date: string | Date): string {
   return new Date(date).toISOString().slice(0, 10) + 'T00:00:00.000Z';
 }
 
+function looksLikeEncryptedToken(value: string): boolean {
+  const parts = value.split(':');
+  if (parts.length !== 2) return false;
+  return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
+}
+
+function isUsableAuthGuid(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length >= 8;
+}
+
+function resolveRecurringCardAuthGuid(sub: BillableSubscription):
+  | { authGuid: string }
+  | { error: string } {
+  const storedAuthGuid = typeof sub.tokenOriginalNetworkTransId === 'string'
+    ? sub.tokenOriginalNetworkTransId.trim()
+    : '';
+  if (isUsableAuthGuid(storedAuthGuid)) {
+    return { authGuid: storedAuthGuid };
+  }
+
+  const tokenValue = String(sub.bricToken || '').trim();
+  if (!tokenValue) {
+    return { error: 'Missing recurring token for card charge' };
+  }
+
+  if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
+    return { authGuid: tokenValue };
+  }
+
+  try {
+    const decrypted = decryptPaymentToken(tokenValue).trim();
+    if (!isUsableAuthGuid(decrypted)) {
+      return { error: 'Resolved ORIG_AUTH_GUID was empty or invalid length' };
+    }
+    return { authGuid: decrypted };
+  } catch {
+    return { error: 'Token decryption failed and no stored ORIG_AUTH_GUID was available' };
+  }
+}
+
 // ────────────────────────────────────────
 // Core billing cycle
 // ────────────────────────────────────────
@@ -869,34 +909,36 @@ async function processSubscription(
     return { outcome: 'skipped', skipReason: 'already_processed_for_cycle' };
   }
 
-  // 6. Decrypt BRIC token
-  let authGuid: string;
-  try {
-    authGuid = decryptPaymentToken(sub.bricToken);
-  } catch (err: any) {
-    console.error(`${LOG_PREFIX} Failed to decrypt token for subscription ${sub.subscriptionId}:`, err.message);
-    const billingEventId = await insertRecurringBillingLog({
-      subscriptionId: sub.subscriptionId,
-      memberId: sub.memberId,
-      paymentTokenId: sub.tokenId,
-      paymentMethodType: methodType,
-      amount: sub.amount,
-      billingDate,
-      attemptNumber: 1,
-      status: 'failed',
-      failureReason: 'Token decryption failed',
-      processedAt: new Date().toISOString(),
-    });
-    appendChargeAttempt({
-      ...buildAttemptDiagBase(),
-      paymentMethodType: methodType,
-      selected: true,
-      skipped: false,
-      skipReason: null,
-      chargeAttemptResult: 'failed_token_decryption',
-      billingEventId,
-    });
-    return { outcome: 'processed' };
+  // 6. Resolve card auth GUID (ACH does not require ORIG_AUTH_GUID for debit MIT)
+  let authGuid: string | undefined;
+  if (methodType === 'CreditCard') {
+    const cardAuthGuidResult = resolveRecurringCardAuthGuid(sub);
+    if ('error' in cardAuthGuidResult) {
+      console.error(`${LOG_PREFIX} Failed to resolve auth GUID for subscription ${sub.subscriptionId}:`, cardAuthGuidResult.error);
+      const billingEventId = await insertRecurringBillingLog({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        paymentTokenId: sub.tokenId,
+        paymentMethodType: methodType,
+        amount: sub.amount,
+        billingDate,
+        attemptNumber: 1,
+        status: 'failed',
+        failureReason: cardAuthGuidResult.error,
+        processedAt: new Date().toISOString(),
+      });
+      appendChargeAttempt({
+        ...buildAttemptDiagBase(),
+        paymentMethodType: methodType,
+        selected: true,
+        skipped: false,
+        skipReason: null,
+        chargeAttemptResult: 'failed_auth_guid_resolution',
+        billingEventId,
+      });
+      return { outcome: 'processed' };
+    }
+    authGuid = cardAuthGuidResult.authGuid;
   }
 
   const achRuntimeData = methodType === 'ACH' ? resolveAchRuntimeData(sub) : null;

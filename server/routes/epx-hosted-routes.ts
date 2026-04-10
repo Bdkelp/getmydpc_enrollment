@@ -772,6 +772,9 @@ const reconcileSubscriptionAfterSuccessfulPayment = async (options: {
   }
 
   const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const resolvedAuthGuid = typeof paymentRecord?.epx_auth_guid === 'string' && paymentRecord.epx_auth_guid.trim()
+    ? paymentRecord.epx_auth_guid.trim()
+    : null;
   const safePaymentToken = typeof paymentToken === 'string' && paymentToken.trim()
     ? paymentToken.trim()
     : null;
@@ -782,6 +785,7 @@ const reconcileSubscriptionAfterSuccessfulPayment = async (options: {
         memberId,
         paymentMethodType: normalizedMethodType,
         token: safePaymentToken,
+        originalNetworkTransId: normalizedMethodType === 'CreditCard' ? resolvedAuthGuid : null,
       });
       logEPX({
         level: 'info',
@@ -967,8 +971,9 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   paymentMetadata: Record<string, any>;
   bricToken: string;
   paymentMethodType: string;
+  authGuid?: string | null;
 }): Promise<{ memberId: number | null; subscriptionId: number | null }> {
-  const { groupId, groupMemberId, paymentRecord, paymentMetadata, bricToken, paymentMethodType } = options;
+  const { groupId, groupMemberId, paymentRecord, paymentMetadata, bricToken, paymentMethodType, authGuid } = options;
 
   const { data: groupMember, error: groupMemberError } = await supabase
     .from('group_members')
@@ -988,6 +993,11 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   }
 
   const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const resolvedAuthGuid = typeof authGuid === 'string' && authGuid.trim()
+    ? authGuid.trim()
+    : (typeof paymentRecord?.epx_auth_guid === 'string' && paymentRecord.epx_auth_guid.trim()
+      ? paymentRecord.epx_auth_guid.trim()
+      : null);
   const currentAmount = parseNumericValue(paymentRecord.amount) ?? parseNumericValue(groupMember.total_amount) ?? 0;
   const planId = resolveGroupMemberPlanId(groupMember, paymentMetadata);
 
@@ -1046,6 +1056,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
     memberId,
     paymentMethodType: normalizedMethodType,
     token: bricToken,
+    originalNetworkTransId: normalizedMethodType === 'CreditCard' ? resolvedAuthGuid : null,
   });
 
   const { data: existingSubscription } = await supabase
@@ -3052,6 +3063,9 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             memberId: Number(paymentRecordForLogging.member_id),
             paymentMethodType: paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard',
             token: result.bricToken,
+            originalNetworkTransId: paymentMethodType === 'ACH'
+              ? null
+              : (typeof authGuid === 'string' && authGuid.trim() ? authGuid.trim() : null),
           });
         } catch (memberError: any) {
           logEPX({
