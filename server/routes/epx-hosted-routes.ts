@@ -21,6 +21,7 @@ import { paymentEnvironment } from '../services/payment-environment-service';
 import { sendEnrollmentNotification, sendPaymentNotification } from '../utils/notifications';
 import { calculateCommission, RX_VALET_COMMISSION } from '../commissionCalculator';
 import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
+import { calculateNextBillingDate } from '../utils/membership-dates';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -142,6 +143,7 @@ type PaymentRecord = {
   transaction_id?: string | null;
   metadata?: Record<string, any> | null;
   amount?: number | string | null;
+  status?: string | null;
 } & Record<string, any>;
 
 type HostedCallbackMetadata = {
@@ -674,6 +676,262 @@ const parseNumericValue = (value: unknown): number | null => {
   }
 
   return null;
+};
+
+const parseSubscriptionId = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value);
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = parseInt(value.trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
+};
+
+const resolveMemberSubscriptionForSuccessfulPayment = async (
+  memberId: number,
+  preferredSubscriptionId?: unknown
+): Promise<Record<string, any> | null> => {
+  const normalizedPreferredId = parseSubscriptionId(preferredSubscriptionId);
+
+  if (normalizedPreferredId) {
+    const { data: preferredSubscription } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('id', normalizedPreferredId)
+      .eq('member_id', memberId)
+      .maybeSingle();
+
+    if (preferredSubscription) {
+      return preferredSubscription as Record<string, any>;
+    }
+  }
+
+  const { data: candidateSubscriptions, error: candidateError } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('member_id', memberId)
+    .in('status', ['pending_payment', 'pending', 'active'])
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (candidateError) {
+    logEPX({
+      level: 'warn',
+      phase: 'hosted-complete',
+      message: 'Failed to resolve candidate subscriptions for successful payment',
+      data: {
+        memberId,
+        preferredSubscriptionId: normalizedPreferredId,
+        error: candidateError.message,
+      }
+    });
+    return null;
+  }
+
+  const normalizedCandidates = (candidateSubscriptions || []) as Array<Record<string, any>>;
+  if (normalizedCandidates.length === 0) {
+    return null;
+  }
+
+  const pendingCandidate = normalizedCandidates.find((candidate) => {
+    const status = String(candidate.status || '').toLowerCase();
+    return status === 'pending_payment' || status === 'pending';
+  });
+
+  return pendingCandidate || normalizedCandidates[0] || null;
+};
+
+const reconcileSubscriptionAfterSuccessfulPayment = async (options: {
+  memberId: number;
+  paymentRecord?: PaymentRecord | null;
+  phase: 'hosted-complete' | 'callback';
+  paymentToken?: string | null;
+  paymentMethodType?: string | null;
+}): Promise<number | null> => {
+  const { memberId, paymentRecord, phase, paymentToken, paymentMethodType } = options;
+
+  let memberRecord: Record<string, any> | null = null;
+  try {
+    const { data } = await supabase
+      .from('members')
+      .select('id, plan_id, total_monthly_price, first_payment_date, enrollment_date, status, payment_method_type')
+      .eq('id', memberId)
+      .maybeSingle();
+    memberRecord = (data as Record<string, any> | null) || null;
+  } catch (memberLoadError: any) {
+    logEPX({
+      level: 'warn',
+      phase,
+      message: 'Unable to load member while reconciling successful payment',
+      data: { memberId, error: memberLoadError?.message }
+    });
+  }
+
+  const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const safePaymentToken = typeof paymentToken === 'string' && paymentToken.trim()
+    ? paymentToken.trim()
+    : null;
+
+  if (safePaymentToken) {
+    try {
+      await storage.upsertMemberPaymentToken({
+        memberId,
+        paymentMethodType: normalizedMethodType,
+        token: safePaymentToken,
+      });
+      logEPX({
+        level: 'info',
+        phase,
+        message: 'Recurring token row upserted from hosted completion',
+        data: { memberId, paymentId: paymentRecord?.id || null, paymentMethodType: normalizedMethodType }
+      });
+    } catch (tokenError: any) {
+      logEPX({
+        level: 'warn',
+        phase,
+        message: 'Failed to upsert payment_tokens during hosted completion reconciliation',
+        data: {
+          memberId,
+          paymentId: paymentRecord?.id || null,
+          paymentMethodType: normalizedMethodType,
+          error: tokenError?.message,
+        }
+      });
+    }
+  }
+
+  let candidate = await resolveMemberSubscriptionForSuccessfulPayment(memberId, paymentRecord?.subscription_id);
+
+  if (!candidate && memberRecord?.plan_id) {
+    const paymentCreatedAtIso = paymentRecord?.created_at ? new Date(paymentRecord.created_at).toISOString() : null;
+    const firstPaymentIso = memberRecord?.first_payment_date ? new Date(memberRecord.first_payment_date).toISOString() : null;
+    const enrollmentIso = memberRecord?.enrollment_date ? new Date(memberRecord.enrollment_date).toISOString() : null;
+    const billingBaseIso = paymentCreatedAtIso || firstPaymentIso || enrollmentIso || new Date().toISOString();
+    const nextBillingDate = calculateNextBillingDate(new Date(billingBaseIso)).toISOString();
+
+    try {
+      const createdSubscription = await storage.createSubscription({
+        userId: null,
+        memberId,
+        planId: Number(memberRecord.plan_id),
+        status: 'active',
+        amount: parseNumericValue(memberRecord.total_monthly_price) ?? parseNumericValue(paymentRecord?.amount) ?? 0,
+        startDate: new Date(enrollmentIso || billingBaseIso),
+        nextBillingDate: new Date(nextBillingDate),
+        updatedAt: new Date(),
+      } as any);
+
+      candidate = {
+        id: createdSubscription.id,
+        status: createdSubscription.status,
+        next_billing_date: createdSubscription.nextBillingDate,
+        amount: createdSubscription.amount,
+      } as Record<string, any>;
+
+      logEPX({
+        level: 'info',
+        phase,
+        message: 'Created missing subscription during hosted completion reconciliation',
+        data: {
+          memberId,
+          paymentId: paymentRecord?.id || null,
+          subscriptionId: createdSubscription.id,
+          nextBillingDate,
+        }
+      });
+    } catch (createSubError: any) {
+      logEPX({
+        level: 'warn',
+        phase,
+        message: 'Failed to create missing subscription during hosted completion reconciliation',
+        data: {
+          memberId,
+          paymentId: paymentRecord?.id || null,
+          error: createSubError?.message,
+        }
+      });
+    }
+  }
+
+  if (!candidate) {
+    logEPX({
+      level: 'warn',
+      phase,
+      message: 'No subscription found to reconcile after successful payment',
+      data: {
+        memberId,
+        paymentId: paymentRecord?.id || null,
+      }
+    });
+    return null;
+  }
+
+  const subscriptionId = parseSubscriptionId(candidate.id);
+  if (!subscriptionId) {
+    return null;
+  }
+
+  const status = String(candidate.status || '').toLowerCase();
+  const paymentCreatedAtIso = paymentRecord?.created_at ? new Date(paymentRecord.created_at).toISOString() : null;
+  const firstPaymentIso = memberRecord?.first_payment_date ? new Date(memberRecord.first_payment_date).toISOString() : null;
+  const enrollmentIso = memberRecord?.enrollment_date ? new Date(memberRecord.enrollment_date).toISOString() : null;
+  const billingBaseIso = paymentCreatedAtIso || firstPaymentIso || enrollmentIso || new Date().toISOString();
+  const nextBillingDate = calculateNextBillingDate(new Date(billingBaseIso)).toISOString();
+  const updatePayload: Record<string, any> = { updatedAt: new Date() };
+
+  if (status === 'pending_payment' || status === 'pending') {
+    updatePayload.status = 'active';
+    updatePayload.nextBillingDate = nextBillingDate;
+  } else if (status === 'active' && !candidate.next_billing_date) {
+    updatePayload.nextBillingDate = nextBillingDate;
+  }
+
+  if (Object.keys(updatePayload).length > 0) {
+    try {
+      await storage.updateSubscription(subscriptionId, updatePayload);
+    } catch (error: any) {
+      logEPX({
+        level: 'warn',
+        phase,
+        message: 'Failed updating subscription during successful payment reconciliation',
+        data: {
+          memberId,
+          subscriptionId,
+          paymentId: paymentRecord?.id || null,
+          error: error?.message,
+        }
+      });
+    }
+  }
+
+  if (paymentRecord?.id) {
+    const existingPaymentSubscriptionId = parseSubscriptionId(paymentRecord.subscription_id);
+    if (!existingPaymentSubscriptionId || existingPaymentSubscriptionId !== subscriptionId) {
+      try {
+        await storage.updatePayment(Number(paymentRecord.id), {
+          subscriptionId: String(subscriptionId),
+        });
+      } catch (error: any) {
+        logEPX({
+          level: 'warn',
+          phase,
+          message: 'Failed to attach reconciled subscription to payment record',
+          data: {
+            memberId,
+            subscriptionId,
+            paymentId: paymentRecord.id,
+            error: error?.message,
+          }
+        });
+      }
+    }
+  }
+
+  return subscriptionId;
 };
 
 const toObject = (value: unknown): Record<string, any> | null => {
@@ -1303,10 +1561,13 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         paymentMetadata.retrySourceMetadata = retrySourceMetadata;
       }
 
+      const resolvedSubscriptionId = parseSubscriptionId(subscriptionId)
+        || (memberId ? parseSubscriptionId((await resolveMemberSubscriptionForSuccessfulPayment(memberId))?.id) : null);
+
       const paymentData = {
         memberId,
         userId,
-        subscriptionId: subscriptionId || null,
+        subscriptionId: resolvedSubscriptionId ? String(resolvedSubscriptionId) : null,
         amount: effectiveAmount.toString(),
         currency: 'USD',
         status: 'pending' as const,
@@ -1374,7 +1635,30 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     const config = hostedCheckoutService.getCheckoutConfig();
 
     // Return data needed for frontend
-    const responsePayload = {
+    const responsePayload: {
+      success: boolean;
+      transactionId: string;
+      sessionId: string | undefined;
+      publicKey: string | undefined;
+      scriptUrl: string;
+      terminalProfileId: string;
+      environment: 'sandbox' | 'production';
+      captchaMode: string;
+      paymentMethod: 'hosted-checkout';
+      retryContext: Record<string, any> | undefined;
+      overrideApplied: boolean | undefined;
+      overrideAmount: number | undefined;
+      requestedAmount: number | undefined;
+      testPayment: boolean | undefined;
+      hostedPaymentLink?: string;
+      formData: {
+        amount: string;
+        orderNumber: string;
+        invoiceNumber: string;
+        email: string;
+        billingName: string;
+      } & Record<string, any>;
+    } = {
       success: true,
       transactionId: orderNumber,
       sessionId: sessionResponse.sessionId,
@@ -1693,29 +1977,23 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       }
     }
 
-    if (persistResult.paymentRecord?.subscription_id) {
-      try {
-        await storage.updateSubscription(Number(persistResult.paymentRecord.subscription_id), {
-          status: 'active',
-          nextBillingDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-        });
-      } catch (subscriptionError: any) {
-        logEPX({
-          level: 'warn',
-          phase: 'hosted-complete',
-          message: 'Failed to activate subscription after payment',
-          data: {
-            error: subscriptionError?.message,
-            subscriptionId: persistResult.paymentRecord?.subscription_id
-          }
-        });
-      }
-    }
+    const reconciledSubscriptionId = await reconcileSubscriptionAfterSuccessfulPayment({
+      memberId: Number(numericMemberId),
+      paymentRecord: persistResult.paymentRecord,
+      phase: 'hosted-complete',
+        paymentToken,
+        paymentMethodType,
+    });
 
     return res.json({
       success: true,
       member: updatedMember,
-      paymentId: persistResult.paymentRecord?.id || null
+        paymentId: persistResult.paymentRecord?.id || null,
+        reconciliation: {
+          memberId: Number(numericMemberId),
+          subscriptionId: reconciledSubscriptionId,
+          tokenUpsertAttempted: Boolean(typeof paymentToken === 'string' && paymentToken.trim()),
+        }
     });
   } catch (error: any) {
     logEPX({
@@ -1953,6 +2231,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         try {
           await upsertGroupCardProfileFromCallback(groupPaymentContext.groupId, req.body || {});
           const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
+          let recurringArtifactResult: { memberId: number | null; subscriptionId: number | null } | null = null;
 
           const transitionReference = [
             `payment:${paymentRecordForLogging.id}`,
@@ -1976,23 +2255,48 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             lastTransitionResult: transitionResult,
           };
 
-          const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
-            groupId: groupPaymentContext.groupId,
-            groupMemberId: groupPaymentContext.groupMemberId,
-            paymentRecord: paymentRecordForLogging,
-            paymentMetadata,
-            bricToken: result.bricToken,
-            paymentMethodType: callbackPaymentMethodType,
-          });
+          const groupIdForArtifacts = typeof groupPaymentContext.groupId === 'string'
+            ? groupPaymentContext.groupId.trim()
+            : '';
+          const groupMemberIdForArtifacts = parseNumericValue(groupPaymentContext.groupMemberId);
 
-          paymentMetadata.groupPaymentContext = {
-            ...paymentMetadata.groupPaymentContext,
-            recurringSetup: {
-              attemptedAt: new Date().toISOString(),
-              memberId: recurringArtifactResult.memberId,
-              subscriptionId: recurringArtifactResult.subscriptionId,
-            },
-          };
+          if (
+            typeof result.bricToken === 'string'
+            && result.bricToken.trim()
+            && groupIdForArtifacts
+            && Number.isFinite(groupMemberIdForArtifacts)
+            && Number(groupMemberIdForArtifacts) > 0
+          ) {
+            recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
+              groupId: groupIdForArtifacts,
+              groupMemberId: Number(groupMemberIdForArtifacts),
+              paymentRecord: paymentRecordForLogging,
+              paymentMetadata,
+              bricToken: result.bricToken,
+              paymentMethodType: callbackPaymentMethodType,
+            });
+
+            paymentMetadata.groupPaymentContext = {
+              ...paymentMetadata.groupPaymentContext,
+              recurringSetup: {
+                attemptedAt: new Date().toISOString(),
+                memberId: recurringArtifactResult.memberId,
+                subscriptionId: recurringArtifactResult.subscriptionId,
+              },
+            };
+          } else {
+            logEPX({
+              level: 'warn',
+              phase: 'callback',
+              message: 'Skipping recurring artifact setup for group payment because required callback linkage data was missing',
+              data: {
+                groupId: groupPaymentContext.groupId,
+                groupMemberId: groupPaymentContext.groupMemberId,
+                hasBricToken: Boolean(typeof result.bricToken === 'string' && result.bricToken.trim()),
+                paymentId: paymentRecordForLogging.id,
+              }
+            });
+          }
 
           await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
 
@@ -2007,8 +2311,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               skippedCount: transitionResult.skippedCount,
               missingExpectedCommissions: transitionResult.missingExpectedCommissions,
               cycleKey: transitionResult.cycleKey,
-              recurringMemberId: recurringArtifactResult.memberId,
-              recurringSubscriptionId: recurringArtifactResult.subscriptionId,
+              recurringMemberId: recurringArtifactResult?.memberId || null,
+              recurringSubscriptionId: recurringArtifactResult?.subscriptionId || null,
             }
           });
         } catch (groupTransitionError: any) {
@@ -2147,6 +2451,14 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
             }
           });
         }
+      }
+
+      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
+        await reconcileSubscriptionAfterSuccessfulPayment({
+          memberId: Number(paymentRecordForLogging.member_id),
+          paymentRecord: paymentRecordForLogging,
+          phase: 'callback',
+        });
       }
 
       // COMMISSION CREATION/VERIFICATION - Check if commission exists and create if missing
@@ -2689,6 +3001,12 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
  */
 router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
+    return res.status(410).json({
+      success: false,
+      error: 'Legacy recurring test route disabled',
+      message: 'Use admin diagnostic scheduler run-once endpoint: POST /api/admin/diagnostic/recurring-billing/run-once',
+    });
+
     if (!req.user || !isAtLeastAdmin(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Admin access required' });
     }
