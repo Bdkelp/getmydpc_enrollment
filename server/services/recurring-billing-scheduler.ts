@@ -50,6 +50,9 @@ interface DueDecisionLogEntry {
   groupId: string | null;
   payerType: 'member' | 'group';
   payerId: string;
+  payerDisplayName?: string | null;
+  amount?: string;
+  nextBillingDate?: string;
   paymentMethodType: string;
   groupContactSource: 'responsible_person' | 'contact_person' | null;
   contactResolutionSucceeded: boolean;
@@ -66,6 +69,9 @@ interface ChargeAttemptLogEntry {
   groupId: string | null;
   payerType: 'member' | 'group';
   payerId: string;
+  payerDisplayName?: string | null;
+  amount?: string;
+  nextBillingDate?: string;
   paymentMethodType: string;
   groupContactSource: 'responsible_person' | 'contact_person' | null;
   contactResolutionSucceeded: boolean;
@@ -633,6 +639,9 @@ async function runBillingCycle(options?: {
         groupId: due.groupId,
         payerType: due.payerType,
         payerId: due.payerAccountId,
+        payerDisplayName: due.payerDisplayName,
+        amount: due.amount,
+        nextBillingDate: due.nextBillingDate,
         paymentMethodType: due.paymentMethodType || 'UNKNOWN',
         groupContactSource: dueGroupContactSource,
         contactResolutionSucceeded: dueContactResolutionSucceeded,
@@ -716,6 +725,9 @@ async function processSubscription(
     groupId: sub.groupId,
     payerType: payerContext.payerType,
     payerId: payerContext.payerAccountId,
+    payerDisplayName: payerContext.payerDisplayName,
+    amount: sub.amount,
+    nextBillingDate: sub.nextBillingDate,
     groupContactSource: payerContext.groupContactSource,
     contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
   });
@@ -732,6 +744,9 @@ async function processSubscription(
       groupId: sub.groupId,
       payerType: payerContext.payerType,
       payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
       paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
@@ -761,6 +776,9 @@ async function processSubscription(
       groupId: sub.groupId,
       payerType: payerContext.payerType,
       payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
       paymentMethodType: methodType,
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
@@ -790,6 +808,9 @@ async function processSubscription(
       groupId: sub.groupId,
       payerType: payerContext.payerType,
       payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
       paymentMethodType: methodType,
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
@@ -826,6 +847,9 @@ async function processSubscription(
       groupId: sub.groupId,
       payerType: payerContext.payerType,
       payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
       paymentMethodType: methodType,
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,

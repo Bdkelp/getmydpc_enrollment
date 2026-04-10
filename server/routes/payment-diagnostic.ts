@@ -13,10 +13,133 @@ import {
   getRecurringBillingSchedulerStatus,
   runRecurringBillingCycleOnce,
 } from '../services/recurring-billing-scheduler';
+import {
+  syncCommissionLedgerFromFeed,
+  buildDraftPayoutBatches,
+  getPayoutDashboardData,
+} from '../services/commission-ledger-service';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const router = Router();
+
+type OperatorMode = 'preview' | 'live';
+
+const isRecentCycleEntry = (entryAt: string | undefined, startedAt: string, completedAt: string): boolean => {
+  if (!entryAt) return false;
+  const entryTs = Date.parse(entryAt);
+  const startTs = Date.parse(startedAt);
+  const endTs = Date.parse(completedAt);
+  if (!Number.isFinite(entryTs) || !Number.isFinite(startTs) || !Number.isFinite(endTs)) return false;
+  return entryTs >= startTs - 1000 && entryTs <= endTs + 1000;
+};
+
+const formatReadinessState = (chargeAttempt: any | undefined): string => {
+  if (!chargeAttempt) {
+    return 'pending_review';
+  }
+
+  if (chargeAttempt.chargeAttemptResult === 'dry_run') {
+    return 'ready_preview';
+  }
+
+  if (chargeAttempt.chargeAttemptResult === 'success') {
+    return 'charged_success';
+  }
+
+  if (chargeAttempt.skipped) {
+    return chargeAttempt.skipReason ? `skipped_${chargeAttempt.skipReason}` : 'skipped';
+  }
+
+  return chargeAttempt.chargeAttemptResult || 'not_ready';
+};
+
+const summarizeBillingOutcomes = (chargeAttempts: any[]) => {
+  const succeeded = chargeAttempts.filter((entry) => entry.chargeAttemptResult === 'success').length;
+  const skipped = chargeAttempts.filter((entry) => entry.skipped || entry.chargeAttemptResult === 'skipped').length;
+  const failed = chargeAttempts.filter((entry) => {
+    if (entry.chargeAttemptResult === 'success') return false;
+    if (entry.skipped || entry.chargeAttemptResult === 'skipped') return false;
+    return true;
+  }).length;
+
+  return {
+    processed: chargeAttempts.length,
+    succeeded,
+    failed,
+    skipped,
+  };
+};
+
+const buildCycleRows = (dueDecisions: any[], chargeAttempts: any[]) => {
+  const chargeByKey = new Map<string, any>();
+  for (const charge of chargeAttempts) {
+    const key = `${charge.subscriptionId}:${charge.memberId}`;
+    if (!chargeByKey.has(key)) {
+      chargeByKey.set(key, charge);
+    }
+  }
+
+  return dueDecisions.map((due) => {
+    const key = `${due.subscriptionId}:${due.memberId}`;
+    const chargeAttempt = chargeByKey.get(key);
+    return {
+      subscriptionId: due.subscriptionId,
+      memberId: due.memberId,
+      memberOrAccountName: due.payerDisplayName || `Member ${due.memberId}`,
+      payerType: due.payerType,
+      amount: Number(due.amount || 0),
+      nextBillingDate: due.nextBillingDate || null,
+      readinessState: formatReadinessState(chargeAttempt),
+      skipReason: chargeAttempt?.skipReason || null,
+      chargeAttemptResult: chargeAttempt?.chargeAttemptResult || null,
+      billingEventId: chargeAttempt?.billingEventId ?? null,
+    };
+  });
+};
+
+const loadRecurringLogRows = async (billingEventIds: number[]) => {
+  if (billingEventIds.length === 0) return [];
+  const result = await query(
+    `
+      SELECT id, member_id, payment_id, status, created_at
+      FROM recurring_billing_log
+      WHERE id = ANY($1::int[])
+    `,
+    [billingEventIds],
+  );
+  return result.rows || [];
+};
+
+const loadCommissionPayoutRowsForPayments = async (paymentIds: number[], startedAt: string) => {
+  if (paymentIds.length === 0) return [];
+  const result = await query(
+    `
+      SELECT id, member_payment_id, created_at
+      FROM commission_payouts
+      WHERE member_payment_id = ANY($1::int[])
+        AND created_at >= $2::timestamptz
+    `,
+    [paymentIds, startedAt],
+  );
+  return result.rows || [];
+};
+
+const runCommissionFollowUpSequence = async () => {
+  const commissionFeed = await storage.getAllCommissionsNew();
+  const syncResult = await syncCommissionLedgerFromFeed(commissionFeed || []);
+  const cutoffDate = new Date().toISOString().slice(0, 10);
+  const generatedBatches = await buildDraftPayoutBatches(cutoffDate);
+  const payoutDashboard = await getPayoutDashboardData();
+
+  return {
+    syncResult,
+    generatedBatches,
+    payoutDashboard,
+    cutoffDate,
+    commissionFeedCount: Array.isArray(commissionFeed) ? commissionFeed.length : 0,
+  };
+};
 
 /**
  * Diagnostic: recurring scheduler runtime status
@@ -78,6 +201,128 @@ router.post('/api/admin/diagnostic/recurring-billing/run-once', authenticateToke
     res.status(500).json({
       success: false,
       error: error?.message || 'Failed to run recurring scheduler once',
+    });
+  }
+});
+
+/**
+ * Operator-safe recurring billing workflow:
+ * preview (dry-run) or live run with commission follow-up sequence.
+ */
+router.post('/api/admin/diagnostic/recurring-billing/operator-workflow', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const modeRaw = String(req.body?.mode || 'preview').toLowerCase();
+    const mode: OperatorMode = modeRaw === 'live' ? 'live' : 'preview';
+    const isSuperAdmin = hasAtLeastRole(req.user.role, 'super_admin');
+
+    if (mode === 'live' && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can run live recurring billing',
+      });
+    }
+
+    const requestedBy = req.user.email || req.user.id || 'unknown-admin';
+    const run = await runRecurringBillingCycleOnce({
+      forceDryRun: mode !== 'live',
+      requestedBy,
+    });
+
+    const scheduler = getRecurringBillingSchedulerStatus();
+    const recentDueDecisions = (scheduler.launchDiagnostics?.recentDueDecisions || []).filter((entry: any) => {
+      return entry.source === 'manual' && isRecentCycleEntry(entry.at, run.startedAt, run.completedAt);
+    });
+    const recentChargeAttempts = (scheduler.launchDiagnostics?.recentChargeAttempts || []).filter((entry: any) => {
+      return entry.source === 'manual' && isRecentCycleEntry(entry.at, run.startedAt, run.completedAt);
+    });
+
+    const dueRows = buildCycleRows(recentDueDecisions, recentChargeAttempts);
+    const billingOutcome = summarizeBillingOutcomes(recentChargeAttempts);
+
+    if (mode === 'preview') {
+      const readyPreviewCount = dueRows.filter((row) => row.readinessState === 'ready_preview').length;
+
+      return res.json({
+        success: true,
+        mode,
+        run,
+        duePreview: {
+          dueCount: dueRows.length,
+          rows: dueRows,
+          estimatedCommissionImpact: {
+            potentialSuccessfulPayments: readyPreviewCount,
+            estimatedCommissionEntries: readyPreviewCount,
+            note: 'Preview only estimate based on currently due, dry-run-ready records.',
+          },
+          note: 'Preview only. No payments or commissions have been created.',
+        },
+        billingSummary: {
+          totalDue: dueRows.length,
+          ...billingOutcome,
+        },
+        scheduler,
+      });
+    }
+
+    const succeededChargeAttempts = recentChargeAttempts.filter((entry: any) => entry.chargeAttemptResult === 'success');
+    const failedOrSkippedRows = dueRows.filter((row) => row.chargeAttemptResult !== 'success');
+    const billingEventIds = succeededChargeAttempts
+      .map((entry: any) => Number(entry.billingEventId))
+      .filter((id: number) => Number.isFinite(id));
+
+    const recurringLogRows = await loadRecurringLogRows(billingEventIds);
+    const successfulPaymentIds = Array.from(new Set(
+      recurringLogRows
+        .map((row: any) => Number(row.payment_id))
+        .filter((id: number) => Number.isFinite(id) && id > 0)
+    ));
+
+    const commissionPayoutRows = await loadCommissionPayoutRowsForPayments(successfulPaymentIds, run.startedAt);
+    const paymentsWithCommission = Array.from(new Set(
+      commissionPayoutRows
+        .map((row: any) => Number(row.member_payment_id))
+        .filter((id: number) => Number.isFinite(id))
+    ));
+
+    const commissionFollowUp = await runCommissionFollowUpSequence();
+
+    return res.json({
+      success: true,
+      mode,
+      run,
+      billingSummary: {
+        totalDue: dueRows.length,
+        ...billingOutcome,
+      },
+      dueRows,
+      commissionSummary: {
+        successfulPaymentsThatCreatedCommissionEntries: paymentsWithCommission.length,
+        totalCommissionEntriesCreated: commissionPayoutRows.length,
+        payoutBatchesAffectedGenerated: (commissionFollowUp.generatedBatches || []).map((batch: any) => ({
+          id: batch.id,
+          batchName: batch.batch_name,
+          totalRecords: batch.total_records,
+          totalAmount: batch.total_amount,
+        })),
+        membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped: failedOrSkippedRows.map((row) => ({
+          memberId: row.memberId,
+          memberOrAccountName: row.memberOrAccountName,
+          payerType: row.payerType,
+          reason: row.skipReason || row.chargeAttemptResult || 'failed_or_skipped',
+        })),
+      },
+      commissionFollowUp,
+      scheduler,
+    });
+  } catch (error: any) {
+    console.error('[Diagnostic] Error running operator recurring workflow:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to run operator recurring workflow',
     });
   }
 });
