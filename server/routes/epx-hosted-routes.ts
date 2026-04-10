@@ -1092,6 +1092,474 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   return { memberId, subscriptionId };
 }
 
+type RecurringReadinessIssue = {
+  code: string;
+  message: string;
+  details?: Record<string, any>;
+};
+
+type RecurringReadinessResult = {
+  passed: boolean;
+  checkedAt: string;
+  phase: 'hosted-complete' | 'callback';
+  flowType: 'individual' | 'group';
+  memberId: number | null;
+  groupId: string | null;
+  groupMemberId: number | null;
+  paymentId: number | null;
+  subscriptionId: number | null;
+  payerType: 'member' | 'group' | null;
+  payerId: string | null;
+  issues: RecurringReadinessIssue[];
+};
+
+const normalizeMethodTypeForRecurring = (value: unknown): 'ACH' | 'CreditCard' => {
+  return String(value || '').trim().toUpperCase() === 'ACH' ? 'ACH' : 'CreditCard';
+};
+
+const normalizeSubscriptionStatus = (value: unknown): string => {
+  return String(value || '').trim().toLowerCase();
+};
+
+const addRecurringIssue = (
+  issues: RecurringReadinessIssue[],
+  code: string,
+  message: string,
+  details?: Record<string, any>,
+) => {
+  if (issues.some((entry) => entry.code === code)) {
+    return;
+  }
+  issues.push({ code, message, details });
+};
+
+const createRecurringRepairHint = (result: RecurringReadinessResult) => {
+  return {
+    queued: !result.passed,
+    queueType: 'admin_notification_followup',
+    suggestedEndpoint: '/api/admin/diagnostic/recurring-billing/operator-workflow',
+    suggestedMode: 'live',
+    reasonCodes: result.issues.map((issue) => issue.code),
+  };
+};
+
+async function runRecurringReadinessIntegrityCheck(options: {
+  phase: 'hosted-complete' | 'callback';
+  flowType: 'individual' | 'group';
+  memberId: number | null;
+  groupId?: string | null;
+  groupMemberId?: number | null;
+  paymentRecord?: PaymentRecord | null;
+  expectedSubscriptionId?: number | null;
+  paymentMethodType?: string | null;
+}): Promise<RecurringReadinessResult> {
+  const issues: RecurringReadinessIssue[] = [];
+  const nowIso = new Date().toISOString();
+
+  const phase = options.phase;
+  const flowType = options.flowType;
+  const memberId = options.memberId && Number.isFinite(options.memberId) && options.memberId > 0
+    ? Math.trunc(options.memberId)
+    : null;
+  const groupId = typeof options.groupId === 'string' && options.groupId.trim()
+    ? options.groupId.trim()
+    : null;
+  const groupMemberId = options.groupMemberId && Number.isFinite(options.groupMemberId) && options.groupMemberId > 0
+    ? Math.trunc(options.groupMemberId)
+    : null;
+  const paymentRecord = options.paymentRecord || null;
+  const paymentId = parseNumericValue(paymentRecord?.id);
+  const expectedSubscriptionId = parseSubscriptionId(options.expectedSubscriptionId);
+  const paymentSubscriptionId = parseSubscriptionId(paymentRecord?.subscription_id);
+  const paymentMemberId = parseNumericValue(paymentRecord?.member_id);
+  const billingReadyStatuses = (typeof (storage as any).getRecurringBillingReadySubscriptionStatuses === 'function'
+    ? (storage as any).getRecurringBillingReadySubscriptionStatuses()
+    : ['active']) as string[];
+  const normalizedBillingReadyStatuses = billingReadyStatuses.map((status) => normalizeSubscriptionStatus(status));
+
+  let payerType: 'member' | 'group' | null = null;
+  let payerId: string | null = null;
+  let resolvedSubscriptionId: number | null = expectedSubscriptionId || paymentSubscriptionId || null;
+
+  if (!memberId) {
+    addRecurringIssue(issues, 'MISSING_MEMBER_CONTEXT', 'Recurring readiness check is missing member context.');
+  }
+
+  if (!paymentRecord) {
+    addRecurringIssue(issues, 'MISSING_PAYMENT_RECORD', 'Recurring readiness check did not receive a payment record.');
+  }
+
+  if (memberId && paymentMemberId && Math.trunc(paymentMemberId) !== memberId) {
+    addRecurringIssue(
+      issues,
+      'PAYMENT_MEMBER_MISMATCH',
+      'Succeeded payment member linkage does not match expected member.',
+      { expectedMemberId: memberId, paymentMemberId: Math.trunc(paymentMemberId) },
+    );
+  }
+
+  let groupMemberRow: Record<string, any> | null = null;
+  if (flowType === 'group' && groupId && memberId) {
+    if (groupMemberId) {
+      const { data: strictMatch, error: strictMatchError } = await supabase
+        .from('group_members')
+        .select('id, group_id, member_id, status, payor_type')
+        .eq('id', groupMemberId)
+        .eq('group_id', groupId)
+        .maybeSingle();
+
+      if (strictMatchError || !strictMatch) {
+        addRecurringIssue(
+          issues,
+          'GROUP_MEMBER_CONTEXT_MISSING',
+          'Group member context could not be resolved for recurring chain validation.',
+          { groupId, groupMemberId, error: strictMatchError?.message || null },
+        );
+      } else {
+        groupMemberRow = strictMatch as Record<string, any>;
+      }
+    } else {
+      const { data: groupMembers, error: groupMemberError } = await supabase
+        .from('group_members')
+        .select('id, group_id, member_id, status, payor_type')
+        .eq('group_id', groupId)
+        .eq('member_id', memberId)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      if (groupMemberError || !groupMembers || groupMembers.length === 0) {
+        addRecurringIssue(
+          issues,
+          'GROUP_MEMBER_CONTEXT_MISSING',
+          'Group member linkage was not found for recurring chain validation.',
+          { groupId, memberId, error: groupMemberError?.message || null },
+        );
+      } else {
+        groupMemberRow = (groupMembers[0] || null) as Record<string, any> | null;
+      }
+    }
+
+    if (groupMemberRow) {
+      const mappedMemberId = parseNumericValue(groupMemberRow.member_id);
+      if (!mappedMemberId || Math.trunc(mappedMemberId) !== memberId) {
+        addRecurringIssue(
+          issues,
+          'GROUP_MEMBER_LINK_MISMATCH',
+          'Group member is not linked to the expected member record.',
+          { groupId, expectedMemberId: memberId, actualMemberId: mappedMemberId },
+        );
+      }
+
+      if (String(groupMemberRow.status || '').toLowerCase() === 'terminated') {
+        addRecurringIssue(
+          issues,
+          'GROUP_MEMBER_TERMINATED',
+          'Group member is terminated and cannot remain in recurring-ready chain.',
+          { groupId, groupMemberId: groupMemberRow.id },
+        );
+      }
+    }
+
+    const { data: groupRecord, error: groupError } = await supabase
+      .from('groups')
+      .select('id, name, payor_type, metadata')
+      .eq('id', groupId)
+      .maybeSingle();
+
+    if (groupError || !groupRecord) {
+      addRecurringIssue(
+        issues,
+        'GROUP_CONTEXT_MISSING',
+        'Group context could not be loaded for recurring payer resolution.',
+        { groupId, error: groupError?.message || null },
+      );
+    } else {
+      const gmPayor = String(groupMemberRow?.payor_type || '').trim().toLowerCase();
+      const groupPayor = String(groupRecord.payor_type || '').trim().toLowerCase();
+      const effectivePayor = gmPayor || groupPayor;
+      payerType = effectivePayor === 'full' ? 'group' : 'member';
+      payerId = payerType === 'group' ? String(groupId) : String(memberId);
+
+      if (payerType === 'group') {
+        const metadata = groupRecord.metadata && typeof groupRecord.metadata === 'object'
+          ? (groupRecord.metadata as Record<string, any>)
+          : {};
+        const groupProfile = metadata.groupProfile && typeof metadata.groupProfile === 'object'
+          ? (metadata.groupProfile as Record<string, any>)
+          : {};
+        const responsibleEmail = String(groupProfile?.responsiblePerson?.email || '').trim();
+        const contactEmail = String(groupProfile?.contactPerson?.email || '').trim();
+        if (!responsibleEmail && !contactEmail) {
+          addRecurringIssue(
+            issues,
+            'GROUP_PAYER_CONTACT_MISSING',
+            'Group payer requires a responsible/contact email for recurring billing routing.',
+            { groupId },
+          );
+        }
+      }
+    }
+  }
+
+  if (flowType === 'individual' && memberId) {
+    payerType = 'member';
+    payerId = String(memberId);
+  }
+
+  let subscriptionRows: Array<Record<string, any>> = [];
+  if (memberId) {
+    const { data: subscriptions, error: subscriptionsError } = await supabase
+      .from('subscriptions')
+      .select('id, member_id, status, next_billing_date, created_at')
+      .eq('member_id', memberId)
+      .order('created_at', { ascending: false })
+      .limit(25);
+
+    if (subscriptionsError) {
+      addRecurringIssue(
+        issues,
+        'SUBSCRIPTION_LOOKUP_FAILED',
+        'Failed to load subscription artifacts for recurring readiness check.',
+        { memberId, error: subscriptionsError.message },
+      );
+    } else {
+      subscriptionRows = ((subscriptions || []) as Array<Record<string, any>>);
+    }
+  }
+
+  let selectedSubscription: Record<string, any> | null = null;
+  if (subscriptionRows.length > 0) {
+    if (expectedSubscriptionId) {
+      selectedSubscription = subscriptionRows.find((row) => parseSubscriptionId(row.id) === expectedSubscriptionId) || null;
+    }
+
+    if (!selectedSubscription && paymentSubscriptionId) {
+      selectedSubscription = subscriptionRows.find((row) => parseSubscriptionId(row.id) === paymentSubscriptionId) || null;
+    }
+
+    if (!selectedSubscription) {
+      selectedSubscription = subscriptionRows.find((row) => normalizedBillingReadyStatuses.includes(normalizeSubscriptionStatus(row.status))) || null;
+    }
+
+    if (!selectedSubscription) {
+      selectedSubscription = subscriptionRows.find((row) => {
+        const status = normalizeSubscriptionStatus(row.status);
+        return status === 'pending' || status === 'pending_payment';
+      }) || null;
+    }
+
+    if (!selectedSubscription) {
+      selectedSubscription = subscriptionRows[0] || null;
+    }
+  }
+
+  if (!selectedSubscription) {
+    addRecurringIssue(
+      issues,
+      'SUBSCRIPTION_MISSING',
+      'No subscription artifact was found for recurring billing.',
+      { memberId, expectedSubscriptionId, paymentSubscriptionId },
+    );
+  } else {
+    const selectedId = parseSubscriptionId(selectedSubscription.id);
+    resolvedSubscriptionId = selectedId || resolvedSubscriptionId;
+
+    const selectedMemberId = parseNumericValue(selectedSubscription.member_id);
+    if (!selectedMemberId || (memberId && Math.trunc(selectedMemberId) !== memberId)) {
+      addRecurringIssue(
+        issues,
+        'SUBSCRIPTION_MEMBER_MISMATCH',
+        'Subscription is not linked to the expected member context.',
+        { memberId, subscriptionMemberId: selectedMemberId, subscriptionId: selectedId },
+      );
+    }
+
+    const normalizedStatus = normalizeSubscriptionStatus(selectedSubscription.status);
+    if (!normalizedBillingReadyStatuses.includes(normalizedStatus)) {
+      addRecurringIssue(
+        issues,
+        'SUBSCRIPTION_STATUS_NOT_READY',
+        'Subscription status is not recurring-ready under current business rules.',
+        {
+          subscriptionId: selectedId,
+          status: selectedSubscription.status,
+          allowedStatuses: billingReadyStatuses,
+        },
+      );
+    }
+
+    if (!selectedSubscription.next_billing_date) {
+      addRecurringIssue(
+        issues,
+        'NEXT_BILLING_DATE_MISSING',
+        'Subscription next_billing_date is missing for recurring scheduling.',
+        { subscriptionId: selectedId },
+      );
+    }
+  }
+
+  if (subscriptionRows.length > 0) {
+    const recurringStatuses = new Set(['active', 'pending', 'pending_payment']);
+    const duplicateCandidates = subscriptionRows.filter((row) => {
+      return recurringStatuses.has(normalizeSubscriptionStatus(row.status));
+    });
+    if (duplicateCandidates.length > 1) {
+      addRecurringIssue(
+        issues,
+        'DUPLICATE_SUBSCRIPTION_ARTIFACTS',
+        'Multiple recurring-capable subscription artifacts exist for the same member.',
+        {
+          memberId,
+          count: duplicateCandidates.length,
+          subscriptionIds: duplicateCandidates
+            .map((row) => parseSubscriptionId(row.id))
+            .filter((id) => Boolean(id)),
+        },
+      );
+    }
+  }
+
+  if (memberId) {
+    const normalizedMethodType = normalizeMethodTypeForRecurring(options.paymentMethodType || paymentRecord?.payment_method_type);
+    const { data: paymentTokens, error: paymentTokensError } = await supabase
+      .from('payment_tokens')
+      .select('id, member_id, payment_method_type, is_active')
+      .eq('member_id', memberId)
+      .eq('is_active', true)
+      .eq('payment_method_type', normalizedMethodType)
+      .limit(5);
+
+    if (paymentTokensError) {
+      addRecurringIssue(
+        issues,
+        'TOKEN_LOOKUP_FAILED',
+        'Failed to verify recurring payment token placement.',
+        { memberId, paymentMethodType: normalizedMethodType, error: paymentTokensError.message },
+      );
+    } else if (!paymentTokens || paymentTokens.length === 0) {
+      addRecurringIssue(
+        issues,
+        'PAYMENT_TOKEN_MISSING',
+        'No active recurring payment token exists in payment_tokens for this enrollment.',
+        { memberId, paymentMethodType: normalizedMethodType },
+      );
+    }
+  }
+
+  if (paymentRecord) {
+    if (!paymentSubscriptionId || (resolvedSubscriptionId && paymentSubscriptionId !== resolvedSubscriptionId)) {
+      addRecurringIssue(
+        issues,
+        'PAYMENT_SUBSCRIPTION_LINK_MISSING',
+        'Succeeded payment is not linked to the reconciled subscription artifact.',
+        {
+          paymentId,
+          paymentSubscriptionId,
+          expectedSubscriptionId: resolvedSubscriptionId,
+        },
+      );
+    }
+
+    if (!paymentMemberId || (memberId && Math.trunc(paymentMemberId) !== memberId)) {
+      addRecurringIssue(
+        issues,
+        'PAYMENT_MEMBER_LINK_MISSING',
+        'Succeeded payment is not linked to the correct member context.',
+        { paymentId, paymentMemberId, expectedMemberId: memberId },
+      );
+    }
+  }
+
+  return {
+    passed: issues.length === 0,
+    checkedAt: nowIso,
+    phase,
+    flowType,
+    memberId,
+    groupId,
+    groupMemberId,
+    paymentId: paymentId ? Math.trunc(paymentId) : null,
+    subscriptionId: resolvedSubscriptionId,
+    payerType,
+    payerId,
+    issues,
+  };
+}
+
+async function handleRecurringReadinessFailure(result: RecurringReadinessResult): Promise<void> {
+  if (result.passed) {
+    return;
+  }
+
+  const issueSummary = result.issues.map((issue) => `${issue.code}: ${issue.message}`).join(' | ');
+
+  logEPX({
+    level: 'warn',
+    phase: result.phase,
+    message: 'Recurring-readiness integrity check failed',
+    data: {
+      flowType: result.flowType,
+      memberId: result.memberId,
+      groupId: result.groupId,
+      groupMemberId: result.groupMemberId,
+      paymentId: result.paymentId,
+      subscriptionId: result.subscriptionId,
+      payerType: result.payerType,
+      payerId: result.payerId,
+      issueCount: result.issues.length,
+      issues: result.issues,
+      repairHint: createRecurringRepairHint(result),
+    }
+  });
+
+  try {
+    await storage.createAdminNotification({
+      type: 'recurring_readiness_integrity_failed',
+      memberId: result.memberId,
+      subscriptionId: result.subscriptionId,
+      errorMessage: issueSummary || 'Recurring readiness integrity check failed',
+      metadata: {
+        recurringReadinessIntegrity: result,
+        repairHint: createRecurringRepairHint(result),
+      },
+    });
+  } catch (notificationError: any) {
+    logEPX({
+      level: 'error',
+      phase: result.phase,
+      message: 'Failed to create admin notification for recurring-readiness failure',
+      data: {
+        memberId: result.memberId,
+        paymentId: result.paymentId,
+        error: notificationError?.message,
+      }
+    });
+  }
+
+  try {
+    await (storage.supabase as any).from('admin_logs').insert({
+      log_type: 'recurring_readiness_integrity_failed',
+      member_id: result.memberId,
+      action: 'post_success_recurring_integrity_check',
+      metadata: {
+        recurringReadinessIntegrity: result,
+        repairHint: createRecurringRepairHint(result),
+      },
+      created_at: new Date().toISOString(),
+    });
+  } catch (auditLogError: any) {
+    logEPX({
+      level: 'warn',
+      phase: result.phase,
+      message: 'Could not persist recurring-readiness failure audit log',
+      data: {
+        memberId: result.memberId,
+        paymentId: result.paymentId,
+        error: auditLogError?.message,
+      }
+    });
+  }
+}
+
 async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
   if (req.user) {
     return req.user;
@@ -1908,6 +2376,88 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
         }
       }
 
+      if (persistResult.paymentRecord && typeof paymentToken === 'string' && paymentToken.trim()) {
+        const recurringReadinessChecks: RecurringReadinessResult[] = [];
+
+        if (groupPaymentContext) {
+          const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
+            groupId: groupPaymentContext.groupId,
+            groupMemberId: groupPaymentContext.groupMemberId,
+            paymentRecord: persistResult.paymentRecord,
+            paymentMetadata: nextMetadata,
+            bricToken: paymentToken,
+            paymentMethodType,
+          });
+
+          const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+            phase: 'hosted-complete',
+            flowType: 'group',
+            memberId: recurringArtifactResult.memberId,
+            groupId: groupPaymentContext.groupId,
+            groupMemberId: groupPaymentContext.groupMemberId,
+            paymentRecord: persistResult.paymentRecord,
+            expectedSubscriptionId: recurringArtifactResult.subscriptionId,
+            paymentMethodType,
+          });
+          recurringReadinessChecks.push(recurringReadiness);
+          await handleRecurringReadinessFailure(recurringReadiness);
+        }
+
+        if (groupInvoiceContext && Array.isArray(groupInvoiceContext.selectedGroupMemberIds)) {
+          for (const selectedGroupMemberId of groupInvoiceContext.selectedGroupMemberIds) {
+            const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
+              groupId: groupInvoiceContext.groupId,
+              groupMemberId: selectedGroupMemberId,
+              paymentRecord: persistResult.paymentRecord,
+              paymentMetadata: nextMetadata,
+              bricToken: paymentToken,
+              paymentMethodType,
+            });
+
+            const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+              phase: 'hosted-complete',
+              flowType: 'group',
+              memberId: recurringArtifactResult.memberId,
+              groupId: groupInvoiceContext.groupId,
+              groupMemberId: selectedGroupMemberId,
+              paymentRecord: persistResult.paymentRecord,
+              expectedSubscriptionId: recurringArtifactResult.subscriptionId,
+              paymentMethodType,
+            });
+            recurringReadinessChecks.push(recurringReadiness);
+            await handleRecurringReadinessFailure(recurringReadiness);
+          }
+        }
+
+        if (persistResult.paymentRecord.id && recurringReadinessChecks.length > 0) {
+          try {
+            await storage.updatePayment(persistResult.paymentRecord.id, {
+              metadata: {
+                ...nextMetadata,
+                recurringReadinessIntegrity: {
+                  checkedAt: new Date().toISOString(),
+                  phase: 'hosted-complete',
+                  flowType: 'group',
+                  passedCount: recurringReadinessChecks.filter((entry) => entry.passed).length,
+                  failedCount: recurringReadinessChecks.filter((entry) => !entry.passed).length,
+                  checks: recurringReadinessChecks,
+                },
+              },
+            });
+          } catch (integrityMetadataError: any) {
+            logEPX({
+              level: 'warn',
+              phase: 'hosted-complete',
+              message: 'Unable to persist group recurring-readiness integrity metadata',
+              data: {
+                paymentId: persistResult.paymentRecord.id,
+                error: integrityMetadataError?.message,
+              }
+            });
+          }
+        }
+      }
+
       return res.json({
         success: true,
         member: null,
@@ -1985,6 +2535,16 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
         paymentMethodType,
     });
 
+    const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+      phase: 'hosted-complete',
+      flowType: 'individual',
+      memberId: Number(numericMemberId),
+      paymentRecord: persistResult.paymentRecord,
+      expectedSubscriptionId: reconciledSubscriptionId,
+      paymentMethodType,
+    });
+    await handleRecurringReadinessFailure(recurringReadiness);
+
     return res.json({
       success: true,
       member: updatedMember,
@@ -1993,7 +2553,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
           memberId: Number(numericMemberId),
           subscriptionId: reconciledSubscriptionId,
           tokenUpsertAttempted: Boolean(typeof paymentToken === 'string' && paymentToken.trim()),
-        }
+        },
+        recurringReadiness,
     });
   } catch (error: any) {
     logEPX({
@@ -2284,6 +2845,22 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 subscriptionId: recurringArtifactResult.subscriptionId,
               },
             };
+
+            const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+              phase: 'callback',
+              flowType: 'group',
+              memberId: recurringArtifactResult.memberId,
+              groupId: groupIdForArtifacts,
+              groupMemberId: Number(groupMemberIdForArtifacts),
+              paymentRecord: paymentRecordForLogging,
+              expectedSubscriptionId: recurringArtifactResult.subscriptionId,
+              paymentMethodType: callbackPaymentMethodType,
+            });
+            paymentMetadata.groupPaymentContext = {
+              ...paymentMetadata.groupPaymentContext,
+              recurringReadinessIntegrity: recurringReadiness,
+            };
+            await handleRecurringReadinessFailure(recurringReadiness);
           } else {
             logEPX({
               level: 'warn',
@@ -2296,6 +2873,22 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 paymentId: paymentRecordForLogging.id,
               }
             });
+
+            const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+              phase: 'callback',
+              flowType: 'group',
+              memberId: parseNumericValue(paymentRecordForLogging.member_id),
+              groupId: groupIdForArtifacts || groupPaymentContext.groupId,
+              groupMemberId: Number.isFinite(groupMemberIdForArtifacts) ? Number(groupMemberIdForArtifacts) : null,
+              paymentRecord: paymentRecordForLogging,
+              expectedSubscriptionId: parseSubscriptionId(paymentRecordForLogging.subscription_id),
+              paymentMethodType: callbackPaymentMethodType,
+            });
+            paymentMetadata.groupPaymentContext = {
+              ...paymentMetadata.groupPaymentContext,
+              recurringReadinessIntegrity: recurringReadiness,
+            };
+            await handleRecurringReadinessFailure(recurringReadiness);
           }
 
           await storage.updatePayment(paymentRecordForLogging.id, { metadata: paymentMetadata });
@@ -2335,6 +2928,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           await upsertGroupCardProfileFromCallback(groupInvoiceContext.groupId, req.body || {});
           const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
           const recurringSetupResults: Array<{ groupMemberId: number; memberId: number | null; subscriptionId: number | null }> = [];
+          const recurringReadinessChecks: RecurringReadinessResult[] = [];
 
           for (const selectedGroupMemberId of groupInvoiceContext.selectedGroupMemberIds) {
             const recurringArtifactResult = await ensureRecurringArtifactsForGroupPayment({
@@ -2351,6 +2945,19 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               memberId: recurringArtifactResult.memberId,
               subscriptionId: recurringArtifactResult.subscriptionId,
             });
+
+            const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+              phase: 'callback',
+              flowType: 'group',
+              memberId: recurringArtifactResult.memberId,
+              groupId: groupInvoiceContext.groupId,
+              groupMemberId: selectedGroupMemberId,
+              paymentRecord: paymentRecordForLogging,
+              expectedSubscriptionId: recurringArtifactResult.subscriptionId,
+              paymentMethodType: callbackPaymentMethodType,
+            });
+            recurringReadinessChecks.push(recurringReadiness);
+            await handleRecurringReadinessFailure(recurringReadiness);
           }
 
           paymentMetadata.groupInvoiceContext = {
@@ -2359,6 +2966,12 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               attemptedAt: new Date().toISOString(),
               processedCount: recurringSetupResults.length,
               processedMembers: recurringSetupResults,
+            },
+            recurringReadinessIntegrity: {
+              checkedAt: new Date().toISOString(),
+              passedCount: recurringReadinessChecks.filter((entry) => entry.passed).length,
+              failedCount: recurringReadinessChecks.filter((entry) => !entry.passed).length,
+              checks: recurringReadinessChecks,
             },
           };
 
@@ -2454,11 +3067,42 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
 
       if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
-        await reconcileSubscriptionAfterSuccessfulPayment({
+        const reconciledSubscriptionId = await reconcileSubscriptionAfterSuccessfulPayment({
           memberId: Number(paymentRecordForLogging.member_id),
           paymentRecord: paymentRecordForLogging,
           phase: 'callback',
         });
+
+        const recurringReadiness = await runRecurringReadinessIntegrityCheck({
+          phase: 'callback',
+          flowType: 'individual',
+          memberId: Number(paymentRecordForLogging.member_id),
+          paymentRecord: paymentRecordForLogging,
+          expectedSubscriptionId: reconciledSubscriptionId,
+          paymentMethodType: String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'),
+        });
+        await handleRecurringReadinessFailure(recurringReadiness);
+
+        try {
+          const currentMetadata = parsePaymentMetadata(paymentRecordForLogging.metadata);
+          await storage.updatePayment(paymentRecordForLogging.id, {
+            metadata: {
+              ...currentMetadata,
+              recurringReadinessIntegrity: recurringReadiness,
+            },
+          });
+        } catch (integrityMetadataError: any) {
+          logEPX({
+            level: 'warn',
+            phase: 'callback',
+            message: 'Failed to persist recurring-readiness integrity metadata for individual callback',
+            data: {
+              paymentId: paymentRecordForLogging.id,
+              memberId: paymentRecordForLogging.member_id,
+              error: integrityMetadataError?.message,
+            }
+          });
+        }
       }
 
       // COMMISSION CREATION/VERIFICATION - Check if commission exists and create if missing
