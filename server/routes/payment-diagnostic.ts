@@ -469,7 +469,12 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
         ) p ON true
         WHERE pt.is_active = true
           AND pt.payment_method_type = 'CreditCard'
-          AND (pt.original_network_trans_id IS NULL OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 8)
+          AND (
+            pt.original_network_trans_id IS NULL
+            OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 30
+            OR LENGTH(TRIM(pt.original_network_trans_id::text)) > 64
+            OR TRIM(pt.original_network_trans_id::text) !~ '^[A-Za-z0-9-]+$'
+          )
         ORDER BY COALESCE(p.created_at, pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT $1
       `,
@@ -516,7 +521,12 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           SET original_network_trans_id = $2,
               last_used_at = NOW()
           WHERE id = $1
-            AND (original_network_trans_id IS NULL OR LENGTH(TRIM(original_network_trans_id::text)) < 8)
+            AND (
+              original_network_trans_id IS NULL
+              OR LENGTH(TRIM(original_network_trans_id::text)) < 30
+              OR LENGTH(TRIM(original_network_trans_id::text)) > 64
+              OR TRIM(original_network_trans_id::text) !~ '^[A-Za-z0-9-]+$'
+            )
           RETURNING id
         `,
         [row.tokenId, row.resolvedAuthGuid],
