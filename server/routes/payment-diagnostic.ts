@@ -391,7 +391,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
         INNER JOIN LATERAL (
           SELECT id, epx_auth_guid, created_at
           FROM payments
-          WHERE member_id = pt.member_id
+          WHERE member_id::text = pt.member_id::text
             AND epx_auth_guid IS NOT NULL
             AND LENGTH(TRIM(epx_auth_guid)) >= 8
           ORDER BY created_at DESC, id DESC
@@ -408,7 +408,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
 
     const candidates = (candidateResult.rows || []).map((row: any) => ({
       tokenId: Number(row.token_id),
-      memberId: Number(row.member_id),
+      memberId: String(row.member_id),
       paymentId: Number(row.payment_id),
       paymentCreatedAt: row.payment_created_at,
       authGuid: String(row.epx_auth_guid || '').trim(),
@@ -427,7 +427,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
       });
     }
 
-    const updated: Array<{ tokenId: number; memberId: number; paymentId: number; authGuidMasked: string | null }> = [];
+    const updated: Array<{ tokenId: number; memberId: string; paymentId: number; authGuidMasked: string | null }> = [];
 
     for (const row of candidates) {
       const updateResult = await query(
