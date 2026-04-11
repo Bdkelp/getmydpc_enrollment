@@ -4,7 +4,7 @@
  */
 
 import { Router, Response } from 'express';
-import { storage, getPlatformSetting, upsertPlatformSetting } from '../storage';
+import { storage, decryptPaymentToken, getPlatformSetting, upsertPlatformSetting } from '../storage';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { hasAtLeastRole, isAtLeastAdmin } from '../auth/roles';
 import { query } from '../lib/neonDb';
@@ -33,6 +33,64 @@ const maskAuthGuid = (value: string | null | undefined): string | null => {
   return normalized.length > 8
     ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
     : '********';
+};
+
+const looksLikeEncryptedToken = (value: string): boolean => {
+  const parts = value.split(':');
+  if (parts.length !== 2) return false;
+  return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
+};
+
+const isUsableAuthGuid = (value: string | null | undefined): value is string => {
+  return typeof value === 'string' && value.trim().length >= 8;
+};
+
+const resolveAuthGuidForRepairRow = (row: any): {
+  authGuid: string | null;
+  source: 'payments.epx_auth_guid' | 'members.payment_token' | 'payment_tokens.bric_token_plain' | 'payment_tokens.bric_token_decrypted' | null;
+  unresolvedReason: string | null;
+} => {
+  const paymentAuthGuid = typeof row?.epx_auth_guid === 'string' ? row.epx_auth_guid.trim() : '';
+  if (isUsableAuthGuid(paymentAuthGuid)) {
+    return { authGuid: paymentAuthGuid, source: 'payments.epx_auth_guid', unresolvedReason: null };
+  }
+
+  const memberPaymentToken = typeof row?.member_payment_token === 'string' ? row.member_payment_token.trim() : '';
+  if (memberPaymentToken) {
+    if (!looksLikeEncryptedToken(memberPaymentToken) && isUsableAuthGuid(memberPaymentToken)) {
+      return { authGuid: memberPaymentToken, source: 'members.payment_token', unresolvedReason: null };
+    }
+
+    if (looksLikeEncryptedToken(memberPaymentToken)) {
+      try {
+        const decryptedMemberToken = decryptPaymentToken(memberPaymentToken).trim();
+        if (isUsableAuthGuid(decryptedMemberToken)) {
+          return { authGuid: decryptedMemberToken, source: 'members.payment_token', unresolvedReason: null };
+        }
+      } catch {
+        // Continue to token fallback resolution
+      }
+    }
+  }
+
+  const tokenValue = typeof row?.bric_token === 'string' ? row.bric_token.trim() : '';
+  if (!tokenValue) {
+    return { authGuid: null, source: null, unresolvedReason: 'No token data available for auth GUID resolution' };
+  }
+
+  if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
+    return { authGuid: tokenValue, source: 'payment_tokens.bric_token_plain', unresolvedReason: null };
+  }
+
+  try {
+    const decrypted = decryptPaymentToken(tokenValue).trim();
+    if (isUsableAuthGuid(decrypted)) {
+      return { authGuid: decrypted, source: 'payment_tokens.bric_token_decrypted', unresolvedReason: null };
+    }
+    return { authGuid: null, source: null, unresolvedReason: 'Decrypted token did not produce a usable auth GUID' };
+  } catch {
+    return { authGuid: null, source: null, unresolvedReason: 'Token decryption failed for repair candidate' };
+  }
 };
 
 const isRecentCycleEntry = (entryAt: string | undefined, startedAt: string, completedAt: string): boolean => {
@@ -387,13 +445,17 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
         SELECT
           pt.id AS token_id,
           pt.member_id,
+          pt.bric_token,
           pt.payment_method_type,
           pt.original_network_trans_id,
+          m.payment_token AS member_payment_token,
           p.id AS payment_id,
           p.epx_auth_guid,
           p.created_at AS payment_created_at
         FROM payment_tokens pt
-        INNER JOIN LATERAL (
+        LEFT JOIN members m
+          ON m.id::text = pt.member_id::text
+        LEFT JOIN LATERAL (
           SELECT id, epx_auth_guid, created_at
           FROM payments
           WHERE member_id::text = pt.member_id::text
@@ -405,20 +467,28 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
         WHERE pt.is_active = true
           AND pt.payment_method_type = 'CreditCard'
           AND (pt.original_network_trans_id IS NULL OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 8)
-        ORDER BY p.created_at DESC, pt.id DESC
+        ORDER BY COALESCE(p.created_at, pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT $1
       `,
       [limit],
     );
 
-    const candidates = (candidateResult.rows || []).map((row: any) => ({
+    const candidates = (candidateResult.rows || []).map((row: any) => {
+      const resolution = resolveAuthGuidForRepairRow(row);
+      return {
       tokenId: Number(row.token_id),
       memberId: String(row.member_id),
-      paymentId: Number(row.payment_id),
+      paymentId: Number(row.payment_id || 0) || null,
       paymentCreatedAt: row.payment_created_at,
-      authGuid: String(row.epx_auth_guid || '').trim(),
-      authGuidMasked: maskAuthGuid(row.epx_auth_guid),
-    }));
+      resolvedAuthGuid: resolution.authGuid,
+      resolvedAuthGuidMasked: maskAuthGuid(resolution.authGuid),
+      resolutionSource: resolution.source,
+      unresolvedReason: resolution.unresolvedReason,
+    };
+    });
+
+    const resolvableCandidates = candidates.filter((row: any) => isUsableAuthGuid(row.resolvedAuthGuid));
+    const unresolvedCandidates = candidates.filter((row: any) => !isUsableAuthGuid(row.resolvedAuthGuid));
 
     if (mode === 'preview') {
       return res.json({
@@ -427,6 +497,8 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
         alreadyCompleted,
         priorRun,
         candidateCount: candidates.length,
+        resolvableCount: resolvableCandidates.length,
+        unresolvedCount: unresolvedCandidates.length,
         candidates,
         note: 'Preview only. No records were changed.',
       });
@@ -434,7 +506,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
 
     const updated: Array<{ tokenId: number; memberId: string; paymentId: number; authGuidMasked: string | null }> = [];
 
-    for (const row of candidates) {
+    for (const row of resolvableCandidates) {
       const updateResult = await query(
         `
           UPDATE payment_tokens
@@ -444,7 +516,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
             AND (original_network_trans_id IS NULL OR LENGTH(TRIM(original_network_trans_id::text)) < 8)
           RETURNING id
         `,
-        [row.tokenId, row.authGuid],
+        [row.tokenId, row.resolvedAuthGuid],
       );
 
       if ((updateResult.rows || []).length > 0) {
@@ -452,7 +524,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           tokenId: row.tokenId,
           memberId: row.memberId,
           paymentId: row.paymentId,
-          authGuidMasked: row.authGuidMasked,
+          authGuidMasked: row.resolvedAuthGuidMasked,
         });
       }
     }
@@ -464,6 +536,8 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
       force,
       limit,
       candidateCount: candidates.length,
+      resolvableCount: resolvableCandidates.length,
+      unresolvedCount: unresolvedCandidates.length,
       updatedCount: updated.length,
       endpoint: '/api/admin/diagnostic/recurring-billing/repair-card-auth-guids',
       version: 1,
@@ -482,6 +556,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
       priorRun,
       repairSummary,
       updated,
+      unresolvedCandidates,
     });
   } catch (error: any) {
     console.error('[Diagnostic] Error running recurring auth-guid repair:', error);
