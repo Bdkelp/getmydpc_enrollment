@@ -364,8 +364,13 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
       ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 5000)
       : 500;
 
-    const existingRepairSetting = await getPlatformSetting<any>(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY);
-    const priorRun = existingRepairSetting?.value || null;
+    let priorRun: any = null;
+    try {
+      const existingRepairSetting = await getPlatformSetting<any>(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY);
+      priorRun = existingRepairSetting?.value || null;
+    } catch (platformSettingReadError: any) {
+      console.warn('[Diagnostic] Could not read recurring repair platform setting:', platformSettingReadError?.message);
+    }
     const alreadyCompleted = Boolean(priorRun?.completedAt);
 
     if (mode === 'apply' && alreadyCompleted && !force) {
@@ -393,13 +398,13 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           FROM payments
           WHERE member_id::text = pt.member_id::text
             AND epx_auth_guid IS NOT NULL
-            AND LENGTH(TRIM(epx_auth_guid)) >= 8
+            AND LENGTH(TRIM(epx_auth_guid::text)) >= 8
           ORDER BY created_at DESC, id DESC
           LIMIT 1
         ) p ON true
         WHERE pt.is_active = true
           AND pt.payment_method_type = 'CreditCard'
-          AND (pt.original_network_trans_id IS NULL OR LENGTH(TRIM(pt.original_network_trans_id)) < 8)
+          AND (pt.original_network_trans_id IS NULL OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 8)
         ORDER BY p.created_at DESC, pt.id DESC
         LIMIT $1
       `,
@@ -436,7 +441,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           SET original_network_trans_id = $2,
               last_used_at = NOW()
           WHERE id = $1
-            AND (original_network_trans_id IS NULL OR LENGTH(TRIM(original_network_trans_id)) < 8)
+            AND (original_network_trans_id IS NULL OR LENGTH(TRIM(original_network_trans_id::text)) < 8)
           RETURNING id
         `,
         [row.tokenId, row.authGuid],
@@ -464,7 +469,11 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
       version: 1,
     };
 
-    await upsertPlatformSetting(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY, repairSummary, requestedBy);
+    try {
+      await upsertPlatformSetting(RECURRING_CARD_AUTH_REPAIR_SETTING_KEY, repairSummary, requestedBy);
+    } catch (platformSettingWriteError: any) {
+      console.warn('[Diagnostic] Could not persist recurring repair platform setting:', platformSettingWriteError?.message);
+    }
 
     return res.json({
       success: true,
