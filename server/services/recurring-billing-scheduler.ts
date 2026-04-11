@@ -493,7 +493,10 @@ function looksLikeEncryptedToken(value: string): boolean {
 }
 
 function isUsableAuthGuid(value: string | null | undefined): value is string {
-  return typeof value === 'string' && value.trim().length >= 8;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (normalized.length < 30 || normalized.length > 64) return false;
+  return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 
 function resolveRecurringCardAuthGuid(sub: BillableSubscription):
