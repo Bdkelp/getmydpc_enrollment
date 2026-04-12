@@ -499,6 +499,13 @@ function isUsableAuthGuid(value: string | null | undefined): value is string {
   return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 
+function isUsableTrustedAuthGuid(value: string | null | undefined): value is string {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (normalized.length < 8 || normalized.length > 128) return false;
+  return /^[A-Za-z0-9-]+$/.test(normalized);
+}
+
 function resolveRecurringCardAuthGuid(sub: BillableSubscription):
   | { authGuid: string }
   | { error: string } {
@@ -512,7 +519,7 @@ function resolveRecurringCardAuthGuid(sub: BillableSubscription):
   const latestPaymentAuthGuid = typeof sub.latestPaymentAuthGuid === 'string'
     ? sub.latestPaymentAuthGuid.trim()
     : '';
-  if (isUsableAuthGuid(latestPaymentAuthGuid)) {
+  if (isUsableTrustedAuthGuid(latestPaymentAuthGuid)) {
     return { authGuid: latestPaymentAuthGuid };
   }
 

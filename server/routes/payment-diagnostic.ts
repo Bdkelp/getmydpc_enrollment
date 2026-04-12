@@ -48,19 +48,26 @@ const isUsableAuthGuid = (value: string | null | undefined): value is string => 
   return /^[A-Za-z0-9-]+$/.test(normalized);
 };
 
+const isUsableTrustedAuthGuid = (value: string | null | undefined): value is string => {
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim();
+  if (normalized.length < 8 || normalized.length > 128) return false;
+  return /^[A-Za-z0-9-]+$/.test(normalized);
+};
+
 const resolveAuthGuidForRepairRow = (row: any): {
   authGuid: string | null;
   source: 'payments.epx_auth_guid' | 'members.payment_token' | 'payment_tokens.bric_token_plain' | 'payment_tokens.bric_token_decrypted' | null;
   unresolvedReason: string | null;
 } => {
   const paymentAuthGuid = typeof row?.epx_auth_guid === 'string' ? row.epx_auth_guid.trim() : '';
-  if (isUsableAuthGuid(paymentAuthGuid)) {
+  if (isUsableTrustedAuthGuid(paymentAuthGuid)) {
     return { authGuid: paymentAuthGuid, source: 'payments.epx_auth_guid', unresolvedReason: null };
   }
 
   const memberPaymentToken = typeof row?.member_payment_token === 'string' ? row.member_payment_token.trim() : '';
   if (memberPaymentToken) {
-    if (!looksLikeEncryptedToken(memberPaymentToken) && isUsableAuthGuid(memberPaymentToken)) {
+    if (!looksLikeEncryptedToken(memberPaymentToken) && isUsableTrustedAuthGuid(memberPaymentToken)) {
       return { authGuid: memberPaymentToken, source: 'members.payment_token', unresolvedReason: null };
     }
 
@@ -495,7 +502,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
     };
     });
 
-    const resolvableCandidates = candidates.filter((row: any) => isUsableAuthGuid(row.resolvedAuthGuid));
+    const resolvableCandidates = candidates.filter((row: any) => typeof row.resolvedAuthGuid === 'string' && row.resolvedAuthGuid.trim().length > 0);
     const unresolvedCandidates = candidates.filter((row: any) => !isUsableAuthGuid(row.resolvedAuthGuid));
 
     if (mode === 'preview') {
