@@ -509,6 +509,13 @@ function resolveRecurringCardAuthGuid(sub: BillableSubscription):
     return { authGuid: storedAuthGuid };
   }
 
+  const latestPaymentAuthGuid = typeof sub.latestPaymentAuthGuid === 'string'
+    ? sub.latestPaymentAuthGuid.trim()
+    : '';
+  if (isUsableAuthGuid(latestPaymentAuthGuid)) {
+    return { authGuid: latestPaymentAuthGuid };
+  }
+
   const tokenValue = String(sub.bricToken || '').trim();
   if (!tokenValue) {
     return { error: 'Missing recurring token for card charge' };

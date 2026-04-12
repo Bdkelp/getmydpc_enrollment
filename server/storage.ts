@@ -5428,6 +5428,7 @@ export interface BillableSubscription {
   bricToken: string;
   paymentMethodType: string;
   tokenOriginalNetworkTransId: string | null;
+  latestPaymentAuthGuid: string | null;
   cardLastFour: string | null;
   cardType: string | null;
   memberEmail: string | null;
@@ -5489,6 +5490,7 @@ export async function getSubscriptionsDueForBilling(
         t.id AS token_id,
         t.bric_token,
         t.payment_method_type,
+        p_auth.epx_auth_guid AS latest_payment_auth_guid,
         t.card_last_four,
         t.card_type,
         t.bank_routing_number AS token_bank_routing_number,
@@ -5555,6 +5557,15 @@ export async function getSubscriptionsDueForBilling(
         ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t ON true
+      LEFT JOIN LATERAL (
+        SELECT p.epx_auth_guid
+        FROM payments p
+        WHERE p.member_id::text = s.member_id::text
+          AND p.epx_auth_guid IS NOT NULL
+          AND LENGTH(TRIM(p.epx_auth_guid::text)) >= 8
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT 1
+      ) p_auth ON true
       WHERE s.status = ANY($3::text[])
         AND s.member_id IS NOT NULL
         AND s.next_billing_date IS NOT NULL
@@ -5587,6 +5598,7 @@ export async function getSubscriptionsDueForBilling(
       bricToken: row.bric_token,
       paymentMethodType: row.payment_method_type,
       tokenOriginalNetworkTransId: row.original_network_trans_id ?? null,
+      latestPaymentAuthGuid: row.latest_payment_auth_guid ?? null,
       cardLastFour: row.card_last_four,
       cardType: row.card_type,
       memberEmail: row.email ?? null,
