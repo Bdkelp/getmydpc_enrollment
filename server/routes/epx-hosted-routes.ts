@@ -151,6 +151,7 @@ type HostedCallbackMetadata = {
   amount?: string | number | null;
   message?: string | null;
   authGuidMasked?: string | null;
+  authGuidSource?: string | null;
   updatedAt?: string;
   hasBricToken?: boolean;
   tranType?: string | null;
@@ -161,6 +162,7 @@ type HostedPaymentUpdateOptions = {
   epxTransactionId?: string | null;
   fallbackOrderNumber?: string | null;
   authGuid?: string | null;
+  authGuidSource?: string | null;
   authCode?: string | null;
   amount?: number | string | null;
   callbackStatus?: string | null;
@@ -177,6 +179,7 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     epxTransactionId,
     fallbackOrderNumber,
     authGuid,
+    authGuidSource,
     authCode,
     amount,
     callbackStatus,
@@ -225,6 +228,7 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     amount: amount ?? existingHostedMeta.amount ?? null,
     message: callbackMessage ?? existingHostedMeta.message ?? null,
     authGuidMasked: maskedAuthGuid,
+    authGuidSource: authGuidSource ?? existingHostedMeta.authGuidSource ?? null,
     updatedAt: new Date().toISOString(),
     hasBricToken: typeof bricTokenPresent === 'boolean'
       ? bricTokenPresent
@@ -276,7 +280,8 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
       data: {
         paymentId: paymentRecord.id,
         transactionId: normalizedTransactionId,
-        hasAuthGuid: !!authGuid
+        hasAuthGuid: !!authGuid,
+        authGuidSource: authGuidSource || null
       }
     });
   } catch (error: any) {
@@ -407,6 +412,51 @@ function normalizeBillingAddress(address: any): BillingAddress | undefined {
   const hasValue = Object.values(normalized).some(Boolean);
   return hasValue ? normalized : undefined;
 }
+
+const normalizeHostedAuthGuid = (
+  candidate: unknown,
+  bricTokenCandidate?: unknown,
+): string | null => {
+  if (typeof candidate !== 'string') {
+    return null;
+  }
+
+  const trimmed = candidate.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const bricToken = typeof bricTokenCandidate === 'string'
+    ? bricTokenCandidate.trim()
+    : '';
+
+  if (bricToken && trimmed === bricToken) {
+    return null;
+  }
+
+  return trimmed;
+};
+
+const resolveCallbackAuthGuid = (
+  payload: Record<string, any>,
+  resultAuthGuid: unknown,
+  bricTokenCandidate?: unknown,
+): { value: string | null; source: string | null } => {
+  const candidates: Array<{ value: unknown; source: string }> = [
+    { value: resultAuthGuid, source: 'callback.result.authGuid' },
+    { value: payload?.AUTH_GUID, source: 'callback.AUTH_GUID' },
+    { value: payload?.result?.AUTH_GUID, source: 'callback.result.AUTH_GUID' },
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeHostedAuthGuid(candidate.value, bricTokenCandidate);
+    if (normalized) {
+      return { value: normalized, source: candidate.source };
+    }
+  }
+
+  return { value: null, source: null };
+};
 
 const sanitizeAlphaNumericToken = (value: string, maxLength: number): string => {
   return value
@@ -2285,6 +2335,9 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       amount
     } = req.body || {};
 
+    const normalizedAuthGuid = normalizeHostedAuthGuid(authGuid, paymentToken);
+    const authGuidSource = normalizedAuthGuid ? 'complete.authGuid' : null;
+
     if (!transactionId || !paymentToken) {
       return res.status(400).json({
         success: false,
@@ -2334,7 +2387,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
 
       const persistResult = await persistHostedPaymentUpdate({
         epxTransactionId: transactionId,
-        authGuid,
+        authGuid: normalizedAuthGuid,
+        authGuidSource,
         authCode,
         amount,
         bricTokenPresent: true,
@@ -2494,7 +2548,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
 
     const persistResult = await persistHostedPaymentUpdate({
       epxTransactionId: transactionId,
-      authGuid,
+      authGuid: normalizedAuthGuid,
+      authGuidSource,
       authCode,
       amount,
       memberId: numericMemberId,
@@ -2769,7 +2824,13 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       }
     });
 
-    const authGuid = result.authGuid || req.body?.AUTH_GUID || req.body?.authGuid || req.body?.result?.AUTH_GUID;
+    const resolvedCallbackAuthGuid = resolveCallbackAuthGuid(
+      req.body || {},
+      result.authGuid,
+      result.bricToken,
+    );
+    const authGuid = resolvedCallbackAuthGuid.value;
+    const authGuidSource = resolvedCallbackAuthGuid.source;
     const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
     const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
     let paymentRecordForLogging: PaymentRecord | null = null;
@@ -2780,6 +2841,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         epxTransactionId,
         fallbackOrderNumber,
         authGuid,
+        authGuidSource,
         authCode: result.authCode,
         amount: result.amount,
         callbackStatus: req.body?.status || null,

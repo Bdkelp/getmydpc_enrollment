@@ -444,6 +444,14 @@ export default function EPXHostedPayment({
       const parsedMessage = parseHostedMessage(msg);
       console.log('[EPX Hosted] Parsed success payload:', parsedMessage);
       const tokenFromPayload = extractPaymentToken(parsedMessage);
+      const extractedAuthGuid = extractAuthGuid(parsedMessage);
+      const safeAuthGuid = (
+        typeof extractedAuthGuid === 'string'
+        && extractedAuthGuid.trim().length > 0
+        && extractedAuthGuid.trim() !== tokenFromPayload
+      )
+        ? extractedAuthGuid.trim()
+        : undefined;
       const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
 
       const amountFromPayloadRaw = parsedMessage.amount ?? (parsedMessage as Record<string, any>)?.AMOUNT ?? null;
@@ -483,7 +491,7 @@ export default function EPXHostedPayment({
           transactionId: transactionFromPayload,
           paymentToken: tokenFromPayload,
           paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
-          authGuid: extractAuthGuid(parsedMessage),
+          authGuid: safeAuthGuid,
           authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
           amount: parsedMessage.amount || overrideAmountValue || amount
         });
@@ -1078,8 +1086,7 @@ function findGuidLikeValue(payload: any): string | undefined {
 function extractAuthGuid(payload: Record<string, any>): string | undefined {
   return (
     extractCandidate(payload, EPX_GUID_CANDIDATES) ||
-    findValueByKeyMatch(payload, key => key.toLowerCase().includes('auth_guid') || key.toLowerCase().includes('authguid')) ||
-    findGuidLikeValue(payload)
+    findValueByKeyMatch(payload, key => key.toLowerCase().includes('auth_guid') || key.toLowerCase().includes('authguid'))
   );
 }
 
