@@ -495,7 +495,8 @@ function looksLikeEncryptedToken(value: string): boolean {
 function isUsableAuthGuid(value: string | null | undefined): value is string {
   if (typeof value !== 'string') return false;
   const normalized = value.trim();
-  if (normalized.length < 30 || normalized.length > 64) return false;
+  // EPX ORIG_AUTH_GUID/AUTH_GUID samples are token-like and can be ~19 chars.
+  if (normalized.length < 16 || normalized.length > 64) return false;
   return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 

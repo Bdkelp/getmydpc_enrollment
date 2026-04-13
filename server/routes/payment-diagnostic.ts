@@ -44,7 +44,8 @@ const looksLikeEncryptedToken = (value: string): boolean => {
 const isUsableAuthGuid = (value: string | null | undefined): value is string => {
   if (typeof value !== 'string') return false;
   const normalized = value.trim();
-  if (normalized.length < 30 || normalized.length > 64) return false;
+  // EPX ORIG_AUTH_GUID/AUTH_GUID samples are token-like and can be ~19 chars.
+  if (normalized.length < 16 || normalized.length > 64) return false;
   return /^[A-Za-z0-9-]+$/.test(normalized);
 };
 
@@ -478,7 +479,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           AND pt.payment_method_type = 'CreditCard'
           AND (
             pt.original_network_trans_id IS NULL
-            OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 30
+            OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 16
             OR LENGTH(TRIM(pt.original_network_trans_id::text)) > 64
             OR TRIM(pt.original_network_trans_id::text) !~ '^[A-Za-z0-9-]+$'
           )
@@ -530,7 +531,7 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
           WHERE id = $1
             AND (
               original_network_trans_id IS NULL
-              OR LENGTH(TRIM(original_network_trans_id::text)) < 30
+                OR LENGTH(TRIM(original_network_trans_id::text)) < 16
               OR LENGTH(TRIM(original_network_trans_id::text)) > 64
               OR TRIM(original_network_trans_id::text) !~ '^[A-Za-z0-9-]+$'
             )
