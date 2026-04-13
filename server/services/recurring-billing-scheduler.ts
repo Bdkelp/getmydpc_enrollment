@@ -15,6 +15,7 @@
 
 import { supabase } from '../lib/supabaseClient';
 import {
+  createAdminNotification,
   decryptSensitiveData,
   decryptPaymentToken,
   getSubscriptionsDueForBilling,
@@ -32,6 +33,8 @@ import { paymentEnvironment } from './payment-environment-service';
 const LOG_PREFIX = '[Recurring Billing]';
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
 const STALE_PENDING_THRESHOLD_MINUTES = 30;
+const DEFAULT_DECLINE_RETRY_DAYS = 2;
+const SOFT_DECLINE_RETRY_DAYS = 1;
 
 type SchedulerMode = 'DRY RUN' | 'LIVE';
 type SchedulerCycleSource = 'automatic' | 'manual';
@@ -480,6 +483,54 @@ async function releaseLock(): Promise<void> {
 function generateTransactionId(subscriptionId: number, billingDate: Date): string {
   const ymd = billingDate.toISOString().slice(0, 10).replace(/-/g, '');
   return `RECUR-${subscriptionId}-${ymd}`;
+}
+
+function resolveRetryDelayDays(responseCode?: string | null): number {
+  const normalizedCode = String(responseCode || '').trim();
+  if (normalizedCode === '51') {
+    return SOFT_DECLINE_RETRY_DAYS;
+  }
+  return DEFAULT_DECLINE_RETRY_DAYS;
+}
+
+function computeNextRetryDate(days: number): string {
+  const now = new Date();
+  now.setUTCDate(now.getUTCDate() + Math.max(1, days));
+  return now.toISOString();
+}
+
+async function createRecurringFailureAdminNotification(options: {
+  subscriptionId: number;
+  memberId: number;
+  paymentMethodType: 'CreditCard' | 'ACH' | 'UNKNOWN';
+  responseCode?: string | null;
+  errorMessage: string;
+  nextRetryDate: string;
+  payerType: 'member' | 'group';
+  payerAccountId: string;
+  payerDisplayName: string;
+  amount: string;
+}): Promise<void> {
+  try {
+    await createAdminNotification({
+      type: 'recurring_payment_failed',
+      memberId: options.memberId,
+      subscriptionId: options.subscriptionId,
+      errorMessage: options.errorMessage,
+      metadata: {
+        source: 'recurring_scheduler',
+        paymentMethodType: options.paymentMethodType,
+        responseCode: options.responseCode || null,
+        nextRetryDate: options.nextRetryDate,
+        payerType: options.payerType,
+        payerAccountId: options.payerAccountId,
+        payerDisplayName: options.payerDisplayName,
+        amount: options.amount,
+      },
+    });
+  } catch (error: any) {
+    console.warn(`${LOG_PREFIX} Failed to create admin notification for recurring failure:`, error?.message || error);
+  }
 }
 
 function truncateBillingDate(date: string | Date): string {
@@ -933,6 +984,7 @@ async function processSubscription(
     const cardAuthGuidResult = resolveRecurringCardAuthGuid(sub);
     if ('error' in cardAuthGuidResult) {
       console.error(`${LOG_PREFIX} Failed to resolve auth GUID for subscription ${sub.subscriptionId}:`, cardAuthGuidResult.error);
+      const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
       const billingEventId = await insertRecurringBillingLog({
         subscriptionId: sub.subscriptionId,
         memberId: sub.memberId,
@@ -943,7 +995,19 @@ async function processSubscription(
         attemptNumber: 1,
         status: 'failed',
         failureReason: cardAuthGuidResult.error,
+        nextRetryDate,
         processedAt: new Date().toISOString(),
+      });
+      await createRecurringFailureAdminNotification({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        paymentMethodType: methodType,
+        errorMessage: cardAuthGuidResult.error,
+        nextRetryDate,
+        payerType: payerContext.payerType,
+        payerAccountId: payerContext.payerAccountId,
+        payerDisplayName: payerContext.payerDisplayName,
+        amount: sub.amount,
       });
       appendChargeAttempt({
         ...buildAttemptDiagBase(),
@@ -961,6 +1025,7 @@ async function processSubscription(
 
   const achRuntimeData = methodType === 'ACH' ? resolveAchRuntimeData(sub) : null;
   if (achRuntimeData && 'error' in achRuntimeData) {
+    const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
     const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
@@ -972,7 +1037,19 @@ async function processSubscription(
       status: 'failed',
       epxTransactionId: transactionId,
       failureReason: achRuntimeData.error,
+      nextRetryDate,
       processedAt: new Date().toISOString(),
+    });
+    await createRecurringFailureAdminNotification({
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      paymentMethodType: methodType,
+      errorMessage: achRuntimeData.error,
+      nextRetryDate,
+      payerType: payerContext.payerType,
+      payerAccountId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
     });
     console.error(`${LOG_PREFIX} ACH runtime data missing for subscription ${sub.subscriptionId}: ${achRuntimeData.error}`);
     appendChargeAttempt({
@@ -1120,6 +1197,7 @@ async function processSubscription(
       });
 
       if (!persistenceResult.success) {
+        const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
         await updateRecurringBillingLog(logId, {
           status: 'failed',
           epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
@@ -1127,7 +1205,21 @@ async function processSubscription(
           epxResponseCode: result.responseFields?.AUTH_RESP || null,
           epxResponseMessage: successResponseMessage,
           failureReason: persistenceResult.failureReason || 'Post-success persistence failed',
+          nextRetryDate,
           processedAt: new Date().toISOString(),
+        });
+
+        await createRecurringFailureAdminNotification({
+          subscriptionId: sub.subscriptionId,
+          memberId: sub.memberId,
+          paymentMethodType: methodType,
+          responseCode: result.responseFields?.AUTH_RESP || null,
+          errorMessage: persistenceResult.failureReason || 'Post-success persistence failed',
+          nextRetryDate,
+          payerType: payerContext.payerType,
+          payerAccountId: payerContext.payerAccountId,
+          payerDisplayName: payerContext.payerDisplayName,
+          amount: sub.amount,
         });
 
         console.error(
@@ -1175,6 +1267,7 @@ async function processSubscription(
       const failureResponseMessage = methodType === 'ACH' && achTestMode
         ? `${result.error || result.responseFields?.AUTH_RESP_TEXT || 'EPX declined'} [ACH_TEST_MODE]`
         : result.error || result.responseFields?.AUTH_RESP_TEXT || null;
+      const nextRetryDate = computeNextRetryDate(resolveRetryDelayDays(result.responseFields?.AUTH_RESP || null));
 
       // EPX declined
       await updateRecurringBillingLog(logId, {
@@ -1182,7 +1275,21 @@ async function processSubscription(
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
         epxResponseMessage: failureResponseMessage,
         failureReason: failureResponseMessage || 'EPX declined',
+        nextRetryDate,
         processedAt: new Date().toISOString(),
+      });
+
+      await createRecurringFailureAdminNotification({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        paymentMethodType: methodType,
+        responseCode: result.responseFields?.AUTH_RESP || null,
+        errorMessage: failureResponseMessage || 'EPX declined',
+        nextRetryDate,
+        payerType: payerContext.payerType,
+        payerAccountId: payerContext.payerAccountId,
+        payerDisplayName: payerContext.payerDisplayName,
+        amount: sub.amount,
       });
 
       console.warn(
@@ -1201,10 +1308,23 @@ async function processSubscription(
     }
   } catch (epxError: any) {
     // Network / timeout / unexpected error
+    const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
     await updateRecurringBillingLog(logId, {
       status: 'failed',
       failureReason: epxError.message || 'Unexpected error during EPX call',
+      nextRetryDate,
       processedAt: new Date().toISOString(),
+    });
+    await createRecurringFailureAdminNotification({
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      paymentMethodType: methodType,
+      errorMessage: epxError.message || 'Unexpected error during EPX call',
+      nextRetryDate,
+      payerType: payerContext.payerType,
+      payerAccountId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
     });
     console.error(
       `${LOG_PREFIX} ❌ Error charging subscription ${sub.subscriptionId}:`,

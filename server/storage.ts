@@ -5567,10 +5567,20 @@ export async function getSubscriptionsDueForBilling(
         ORDER BY p.created_at DESC, p.id DESC
         LIMIT 1
       ) p_auth ON true
+      LEFT JOIN LATERAL (
+        SELECT rbl.next_retry_date
+        FROM recurring_billing_log rbl
+        WHERE rbl.subscription_id = s.id
+          AND rbl.status = 'failed'
+          AND rbl.next_retry_date IS NOT NULL
+        ORDER BY rbl.created_at DESC, rbl.id DESC
+        LIMIT 1
+      ) retry_gate ON true
       WHERE s.status = ANY($3::text[])
         AND s.member_id IS NOT NULL
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= $1::timestamptz
+        AND (retry_gate.next_retry_date IS NULL OR retry_gate.next_retry_date <= $1::timestamptz)
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
     [now.toISOString(), supportedPaymentMethodTypes, billingReadyStatuses],
@@ -5771,6 +5781,7 @@ export async function updateRecurringBillingLog(
   if (updates.epxResponseCode !== undefined) dbUpdates.epx_response_code = updates.epxResponseCode;
   if (updates.epxResponseMessage !== undefined) dbUpdates.epx_response_message = updates.epxResponseMessage;
   if (updates.failureReason !== undefined) dbUpdates.failure_reason = updates.failureReason;
+  if (updates.nextRetryDate !== undefined) dbUpdates.next_retry_date = updates.nextRetryDate;
   if (updates.paymentId !== undefined) dbUpdates.payment_id = updates.paymentId;
   if (updates.processedAt !== undefined) dbUpdates.processed_at = updates.processedAt;
 
