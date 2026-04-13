@@ -1098,7 +1098,6 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       paymentMethodType: normalizedMethodType,
       status: 'active',
       isActive: true,
-      firstPaymentDate: new Date().toISOString(),
     });
   }
 
@@ -1118,17 +1117,29 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
     .limit(1)
     .maybeSingle();
 
-  const nextBillingDate = new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)).toISOString();
+  const billingBaseIso = paymentRecord?.created_at ? new Date(paymentRecord.created_at).toISOString() : new Date().toISOString();
+  const computedNextBillingDate = calculateNextBillingDate(new Date(billingBaseIso)).toISOString();
   let subscriptionId: number | null = null;
 
   if (existingSubscription?.id) {
     subscriptionId = Number(existingSubscription.id);
-    await storage.updateSubscription(subscriptionId, {
+    const existingStatus = String(existingSubscription.status || '').toLowerCase();
+    const shouldRefreshNextBillingDate =
+      existingStatus === 'pending'
+      || existingStatus === 'pending_payment'
+      || !existingSubscription.next_billing_date;
+
+    const subscriptionUpdate: Record<string, any> = {
       status: 'active',
       amount: currentAmount > 0 ? currentAmount : parseNumericValue(existingSubscription.amount) || 0,
-      nextBillingDate,
       updatedAt: new Date(),
-    });
+    };
+
+    if (shouldRefreshNextBillingDate) {
+      subscriptionUpdate.nextBillingDate = computedNextBillingDate;
+    }
+
+    await storage.updateSubscription(subscriptionId, subscriptionUpdate);
   } else if (planId) {
     const createdSubscription = await storage.createSubscription({
       userId: null,
@@ -1137,7 +1148,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       status: 'active',
       amount: currentAmount > 0 ? currentAmount : 0,
       startDate: new Date(),
-      nextBillingDate: new Date(nextBillingDate),
+      nextBillingDate: new Date(computedNextBillingDate),
       updatedAt: new Date(),
     } as any);
     subscriptionId = Number(createdSubscription.id);
