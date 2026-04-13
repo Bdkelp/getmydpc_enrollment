@@ -5490,6 +5490,7 @@ export async function getSubscriptionsDueForBilling(
         t.id AS token_id,
         t.bric_token,
         t.payment_method_type,
+        t.original_network_trans_id,
         p_auth.epx_auth_guid AS latest_payment_auth_guid,
         t.card_last_four,
         t.card_type,
