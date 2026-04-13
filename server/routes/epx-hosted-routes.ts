@@ -1178,6 +1178,28 @@ const normalizeMethodTypeForRecurring = (value: unknown): 'ACH' | 'CreditCard' =
   return String(value || '').trim().toUpperCase() === 'ACH' ? 'ACH' : 'CreditCard';
 };
 
+const normalizeHostedPaymentMethodType = (
+  methodCandidate: unknown,
+  tranTypeCandidate?: unknown,
+): 'ACH' | 'CreditCard' => {
+  const methodRaw = String(methodCandidate || '').trim().toLowerCase();
+  const tranTypeRaw = String(tranTypeCandidate || '').trim().toUpperCase();
+
+  if (methodRaw.includes('ach') || methodRaw.includes('bank')) {
+    return 'ACH';
+  }
+
+  if (tranTypeRaw.startsWith('CK')) {
+    return 'ACH';
+  }
+
+  return 'CreditCard';
+};
+
+const resolveHostedFallbackTranType = (paymentMethodType: 'ACH' | 'CreditCard'): 'CKC2' | 'CCE1' => {
+  return paymentMethodType === 'ACH' ? 'CKC2' : 'CCE1';
+};
+
 const normalizeSubscriptionStatus = (value: unknown): string => {
   return String(value || '').trim().toLowerCase();
 };
@@ -2100,7 +2122,8 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         amount: effectiveAmount.toString(),
         currency: 'USD',
         status: 'pending' as const,
-        paymentMethod: 'card' as const,
+        paymentMethod: normalizedRequestedPaymentMethodType === 'ACH' ? ('ach' as const) : ('card' as const),
+        paymentMethodType: normalizedRequestedPaymentMethodType,
         transactionId: orderNumber,
         metadata: paymentMetadata
       };
@@ -2328,7 +2351,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     const {
       transactionId,
       paymentToken,
-      paymentMethodType = 'CreditCard',
+      paymentMethodType,
       memberId,
       authGuid,
       authCode,
@@ -2374,6 +2397,12 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     }
 
     const paymentMetadata = parsePaymentMetadata(paymentRecord.metadata);
+    const normalizedCompletePaymentMethodType = normalizeHostedPaymentMethodType(
+      paymentMethodType
+      || paymentRecord.payment_method_type
+      || paymentMetadata.requestedPaymentMethodType,
+    );
+    const resolvedCompleteTranType = resolveHostedFallbackTranType(normalizedCompletePaymentMethodType);
     const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
     const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
 
@@ -2393,8 +2422,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
         amount,
         bricTokenPresent: true,
         paymentStatus: 'succeeded',
-        tranType: 'CCE1',
-        paymentMethodType
+        tranType: resolvedCompleteTranType,
+        paymentMethodType: normalizedCompletePaymentMethodType
       });
 
       const resolvedGroupId = groupPaymentContext?.groupId || groupInvoiceContext?.groupId || null;
@@ -2451,7 +2480,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
             paymentRecord: persistResult.paymentRecord,
             paymentMetadata: nextMetadata,
             bricToken: paymentToken,
-            paymentMethodType,
+            paymentMethodType: normalizedCompletePaymentMethodType,
           });
 
           const recurringReadiness = await runRecurringReadinessIntegrityCheck({
@@ -2462,7 +2491,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
             groupMemberId: groupPaymentContext.groupMemberId,
             paymentRecord: persistResult.paymentRecord,
             expectedSubscriptionId: recurringArtifactResult.subscriptionId,
-            paymentMethodType,
+            paymentMethodType: normalizedCompletePaymentMethodType,
           });
           recurringReadinessChecks.push(recurringReadiness);
           await handleRecurringReadinessFailure(recurringReadiness);
@@ -2476,7 +2505,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
               paymentRecord: persistResult.paymentRecord,
               paymentMetadata: nextMetadata,
               bricToken: paymentToken,
-              paymentMethodType,
+              paymentMethodType: normalizedCompletePaymentMethodType,
             });
 
             const recurringReadiness = await runRecurringReadinessIntegrityCheck({
@@ -2487,7 +2516,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
               groupMemberId: selectedGroupMemberId,
               paymentRecord: persistResult.paymentRecord,
               expectedSubscriptionId: recurringArtifactResult.subscriptionId,
-              paymentMethodType,
+              paymentMethodType: normalizedCompletePaymentMethodType,
             });
             recurringReadinessChecks.push(recurringReadiness);
             await handleRecurringReadinessFailure(recurringReadiness);
@@ -2555,8 +2584,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       memberId: numericMemberId,
       bricTokenPresent: true,
       paymentStatus: 'succeeded',
-      tranType: 'CCE1',
-      paymentMethodType
+      tranType: resolvedCompleteTranType,
+      paymentMethodType: normalizedCompletePaymentMethodType
     });
 
     let updatedMember: any = null;
@@ -2564,7 +2593,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     try {
       updatedMember = await storage.updateMember(numericMemberId, {
         paymentToken,
-        paymentMethodType,
+        paymentMethodType: normalizedCompletePaymentMethodType,
         status: 'active',
         isActive: true,
         firstPaymentDate: new Date().toISOString()
@@ -2598,7 +2627,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       paymentRecord: persistResult.paymentRecord,
       phase: 'hosted-complete',
         paymentToken,
-        paymentMethodType,
+        paymentMethodType: normalizedCompletePaymentMethodType,
     });
 
     const recurringReadiness = await runRecurringReadinessIntegrityCheck({
@@ -2607,7 +2636,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       memberId: Number(numericMemberId),
       paymentRecord: persistResult.paymentRecord,
       expectedSubscriptionId: reconciledSubscriptionId,
-      paymentMethodType,
+      paymentMethodType: normalizedCompletePaymentMethodType,
     });
     await handleRecurringReadinessFailure(recurringReadiness);
 
@@ -2647,8 +2676,13 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
       memberId,
       statusMessage,
       status,
-      amount
+      amount,
+      paymentMethodType
     } = req.body || {};
+
+    const normalizedFailureMethodType = String(paymentMethodType || '').trim().toUpperCase() === 'ACH'
+      ? 'ACH'
+      : 'CreditCard';
 
     // Parse user-friendly error message
     let failureReason = statusMessage || status || 'Payment declined';
@@ -2683,8 +2717,8 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
           memberId: memberId || null,
           bricTokenPresent: false,
           paymentStatus: 'failed',
-          tranType: 'CCE1',
-          paymentMethodType: 'CreditCard'
+          tranType: normalizedFailureMethodType === 'ACH' ? 'CKC2' : 'CCE1',
+          paymentMethodType: normalizedFailureMethodType
         });
       } catch (persistError: any) {
         logEPX({
@@ -2833,6 +2867,12 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     const authGuidSource = resolvedCallbackAuthGuid.source;
     const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
     const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
+    const callbackTranTypeRaw = String(req.body?.tranType || req.body?.TRAN_TYPE || '').trim().toUpperCase();
+    const callbackPaymentMethodType = normalizeHostedPaymentMethodType(
+      req.body?.paymentMethodType || req.body?.PaymentMethodType || req.body?.PAYMENT_METHOD_TYPE,
+      callbackTranTypeRaw,
+    );
+    const callbackResolvedTranType = callbackTranTypeRaw || resolveHostedFallbackTranType(callbackPaymentMethodType);
     let paymentRecordForLogging: PaymentRecord | null = null;
     let maskedAuthGuid: string | null = null;
 
@@ -2848,8 +2888,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         callbackMessage: req.body?.message || null,
         bricTokenPresent: Boolean(result.bricToken),
         paymentStatus: 'succeeded',
-        tranType: req.body?.tranType || req.body?.TRAN_TYPE || 'CCE1',
-        paymentMethodType: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'
+        tranType: callbackResolvedTranType,
+        paymentMethodType: callbackPaymentMethodType
       });
 
       paymentRecordForLogging = persistResult.paymentRecord;
@@ -2864,7 +2904,6 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       if (groupPaymentContext && paymentRecordForLogging) {
         try {
           await upsertGroupCardProfileFromCallback(groupPaymentContext.groupId, req.body || {});
-          const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
           let recurringArtifactResult: { memberId: number | null; subscriptionId: number | null } | null = null;
 
           const transitionReference = [
@@ -2999,7 +3038,6 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       if (!groupPaymentContext && groupInvoiceContext && paymentRecordForLogging && result.bricToken) {
         try {
           await upsertGroupCardProfileFromCallback(groupInvoiceContext.groupId, req.body || {});
-          const callbackPaymentMethodType = String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard');
           const recurringSetupResults: Array<{ groupMemberId: number; memberId: number | null; subscriptionId: number | null }> = [];
           const recurringReadinessChecks: RecurringReadinessResult[] = [];
 
@@ -3112,10 +3150,9 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
       if (result.bricToken && paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
-          const paymentMethodType = req.body?.paymentMethodType || 'CreditCard';
           await storage.updateMember(Number(paymentRecordForLogging.member_id), {
             paymentToken: result.bricToken,
-            paymentMethodType,
+            paymentMethodType: callbackPaymentMethodType,
             status: 'active',
             isActive: true,
             firstPaymentDate: new Date().toISOString()
@@ -3123,9 +3160,9 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
           await storage.upsertMemberPaymentToken({
             memberId: Number(paymentRecordForLogging.member_id),
-            paymentMethodType: paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard',
+            paymentMethodType: callbackPaymentMethodType,
             token: result.bricToken,
-            originalNetworkTransId: paymentMethodType === 'ACH'
+            originalNetworkTransId: callbackPaymentMethodType === 'ACH'
               ? null
               : (typeof authGuid === 'string' && authGuid.trim() ? authGuid.trim() : null),
           });
@@ -3155,7 +3192,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           memberId: Number(paymentRecordForLogging.member_id),
           paymentRecord: paymentRecordForLogging,
           expectedSubscriptionId: reconciledSubscriptionId,
-          paymentMethodType: String(req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'),
+          paymentMethodType: callbackPaymentMethodType,
         });
         await handleRecurringReadinessFailure(recurringReadiness);
 
@@ -3536,8 +3573,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           callbackMessage: req.body?.StatusMessage || result.error || 'Payment declined',
           bricTokenPresent: false,
           paymentStatus: 'failed',
-          tranType: req.body?.tranType || req.body?.TRAN_TYPE || 'CCE1',
-          paymentMethodType: req.body?.paymentMethodType || req.body?.PaymentMethodType || 'CreditCard'
+          tranType: callbackResolvedTranType,
+          paymentMethodType: callbackPaymentMethodType
         });
 
         paymentRecordForLogging = persistResult.paymentRecord;

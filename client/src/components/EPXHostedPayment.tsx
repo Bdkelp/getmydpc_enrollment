@@ -122,6 +122,8 @@ export default function EPXHostedPayment({
     : null;
   const isAchPayment = paymentMethodType === 'ACH';
   const epxPaymentMethodType = isAchPayment ? 'ACH' : 'CreditCard';
+  const achTranType = achFormData.accountType === 'Savings' ? 'CKS2' : 'CKC2';
+  const achAccountTypeCode = achFormData.accountType === 'Savings' ? 'S' : 'C';
 
   const parseApiErrorPayload = (rawError: unknown): Record<string, any> | null => {
     if (!(rawError instanceof Error) || !rawError.message) {
@@ -490,7 +492,11 @@ export default function EPXHostedPayment({
         await apiClient.post('/api/epx/hosted/complete', {
           transactionId: transactionFromPayload,
           paymentToken: tokenFromPayload,
-          paymentMethodType: parsedMessage.paymentMethodType || parsedMessage.PaymentMethodType || 'CreditCard',
+          paymentMethodType:
+            parsedMessage.paymentMethodType
+            || parsedMessage.PaymentMethodType
+            || paymentMethodType
+            || 'CreditCard',
           authGuid: safeAuthGuid,
           authCode: parsedMessage.authCode || parsedMessage.AUTH_CODE,
           amount: parsedMessage.amount || overrideAmountValue || amount
@@ -572,8 +578,9 @@ export default function EPXHostedPayment({
           transactionId: sessionData?.transactionId || sessionData?.sessionId,
           sessionId: sessionData?.sessionId || sessionData?.transactionId,
           memberId: customerId,
-          failureMessage: typeof msg === 'object' ? msg.StatusMessage : msg,
-          failureStatus: typeof msg === 'object' ? msg.Status : 'Failure',
+          statusMessage: typeof msg === 'object' ? msg.StatusMessage : msg,
+          status: typeof msg === 'object' ? msg.Status : 'Failure',
+          paymentMethodType,
           amount: attemptedAmount
         });
         console.log('[EPX Hosted] Payment failure recorded to database');
@@ -812,7 +819,7 @@ export default function EPXHostedPayment({
                 <Label htmlFor="ACCOUNT_TYPE">Account Type</Label>
                 <select
                   id="ACCOUNT_TYPE"
-                  name="ACCOUNT_TYPE"
+                  name="ACCOUNT_TYPE_DISPLAY"
                   className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={achFormData.accountType}
                   onChange={(event) => setAchFormData((prev) => ({
@@ -949,8 +956,14 @@ export default function EPXHostedPayment({
           <input type="hidden" name="TerminalProfileId" value={sessionData?.terminalProfileId || ''} />
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="PaymentMethodType" value={epxPaymentMethodType} />
+          <input type="hidden" name="PAYMENT_METHOD_TYPE" value={epxPaymentMethodType} />
+          <input type="hidden" name="PaymentMethod" value={isAchPayment ? 'BankAccount' : 'CreditCard'} />
           {isAchPayment && (
-            <input type="hidden" name="TRAN_TYPE" value={achFormData.accountType === 'Savings' ? 'CKS2' : 'CKC2'} />
+            <>
+              <input type="hidden" name="TRAN_TYPE" value={achTranType} />
+              <input type="hidden" name="TranType" value={achTranType} />
+              <input type="hidden" name="ACCOUNT_TYPE" value={achAccountTypeCode} />
+            </>
           )}
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
           <input type="hidden" name="FailureCallback" value="epxFailureCallback" />
