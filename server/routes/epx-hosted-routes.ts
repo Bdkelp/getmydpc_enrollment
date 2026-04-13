@@ -2187,6 +2187,22 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
     const config = hostedCheckoutService.getCheckoutConfig();
 
     // Return data needed for frontend
+    const paymentEnvSuffix = currentEnvironment === 'production' ? 'PRODUCTION' : 'SANDBOX';
+    const achPublicKeyOverride = process.env[`EPX_PUBLIC_KEY_ACH_${paymentEnvSuffix}`]
+      || process.env.EPX_PUBLIC_KEY_ACH
+      || null;
+    const achTerminalProfileOverride = process.env[`EPX_TERMINAL_PROFILE_ID_ACH_${paymentEnvSuffix}`]
+      || process.env.EPX_TERMINAL_PROFILE_ID_ACH
+      || null;
+
+    const effectiveHostedPublicKey = normalizedRequestedPaymentMethodType === 'ACH' && achPublicKeyOverride
+      ? achPublicKeyOverride
+      : sessionResponse.publicKey;
+
+    const effectiveHostedTerminalProfileId = normalizedRequestedPaymentMethodType === 'ACH' && achTerminalProfileOverride
+      ? achTerminalProfileOverride
+      : config.terminalProfileId;
+
     const responsePayload: {
       success: boolean;
       transactionId: string;
@@ -2214,9 +2230,9 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       success: true,
       transactionId: orderNumber,
       sessionId: sessionResponse.sessionId,
-      publicKey: sessionResponse.publicKey,
+      publicKey: effectiveHostedPublicKey,
       scriptUrl: config.scriptUrl,
-      terminalProfileId: config.terminalProfileId,
+      terminalProfileId: effectiveHostedTerminalProfileId,
       environment: config.environment,
       captchaMode: config.captchaMode,
       paymentMethod: 'hosted-checkout',
@@ -2240,7 +2256,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
       responsePayload.hostedPaymentLink = buildHostedPaymentLink({
         scriptUrl: config.scriptUrl,
         environment: config.environment,
-        terminalProfileId: config.terminalProfileId,
+        terminalProfileId: effectiveHostedTerminalProfileId,
         amount: effectiveAmount.toFixed(2),
         invoiceNo: shortInvoiceNo,
         description: effectiveDescription,
@@ -2258,7 +2274,9 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
         amount: effectiveAmount.toFixed(2),
         email: effectiveCustomerEmail,
         billingName: effectiveCustomerName || 'Customer',
-        publicKey: sessionResponse.publicKey,
+        publicKey: effectiveHostedPublicKey,
+        terminalProfileId: effectiveHostedTerminalProfileId,
+        requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
         environment: config.environment,
         billingAddress: effectiveBillingAddress
       }, null, 2)

@@ -122,6 +122,7 @@ export default function EPXHostedPayment({
     : null;
   const isAchPayment = paymentMethodType === 'ACH';
   const epxPaymentMethodType = isAchPayment ? 'ACH' : 'CreditCard';
+  const epxPaymentMethod = isAchPayment ? 'ACH' : 'CreditCard';
   const achTranType = achFormData.accountType === 'Savings' ? 'CKS2' : 'CKC2';
   const achAccountTypeCode = achFormData.accountType === 'Savings' ? 'S' : 'C';
 
@@ -957,12 +958,18 @@ export default function EPXHostedPayment({
           <input type="hidden" name="Captcha" value={captchaToken || ''} />
           <input type="hidden" name="PaymentMethodType" value={epxPaymentMethodType} />
           <input type="hidden" name="PAYMENT_METHOD_TYPE" value={epxPaymentMethodType} />
-          <input type="hidden" name="PaymentMethod" value={isAchPayment ? 'BankAccount' : 'CreditCard'} />
+          <input type="hidden" name="paymentMethodType" value={epxPaymentMethodType} />
+          <input type="hidden" name="PaymentMethod" value={epxPaymentMethod} />
+          <input type="hidden" name="PAYMENT_METHOD" value={epxPaymentMethod} />
+          <input type="hidden" name="paymentMethod" value={epxPaymentMethod} />
           {isAchPayment && (
             <>
               <input type="hidden" name="TRAN_TYPE" value={achTranType} />
               <input type="hidden" name="TranType" value={achTranType} />
               <input type="hidden" name="ACCOUNT_TYPE" value={achAccountTypeCode} />
+              <input type="hidden" name="STD_ENTRY_CLASS" value="WEB" />
+              <input type="hidden" name="StdEntryClass" value="WEB" />
+              <input type="hidden" name="CARD_ENT_METH" value="X" />
             </>
           )}
           <input type="hidden" name="SuccessCallback" value="epxSuccessCallback" />
