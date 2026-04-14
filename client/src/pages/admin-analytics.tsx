@@ -159,7 +159,15 @@ export default function AdminAnalytics() {
   const [emailAddress, setEmailAddress] = useState("");
 
   // Fetch analytics data
-  const { data: analytics, isLoading, refetch } = useQuery<AnalyticsData>({
+  const {
+    data: analytics,
+    isLoading,
+    isError,
+    error,
+    isFetching,
+    refetch,
+    dataUpdatedAt,
+  } = useQuery<AnalyticsData>({
     queryKey: ['/api/admin/analytics', timeRange],
     queryFn: async () => {
       const response = await apiRequest(`/api/admin/analytics?days=${timeRange}`, {
@@ -173,6 +181,20 @@ export default function AdminAnalytics() {
   const safePlanBreakdown = Array.isArray(analytics?.planBreakdown) ? analytics.planBreakdown : [];
   const safeRecentEnrollments = Array.isArray(analytics?.recentEnrollments) ? analytics.recentEnrollments : [];
   const safeMonthlyTrends = Array.isArray(analytics?.monthlyTrends) ? analytics.monthlyTrends : [];
+  const safeMemberReports = Array.isArray(analytics?.memberReports) ? analytics.memberReports : [];
+  const safeAgentPerformance = Array.isArray(analytics?.agentPerformance) ? analytics.agentPerformance : [];
+  const safeCommissionReports = Array.isArray(analytics?.commissionReports) ? analytics.commissionReports : [];
+  const safeRevenueByMonth = Array.isArray(analytics?.revenueBreakdown?.revenueByMonth)
+    ? analytics.revenueBreakdown.revenueByMonth
+    : [];
+
+  const renderEmptyRow = (colSpan: number, message: string) => (
+    <TableRow>
+      <TableCell colSpan={colSpan} className="py-8 text-center text-sm text-gray-500">
+        {message}
+      </TableCell>
+    </TableRow>
+  );
 
   const exportReport = async (reportType: string, format: string, email?: string) => {
     if (!analytics) {
@@ -233,11 +255,11 @@ export default function AdminAnalytics() {
   const getReportData = (reportType: string) => {
     switch (reportType) {
       case 'members':
-        return analytics?.memberReports || [];
+        return safeMemberReports;
       case 'agents':
-        return analytics?.agentPerformance || [];
+        return safeAgentPerformance;
       case 'commissions':
-        return analytics?.commissionReports || [];
+        return safeCommissionReports;
       case 'revenue':
         return analytics?.revenueBreakdown || {};
       default:
@@ -259,6 +281,26 @@ export default function AdminAnalytics() {
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return '-';
     return format(parsed, 'MMM dd, yyyy');
+  };
+
+  const lastRefreshedLabel = dataUpdatedAt
+    ? format(new Date(dataUpdatedAt), 'MMM dd, yyyy h:mm:ss a')
+    : 'Never';
+
+  const handleRefresh = async () => {
+    try {
+      await refetch();
+      toast({
+        title: 'Analytics refreshed',
+        description: 'Latest analytics data loaded successfully.',
+      });
+    } catch (refreshError) {
+      toast({
+        title: 'Refresh failed',
+        description: 'Unable to refresh analytics right now.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (
@@ -322,8 +364,19 @@ export default function AdminAnalytics() {
                   <Download className="h-4 w-4 mr-2" />
                   Download
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isFetching}
+                >
+                  {isFetching ? 'Refreshing...' : 'Refresh'}
+                </Button>
               </div>
             </div>
+          </div>
+          <div className="mt-2 text-right text-xs text-gray-500">
+            Last refreshed: {lastRefreshedLabel}
           </div>
         </div>
       </div>
@@ -333,6 +386,14 @@ export default function AdminAnalytics() {
           <div className="text-center py-8">Loading analytics...</div>
         ) : analytics ? (
           <>
+            {isError && (
+              <Card className="mb-6 border-red-200 bg-red-50">
+                <CardContent className="py-4 text-sm text-red-700">
+                  Analytics request failed: {(error as Error)?.message || 'Unknown error'}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <Card>
@@ -401,6 +462,24 @@ export default function AdminAnalytics() {
               </Card>
             </div>
 
+            <Card className="mb-8">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Analytics Data Health</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3 text-sm text-gray-600 md:grid-cols-4 lg:grid-cols-8">
+                  <div>Plans: <span className="font-semibold text-gray-900">{safePlanBreakdown.length}</span></div>
+                  <div>Recent: <span className="font-semibold text-gray-900">{safeRecentEnrollments.length}</span></div>
+                  <div>Trends: <span className="font-semibold text-gray-900">{safeMonthlyTrends.length}</span></div>
+                  <div>Members: <span className="font-semibold text-gray-900">{safeMemberReports.length}</span></div>
+                  <div>Agents: <span className="font-semibold text-gray-900">{safeAgentPerformance.length}</span></div>
+                  <div>Commissions: <span className="font-semibold text-gray-900">{safeCommissionReports.length}</span></div>
+                  <div>Revenue rows: <span className="font-semibold text-gray-900">{safeRevenueByMonth.length}</span></div>
+                  <div>Window: <span className="font-semibold text-gray-900">{timeRange}d</span></div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* This Month Activity */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               <Card>
@@ -448,14 +527,16 @@ export default function AdminAnalytics() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {safePlanBreakdown.map((plan) => (
-                      <TableRow key={plan.planId}>
-                        <TableCell className="font-medium">{plan.planName}</TableCell>
-                        <TableCell className="text-right">{plan.memberCount}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(plan.monthlyRevenue)}</TableCell>
-                        <TableCell className="text-right">{plan.percentage.toFixed(1)}%</TableCell>
-                      </TableRow>
-                    ))}
+                    {safePlanBreakdown.length === 0
+                      ? renderEmptyRow(4, 'No plan distribution data available for this period.')
+                      : safePlanBreakdown.map((plan) => (
+                          <TableRow key={plan.planId}>
+                            <TableCell className="font-medium">{plan.planName}</TableCell>
+                            <TableCell className="text-right">{plan.memberCount}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(plan.monthlyRevenue)}</TableCell>
+                            <TableCell className="text-right">{plan.percentage.toFixed(1)}%</TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -478,17 +559,19 @@ export default function AdminAnalytics() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {safeMonthlyTrends.map((trend, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="font-medium">{trend.month}</TableCell>
-                        <TableCell className="text-right text-green-600">+{trend.enrollments}</TableCell>
-                        <TableCell className="text-right text-red-600">-{trend.cancellations}</TableCell>
-                        <TableCell className={`text-right font-semibold ${trend.netGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {trend.netGrowth >= 0 ? '+' : ''}{trend.netGrowth}
-                        </TableCell>
-                        <TableCell className="text-right">{formatCurrency(trend.revenue)}</TableCell>
-                      </TableRow>
-                    ))}
+                    {safeMonthlyTrends.length === 0
+                      ? renderEmptyRow(5, 'No monthly trend data available for this period.')
+                      : safeMonthlyTrends.map((trend, index) => (
+                          <TableRow key={index}>
+                            <TableCell className="font-medium">{trend.month}</TableCell>
+                            <TableCell className="text-right text-green-600">+{trend.enrollments}</TableCell>
+                            <TableCell className="text-right text-red-600">-{trend.cancellations}</TableCell>
+                            <TableCell className={`text-right font-semibold ${trend.netGrowth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {trend.netGrowth >= 0 ? '+' : ''}{trend.netGrowth}
+                            </TableCell>
+                            <TableCell className="text-right">{formatCurrency(trend.revenue)}</TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -542,37 +625,39 @@ export default function AdminAnalytics() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {safeRecentEnrollments.map((enrollment) => (
-                          <TableRow key={enrollment.id}>
-                            <TableCell className="font-medium">
-                              {enrollment.firstName} {enrollment.lastName}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              #{enrollment.memberId || enrollment.id}
-                              {enrollment.memberPublicId && (
-                                <div className="text-[11px] text-gray-500">
-                                  Public: {enrollment.memberPublicId}
-                                </div>
-                              )}
-                              {enrollment.customerNumber && (
-                                <div className="text-[11px] text-gray-500">
-                                  Customer: {enrollment.customerNumber}
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell>{enrollment.email}</TableCell>
-                            <TableCell>{enrollment.planName}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(enrollment.amount)}</TableCell>
-                            <TableCell>{formatDateSafe(enrollment.enrolledDate)}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                enrollment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                              }`}>
-                                {enrollment.status}
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {safeRecentEnrollments.length === 0
+                          ? renderEmptyRow(7, 'No recent enrollments found for this period.')
+                          : safeRecentEnrollments.map((enrollment) => (
+                              <TableRow key={enrollment.id}>
+                                <TableCell className="font-medium">
+                                  {enrollment.firstName} {enrollment.lastName}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  #{enrollment.memberId || enrollment.id}
+                                  {enrollment.memberPublicId && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Public: {enrollment.memberPublicId}
+                                    </div>
+                                  )}
+                                  {enrollment.customerNumber && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Customer: {enrollment.customerNumber}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>{enrollment.email}</TableCell>
+                                <TableCell>{enrollment.planName}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(enrollment.amount)}</TableCell>
+                                <TableCell>{formatDateSafe(enrollment.enrolledDate)}</TableCell>
+                                <TableCell>
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    enrollment.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {enrollment.status}
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+                            ))}
                       </TableBody>
                     </Table>
                   </TabsContent>
@@ -595,41 +680,43 @@ export default function AdminAnalytics() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(analytics?.memberReports || []).map((member) => (
-                          <TableRow key={member.id}>
-                            <TableCell className="font-medium">
-                              {member.firstName} {member.lastName}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {member.memberId ? `#${member.memberId}` : '-'}
-                              {member.memberPublicId && (
-                                <div className="text-[11px] text-gray-500">
-                                  Public: {member.memberPublicId}
-                                </div>
-                              )}
-                              {member.customerNumber && (
-                                <div className="text-[11px] text-gray-500">
-                                  Customer: {member.customerNumber}
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell>{member.groupName || '-'}</TableCell>
-                            <TableCell>{member.email}</TableCell>
-                            <TableCell className="capitalize">{member.businessCategory || 'individual'}</TableCell>
-                            <TableCell>{member.phone}</TableCell>
-                            <TableCell>{member.planName}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                              }`}>
-                                {member.status}
-                              </span>
-                            </TableCell>
-                            <TableCell>{formatDateSafe(member.enrolledDate)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(member.totalPaid)}</TableCell>
-                            <TableCell>{member.agentName}</TableCell>
-                          </TableRow>
-                        ))}
+                        {safeMemberReports.length === 0
+                          ? renderEmptyRow(11, 'No member report data available for this period.')
+                          : safeMemberReports.map((member) => (
+                              <TableRow key={member.id}>
+                                <TableCell className="font-medium">
+                                  {member.firstName} {member.lastName}
+                                </TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {member.memberId ? `#${member.memberId}` : '-'}
+                                  {member.memberPublicId && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Public: {member.memberPublicId}
+                                    </div>
+                                  )}
+                                  {member.customerNumber && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Customer: {member.customerNumber}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>{member.groupName || '-'}</TableCell>
+                                <TableCell>{member.email}</TableCell>
+                                <TableCell className="capitalize">{member.businessCategory || 'individual'}</TableCell>
+                                <TableCell>{member.phone}</TableCell>
+                                <TableCell>{member.planName}</TableCell>
+                                <TableCell>
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    member.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {member.status}
+                                  </span>
+                                </TableCell>
+                                <TableCell>{formatDateSafe(member.enrolledDate)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(member.totalPaid)}</TableCell>
+                                <TableCell>{member.agentName}</TableCell>
+                              </TableRow>
+                            ))}
                       </TableBody>
                     </Table>
                   </TabsContent>
@@ -652,21 +739,23 @@ export default function AdminAnalytics() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(analytics?.agentPerformance || []).map((agent) => (
-                          <TableRow key={agent.agentId}>
-                            <TableCell className="font-medium">{agent.agentName}</TableCell>
-                            <TableCell>{agent.agentNumber}</TableCell>
-                            <TableCell className="text-right">{agent.totalEnrollments}</TableCell>
-                            <TableCell className="text-right">{agent.individualEnrollments ?? 0}</TableCell>
-                            <TableCell className="text-right">{agent.familyEnrollments ?? 0}</TableCell>
-                            <TableCell className="text-right">{agent.groupEnrollments ?? 0}</TableCell>
-                            <TableCell className="text-right">{agent.monthlyEnrollments}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(agent.totalCommissions)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(agent.paidCommissions)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(agent.pendingCommissions)}</TableCell>
-                            <TableCell className="text-right">{agent.conversionRate.toFixed(1)}%</TableCell>
-                          </TableRow>
-                        ))}
+                        {safeAgentPerformance.length === 0
+                          ? renderEmptyRow(11, 'No agent performance data available for this period.')
+                          : safeAgentPerformance.map((agent) => (
+                              <TableRow key={agent.agentId}>
+                                <TableCell className="font-medium">{agent.agentName}</TableCell>
+                                <TableCell>{agent.agentNumber}</TableCell>
+                                <TableCell className="text-right">{agent.totalEnrollments}</TableCell>
+                                <TableCell className="text-right">{agent.individualEnrollments ?? 0}</TableCell>
+                                <TableCell className="text-right">{agent.familyEnrollments ?? 0}</TableCell>
+                                <TableCell className="text-right">{agent.groupEnrollments ?? 0}</TableCell>
+                                <TableCell className="text-right">{agent.monthlyEnrollments}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(agent.totalCommissions)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(agent.paidCommissions)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(agent.pendingCommissions)}</TableCell>
+                                <TableCell className="text-right">{agent.conversionRate.toFixed(1)}%</TableCell>
+                              </TableRow>
+                            ))}
                       </TableBody>
                     </Table>
                   </TabsContent>
@@ -690,46 +779,48 @@ export default function AdminAnalytics() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(analytics?.commissionReports || []).map((commission) => (
-                          <TableRow key={commission.id}>
-                            <TableCell className="font-medium">{commission.agentName}</TableCell>
-                            <TableCell>{commission.agentNumber}</TableCell>
-                            <TableCell>{commission.memberName}</TableCell>
-                            <TableCell className="font-mono text-xs">
-                              {commission.memberId ? `#${commission.memberId}` : '—'}
-                              {commission.memberPublicId && (
-                                <div className="text-[11px] text-gray-500">
-                                  Public: {commission.memberPublicId}
-                                </div>
-                              )}
-                              {commission.membershipId && (
-                                <div className="text-[11px] text-gray-500">
-                                  Customer: {commission.membershipId}
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell>{commission.groupName || '-'}</TableCell>
-                            <TableCell>{commission.planName}</TableCell>
-                            <TableCell className="capitalize">{commission.businessCategory || 'individual'}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
-                            <TableCell className="text-right">{formatCurrency(commission.totalPlanCost)}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                commission.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                              }`}>
-                                {commission.status}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                commission.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                              }`}>
-                                {commission.paymentStatus}
-                              </span>
-                            </TableCell>
-                            <TableCell>{formatDateSafe(commission.createdDate)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {safeCommissionReports.length === 0
+                          ? renderEmptyRow(12, 'No commission report data available for this period.')
+                          : safeCommissionReports.map((commission) => (
+                              <TableRow key={commission.id}>
+                                <TableCell className="font-medium">{commission.agentName}</TableCell>
+                                <TableCell>{commission.agentNumber}</TableCell>
+                                <TableCell>{commission.memberName}</TableCell>
+                                <TableCell className="font-mono text-xs">
+                                  {commission.memberId ? `#${commission.memberId}` : '—'}
+                                  {commission.memberPublicId && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Public: {commission.memberPublicId}
+                                    </div>
+                                  )}
+                                  {commission.membershipId && (
+                                    <div className="text-[11px] text-gray-500">
+                                      Customer: {commission.membershipId}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>{commission.groupName || '-'}</TableCell>
+                                <TableCell>{commission.planName}</TableCell>
+                                <TableCell className="capitalize">{commission.businessCategory || 'individual'}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(commission.commissionAmount)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(commission.totalPlanCost)}</TableCell>
+                                <TableCell>
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    commission.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {commission.status}
+                                  </span>
+                                </TableCell>
+                                <TableCell>
+                                  <span className={`px-2 py-1 text-xs rounded-full ${
+                                    commission.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                                  }`}>
+                                    {commission.paymentStatus}
+                                  </span>
+                                </TableCell>
+                                <TableCell>{formatDateSafe(commission.createdDate)}</TableCell>
+                              </TableRow>
+                            ))}
                       </TableBody>
                     </Table>
                   </TabsContent>
@@ -784,15 +875,17 @@ export default function AdminAnalytics() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {(analytics?.revenueBreakdown?.revenueByMonth || []).map((month, index) => (
-                            <TableRow key={index}>
-                              <TableCell className="font-medium">{month.month}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(month.revenue)}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(month.subscriptions)}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(month.oneTime)}</TableCell>
-                              <TableCell className="text-right text-red-600">-{formatCurrency(month.refunds)}</TableCell>
-                            </TableRow>
-                          ))}
+                          {safeRevenueByMonth.length === 0
+                            ? renderEmptyRow(5, 'No revenue trend rows available for this period.')
+                            : safeRevenueByMonth.map((month, index) => (
+                                <TableRow key={index}>
+                                  <TableCell className="font-medium">{month.month}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(month.revenue)}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(month.subscriptions)}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(month.oneTime)}</TableCell>
+                                  <TableCell className="text-right text-red-600">-{formatCurrency(month.refunds)}</TableCell>
+                                </TableRow>
+                              ))}
                         </TableBody>
                       </Table>
                     </div>

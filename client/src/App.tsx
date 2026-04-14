@@ -103,6 +103,8 @@ function Router() {
       {/* Protected routes - require authentication */}
       {isAuthenticated && (
         <>
+          <Route path="/dashboard" component={Dashboard} />
+
           {/* Admin routes */}
           {isAdminUser && (
             <>
