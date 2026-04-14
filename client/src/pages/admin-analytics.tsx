@@ -384,16 +384,14 @@ export default function AdminAnalytics() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {isLoading ? (
           <div className="text-center py-8">Loading analytics...</div>
+        ) : isError ? (
+          <Card className="mb-6 border-red-200 bg-red-50">
+            <CardContent className="py-4 text-sm text-red-700">
+              Analytics request failed: {(error as Error)?.message || 'Unknown error'}
+            </CardContent>
+          </Card>
         ) : analytics ? (
           <>
-            {isError && (
-              <Card className="mb-6 border-red-200 bg-red-50">
-                <CardContent className="py-4 text-sm text-red-700">
-                  Analytics request failed: {(error as Error)?.message || 'Unknown error'}
-                </CardContent>
-              </Card>
-            )}
-
             {/* Key Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
               <Card>

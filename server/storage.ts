@@ -7851,11 +7851,23 @@ export const storage = {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
+      const safeQuery = async (sql: string, params: any[] = [], source: string) => {
+        try {
+          return await query(sql, params);
+        } catch (error: any) {
+          console.warn(`[Analytics] ${source} query failed, using empty fallback:`, error?.message || error);
+          return { rows: [] as any[] } as any;
+        }
+      };
+
       // Query from Supabase database - where all data lives
       // Include all members regardless of is_active flag
-      const membersResult = await query('SELECT * FROM members ORDER BY created_at DESC');
-      const commissionsResult = await query('SELECT * FROM agent_commissions ORDER BY created_at DESC');
-      const plansResult = await query('SELECT * FROM plans WHERE is_active = true');
+      const membersResult = await safeQuery('SELECT * FROM members ORDER BY created_at DESC', [], 'members');
+      const commissionsResult = await safeQuery('SELECT * FROM agent_commissions ORDER BY created_at DESC', [], 'agent_commissions');
+      let plansResult = await safeQuery('SELECT * FROM plans WHERE is_active = true', [], 'plans(active only)');
+      if (!plansResult.rows?.length) {
+        plansResult = await safeQuery('SELECT * FROM plans ORDER BY id ASC', [], 'plans(all)');
+      }
       const { data: agentsData, error: agentsError } = await supabase
         .from('users')
         .select('id, first_name, last_name, email, agent_number, role, created_at')
@@ -7864,7 +7876,7 @@ export const storage = {
       if (agentsError) {
         console.warn('[Storage] Could not fetch agents for analytics:', agentsError.message || agentsError);
       }
-      const groupMembersResult = await query(
+      const groupMembersResult = await safeQuery(
         `SELECT
           gm.*,
           g.id AS group_id,
@@ -7874,7 +7886,9 @@ export const storage = {
           g.created_at AS group_created_at
         FROM group_members gm
         JOIN groups g ON g.id = gm.group_id
-        ORDER BY gm.registered_at DESC`
+        ORDER BY gm.registered_at DESC`,
+        [],
+        'group_members + groups'
       );
 
       const allMembers = membersResult.rows || [];
