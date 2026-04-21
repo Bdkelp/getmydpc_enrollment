@@ -164,8 +164,29 @@ function getNextBillingAnchorDate(afterDate: Date): Date {
  * @returns The next billing date (same day next month)
  */
 export function calculateNextBillingDate(billingDate: Date): Date {
-  const nextAnchor = getNextBillingAnchorDate(billingDate);
-  return adjustAnchorForBusinessCalendar(nextAnchor);
+  // Recurring billing must preserve the member's billing day month-over-month.
+  // Example: Apr 18 -> May 18 (not May 1 / May 15 anchors).
+  // For shorter months, clamp to the month's last day.
+  const year = billingDate.getUTCFullYear();
+  const month = billingDate.getUTCMonth();
+  const day = billingDate.getUTCDate();
+
+  const targetMonthIndex = month + 1;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const normalizedTargetMonth = targetMonthIndex % 12;
+
+  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, normalizedTargetMonth + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+
+  return new Date(Date.UTC(
+    targetYear,
+    normalizedTargetMonth,
+    clampedDay,
+    billingDate.getUTCHours(),
+    billingDate.getUTCMinutes(),
+    billingDate.getUTCSeconds(),
+    billingDate.getUTCMilliseconds(),
+  ));
 }
 
 /**
