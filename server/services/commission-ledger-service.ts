@@ -1089,8 +1089,8 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
     throw new Error(`Failed to load payout batch before paid transition: ${batchError.message}`);
   }
 
-  if (!['ready', 'exported'].includes(String(batch?.status || ''))) {
-    throw new Error(`Invalid batch state for paid transition: ${batch?.status || 'unknown'}. Batch must be ready or exported.`);
+  if (!['draft', 'ready', 'exported'].includes(String(batch?.status || ''))) {
+    throw new Error(`Invalid batch state for paid transition: ${batch?.status || 'unknown'}. Batch must be draft, ready, or exported.`);
   }
 
   const { data: rows, error: rowsError } = await supabase
