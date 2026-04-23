@@ -8,6 +8,9 @@
  *   BILLING_SCHEDULER_ENABLED  – must be 'true' to start the scheduler
  *   BILLING_SCHEDULER_DRY_RUN  – 'true' (default) logs what would happen without charging
  *   BILLING_SCHEDULER_INTERVAL_MS – cycle interval in ms (default: 3600000 = 1 hour)
+ *   BILLING_SCHEDULER_USE_FIXED_TIMES – 'true' to run at fixed local business hours
+ *   BILLING_SCHEDULER_FIXED_HOURS – comma-separated 24h hours (default: 8,20)
+ *   BILLING_SCHEDULER_TIMEZONE – IANA timezone for fixed-time mode (default: America/Chicago)
  *   ACH_RECURRING_ENABLED – must be 'true' to process ACH subscriptions
  *   ACH_RECURRING_ALLOW_PRODUCTION – must be 'true' to allow ACH recurring when payment environment is production
  *   ACH_RECURRING_TEST_MODE – defaults to true; tags ACH logs for internal/certification runs
@@ -29,6 +32,8 @@ import {
 import { submitServerPostRecurringPayment } from './epx-payment-service';
 import { persistRecurringPostSuccess } from './recurring-post-success-persistence';
 import { paymentEnvironment } from './payment-environment-service';
+import { sendRecurringBillingCycleReport } from '../email';
+import cron from 'node-cron';
 
 const LOG_PREFIX = '[Recurring Billing]';
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
@@ -153,6 +158,109 @@ const schedulerStatusState: RecurringSchedulerStatus = {
 const MAX_DUE_DECISION_LOG_ENTRIES = 200;
 const MAX_CHARGE_ATTEMPT_LOG_ENTRIES = 200;
 
+const SUCCESS_RESULTS = new Set(['success', 'ach_test_success']);
+
+function isRecurringCycleEmailEnabled(): boolean {
+  return process.env.RECURRING_BILLING_REPORT_EMAIL_ENABLED === 'true';
+}
+
+function getRecurringCycleEmailRecipients(): string[] {
+  const raw = process.env.RECURRING_BILLING_REPORT_RECIPIENTS || 'info@mypremierplans.com';
+  return raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function getCycleChargeAttempts(
+  source: SchedulerCycleSource,
+  startedAt: string,
+  completedAt: string,
+): ChargeAttemptLogEntry[] {
+  const startMs = Date.parse(startedAt);
+  const endMs = Date.parse(completedAt);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+    return [];
+  }
+
+  return schedulerStatusState.launchDiagnostics.recentChargeAttempts.filter((entry) => {
+    if (entry.source !== source) {
+      return false;
+    }
+    const atMs = Date.parse(entry.at);
+    if (Number.isNaN(atMs)) {
+      return false;
+    }
+    return atMs >= startMs && atMs <= endMs;
+  });
+}
+
+async function sendRecurringCycleEmailIfNeeded(options: {
+  source: SchedulerCycleSource;
+  mode: SchedulerMode;
+  dueCount: number;
+  startedAt: string;
+  completedAt: string;
+}): Promise<void> {
+  if (!isRecurringCycleEmailEnabled()) {
+    return;
+  }
+
+  if (options.mode !== 'LIVE' || options.source !== 'automatic') {
+    return;
+  }
+
+  if (options.dueCount <= 0) {
+    return;
+  }
+
+  const chargeAttempts = getCycleChargeAttempts(options.source, options.startedAt, options.completedAt);
+  if (chargeAttempts.length === 0) {
+    return;
+  }
+
+  const succeeded = chargeAttempts
+    .filter((entry) => SUCCESS_RESULTS.has(entry.chargeAttemptResult))
+    .map((entry) => ({
+      subscriptionId: entry.subscriptionId,
+      memberId: entry.memberId,
+      payerDisplayName: entry.payerDisplayName,
+      amount: entry.amount,
+      paymentMethodType: entry.paymentMethodType,
+      result: entry.chargeAttemptResult,
+      skipReason: entry.skipReason,
+      billingEventId: entry.billingEventId,
+    }));
+
+  const unsuccessful = chargeAttempts
+    .filter((entry) => !SUCCESS_RESULTS.has(entry.chargeAttemptResult))
+    .map((entry) => ({
+      subscriptionId: entry.subscriptionId,
+      memberId: entry.memberId,
+      payerDisplayName: entry.payerDisplayName,
+      amount: entry.amount,
+      paymentMethodType: entry.paymentMethodType,
+      result: entry.chargeAttemptResult,
+      skipReason: entry.skipReason,
+      billingEventId: entry.billingEventId,
+    }));
+
+  const sent = await sendRecurringBillingCycleReport({
+    recipients: getRecurringCycleEmailRecipients(),
+    mode: options.mode,
+    source: options.source,
+    startedAt: options.startedAt,
+    completedAt: options.completedAt,
+    dueCount: options.dueCount,
+    succeeded,
+    unsuccessful,
+  });
+
+  if (!sent) {
+    console.warn(`${LOG_PREFIX} Recurring cycle report email was not sent`);
+  }
+}
+
 function appendDueDecision(entry: DueDecisionLogEntry): void {
   schedulerStatusState.launchDiagnostics.recentDueDecisions = [
     entry,
@@ -213,6 +321,40 @@ function getIntervalMs(): number {
   const raw = process.env.BILLING_SCHEDULER_INTERVAL_MS;
   const parsed = raw ? parseInt(raw, 10) : NaN;
   return Number.isFinite(parsed) && parsed >= 60_000 ? parsed : 3_600_000;
+}
+
+function isFixedTimeSchedulingEnabled(): boolean {
+  return process.env.BILLING_SCHEDULER_USE_FIXED_TIMES === 'true';
+}
+
+function getFixedScheduleHours(): number[] {
+  const raw = process.env.BILLING_SCHEDULER_FIXED_HOURS || '8,20';
+  const parsed = raw
+    .split(',')
+    .map((token) => parseInt(token.trim(), 10))
+    .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23);
+
+  if (parsed.length === 0) {
+    return [8, 20];
+  }
+
+  return Array.from(new Set(parsed)).sort((a, b) => a - b);
+}
+
+function getFixedScheduleTimezone(): string {
+  const timezone = (process.env.BILLING_SCHEDULER_TIMEZONE || 'America/Chicago').trim();
+
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    return timezone;
+  } catch {
+    console.warn(`${LOG_PREFIX} Invalid BILLING_SCHEDULER_TIMEZONE '${timezone}', defaulting to America/Chicago`);
+    return 'America/Chicago';
+  }
+}
+
+function buildFixedScheduleCronExpression(hours: number[]): string {
+  return `0 ${hours.join(',')} * * *`;
 }
 
 function isSimulationModeEnabled(): boolean {
@@ -660,6 +802,7 @@ async function runBillingCycle(options?: {
   let successCount = 0;
   let skipCount = 0;
   let failCount = 0;
+  let dueCount = 0;
 
   try {
     // 2. Verify and resolve stale 'pending' entries
@@ -705,6 +848,7 @@ async function runBillingCycle(options?: {
     const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
       includeACH: achEnabled,
     });
+    dueCount = dueSubscriptions.length;
 
     if (dueSubscriptions.length === 0) {
       console.log(`${LOG_PREFIX} No subscriptions due for billing`);
@@ -788,6 +932,17 @@ async function runBillingCycle(options?: {
       `${LOG_PREFIX} ──── Cycle complete (${mode}) ────  ` +
       `${successCount} processed, ${skipCount} skipped, ${failCount} errors, ${elapsed}ms`
     );
+    try {
+      await sendRecurringCycleEmailIfNeeded({
+        source,
+        mode,
+        dueCount,
+        startedAt: new Date(cycleStart).toISOString(),
+        completedAt,
+      });
+    } catch (emailError: any) {
+      console.error(`${LOG_PREFIX} Failed sending recurring cycle report email:`, emailError?.message || emailError);
+    }
     return {
       source,
       mode,
@@ -1360,17 +1515,48 @@ export function scheduleRecurringBilling(): void {
   const simulationMode = isSimulationModeEnabled();
   const achEnabled = isAchRecurringEnabled();
   const achTestMode = isAchRecurringTestMode();
+  const fixedTimeMode = isFixedTimeSchedulingEnabled();
   const mode = dryRun ? 'DRY RUN' : 'LIVE';
 
   schedulerStatusState.initializedAt = new Date().toISOString();
   refreshSchedulerConfigState(true);
 
   console.log(`${LOG_PREFIX} Scheduler initialized (${mode})`);
-  console.log(`${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`);
+  if (!fixedTimeMode) {
+    console.log(`${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`);
+  }
   console.log(`${LOG_PREFIX} ACH recurring enabled: ${achEnabled}`);
   console.log(`${LOG_PREFIX} ACH recurring test mode: ${achTestMode}`);
   if (simulationMode) {
     console.warn(`${LOG_PREFIX} EPX simulation mode is ENABLED — recurring charges will be simulated and no EPX request will be sent`);
+  }
+
+  if (fixedTimeMode) {
+    const fixedHours = getFixedScheduleHours();
+    const timezone = getFixedScheduleTimezone();
+    const cronExpression = buildFixedScheduleCronExpression(fixedHours);
+
+    if (!cron.validate(cronExpression)) {
+      console.error(`${LOG_PREFIX} Invalid fixed schedule cron '${cronExpression}', falling back to interval mode`);
+    } else {
+      console.log(
+        `${LOG_PREFIX} Fixed-time schedule enabled at hour(s) ${fixedHours.join(', ')} ` +
+        `in ${timezone} (cron: ${cronExpression})`
+      );
+
+      cron.schedule(
+        cronExpression,
+        () => {
+          runBillingCycle({ source: 'automatic' }).catch((err) => {
+            schedulerStatusState.lastCycle.error = err?.message || String(err);
+            console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
+          });
+        },
+        { timezone },
+      );
+
+      return;
+    }
   }
 
   // Run first cycle after a short delay (let server finish startup)
