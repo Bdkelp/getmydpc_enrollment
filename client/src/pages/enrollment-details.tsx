@@ -602,7 +602,7 @@ export default function EnrollmentDetails() {
         body: JSON.stringify(payload),
       });
     },
-    onSuccess: (_data, payload) => {
+    onSuccess: (data: any, payload) => {
       const actionLabel = payload.action === 'cancel'
         ? 'Membership cancelled'
         : payload.action === 'reactivate'
@@ -611,7 +611,7 @@ export default function EnrollmentDetails() {
 
       toast({
         title: actionLabel,
-        description: 'Member subscription changes have been applied successfully.',
+        description: data?.message || 'Member subscription changes have been applied successfully.',
       });
 
       queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
@@ -984,7 +984,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           })
                         }
                       >
-                        Cancel Membership
+                        Schedule Cancellation
                       </Button>
                       <Button
                         size="sm"
