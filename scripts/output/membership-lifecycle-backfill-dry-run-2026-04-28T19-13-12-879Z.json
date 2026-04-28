@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-04-28T19:13:12.477Z",
+  "totals": {
+    "members": 16,
+    "subscriptions": 16,
+    "payments": 49,
+    "agentCommissions": 31
+  },
+  "dryRunSummary": {
+    "totalActiveMembers": 16,
+    "totalPendingPaymentMembers": 0,
+    "totalCancelledMembers": 0,
+    "activeSubscriptionsWithValidNextBillingDate": 15,
+    "activeSubscriptionsMissingNextBillingDate": 0,
+    "activeMembersWithoutVerifiedPayment": 0,
+    "cancelledMembersWithActiveSubscriptions": 0,
+    "activeMembersWithCancelledSubscriptions": 0,
+    "subscriptionsWithPastNextBillingDate": 0,
+    "subscriptionsWithStaleNextBillingDate": 0,
+    "commissionRecordsMissingForSuccessfulPayments": 1,
+    "possibleDuplicateCommissionRecords": 0,
+    "recordsRequiringManualReview": 2
+  },
+  "proposedChanges": {
+    "nextBillingDateFixes": [],
+    "scheduledCancellationFixes": [],
+    "commissionBackfills": []
+  },
+  "manualReview": [
+    {
+      "type": "missing_commission_for_successful_payment",
+      "memberId": 20,
+      "subscriptionId": 31,
+      "reason": "Successful payment exists but no direct commission lane and no safe template to clone",
+      "metadata": {
+        "successfulPaymentId": 19,
+        "enrollingAgentId": "f1282fe7-1cd0-4971-ac5a-a5d54e5a464b",
+        "hasTemplate": false
+      }
+    },
+    {
+      "type": "plan_amount_mismatch",
+      "memberId": 24,
+      "subscriptionId": 24,
+      "reason": "Subscription amount does not match member/plan expected amount",
+      "metadata": {
+        "subscriptionAmount": 123.76,
+        "expectedAmount": 119,
+        "memberAmount": 119,
+        "planAmount": 119
+      }
+    }
+  ],
+  "duplicateCommissionLanes": []
+}

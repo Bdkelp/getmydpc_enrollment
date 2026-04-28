@@ -6,6 +6,7 @@ import { displaySSN } from '@shared/display-ssn';
 import { supabase } from '../lib/supabaseClient';
 import { decryptSSN, encryptSSN, formatSSN } from '../utils/encryption';
 import {
+  storage,
   addGroupMember,
   completeGroupRegistration,
   createAdminNotification,
@@ -24,8 +25,10 @@ import {
 } from '../storage';
 import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
 import { createMonthlyPayout } from '../services/commission-payout-service';
+import { applyCancellationToLedger } from '../services/commission-ledger-service';
 import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
 import { calculateCommission } from '../commissionCalculator';
+import { calculateNextBillingDate } from '../utils/membership-dates';
 
 const router = Router();
 
@@ -687,6 +690,336 @@ const getGroupProfileContext = (groupMetadata: any, payorType: string) => {
 
 const canCollectMemberPaymentsForMode = (mode: PaymentResponsibilityMode): boolean =>
   mode === 'member_self_pay' || mode === 'hybrid_split';
+
+const resolveLinkedMemberId = (groupMember: any): number | null => {
+  const candidate = Number(groupMember?.memberId ?? groupMember?.member_id ?? null);
+  if (!Number.isFinite(candidate) || candidate <= 0) {
+    return null;
+  }
+  return candidate;
+};
+
+const shouldManageLinkedMemberLifecycle = (group: any, groupMember: any): boolean => {
+  const groupProfileContext = getGroupProfileContext(group?.metadata, group?.payorType);
+  const memberPayorType = normalizeMemberPayorType(groupMember?.payorType, group?.payorType);
+  return canCollectMemberPaymentsForMode(groupProfileContext.profile.paymentResponsibilityMode)
+    || memberPayorType === 'member';
+};
+
+const toIsoDateOnly = (value: Date): string => value.toISOString().slice(0, 10);
+
+const scheduleLinkedMemberCancellationAtPeriodEnd = async (
+  memberId: number,
+  reason: string,
+  requestedBy: { id?: string | null; role?: string | null },
+) => {
+  const subscription = await storage.getUserSubscription(memberId);
+  if (!subscription || !subscription.nextBillingDate) {
+    return {
+      scheduled: false,
+      reason: 'linked_member_missing_subscription_or_next_billing_date',
+    };
+  }
+
+  const nextBillingDate = new Date(subscription.nextBillingDate);
+  if (Number.isNaN(nextBillingDate.getTime())) {
+    return {
+      scheduled: false,
+      reason: 'linked_member_invalid_next_billing_date',
+    };
+  }
+
+  const paidThroughDate = new Date(nextBillingDate);
+  paidThroughDate.setUTCDate(paidThroughDate.getUTCDate() - 1);
+  const paidThroughDateIso = toIsoDateOnly(paidThroughDate);
+
+  await storage.updateSubscription(subscription.id, {
+    status: 'active',
+    endDate: paidThroughDateIso,
+    pendingReason: 'member_cancelled',
+    pendingDetails: JSON.stringify({
+      source: 'group_member_termination',
+      reason,
+      requestedAt: new Date().toISOString(),
+      requestedByUserId: requestedBy.id || null,
+      requestedByRole: requestedBy.role || null,
+      paidThroughDate: paidThroughDateIso,
+    }),
+    updatedAt: new Date(),
+  });
+
+  const { error: memberUpdateError } = await supabase
+    .from('members')
+    .update({
+      cancellation_date: new Date().toISOString(),
+      cancellation_reason: reason,
+      status: 'active',
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', memberId);
+
+  if (memberUpdateError) {
+    throw memberUpdateError;
+  }
+
+  await applyCancellationToLedger({
+    memberId: String(memberId),
+    cancellationDate: paidThroughDateIso,
+    cancellationReason: reason,
+    createReversalForPaid: true,
+  });
+
+  return {
+    scheduled: true,
+    subscriptionId: subscription.id,
+    paidThroughDate: paidThroughDateIso,
+  };
+};
+
+const reactivateLinkedMemberLifecycle = async (
+  memberId: number,
+  reason: string,
+) => {
+  await storage.updateMemberStatus(memberId, 'active', { reason });
+
+  const subscription = await storage.getUserSubscription(memberId);
+  if (!subscription) {
+    return {
+      reactivated: true,
+      subscriptionUpdated: false,
+      reason: 'linked_member_subscription_not_found',
+    };
+  }
+
+  const now = new Date();
+  const updates: Record<string, any> = {
+    status: 'active',
+    pendingReason: null,
+    pendingDetails: null,
+    cancellationReason: null,
+    cancelledAt: null,
+    updatedAt: now,
+  };
+
+  if (subscription.nextBillingDate) {
+    const nextBillingDate = new Date(subscription.nextBillingDate);
+    if (!Number.isNaN(nextBillingDate.getTime()) && nextBillingDate < now) {
+      updates.nextBillingDate = calculateNextBillingDate(now);
+    }
+  } else {
+    updates.nextBillingDate = calculateNextBillingDate(now);
+  }
+
+  await storage.updateSubscription(subscription.id, updates);
+
+  return {
+    reactivated: true,
+    subscriptionUpdated: true,
+    subscriptionId: subscription.id,
+    nextBillingDateReset: Boolean(updates.nextBillingDate),
+  };
+};
+
+const recordLinkedLifecycleAuditNotification = async (options: {
+  groupId: string;
+  groupMemberId: number | null;
+  linkedMemberId: number | null;
+  source: string;
+  requestedBy: { id?: string | null; role?: string | null };
+  result: Record<string, any> | null;
+}) => {
+  const {
+    groupId,
+    groupMemberId,
+    linkedMemberId,
+    source,
+    requestedBy,
+    result,
+  } = options;
+
+  if (!groupMemberId && !linkedMemberId) {
+    return;
+  }
+
+  try {
+    const summary = result?.transition
+      ? `Linked lifecycle transition=${result.transition}`
+      : (result?.reason
+        ? `Linked lifecycle skipped: ${result.reason}`
+        : 'Linked lifecycle evaluated');
+
+    await createAdminNotification({
+      type: 'group_member_linked_lifecycle',
+      memberId: linkedMemberId,
+      subscriptionId: Number.isFinite(Number(result?.subscriptionId))
+        ? Number(result?.subscriptionId)
+        : null,
+      errorMessage: summary,
+      metadata: {
+        source,
+        groupId,
+        groupMemberId,
+        linkedMemberId,
+        requestedByUserId: requestedBy.id || null,
+        requestedByRole: requestedBy.role || null,
+        lifecycleResult: result,
+      },
+    });
+  } catch (auditError) {
+    console.warn('[Group Enrollment] Failed to record linked lifecycle audit notification', {
+      groupId,
+      groupMemberId,
+      linkedMemberId,
+      source,
+      auditError,
+    });
+  }
+};
+
+const syncLinkedMembershipLifecycleForGroupStatusTransition = async (options: {
+  group: any;
+  beforeMember: any;
+  afterMember: any;
+  requestedBy: { id?: string | null; role?: string | null };
+  cancellationReason: string;
+  reactivationReason: string;
+  keepMembershipActive?: boolean;
+  reactivateMembership?: boolean;
+}) => {
+  const {
+    group,
+    beforeMember,
+    afterMember,
+    requestedBy,
+    cancellationReason,
+    reactivationReason,
+    keepMembershipActive = false,
+    reactivateMembership = true,
+  } = options;
+  const groupId = String(group?.id || (afterMember?.groupId ?? beforeMember?.groupId ?? ''));
+  const groupMemberId = Number(afterMember?.id ?? beforeMember?.id ?? null);
+
+  const linkedMemberId = resolveLinkedMemberId(afterMember || beforeMember);
+  if (!linkedMemberId) {
+    return null;
+  }
+
+  const lifecycleManaged = shouldManageLinkedMemberLifecycle(group, afterMember || beforeMember);
+  if (!lifecycleManaged) {
+    const result = {
+      linkedMemberId,
+      managed: false,
+      reason: 'employer_paid_or_external_group_mode',
+    };
+    await recordLinkedLifecycleAuditNotification({
+      groupId,
+      groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+      linkedMemberId,
+      source: 'group_status_transition_sync',
+      requestedBy,
+      result,
+    });
+    return result;
+  }
+
+  const beforeTerminated = normalizeMemberStatus(beforeMember?.status) === 'terminated';
+  const afterTerminated = normalizeMemberStatus(afterMember?.status) === 'terminated';
+
+  if (!beforeTerminated && afterTerminated) {
+    if (keepMembershipActive) {
+      const result = {
+        linkedMemberId,
+        managed: true,
+        scheduled: false,
+        keptActiveOutsideGroup: true,
+      };
+      await recordLinkedLifecycleAuditNotification({
+        groupId,
+        groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+        linkedMemberId,
+        source: 'group_status_transition_sync',
+        requestedBy,
+        result,
+      });
+      return result;
+    }
+
+    const cancellation = await scheduleLinkedMemberCancellationAtPeriodEnd(
+      linkedMemberId,
+      cancellationReason,
+      requestedBy,
+    );
+
+    const result = {
+      linkedMemberId,
+      managed: true,
+      transition: 'terminated',
+      ...cancellation,
+    };
+    await recordLinkedLifecycleAuditNotification({
+      groupId,
+      groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+      linkedMemberId,
+      source: 'group_status_transition_sync',
+      requestedBy,
+      result,
+    });
+    return result;
+  }
+
+  if (beforeTerminated && !afterTerminated) {
+    if (!reactivateMembership) {
+      const result = {
+        linkedMemberId,
+        managed: true,
+        reactivated: false,
+        reason: 'reactivate_membership_disabled',
+      };
+      await recordLinkedLifecycleAuditNotification({
+        groupId,
+        groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+        linkedMemberId,
+        source: 'group_status_transition_sync',
+        requestedBy,
+        result,
+      });
+      return result;
+    }
+
+    const reactivation = await reactivateLinkedMemberLifecycle(linkedMemberId, reactivationReason);
+    const result = {
+      linkedMemberId,
+      managed: true,
+      transition: 'restored',
+      ...reactivation,
+    };
+    await recordLinkedLifecycleAuditNotification({
+      groupId,
+      groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+      linkedMemberId,
+      source: 'group_status_transition_sync',
+      requestedBy,
+      result,
+    });
+    return result;
+  }
+
+  const result = {
+    linkedMemberId,
+    managed: true,
+    transition: 'no_status_change',
+  };
+  await recordLinkedLifecycleAuditNotification({
+    groupId,
+    groupMemberId: Number.isFinite(groupMemberId) ? groupMemberId : null,
+    linkedMemberId,
+    source: 'group_status_transition_sync',
+    requestedBy,
+    result,
+  });
+  return result;
+};
 
 const isISODateString = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
@@ -2457,6 +2790,117 @@ router.post('/api/admin/census-template', authenticateToken, async (req: AuthReq
   }
 });
 
+router.get('/api/admin/group-member-lifecycle-events', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Only admins can view lifecycle audit events' });
+    }
+
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(limitRaw, 1), 200)
+      : 50;
+    const offsetRaw = Number(req.query.offset);
+    const offset = Number.isFinite(offsetRaw)
+      ? Math.max(offsetRaw, 0)
+      : 0;
+
+    const groupIdFilter = typeof req.query.groupId === 'string' && req.query.groupId.trim().length > 0
+      ? req.query.groupId.trim()
+      : null;
+    const memberIdFilter = Number.isFinite(Number(req.query.memberId))
+      ? Number(req.query.memberId)
+      : null;
+    const groupMemberIdFilter = Number.isFinite(Number(req.query.groupMemberId))
+      ? Number(req.query.groupMemberId)
+      : null;
+    const sourceFilter = typeof req.query.source === 'string' && req.query.source.trim().length > 0
+      ? req.query.source.trim()
+      : null;
+    const resolvedFilter = req.query.resolved === 'true'
+      ? true
+      : req.query.resolved === 'false'
+        ? false
+        : null;
+
+    let supabaseRequest = supabase
+      .from('admin_notifications')
+      .select('id, type, member_id, subscription_id, error_message, metadata, resolved, resolved_at, resolved_by, created_at')
+      .eq('type', 'group_member_linked_lifecycle')
+      .order('created_at', { ascending: false })
+      .limit(Math.min(limit + offset + 200, 1000));
+
+    if (memberIdFilter !== null) {
+      supabaseRequest = supabaseRequest.eq('member_id', memberIdFilter);
+    }
+
+    if (resolvedFilter !== null) {
+      supabaseRequest = supabaseRequest.eq('resolved', resolvedFilter);
+    }
+
+    const { data, error } = await supabaseRequest;
+    if (error) {
+      throw error;
+    }
+
+    const normalized = Array.isArray(data)
+      ? data.map((entry: any) => {
+        const metadata = entry?.metadata && typeof entry.metadata === 'object'
+          ? entry.metadata
+          : {};
+        return {
+          id: entry.id,
+          type: entry.type,
+          memberId: entry.member_id ?? null,
+          subscriptionId: entry.subscription_id ?? null,
+          summary: entry.error_message ?? null,
+          metadata,
+          resolved: Boolean(entry.resolved),
+          resolvedAt: entry.resolved_at ?? null,
+          resolvedBy: entry.resolved_by ?? null,
+          createdAt: entry.created_at,
+        };
+      })
+      : [];
+
+    const filtered = normalized.filter((event: any) => {
+      const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+      if (groupIdFilter && String(metadata.groupId || '') !== groupIdFilter) {
+        return false;
+      }
+      if (groupMemberIdFilter !== null && Number(metadata.groupMemberId ?? NaN) !== groupMemberIdFilter) {
+        return false;
+      }
+      if (sourceFilter && String(metadata.source || '') !== sourceFilter) {
+        return false;
+      }
+      return true;
+    });
+
+    const paged = filtered.slice(offset, offset + limit);
+
+    return res.json({
+      data: paged,
+      pagination: {
+        limit,
+        offset,
+        total: filtered.length,
+      },
+      filters: {
+        groupId: groupIdFilter,
+        memberId: memberIdFilter,
+        groupMemberId: groupMemberIdFilter,
+        source: sourceFilter,
+        resolved: resolvedFilter,
+      },
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to fetch group member lifecycle events:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch lifecycle events';
+    return res.status(500).json({ message });
+  }
+});
+
 router.get('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
     const { status, payorType, search, currentAgentId, originalAgentId, reassignedOnly } = req.query;
@@ -3955,7 +4399,26 @@ router.post('/api/groups/:groupId/members/sync', async (req: AuthRequest, res: R
             status: normalizeMemberStatus(source.status || matched.status),
           });
 
-          updated.push(toMemberResponse(updatedRecord, shouldRevealMemberSsn(req)));
+          const sourceKeepMembershipActive = source?.keepMembershipActive === true;
+          const sourceReactivateMembership = source?.reactivateMembership !== false;
+          const lifecycleSyncResult = await syncLinkedMembershipLifecycleForGroupStatusTransition({
+            group,
+            beforeMember: matched,
+            afterMember: updatedRecord,
+            requestedBy: {
+              id: req.user?.id || null,
+              role: req.user?.role || null,
+            },
+            cancellationReason: 'Group census sync set member to terminated',
+            reactivationReason: 'Group census sync restored member status',
+            keepMembershipActive: sourceKeepMembershipActive,
+            reactivateMembership: sourceReactivateMembership,
+          });
+
+          updated.push({
+            ...toMemberResponse(updatedRecord, shouldRevealMemberSsn(req)),
+            linkedMembershipLifecycle: lifecycleSyncResult,
+          });
 
           const existingIndex = existingMembers.findIndex((member) => member.id === matched.id);
           if (existingIndex >= 0) {
@@ -4224,6 +4687,8 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     }
 
     const incomingBody = (req.body && typeof req.body === 'object') ? req.body : {};
+    const keepMembershipActive = req.query.keepMembershipActive === 'true' || incomingBody?.keepMembershipActive === true;
+    const reactivateMembership = req.query.reactivateMembership !== 'false' && incomingBody?.reactivateMembership !== false;
     const {
       metadata,
       registrationPayload,
@@ -4396,6 +4861,29 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
       'update-group-member',
     );
 
+    let linkedMembershipLifecycle: Record<string, any> | null = null;
+    try {
+      linkedMembershipLifecycle = await syncLinkedMembershipLifecycleForGroupStatusTransition({
+        group,
+        beforeMember: existingMember,
+        afterMember: updated,
+        requestedBy: {
+          id: req.user?.id || null,
+          role: req.user?.role || null,
+        },
+        cancellationReason: 'Group member status updated to terminated',
+        reactivationReason: 'Group member status restored from terminated',
+        keepMembershipActive,
+        reactivateMembership,
+      });
+    } catch (lifecycleSyncError) {
+      console.error('[Group Enrollment] Failed syncing linked membership lifecycle from PATCH update:', lifecycleSyncError);
+      linkedMembershipLifecycle = {
+        managed: false,
+        reason: 'linked_membership_sync_failed',
+      };
+    }
+
     const warnings: string[] = [];
     if (isPrimaryMember) {
       const coverageTier = resolveCoverageTierFromPlanName(selectedPlanName);
@@ -4436,6 +4924,7 @@ router.patch('/api/groups/:groupId/members/:memberId', async (req: AuthRequest, 
     return res.json({
       data: toMemberResponse(updated, shouldRevealMemberSsn(req)),
       warnings,
+      linkedMembershipLifecycle,
     });
   } catch (error) {
     console.error('[Group Enrollment] Failed to update group member:', {
@@ -4527,6 +5016,10 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
       return res.status(404).json({ message: 'Group member not found' });
     }
 
+    const linkedMemberId = resolveLinkedMemberId(existingMember);
+    const shouldManageLinkedLifecycle = shouldManageLinkedMemberLifecycle(group, existingMember);
+    const keepMembershipActive = req.query.keepMembershipActive === 'true' || req.body?.keepMembershipActive === true;
+
     const existingMetadata =
       existingMember.metadata && typeof existingMember.metadata === 'object'
         ? (existingMember.metadata as Record<string, any>)
@@ -4554,9 +5047,51 @@ router.delete('/api/groups/:groupId/members/:memberId', async (req: AuthRequest,
       metadata: nextMetadata,
     });
 
+    let linkedMembershipLifecycle: Record<string, any> | null = null;
+    if (linkedMemberId && shouldManageLinkedLifecycle && !keepMembershipActive) {
+      const cancellationReason = typeof req.query.reason === 'string' && req.query.reason.trim().length > 0
+        ? req.query.reason.trim()
+        : 'Group member terminated (member-pay scenario)';
+
+      try {
+        linkedMembershipLifecycle = await scheduleLinkedMemberCancellationAtPeriodEnd(
+          linkedMemberId,
+          cancellationReason,
+          {
+            id: req.user?.id || null,
+            role: req.user?.role || null,
+          },
+        );
+      } catch (linkedLifecycleError) {
+        console.error('[Group Enrollment] Failed scheduling linked membership cancellation:', linkedLifecycleError);
+        linkedMembershipLifecycle = {
+          scheduled: false,
+          reason: 'linked_member_cancellation_schedule_failed',
+        };
+      }
+    } else if (linkedMemberId && keepMembershipActive) {
+      linkedMembershipLifecycle = {
+        scheduled: false,
+        keptActiveOutsideGroup: true,
+      };
+    }
+
+    await recordLinkedLifecycleAuditNotification({
+      groupId,
+      groupMemberId: numericMemberId,
+      linkedMemberId,
+      source: 'group_member_delete_endpoint',
+      requestedBy: {
+        id: req.user?.id || null,
+        role: req.user?.role || null,
+      },
+      result: linkedMembershipLifecycle,
+    });
+
     return res.status(200).json({
       message: 'Group member terminated and retained for history',
       data: toMemberResponse(terminated, shouldRevealMemberSsn(req)),
+      linkedMembershipLifecycle,
     });
   } catch (error) {
     console.error('[Group Enrollment] Failed to delete group member:', error);
@@ -4628,6 +5163,10 @@ router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRe
       return res.status(404).json({ message: 'Group member not found' });
     }
 
+    const linkedMemberId = resolveLinkedMemberId(existingMember);
+    const shouldManageLinkedLifecycle = shouldManageLinkedMemberLifecycle(group, existingMember);
+    const reactivateMembership = req.query.reactivateMembership !== 'false' && req.body?.reactivateMembership !== false;
+
     const existingMetadata =
       existingMember.metadata && typeof existingMember.metadata === 'object'
         ? (existingMember.metadata as Record<string, any>)
@@ -4661,9 +5200,38 @@ router.post('/api/groups/:groupId/members/:memberId/restore', async (req: AuthRe
       },
     });
 
+    let linkedMembershipLifecycle: Record<string, any> | null = null;
+    if (linkedMemberId && shouldManageLinkedLifecycle && reactivateMembership) {
+      try {
+        linkedMembershipLifecycle = await reactivateLinkedMemberLifecycle(
+          linkedMemberId,
+          'Group member restored',
+        );
+      } catch (linkedLifecycleError) {
+        console.error('[Group Enrollment] Failed reactivating linked membership:', linkedLifecycleError);
+        linkedMembershipLifecycle = {
+          reactivated: false,
+          reason: 'linked_member_reactivation_failed',
+        };
+      }
+    }
+
+    await recordLinkedLifecycleAuditNotification({
+      groupId,
+      groupMemberId: numericMemberId,
+      linkedMemberId,
+      source: 'group_member_restore_endpoint',
+      requestedBy: {
+        id: req.user?.id || null,
+        role: req.user?.role || null,
+      },
+      result: linkedMembershipLifecycle,
+    });
+
     return res.status(200).json({
       message: 'Group member restored',
       data: toMemberResponse(restored, shouldRevealMemberSsn(req)),
+      linkedMembershipLifecycle,
     });
   } catch (error) {
     console.error('[Group Enrollment] Failed to restore group member:', error);

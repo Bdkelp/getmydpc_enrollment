@@ -26,7 +26,7 @@ import {
   Eye,
   EyeOff
 } from "lucide-react";
-import { addMonths, format } from "date-fns";
+import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +99,9 @@ interface EnrollmentDetails {
   enrolledByAgentId?: string;
   // Subscription
   subscriptionId?: number;
+  subscriptionStatus?: string | null;
+  nextBillingDate?: string | null;
+  subscriptionEndDate?: string | null;
   // Family Members
   familyMembers?: FamilyMember[];
 }
@@ -742,13 +745,11 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
   const monthlyPremiumDisplay = Number.isFinite(monthlyPremiumValue)
     ? monthlyPremiumValue.toFixed(2)
     : "0.00";
-  const nextBillingDateLabel = (() => {
-    const startDate = parseFlexibleDate(enrollment.planStartDate);
-    if (!startDate) {
-      return "Not scheduled";
-    }
-    return format(addMonths(startDate, 1), "MMMM d, yyyy");
-  })();
+  const nextBillingDateLabel = formatDateDisplay(
+    enrollment.nextBillingDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
   
   const startEditingContact = () => {
     setEditedContact({

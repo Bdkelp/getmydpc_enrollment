@@ -3626,33 +3626,144 @@ router.patch(
             ? reason.trim()
             : `Membership cancelled by ${req.user?.email || "authorized user"}`;
 
-        const member = await storage.updateMemberStatus(memberId, "cancelled", {
-          reason: cancellationReason,
-        });
+        const immediateCancel = Boolean(
+          req.body?.immediate === true &&
+            ["admin", "super_admin"].includes(req.user.role)
+        );
 
+        if (!existingSubscription) {
+          return res.status(404).json({ message: "Subscription not found" });
+        }
+
+        let member;
         let subscription = existingSubscription;
-        if (existingSubscription && existingSubscription.status !== "cancelled") {
+
+        if (immediateCancel) {
+          member = await storage.updateMemberStatus(memberId, "cancelled", {
+            reason: cancellationReason,
+          });
+
+          if (existingSubscription.status !== "cancelled") {
+            subscription = await storage.updateSubscription(existingSubscription.id, {
+              status: "cancelled",
+              pendingReason: "member_cancelled",
+              pendingDetails: JSON.stringify({
+                reason: cancellationReason,
+                immediate: true,
+                requestedByUserId: req.user.id,
+                requestedByRole: req.user.role,
+                requestedAt: new Date().toISOString(),
+              }),
+              updatedAt: new Date(),
+            });
+          }
+
+          try {
+            await supabase.from("admin_logs").insert({
+              action: "admin_override_cancel",
+              user_id: req.user.id,
+              metadata: {
+                memberId: parsedMemberId,
+                subscriptionId: existingSubscription.id,
+                reason: cancellationReason,
+                immediate: true,
+              },
+              created_at: new Date().toISOString(),
+            });
+          } catch (logError) {
+            console.warn("[Membership Action] Failed to write admin_override_cancel log", logError);
+          }
+        } else {
+          if (!existingSubscription.nextBillingDate) {
+            return res.status(409).json({
+              message: "Unable to schedule cancellation: next billing date is missing",
+            });
+          }
+
+          const nextBillingDate = new Date(existingSubscription.nextBillingDate);
+          if (Number.isNaN(nextBillingDate.getTime())) {
+            return res.status(409).json({
+              message: "Unable to schedule cancellation: invalid next billing date",
+            });
+          }
+
+          const paidThroughDate = addDaysLocal(formatLocalDate(nextBillingDate), -1);
+
           subscription = await storage.updateSubscription(existingSubscription.id, {
-            status: "cancelled",
+            status: "active",
+            endDate: paidThroughDate,
             pendingReason: "member_cancelled",
-            pendingDetails: cancellationReason,
+            pendingDetails: JSON.stringify({
+              reason: cancellationReason,
+              immediate: false,
+              requestedByUserId: req.user.id,
+              requestedByRole: req.user.role,
+              requestedAt: new Date().toISOString(),
+              paidThroughDate,
+            }),
             updatedAt: new Date(),
           });
+
+          const { data: memberData, error: memberUpdateError } = await supabase
+            .from("members")
+            .update({
+              cancellation_date: new Date().toISOString(),
+              cancellation_reason: cancellationReason,
+              status: "active",
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", parsedMemberId)
+            .select("*")
+            .single();
+
+          if (memberUpdateError) {
+            throw memberUpdateError;
+          }
+
+          member = memberData;
+
+          await applyCancellationToLedger({
+            memberId: String(parsedMemberId),
+            cancellationDate: paidThroughDate,
+            cancellationReason,
+            createReversalForPaid: true,
+          });
+
+          try {
+            await supabase.from("admin_logs").insert({
+              action: "member_cancel_requested",
+              user_id: req.user.id,
+              metadata: {
+                memberId: parsedMemberId,
+                subscriptionId: existingSubscription.id,
+                reason: cancellationReason,
+                paidThroughDate,
+              },
+              created_at: new Date().toISOString(),
+            });
+          } catch (logError) {
+            console.warn("[Membership Action] Failed to write member_cancel_requested log", logError);
+          }
         }
 
         const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
 
-        await applyCancellationToLedger({
-          memberId: String(parsedMemberId),
-          cancellationDate: formatLocalDate(member?.cancellation_date || new Date()),
-          cancellationReason,
-          createReversalForPaid: true,
-        });
+        if (immediateCancel) {
+          await applyCancellationToLedger({
+            memberId: String(parsedMemberId),
+            cancellationDate: formatLocalDate(member?.cancellation_date || new Date()),
+            cancellationReason,
+            createReversalForPaid: true,
+          });
+        }
 
         return res.json({
           success: true,
           action: normalizedAction,
-          message: "Membership cancelled successfully",
+          message: immediateCancel
+            ? "Membership cancelled immediately"
+            : "Membership cancellation scheduled for end of paid period",
           member,
           subscription,
           enrollment,
@@ -3665,13 +3776,27 @@ router.patch(
         });
 
         let subscription = existingSubscription;
-        if (existingSubscription && existingSubscription.status === "cancelled") {
-          subscription = await storage.updateSubscription(existingSubscription.id, {
+        if (existingSubscription) {
+          const now = new Date();
+          const subscriptionUpdates: Record<string, any> = {
             status: "active",
             pendingReason: null,
             pendingDetails: null,
-            updatedAt: new Date(),
-          });
+            updatedAt: now,
+            cancellationReason: null,
+            cancelledAt: null,
+          };
+
+          if (existingSubscription.nextBillingDate) {
+            const currentNextBilling = new Date(existingSubscription.nextBillingDate);
+            if (!Number.isNaN(currentNextBilling.getTime()) && currentNextBilling < now) {
+              subscriptionUpdates.nextBillingDate = calculateNextBillingDate(now);
+            }
+          } else {
+            subscriptionUpdates.nextBillingDate = calculateNextBillingDate(now);
+          }
+
+          subscription = await storage.updateSubscription(existingSubscription.id, subscriptionUpdates);
         }
 
         const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
@@ -5472,8 +5597,8 @@ export async function registerRoutes(app: any) {
         daysUntilActive: daysUntilMembershipStarts(enrollmentDate, membershipStartDate)
       });
 
-      // Set members to active immediately for commission/revenue tracking
-      const initialStatus = 'active';
+      // New enrollments remain pending until hosted checkout callback confirms payment.
+      const initialStatus = 'pending_payment';
       console.log("[Registration] Initial member status:", initialStatus);
 
       // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
@@ -5506,8 +5631,8 @@ export async function registerRoutes(app: any) {
         enrollmentDate: enrollmentDate,
         firstPaymentDate: firstPaymentDate,
         membershipStartDate: membershipStartDate,
-        isActive: true, // Active immediately for commission tracking
-        status: 'active', // Active immediately
+        isActive: false,
+        status: initialStatus,
         planId: planId ? parseInt(planId) : null,
         coverageType: coverageType || memberType || "member-only",
         totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
@@ -5580,9 +5705,9 @@ export async function registerRoutes(app: any) {
       console.log("[Commission Check] memberType:", memberType);
       console.log("[Commission Check] totalMonthlyPrice:", totalMonthlyPrice);
       
-      // Commission creation - only requires agent info and coverage type
-      // planId is optional - we can infer plan from totalMonthlyPrice or use default
-      if (agentNumber && enrolledByAgentId && (coverageType || memberType)) {
+      // Commission creation is deferred until payment callback confirms activation.
+      // Keep this path disabled to avoid pre-payment commission creation.
+      if (false && agentNumber && enrolledByAgentId && (coverageType || memberType)) {
         try {
           console.log("[Registration] Creating commission for agent:", agentNumber);
           
@@ -6021,7 +6146,8 @@ export async function registerRoutes(app: any) {
         planStartDate: planStartDate || null,
         enrolledByAgentId: req.user.id,
         agentNumber: req.user.agentNumber,
-        isActive: true,
+        isActive: false,
+        status: 'pending_payment',
         emailVerified: false,
         // Confirmation page fields
         planId: planId ? parseInt(planId) : null,
@@ -6054,28 +6180,9 @@ export async function registerRoutes(app: any) {
         }
       }
 
-      // Create commission for agent
+      // Commission creation is deferred until payment callback confirms activation.
       if (subscription && subscription.id) {
-        try {
-          console.log("[Agent Enrollment] Creating commission for agent:", req.user.agentNumber);
-          
-          const commissionResult = await createCommissionWithCheck(
-            req.user.id,       // Agent who enrolled them
-            subscription.id,   // Subscription ID
-            member.id,         // Member ID (from members table)
-            planName || 'MyPremierPlan',
-            coverageType || 'Individual'
-          );
-
-          if (commissionResult.success) {
-            console.log("[Agent Enrollment] Commission created:", commissionResult.commission.id);
-          } else {
-            console.warn("[Agent Enrollment] Commission not created:", commissionResult.reason);
-          }
-        } catch (commError) {
-          console.error("[Agent Enrollment] Error creating commission:", commError);
-          // Continue even if commission fails
-        }
+        console.log("[Agent Enrollment] Commission creation deferred until payment callback confirms activation");
       }
 
       // Add family members if provided
@@ -8042,6 +8149,18 @@ export async function registerRoutes(app: any) {
       const { userId } = req.params;
       const { reason } = req.body;
 
+      const userSubscriptions = await storage.getUserSubscriptions(userId);
+      for (const subscription of userSubscriptions) {
+        if (subscription.status === 'active') {
+          await storage.updateSubscription(subscription.id, {
+            status: 'suspended',
+            pendingReason: 'admin_suspended',
+            pendingDetails: reason || 'Account suspended by administrator',
+            updatedAt: new Date(),
+          });
+        }
+      }
+
       const updatedUser = await storage.updateUser(userId, {
         isActive: false,
         approvalStatus: 'suspended',
@@ -8063,6 +8182,7 @@ export async function registerRoutes(app: any) {
       }
 
       const { userId } = req.params;
+      const { reactivateSubscriptions } = req.body;
 
       const updatedUser = await storage.updateUser(userId, {
         isActive: true,
@@ -8072,6 +8192,20 @@ export async function registerRoutes(app: any) {
         rejectionReason: null,
         updatedAt: new Date(),
       });
+
+      if (reactivateSubscriptions) {
+        const userSubscriptions = await storage.getUserSubscriptions(userId);
+        for (const subscription of userSubscriptions) {
+          if (subscription.status === 'suspended') {
+            await storage.updateSubscription(subscription.id, {
+              status: 'active',
+              pendingReason: null,
+              pendingDetails: null,
+              updatedAt: new Date(),
+            });
+          }
+        }
+      }
 
       res.json(updatedUser);
     } catch (error: any) {

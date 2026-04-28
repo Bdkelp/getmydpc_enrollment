@@ -2930,6 +2930,128 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
       const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
 
+      const existingHostedCallbackMetadata = paymentRecordForLogging
+        ? parsePaymentMetadata(paymentRecordForLogging.metadata)?.hostedCallback
+        : null;
+      const callbackAlreadyProcessed = Boolean(
+        paymentRecordForLogging
+          && String(paymentRecordForLogging.status || '').toLowerCase() === 'succeeded'
+          && existingHostedCallbackMetadata?.updatedAt
+      );
+
+      if (callbackAlreadyProcessed) {
+        logEPX({
+          level: 'info',
+          phase: 'callback',
+          message: 'Duplicate hosted callback received; returning idempotent no-op',
+          data: {
+            paymentId: paymentRecordForLogging?.id,
+            transactionId: epxTransactionId || fallbackOrderNumber || result.transactionId || null,
+            memberId: paymentRecordForLogging?.member_id || null,
+          }
+        });
+
+        return res.json({
+          success: true,
+          noOp: true,
+          message: 'Callback already processed',
+          transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      if (!groupPaymentContext) {
+        const validationErrors: string[] = [];
+        const callbackAmount = typeof result.amount === 'number'
+          ? result.amount
+          : (result.amount ? parseFloat(String(result.amount)) : NaN);
+        const recordedAmount = paymentRecordForLogging?.amount !== undefined && paymentRecordForLogging?.amount !== null
+          ? parseFloat(String(paymentRecordForLogging.amount))
+          : NaN;
+        const hasReference = Boolean(authGuid || epxTransactionId || fallbackOrderNumber || result.transactionId);
+        const callbackMemberId = paymentRecordForLogging?.member_id ? Number(paymentRecordForLogging.member_id) : NaN;
+
+        if (!hasReference) {
+          validationErrors.push('Missing payment reference (AUTH_GUID/transaction/order number)');
+        }
+
+        if (!Number.isFinite(callbackMemberId) || callbackMemberId <= 0) {
+          validationErrors.push('Payment record missing member linkage');
+        }
+
+        if (Number.isFinite(callbackAmount) && Number.isFinite(recordedAmount)) {
+          const amountDelta = Math.abs(callbackAmount - recordedAmount);
+          if (amountDelta > 0.01) {
+            validationErrors.push(`Callback amount mismatch (callback=${callbackAmount}, recorded=${recordedAmount})`);
+          }
+        }
+
+        const callbackSubscriptionId = paymentRecordForLogging?.subscription_id
+          ? Number(paymentRecordForLogging.subscription_id)
+          : NaN;
+        if (Number.isFinite(callbackSubscriptionId) && callbackSubscriptionId > 0 && Number.isFinite(callbackMemberId)) {
+          const { data: subscriptionRow, error: subscriptionLookupError } = await supabase
+            .from('subscriptions')
+            .select('id, member_id')
+            .eq('id', callbackSubscriptionId)
+            .single();
+
+          if (subscriptionLookupError || !subscriptionRow) {
+            validationErrors.push('Unable to resolve subscription linked to callback payment');
+          } else if (Number(subscriptionRow.member_id) !== callbackMemberId) {
+            validationErrors.push('Subscription/member mismatch on callback payment linkage');
+          }
+        }
+
+        if (validationErrors.length > 0) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Hosted callback failed activation validation checks',
+            data: {
+              paymentId: paymentRecordForLogging?.id || null,
+              memberId: paymentRecordForLogging?.member_id || null,
+              subscriptionId: paymentRecordForLogging?.subscription_id || null,
+              validationErrors,
+            }
+          });
+
+          try {
+            await storage.createAdminNotification({
+              type: 'activation_validation_failed',
+              memberId: Number.isFinite(callbackMemberId) ? callbackMemberId : undefined,
+              subscriptionId: Number.isFinite(callbackSubscriptionId) ? callbackSubscriptionId : undefined,
+              metadata: {
+                source: 'epx_callback',
+                paymentId: paymentRecordForLogging?.id || null,
+                transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber || null,
+                validationErrors,
+                callbackStatus: req.body?.status || null,
+                callbackAmount: Number.isFinite(callbackAmount) ? callbackAmount : null,
+                recordedAmount: Number.isFinite(recordedAmount) ? recordedAmount : null,
+              }
+            });
+          } catch (reviewNotificationError: any) {
+            logEPX({
+              level: 'warn',
+              phase: 'callback',
+              message: 'Failed creating activation validation failure admin notification',
+              data: { error: reviewNotificationError?.message }
+            });
+          }
+
+          return res.json({
+            success: true,
+            approved: true,
+            requiresReview: true,
+            activated: false,
+            message: 'Payment approved but activation validation failed; flagged for review',
+            transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
       if (groupPaymentContext && paymentRecordForLogging) {
         try {
           await upsertGroupCardProfileFromCallback(groupPaymentContext.groupId, req.body || {});
@@ -3177,14 +3299,46 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         logEPX({ level: 'warn', phase: 'callback', message: 'Hosted callback missing AUTH_GUID', data: { transactionId: result.transactionId } });
       }
 
+      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
+        try {
+          const paymentCapturedAt = new Date().toISOString();
+          await storage.updateMember(Number(paymentRecordForLogging.member_id), {
+            status: 'active',
+            isActive: true,
+            firstPaymentDate: paymentCapturedAt,
+          });
+
+          await storage.createAdminNotification({
+            type: 'auto_activation',
+            memberId: Number(paymentRecordForLogging.member_id),
+            subscriptionId: paymentRecordForLogging.subscription_id ? Number(paymentRecordForLogging.subscription_id) : null,
+            metadata: {
+              action: 'auto_activation',
+              source: 'epx_callback',
+              paymentId: paymentRecordForLogging.id,
+              transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber || null,
+              amount: result.amount,
+              activatedAt: paymentCapturedAt,
+            },
+          });
+        } catch (activationError: any) {
+          logEPX({
+            level: 'error',
+            phase: 'callback',
+            message: 'Failed auto-activating member after approved callback',
+            data: {
+              error: activationError?.message,
+              memberId: paymentRecordForLogging?.member_id,
+            }
+          });
+        }
+      }
+
       if (result.bricToken && paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
           await storage.updateMember(Number(paymentRecordForLogging.member_id), {
             paymentToken: result.bricToken,
             paymentMethodType: callbackPaymentMethodType,
-            status: 'active',
-            isActive: true,
-            firstPaymentDate: new Date().toISOString()
           });
 
           await storage.upsertMemberPaymentToken({

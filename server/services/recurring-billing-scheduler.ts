@@ -40,6 +40,7 @@ const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisor
 const STALE_PENDING_THRESHOLD_MINUTES = 30;
 const DEFAULT_DECLINE_RETRY_DAYS = 2;
 const SOFT_DECLINE_RETRY_DAYS = 1;
+const DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES = 3;
 
 type SchedulerMode = 'DRY RUN' | 'LIVE';
 type SchedulerCycleSource = 'automatic' | 'manual';
@@ -641,6 +642,145 @@ function computeNextRetryDate(days: number): string {
   return now.toISOString();
 }
 
+function getSuspendAfterConsecutiveFailures(): number {
+  const raw = Number.parseInt(
+    process.env.RECURRING_BILLING_SUSPEND_AFTER_CONSECUTIVE_FAILURES ||
+      String(DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES),
+    10,
+  );
+  if (!Number.isFinite(raw)) {
+    return DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES;
+  }
+  return Math.max(1, raw);
+}
+
+async function getConsecutiveRecurringFailureCount(subscriptionId: number): Promise<number> {
+  const { data, error } = await supabase
+    .from('recurring_billing_log')
+    .select('status')
+    .eq('subscription_id', subscriptionId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(20);
+
+  if (error || !data || data.length === 0) {
+    return 0;
+  }
+
+  let failures = 0;
+  for (const row of data) {
+    const status = String(row.status || '').trim().toLowerCase();
+    if (status === 'failed') {
+      failures += 1;
+      continue;
+    }
+
+    if (status === 'success' || status === 'ach_test_success') {
+      break;
+    }
+  }
+
+  return failures;
+}
+
+async function applyRecurringFailureSuspensionPolicy(options: {
+  subscriptionId: number;
+  memberId: number;
+  paymentMethodType: 'CreditCard' | 'ACH' | 'UNKNOWN';
+  errorMessage: string;
+  responseCode?: string | null;
+  payerType: 'member' | 'group';
+  payerAccountId: string;
+  payerDisplayName: string;
+  amount: string;
+}): Promise<void> {
+  const threshold = getSuspendAfterConsecutiveFailures();
+  const consecutiveFailures = await getConsecutiveRecurringFailureCount(options.subscriptionId);
+  if (consecutiveFailures < threshold) {
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const details = `Auto-suspended after ${consecutiveFailures} consecutive recurring billing failures.`;
+
+  const { data: updatedSubscriptions, error: subscriptionError } = await supabase
+    .from('subscriptions')
+    .update({
+      status: 'suspended',
+      pending_reason: 'payment_delinquent',
+      pending_details: details,
+      updated_at: nowIso,
+    })
+    .eq('id', options.subscriptionId)
+    .eq('status', 'active')
+    .select('id');
+
+  if (subscriptionError) {
+    console.error(`${LOG_PREFIX} Failed applying suspension policy for subscription ${options.subscriptionId}`, subscriptionError);
+    return;
+  }
+
+  if (!updatedSubscriptions || updatedSubscriptions.length === 0) {
+    return;
+  }
+
+  const { error: memberError } = await supabase
+    .from('members')
+    .update({
+      status: 'suspended',
+      is_active: false,
+      updated_at: nowIso,
+    })
+    .eq('id', options.memberId)
+    .neq('status', 'cancelled');
+
+  if (memberError) {
+    console.warn(`${LOG_PREFIX} Subscription suspended but failed to update member ${options.memberId}:`, memberError.message);
+  }
+
+  await createRecurringFailureAdminNotification({
+    subscriptionId: options.subscriptionId,
+    memberId: options.memberId,
+    paymentMethodType: options.paymentMethodType,
+    responseCode: options.responseCode || null,
+    errorMessage: `${details} Latest error: ${options.errorMessage}`,
+    nextRetryDate: nowIso,
+    payerType: options.payerType,
+    payerAccountId: options.payerAccountId,
+    payerDisplayName: options.payerDisplayName,
+    amount: options.amount,
+  });
+
+  try {
+    await createAdminNotification({
+      type: 'recurring_membership_suspended',
+      memberId: options.memberId,
+      subscriptionId: options.subscriptionId,
+      errorMessage: `${details} Latest error: ${options.errorMessage}`,
+      metadata: {
+        source: 'recurring_scheduler',
+        suspensionReason: 'payment_delinquent',
+        consecutiveFailures,
+        threshold,
+        responseCode: options.responseCode || null,
+        payerType: options.payerType,
+        payerAccountId: options.payerAccountId,
+        payerDisplayName: options.payerDisplayName,
+        amount: options.amount,
+      },
+    });
+  } catch (notificationError: any) {
+    console.warn(
+      `${LOG_PREFIX} Failed to create recurring_membership_suspended notification for subscription ${options.subscriptionId}:`,
+      notificationError?.message || notificationError,
+    );
+  }
+
+  console.warn(
+    `${LOG_PREFIX} Auto-suspended subscription ${options.subscriptionId} after ${consecutiveFailures} consecutive failures`,
+  );
+}
+
 async function createRecurringFailureAdminNotification(options: {
   subscriptionId: number;
   memberId: number;
@@ -737,6 +877,87 @@ function resolveRecurringCardAuthGuid(sub: BillableSubscription):
   }
 }
 
+async function finalizeScheduledMemberCancellations() {
+  const nowIso = new Date().toISOString();
+  const { data: dueCancellations, error } = await supabase
+    .from('subscriptions')
+    .select('id, member_id, end_date, pending_reason, status')
+    .eq('status', 'active')
+    .eq('pending_reason', 'member_cancelled')
+    .not('end_date', 'is', null)
+    .lte('end_date', nowIso);
+
+  if (error) {
+    console.error(`${LOG_PREFIX} Failed to fetch scheduled cancellations for finalization`, error);
+    return { finalizedCount: 0, erroredCount: 1 };
+  }
+
+  if (!dueCancellations || dueCancellations.length === 0) {
+    return { finalizedCount: 0, erroredCount: 0 };
+  }
+
+  let finalizedCount = 0;
+  let erroredCount = 0;
+
+  for (const row of dueCancellations) {
+    try {
+      const timestamp = new Date().toISOString();
+      const { error: subscriptionUpdateError } = await supabase
+        .from('subscriptions')
+        .update({
+          status: 'cancelled',
+          cancelled_at: timestamp,
+          updated_at: timestamp,
+          pending_reason: null,
+          pending_details: null,
+        })
+        .eq('id', row.id);
+
+      if (subscriptionUpdateError) {
+        throw subscriptionUpdateError;
+      }
+
+      if (row.member_id) {
+        const { error: memberUpdateError } = await supabase
+          .from('members')
+          .update({
+            status: 'cancelled',
+            is_active: false,
+            cancellation_date: timestamp,
+            updated_at: timestamp,
+          })
+          .eq('id', row.member_id);
+
+        if (memberUpdateError) {
+          throw memberUpdateError;
+        }
+      }
+
+      await createAdminNotification(
+        'member_cancellation_finalized',
+        'Membership cancellation finalized at end of paid period',
+        {
+          subscriptionId: row.id,
+          memberId: row.member_id,
+          paidThroughDate: row.end_date,
+          finalizedAt: timestamp,
+        }
+      );
+
+      finalizedCount++;
+    } catch (finalizeError) {
+      erroredCount++;
+      console.error(`${LOG_PREFIX} Failed to finalize scheduled cancellation`, {
+        subscriptionId: row.id,
+        memberId: row.member_id,
+        error: finalizeError,
+      });
+    }
+  }
+
+  return { finalizedCount, erroredCount };
+}
+
 // ────────────────────────────────────────
 // Core billing cycle
 // ────────────────────────────────────────
@@ -805,7 +1026,15 @@ async function runBillingCycle(options?: {
   let dueCount = 0;
 
   try {
-    // 2. Verify and resolve stale 'pending' entries
+    // 2. Finalize scheduled cancellations that reached end-of-paid-period.
+    if (!dryRun) {
+      const cancellationFinalizationResult = await finalizeScheduledMemberCancellations();
+      if (cancellationFinalizationResult.finalizedCount > 0 || cancellationFinalizationResult.erroredCount > 0) {
+        console.log(`${LOG_PREFIX} Scheduled cancellation finalization`, cancellationFinalizationResult);
+      }
+    }
+
+    // 3. Verify and resolve stale 'pending' entries
     const staleLogs = await getStalePendingBillingLogs(STALE_PENDING_THRESHOLD_MINUTES);
     for (const stale of staleLogs) {
       // Check whether the payment actually succeeded (EPX may have responded after crash)
@@ -843,7 +1072,7 @@ async function runBillingCycle(options?: {
       }
     }
 
-    // 3. Query due subscriptions (single query, ACH inclusion hard-gated)
+    // 4. Query due subscriptions (single query, ACH inclusion hard-gated)
     const now = new Date();
     const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
       includeACH: achEnabled,
@@ -1164,6 +1393,17 @@ async function processSubscription(
         payerDisplayName: payerContext.payerDisplayName,
         amount: sub.amount,
       });
+      await applyRecurringFailureSuspensionPolicy({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        paymentMethodType: methodType,
+        errorMessage: cardAuthGuidResult.error,
+        responseCode: null,
+        payerType: payerContext.payerType,
+        payerAccountId: payerContext.payerAccountId,
+        payerDisplayName: payerContext.payerDisplayName,
+        amount: sub.amount,
+      });
       appendChargeAttempt({
         ...buildAttemptDiagBase(),
         paymentMethodType: methodType,
@@ -1201,6 +1441,17 @@ async function processSubscription(
       paymentMethodType: methodType,
       errorMessage: achRuntimeData.error,
       nextRetryDate,
+      payerType: payerContext.payerType,
+      payerAccountId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+    });
+    await applyRecurringFailureSuspensionPolicy({
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      paymentMethodType: methodType,
+      errorMessage: achRuntimeData.error,
+      responseCode: null,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
       payerDisplayName: payerContext.payerDisplayName,
@@ -1376,6 +1627,17 @@ async function processSubscription(
           payerDisplayName: payerContext.payerDisplayName,
           amount: sub.amount,
         });
+        await applyRecurringFailureSuspensionPolicy({
+          subscriptionId: sub.subscriptionId,
+          memberId: sub.memberId,
+          paymentMethodType: methodType,
+          errorMessage: persistenceResult.failureReason || 'Post-success persistence failed',
+          responseCode: result.responseFields?.AUTH_RESP || null,
+          payerType: payerContext.payerType,
+          payerAccountId: payerContext.payerAccountId,
+          payerDisplayName: payerContext.payerDisplayName,
+          amount: sub.amount,
+        });
 
         console.error(
           `${LOG_PREFIX} ❌ Controlled persistence failure for subscription ${sub.subscriptionId}: ` +
@@ -1446,6 +1708,17 @@ async function processSubscription(
         payerDisplayName: payerContext.payerDisplayName,
         amount: sub.amount,
       });
+      await applyRecurringFailureSuspensionPolicy({
+        subscriptionId: sub.subscriptionId,
+        memberId: sub.memberId,
+        paymentMethodType: methodType,
+        errorMessage: failureResponseMessage || 'EPX declined',
+        responseCode: result.responseFields?.AUTH_RESP || null,
+        payerType: payerContext.payerType,
+        payerAccountId: payerContext.payerAccountId,
+        payerDisplayName: payerContext.payerDisplayName,
+        amount: sub.amount,
+      });
 
       console.warn(
         `${LOG_PREFIX} ❌ Declined subscription ${sub.subscriptionId} — ` +
@@ -1476,6 +1749,17 @@ async function processSubscription(
       paymentMethodType: methodType,
       errorMessage: epxError.message || 'Unexpected error during EPX call',
       nextRetryDate,
+      payerType: payerContext.payerType,
+      payerAccountId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+    });
+    await applyRecurringFailureSuspensionPolicy({
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      paymentMethodType: methodType,
+      errorMessage: epxError.message || 'Unexpected error during EPX call',
+      responseCode: null,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
       payerDisplayName: payerContext.payerDisplayName,

@@ -36,6 +36,8 @@
     "fix:agent-duplicates": "tsx server/scripts/fix-agent-number-duplicates.ts",
     "backfill:dependent-census": "node server/scripts/backfill-dependent-census-fields.mjs",
     "backfill:member-only-plans": "node scripts/backfill-member-only-plan-selections.mjs --apply",
+    "backfill:lifecycle:dry-run": "node scripts/backfill-membership-lifecycle-dry-run.mjs",
+    "backfill:lifecycle:apply": "node scripts/backfill-membership-lifecycle-apply.mjs --apply",
     "backfill:pending-subscriptions": "node scripts/reconcile-paid-pending-subscriptions.mjs",
     "repair:group-member-linking": "node scripts/repair-group-member-linking.mjs",
     "reconcile:pending-subscriptions": "node scripts/reconcile-paid-pending-subscriptions.mjs",

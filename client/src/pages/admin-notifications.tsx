@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -51,11 +52,36 @@ interface AdminNotification {
   member_customer_number?: string;
 }
 
+interface GroupLifecycleEvent {
+  id: number;
+  type: string;
+  memberId?: number | null;
+  subscriptionId?: number | null;
+  summary?: string | null;
+  metadata?: Record<string, any> | null;
+  resolved: boolean;
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
+  createdAt: string;
+}
+
 export default function AdminNotifications() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'resolved'>('unresolved');
+  const [lifecycleGroupId, setLifecycleGroupId] = useState('');
+  const [lifecycleMemberId, setLifecycleMemberId] = useState('');
+  const [lifecycleGroupMemberId, setLifecycleGroupMemberId] = useState('');
+  const [lifecycleSource, setLifecycleSource] = useState('');
+
+  const lifecycleQueryString = new URLSearchParams({
+    limit: '50',
+    ...(lifecycleGroupId.trim() ? { groupId: lifecycleGroupId.trim() } : {}),
+    ...(lifecycleMemberId.trim() ? { memberId: lifecycleMemberId.trim() } : {}),
+    ...(lifecycleGroupMemberId.trim() ? { groupMemberId: lifecycleGroupMemberId.trim() } : {}),
+    ...(lifecycleSource.trim() ? { source: lifecycleSource.trim() } : {}),
+  }).toString();
 
   const { data: response, isLoading } = useQuery<{ success: boolean; notifications: AdminNotification[]; total: number }>({
     queryKey: ['/api/admin/notifications', filter],
@@ -72,6 +98,17 @@ export default function AdminNotifications() {
   });
 
   const notifications = response?.notifications || [];
+
+  const { data: lifecycleResponse, isLoading: lifecycleLoading, refetch: refetchLifecycle } = useQuery<{ data: GroupLifecycleEvent[]; pagination?: { total?: number } }>({
+    queryKey: ['/api/admin/group-member-lifecycle-events', lifecycleQueryString],
+    queryFn: async () => {
+      return await apiRequest(`/api/admin/group-member-lifecycle-events?${lifecycleQueryString}`, {
+        method: 'GET'
+      });
+    }
+  });
+
+  const lifecycleEvents = Array.isArray(lifecycleResponse?.data) ? lifecycleResponse.data : [];
 
   const resolveNotificationMutation = useMutation({
     mutationFn: async (notificationId: number) => {
@@ -364,6 +401,118 @@ export default function AdminNotifications() {
                 })}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>Group Member Lifecycle Audit Events</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Tracks linked membership actions for group member status transitions
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => refetchLifecycle()}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Refresh
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-4">
+            <Input
+              placeholder="Filter by Group ID"
+              value={lifecycleGroupId}
+              onChange={(e) => setLifecycleGroupId(e.target.value)}
+            />
+            <Input
+              placeholder="Filter by Linked Member ID"
+              value={lifecycleMemberId}
+              onChange={(e) => setLifecycleMemberId(e.target.value)}
+            />
+            <Input
+              placeholder="Filter by Group Member ID"
+              value={lifecycleGroupMemberId}
+              onChange={(e) => setLifecycleGroupMemberId(e.target.value)}
+            />
+            <Input
+              placeholder="Filter by Source"
+              value={lifecycleSource}
+              onChange={(e) => setLifecycleSource(e.target.value)}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {lifecycleLoading ? (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner />
+            </div>
+          ) : lifecycleEvents.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground">
+              No lifecycle events match the current filters.
+            </div>
+          ) : (
+            <>
+              <div className="text-xs text-muted-foreground mb-3">
+                Showing {lifecycleEvents.length} of {lifecycleResponse?.pagination?.total ?? lifecycleEvents.length} events
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Group</TableHead>
+                    <TableHead>Member Link</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Outcome</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lifecycleEvents.map((event) => {
+                    const metadata = event.metadata || {};
+                    const lifecycleResult = metadata.lifecycleResult || {};
+                    const outcome = lifecycleResult.transition
+                      ? lifecycleResult.transition
+                      : (lifecycleResult.reason || 'evaluated');
+
+                    return (
+                      <TableRow key={event.id}>
+                        <TableCell>
+                          <div className="text-sm">
+                            {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div className="font-medium">{metadata.groupId || '—'}</div>
+                            <div className="text-xs text-muted-foreground">Group Member #{metadata.groupMemberId ?? '—'}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div>Linked Member #{event.memberId ?? metadata.linkedMemberId ?? '—'}</div>
+                            <div className="text-xs text-muted-foreground">Subscription #{event.subscriptionId ?? lifecycleResult.subscriptionId ?? '—'}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{metadata.source || 'unknown'}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div className="font-medium">{outcome}</div>
+                            {lifecycleResult.paidThroughDate && (
+                              <div className="text-xs text-muted-foreground">Paid through: {lifecycleResult.paidThroughDate}</div>
+                            )}
+                            {event.summary && (
+                              <div className="text-xs text-muted-foreground line-clamp-2">{event.summary}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </>
           )}
         </CardContent>
       </Card>

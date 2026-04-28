@@ -322,6 +322,9 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
     enrolledBy: row.agent_number || null,
     enrolledByAgentId: row.enrolled_by_agent_id,
     subscriptionId: row.subscription_id || null,
+    subscriptionStatus: row.subscription_status || null,
+    nextBillingDate: row.next_billing_date || null,
+    subscriptionEndDate: row.subscription_end_date || null,
     familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
   };
   
@@ -340,9 +343,26 @@ export async function getEnrollmentDetails(enrollmentId: number) {
   }
 
   const memberResult = await query(
-    `SELECT m.*, p.name AS plan_name, p.price AS plan_price
+    `SELECT
+      m.*,
+      p.name AS plan_name,
+      p.price AS plan_price,
+      sub.id AS subscription_id,
+      sub.status AS subscription_status,
+      sub.next_billing_date,
+      sub.end_date AS subscription_end_date
      FROM members m
      LEFT JOIN plans p ON p.id = m.plan_id
+     LEFT JOIN LATERAL (
+       SELECT s.id, s.status, s.next_billing_date, s.end_date
+       FROM subscriptions s
+       WHERE s.member_id = m.id
+       ORDER BY
+         CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+         COALESCE(s.updated_at, s.created_at) DESC,
+         s.id DESC
+       LIMIT 1
+     ) sub ON true
      WHERE m.id = $1
      LIMIT 1`,
     [enrollmentId],
@@ -5580,6 +5600,7 @@ export async function getSubscriptionsDueForBilling(
         AND s.member_id IS NOT NULL
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= $1::timestamptz
+        AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND (retry_gate.next_retry_date IS NULL OR retry_gate.next_retry_date <= $1::timestamptz)
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
