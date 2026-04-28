@@ -740,6 +740,59 @@ export async function analyzeBackfillState(supabase) {
   report.dryRunSummary.commissionRecordsMissingForSuccessfulPayments += report.proposedChanges.commissionBackfills.length;
   report.dryRunSummary.recordsRequiringManualReview = report.manualReview.length;
 
+  // --- Phase 5: Scheduled plan change audit ---
+  const pendingPlanChanges = subscriptions.filter((s) => s.pending_reason === 'plan_change');
+  const pendingPlanChangeSummary = [];
+
+  for (const sub of pendingPlanChanges) {
+    let details = {};
+    try {
+      details = typeof sub.pending_details === 'string'
+        ? JSON.parse(sub.pending_details)
+        : (sub.pending_details ?? {});
+    } catch { /* ignore */ }
+
+    const effectiveDate = details.effective_date || null;
+    const isPastDue = effectiveDate && effectiveDate <= now.toISOString().slice(0, 10);
+    const isMissingEffectiveDate = !effectiveDate;
+
+    pendingPlanChangeSummary.push({
+      subscriptionId: sub.id,
+      memberId: sub.member_id,
+      pendingType: details.type || 'unknown',
+      currentPlanId: details.current_plan_id ?? sub.plan_id,
+      newPlanId: details.new_plan_id,
+      currentAmount: details.current_amount,
+      newAmount: details.new_amount,
+      effectiveDate,
+      isMissingEffectiveDate,
+      isPastDue,
+      note: isMissingEffectiveDate
+        ? 'MANUAL REVIEW: pending plan change is missing effective_date'
+        : isPastDue
+          ? 'MANUAL REVIEW: pending plan change effective_date is in the past and was not finalized'
+          : 'Pending — will finalize on effective_date',
+    });
+
+    if (isMissingEffectiveDate || isPastDue) {
+      report.manualReview.push({
+        type: isMissingEffectiveDate ? 'plan_change_missing_effective_date' : 'plan_change_past_due_not_finalized',
+        memberId: sub.member_id,
+        subscriptionId: sub.id,
+        details: { effectiveDate, details },
+        note: `Subscription ${sub.id} has pending_reason='plan_change' with ${isMissingEffectiveDate ? 'missing' : 'past-due'} effective_date. Manual review required.`,
+      });
+    }
+  }
+
+  report.scheduledPlanChanges = {
+    total: pendingPlanChanges.length,
+    pastDue: pendingPlanChangeSummary.filter((r) => r.isPastDue).length,
+    missingEffectiveDate: pendingPlanChangeSummary.filter((r) => r.isMissingEffectiveDate).length,
+    rows: pendingPlanChangeSummary,
+  };
+  report.dryRunSummary.recordsRequiringManualReview = report.manualReview.length;
+
   return report;
 }
 

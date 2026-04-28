@@ -325,6 +325,12 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
     subscriptionStatus: row.subscription_status || null,
     nextBillingDate: row.next_billing_date || null,
     subscriptionEndDate: row.subscription_end_date || null,
+    subscriptionPendingReason: (row as any).subscription_pending_reason || null,
+    subscriptionPendingDetails: (() => {
+      const raw = (row as any).subscription_pending_details;
+      if (!raw) return null;
+      try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return raw; }
+    })(),
     familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
   };
   
@@ -350,11 +356,13 @@ export async function getEnrollmentDetails(enrollmentId: number) {
       sub.id AS subscription_id,
       sub.status AS subscription_status,
       sub.next_billing_date,
-      sub.end_date AS subscription_end_date
+      sub.end_date AS subscription_end_date,
+      sub.pending_reason AS subscription_pending_reason,
+      sub.pending_details AS subscription_pending_details
      FROM members m
      LEFT JOIN plans p ON p.id = m.plan_id
      LEFT JOIN LATERAL (
-       SELECT s.id, s.status, s.next_billing_date, s.end_date
+       SELECT s.id, s.status, s.next_billing_date, s.end_date, s.pending_reason, s.pending_details
        FROM subscriptions s
        WHERE s.member_id = m.id
        ORDER BY

@@ -958,6 +958,139 @@ async function finalizeScheduledMemberCancellations() {
   return { finalizedCount, erroredCount };
 }
 
+/**
+ * Finalize scheduled plan changes whose effective_date <= today.
+ * Runs BEFORE due-billing processing so the correct plan amount is charged.
+ */
+async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number; erroredCount: number }> {
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const { data: pendingChanges, error } = await supabase
+    .from('subscriptions')
+    .select('id, member_id, plan_id, amount, pending_reason, pending_details, next_billing_date')
+    .eq('status', 'active')
+    .eq('pending_reason', 'plan_change');
+
+  if (error) {
+    console.error(`${LOG_PREFIX} Failed to fetch scheduled plan changes`, error);
+    return { finalizedCount: 0, erroredCount: 1 };
+  }
+
+  if (!pendingChanges || pendingChanges.length === 0) {
+    return { finalizedCount: 0, erroredCount: 0 };
+  }
+
+  let finalizedCount = 0;
+  let erroredCount = 0;
+
+  for (const row of pendingChanges) {
+    try {
+      let details: any = {};
+      try {
+        details = typeof row.pending_details === 'string'
+          ? JSON.parse(row.pending_details)
+          : (row.pending_details ?? {});
+      } catch {
+        details = {};
+      }
+
+      const effectiveDate = details.effective_date as string | undefined;
+      if (!effectiveDate || effectiveDate > todayIso) {
+        // Not yet due.
+        continue;
+      }
+
+      const newPlanId = details.new_plan_id;
+      const newAmount = details.new_amount;
+
+      if (!newPlanId || newAmount === undefined || newAmount === null) {
+        console.warn(`${LOG_PREFIX} Scheduled plan change for subscription ${row.id} is missing new_plan_id or new_amount — skipping`);
+        erroredCount++;
+        continue;
+      }
+
+      const timestamp = new Date().toISOString();
+
+      // Apply to subscription.
+      const { error: subUpdateError } = await supabase
+        .from('subscriptions')
+        .update({
+          plan_id: newPlanId,
+          amount: newAmount,
+          pending_reason: null,
+          pending_details: null,
+          updated_at: timestamp,
+        })
+        .eq('id', row.id);
+
+      if (subUpdateError) throw subUpdateError;
+
+      // Apply to member.
+      if (row.member_id) {
+        const { error: memberUpdateError } = await supabase
+          .from('members')
+          .update({
+            plan_id: newPlanId,
+            total_monthly_price: newAmount,
+            updated_at: timestamp,
+          })
+          .eq('id', row.member_id);
+
+        if (memberUpdateError) throw memberUpdateError;
+      }
+
+      // Write admin log.
+      try {
+        await supabase.from('admin_logs').insert({
+          action: 'plan_change_finalized',
+          user_id: details.requested_by || null,
+          metadata: {
+            subscriptionId: row.id,
+            memberId: row.member_id,
+            previousPlanId: details.current_plan_id,
+            newPlanId,
+            previousAmount: details.current_amount,
+            newAmount,
+            effectiveDate,
+            changeType: details.type || 'unknown',
+            finalizedAt: timestamp,
+          },
+          created_at: timestamp,
+        });
+      } catch (logError) {
+        console.warn(`${LOG_PREFIX} Failed to write plan_change_finalized admin log`, logError);
+      }
+
+      await createAdminNotification(
+        'plan_change_finalized',
+        `Scheduled plan ${details.type || 'change'} finalized`,
+        {
+          subscriptionId: row.id,
+          memberId: row.member_id,
+          previousPlanId: details.current_plan_id,
+          newPlanId,
+          previousAmount: details.current_amount,
+          newAmount,
+          effectiveDate,
+          finalizedAt: timestamp,
+        }
+      );
+
+      finalizedCount++;
+    } catch (finalizeError) {
+      erroredCount++;
+      console.error(`${LOG_PREFIX} Failed to finalize scheduled plan change`, {
+        subscriptionId: row.id,
+        memberId: row.member_id,
+        error: finalizeError,
+      });
+    }
+  }
+
+  return { finalizedCount, erroredCount };
+}
+
+
 // ────────────────────────────────────────
 // Core billing cycle
 // ────────────────────────────────────────
@@ -1031,6 +1164,13 @@ async function runBillingCycle(options?: {
       const cancellationFinalizationResult = await finalizeScheduledMemberCancellations();
       if (cancellationFinalizationResult.finalizedCount > 0 || cancellationFinalizationResult.erroredCount > 0) {
         console.log(`${LOG_PREFIX} Scheduled cancellation finalization`, cancellationFinalizationResult);
+      }
+
+      // 2b. Finalize scheduled plan changes whose effective_date <= today.
+      // Must run BEFORE due-billing so the correct plan amount is charged.
+      const planChangeFinalizationResult = await finalizeScheduledPlanChanges();
+      if (planChangeFinalizationResult.finalizedCount > 0 || planChangeFinalizationResult.erroredCount > 0) {
+        console.log(`${LOG_PREFIX} Scheduled plan change finalization`, planChangeFinalizationResult);
       }
     }
 

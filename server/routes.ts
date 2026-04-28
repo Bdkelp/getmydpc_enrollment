@@ -3786,6 +3786,7 @@ router.patch(
             cancellationReason: null,
             cancelledAt: null,
           };
+          // Clear any stale pending plan change — do not auto-reapply on reactivation.
 
           if (existingSubscription.nextBillingDate) {
             const currentNextBilling = new Date(existingSubscription.nextBillingDate);
@@ -3824,6 +3825,15 @@ router.patch(
         });
       }
 
+      // Block plan change if a cancellation is already scheduled.
+      if (existingSubscription?.pendingReason === "member_cancelled") {
+        return res.status(409).json({
+          success: false,
+          message: "Plan cannot be changed while cancellation is scheduled.",
+          pendingReason: existingSubscription.pendingReason,
+        });
+      }
+
       let resolvedPlan: any = null;
       if (parsedPlanId) {
         resolvedPlan = await storage.getPlan(parsedPlanId);
@@ -3836,32 +3846,114 @@ router.patch(
         updatedAt: new Date(),
       };
 
-      if (resolvedPlan) {
-        memberUpdates.planId = resolvedPlan.id;
-        memberUpdates.totalMonthlyPrice = resolvedPlan.price;
-      }
-
       if (normalizedMemberType) {
         memberUpdates.memberType = normalizedMemberType;
       }
 
-      const member = await storage.updateMember(parsedMemberId, memberUpdates);
-
       let subscription = existingSubscription;
-      if (existingSubscription && resolvedPlan) {
-        subscription = await storage.updateSubscription(existingSubscription.id, {
-          planId: resolvedPlan.id,
-          amount: resolvedPlan.price,
-          updatedAt: new Date(),
-        });
+      let resolvedPlanChangeMessage = "Membership updated successfully";
+
+      if (resolvedPlan && existingSubscription) {
+        const currentAmount = Number(existingSubscription.amount ?? 0);
+        const newAmount = Number(resolvedPlan.price ?? 0);
+        const isDowngrade = newAmount < currentAmount;
+        // Scheduled flag: body.scheduled=true forces scheduling for upgrades too.
+        const forceScheduled = req.body.scheduled === true;
+        const shouldSchedule = isDowngrade || forceScheduled;
+
+        if (shouldSchedule) {
+          // Determine effective date = next_billing_date (required)
+          const nextBillingDate = existingSubscription.nextBillingDate
+            ? new Date(existingSubscription.nextBillingDate)
+            : null;
+
+          if (!nextBillingDate || Number.isNaN(nextBillingDate.getTime())) {
+            return res.status(422).json({
+              success: false,
+              message: "Cannot schedule plan change: subscription is missing a valid next_billing_date. Please resolve billing date first.",
+            });
+          }
+
+          const effectiveDateIso = formatLocalDate(nextBillingDate);
+
+          // If a plan change is already pending and effective date hasn't changed, update details only.
+          const pendingDetails = {
+            type: isDowngrade ? "downgrade" : "upgrade",
+            requested_at: new Date().toISOString(),
+            requested_by: req.user.id,
+            requested_by_role: req.user.role,
+            current_plan_id: existingSubscription.planId,
+            new_plan_id: resolvedPlan.id,
+            current_amount: currentAmount,
+            new_amount: newAmount,
+            effective_date: effectiveDateIso,
+          };
+
+          subscription = await storage.updateSubscription(existingSubscription.id, {
+            pendingReason: "plan_change",
+            pendingDetails: JSON.stringify(pendingDetails),
+            updatedAt: new Date(),
+          });
+
+          try {
+            await supabase.from("admin_logs").insert({
+              action: "plan_change_scheduled",
+              user_id: req.user.id,
+              metadata: {
+                memberId: parsedMemberId,
+                subscriptionId: existingSubscription.id,
+                ...pendingDetails,
+              },
+              created_at: new Date().toISOString(),
+            });
+          } catch (logError) {
+            console.warn("[Membership Action] Failed to write plan_change_scheduled log", logError);
+          }
+
+          resolvedPlanChangeMessage = `Plan ${pendingDetails.type} scheduled. New plan takes effect on ${effectiveDateIso}.`;
+        } else {
+          // Immediate plan change (upgrade or explicit immediate).
+          memberUpdates.planId = resolvedPlan.id;
+          memberUpdates.totalMonthlyPrice = resolvedPlan.price;
+
+          subscription = await storage.updateSubscription(existingSubscription.id, {
+            planId: resolvedPlan.id,
+            amount: resolvedPlan.price,
+            // Clear any stale pending plan_change if admin is forcing immediate
+            pendingReason: existingSubscription.pendingReason === "plan_change" ? null : existingSubscription.pendingReason,
+            pendingDetails: existingSubscription.pendingReason === "plan_change" ? null : existingSubscription.pendingDetails,
+            updatedAt: new Date(),
+          });
+
+          try {
+            await supabase.from("admin_logs").insert({
+              action: "plan_change_immediate",
+              user_id: req.user.id,
+              metadata: {
+                memberId: parsedMemberId,
+                subscriptionId: existingSubscription.id,
+                newPlanId: resolvedPlan.id,
+                newAmount: resolvedPlan.price,
+              },
+              created_at: new Date().toISOString(),
+            });
+          } catch (logError) {
+            console.warn("[Membership Action] Failed to write plan_change_immediate log", logError);
+          }
+        }
+      } else if (resolvedPlan) {
+        // No existing subscription — direct member update only.
+        memberUpdates.planId = resolvedPlan.id;
+        memberUpdates.totalMonthlyPrice = resolvedPlan.price;
       }
 
+      const member = await storage.updateMember(parsedMemberId, memberUpdates);
       const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
 
       res.json({
         success: true,
         action: normalizedAction,
-        message: "Membership updated successfully",
+        message: resolvedPlanChangeMessage,
         member,
         subscription,
         plan: resolvedPlan,
