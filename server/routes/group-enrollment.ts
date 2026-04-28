@@ -1323,8 +1323,6 @@ const getCycleKey = (date: Date): string => {
 
 const roundCurrency = (value: number): number => Math.round(value * 100) / 100;
 
-const toIsoDateOnly = (value: Date): string => value.toISOString().slice(0, 10);
-
 const buildSyntheticGroupMemberId = (groupMemberId: number): string => `group_member:${groupMemberId}`;
 
 const parseCycleDate = (value?: string | null): Date => {
