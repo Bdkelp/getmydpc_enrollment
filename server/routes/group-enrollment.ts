@@ -713,7 +713,7 @@ const scheduleLinkedMemberCancellationAtPeriodEnd = async (
   reason: string,
   requestedBy: { id?: string | null; role?: string | null },
 ) => {
-  const subscription = await storage.getUserSubscription(memberId);
+  const subscription = await storage.getSubscriptionByMemberId(memberId);
   if (!subscription || !subscription.nextBillingDate) {
     return {
       scheduled: false,
@@ -783,7 +783,7 @@ const reactivateLinkedMemberLifecycle = async (
 ) => {
   await storage.updateMemberStatus(memberId, 'active', { reason });
 
-  const subscription = await storage.getUserSubscription(memberId);
+  const subscription = await storage.getSubscriptionByMemberId(memberId);
   if (!subscription) {
     return {
       reactivated: true,
