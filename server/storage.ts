@@ -7279,6 +7279,51 @@ export const storage = {
 
   // Stub functions for operations needed by routes (to prevent errors)
   cleanTestData: async () => {},
+  /**
+   * Fetch the most recent active (or any) subscription for a MEMBER by member_id.
+   * Prefers active status; falls back to latest by created_at.
+   */
+  getSubscriptionByMemberId: async (memberId: string | number) => {
+    try {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('member_id', String(memberId))
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('Error fetching subscription by member_id:', error);
+        return null;
+      }
+
+      const rows = data || [];
+      if (!rows.length) return null;
+
+      // Prefer the active subscription, then any latest
+      const active = rows.find((r: any) => r.status === 'active');
+      const raw = active || rows[0];
+
+      return {
+        id: raw.id,
+        memberId: raw.member_id,
+        userId: raw.user_id,
+        planId: raw.plan_id,
+        status: raw.status,
+        pendingReason: raw.pending_reason,
+        pendingDetails: raw.pending_details,
+        startDate: raw.start_date,
+        endDate: raw.end_date,
+        nextBillingDate: raw.next_billing_date,
+        amount: raw.amount,
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at,
+      };
+    } catch (error) {
+      console.error('Unexpected error fetching subscription for member', memberId, ':', error);
+      return null;
+    }
+  },
   getUserSubscription: async (userId: string) => {
     try {
       const { data, error } = await supabase

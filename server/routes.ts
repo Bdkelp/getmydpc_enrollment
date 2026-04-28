@@ -3618,7 +3618,7 @@ router.patch(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const existingSubscription = await storage.getUserSubscription(memberId);
+      const existingSubscription = await storage.getSubscriptionByMemberId(parsedMemberId);
 
       if (normalizedAction === "cancel") {
         const cancellationReason =
