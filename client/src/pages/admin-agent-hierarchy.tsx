@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import AppShell from "@/components/AppShell";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { hasAtLeastRole } from "@/lib/roles";
-import { Users, TrendingUp, DollarSign, Network, ChevronLeft } from "lucide-react";
+import { Users, TrendingUp, DollarSign, Network } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -170,26 +171,8 @@ export default function AdminAgentHierarchy() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                onClick={() => setLocation('/admin')}
-                className="mr-4"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Back to Admin
-              </Button>
-              <h1 className="text-2xl font-bold text-gray-900">Agent Hierarchy Management</h1>
-            </div>
-          </div>
-        </div>
-      </header>
+    <AppShell title="Agent Hierarchy" breadcrumb={["Admin", "Users"]}>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -385,6 +368,6 @@ export default function AdminAgentHierarchy() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }

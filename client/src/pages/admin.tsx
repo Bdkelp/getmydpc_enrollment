@@ -1,4 +1,5 @@
 import { useEffect, useState, ChangeEvent, FormEvent } from "react";
+import AppShell from "@/components/AppShell";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -1256,9 +1257,9 @@ export default function Admin() {
 
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
+    <AppShell title="Admin Dashboard" breadcrumb={["Admin"]}>
+      {/* Navigation Header - replaced by AppShell sidebar */}
+      {false && <div className="hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
@@ -1318,7 +1319,7 @@ export default function Admin() {
             </div>
           </div>
         </div>
-      </div>
+      </div></div>}
 
       {/* Admin Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
@@ -3231,10 +3232,10 @@ export default function Admin() {
         </AlertDialog>
 
       </div>
-    </div>
+    </AppShell>
   );
 
-        {/* Partner Leads */}
+        {/* Partner Leads - dead code below return */}
         <Card className="mb-8 border border-cyan-200 bg-white">
           <CardContent className="p-6 space-y-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

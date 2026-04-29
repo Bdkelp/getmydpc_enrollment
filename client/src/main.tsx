@@ -2,7 +2,6 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { HelmetProvider } from 'react-helmet-async'
 import ErrorBoundary from './components/ErrorBoundary'
 import './lib/envCheck'
@@ -43,27 +42,16 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 });
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 5 * 60 * 1000, // 5 minutes
-    },
-  },
-})
-
 const container = document.getElementById("root");
 if (!container) throw new Error("Root element not found");
 
 const root = createRoot(container);
 root.render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <HelmetProvider>
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
-      </HelmetProvider>
-    </QueryClientProvider>
+    <HelmetProvider>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </HelmetProvider>
   </React.StrictMode>,
 )

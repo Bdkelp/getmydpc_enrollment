@@ -1,8 +1,9 @@
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, TrendingUp, TrendingDown, Users, DollarSign, UserPlus, UserMinus, Calendar } from "lucide-react";
+import { Download, TrendingUp, TrendingDown, Users, DollarSign, UserPlus, UserMinus, Calendar } from "lucide-react";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -304,84 +305,55 @@ export default function AdminAnalytics() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link href="/admin">
-                <Button variant="ghost" size="sm">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Dashboard
-                </Button>
-              </Link>
-              <div className="flex items-center space-x-2">
-                <TrendingUp className="h-6 w-6 text-blue-600" />
-                <h1 className="text-2xl font-bold text-gray-900">Analytics & Reports</h1>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Select value={timeRange} onValueChange={setTimeRange} name="analyticsTimeRange">
-                <SelectTrigger id="admin-analytics-time-range" className="w-[180px]">
-                  <SelectValue placeholder="Select time range" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">Last 7 days</SelectItem>
-                  <SelectItem value="30">Last 30 days</SelectItem>
-                  <SelectItem value="90">Last 90 days</SelectItem>
-                  <SelectItem value="365">Last year</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="flex items-center space-x-2">
-                <Select value={selectedReport} onValueChange={setSelectedReport} name="analyticsReport">
-                  <SelectTrigger id="admin-analytics-report-select" className="w-[150px]">
-                    <SelectValue placeholder="Select report" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="overview">Overview</SelectItem>
-                    <SelectItem value="members">Members</SelectItem>
-                    <SelectItem value="agents">Agent Performance</SelectItem>
-                    <SelectItem value="commissions">Commissions</SelectItem>
-                    <SelectItem value="revenue">Revenue Details</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={exportFormat} onValueChange={setExportFormat} name="analyticsExportFormat">
-                  <SelectTrigger id="admin-analytics-export-format" className="w-[100px]">
-                    <SelectValue placeholder="Format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="csv">CSV</SelectItem>
-                    <SelectItem value="xlsx">Excel</SelectItem>
-                    <SelectItem value="pdf">PDF</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={exportAnalytics}
-                  disabled={!analytics}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Download
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={isFetching}
-                >
-                  {isFetching ? 'Refreshing...' : 'Refresh'}
-                </Button>
-              </div>
-            </div>
-          </div>
-          <div className="mt-2 text-right text-xs text-gray-500">
-            Last refreshed: {lastRefreshedLabel}
-          </div>
-        </div>
-      </div>
+    <AppShell
+      title="Analytics & Reports"
+      breadcrumb={["Admin"]}
+      actions={
+        <>
+          <Select value={timeRange} onValueChange={setTimeRange} name="analyticsTimeRange">
+            <SelectTrigger id="admin-analytics-time-range" className="w-[150px] h-8 text-sm">
+              <SelectValue placeholder="Time range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="365">Last year</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={selectedReport} onValueChange={setSelectedReport} name="analyticsReport">
+            <SelectTrigger id="admin-analytics-report-select" className="w-[150px] h-8 text-sm">
+              <SelectValue placeholder="Report type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="overview">Overview</SelectItem>
+              <SelectItem value="members">Members</SelectItem>
+              <SelectItem value="agents">Agent Performance</SelectItem>
+              <SelectItem value="commissions">Commissions</SelectItem>
+              <SelectItem value="revenue">Revenue Details</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={exportFormat} onValueChange={setExportFormat} name="analyticsExportFormat">
+            <SelectTrigger id="admin-analytics-export-format" className="w-[90px] h-8 text-sm">
+              <SelectValue placeholder="Format" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="csv">CSV</SelectItem>
+              <SelectItem value="xlsx">Excel</SelectItem>
+              <SelectItem value="pdf">PDF</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={exportAnalytics} disabled={!analytics}>
+            <Download className="h-4 w-4 mr-1" />
+            Export
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isFetching}>
+            {isFetching ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        </>
+      }
+    >
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {isLoading ? (
           <div className="text-center py-8">Loading analytics...</div>
         ) : isError ? (
@@ -898,6 +870,6 @@ export default function AdminAnalytics() {
           </div>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }

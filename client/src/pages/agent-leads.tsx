@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ChevronLeft, Phone, Mail, MessageSquare, Calendar, CheckCircle, XCircle, Plus } from "lucide-react";
+import { Phone, Mail, MessageSquare, Calendar, CheckCircle, XCircle, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Select,
@@ -192,44 +193,33 @@ export default function AgentLeads() {
     : safeLeads.filter(lead => lead && lead.status === statusFilter);
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-6">
+    <AppShell
+      title="Lead Management"
+      breadcrumb={["Agent"]}
+      actions={
         <Button
-          variant="ghost"
-          onClick={() => setLocation("/agent")}
-          className="mb-4"
+          onClick={() => setShowAddLeadDialog(true)}
+          className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
         >
-          <ChevronLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
+          <Plus className="h-4 w-4 mr-2" />
+          Add Lead
         </Button>
-
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Lead Management</h1>
-
-          <div className="flex gap-4">
-            <Button 
-              onClick={() => setShowAddLeadDialog(true)}
-              className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Lead
-            </Button>
-
-            <Select value={statusFilter} onValueChange={setStatusFilter} name="statusFilter">
-              <SelectTrigger id="statusFilter" className="w-[180px]">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Leads</SelectItem>
-                <SelectItem value="new">New</SelectItem>
-                <SelectItem value="contacted">Contacted</SelectItem>
-                <SelectItem value="qualified">Qualified</SelectItem>
-                <SelectItem value="enrolled">Enrolled</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+      }
+    >
+      <div className="mb-4">
+        <Select value={statusFilter} onValueChange={setStatusFilter} name="statusFilter">
+          <SelectTrigger id="statusFilter" className="w-[180px]">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Leads</SelectItem>
+            <SelectItem value="new">New</SelectItem>
+            <SelectItem value="contacted">Contacted</SelectItem>
+            <SelectItem value="qualified">Qualified</SelectItem>
+            <SelectItem value="enrolled">Enrolled</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid gap-4">
@@ -470,6 +460,6 @@ export default function AgentLeads() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }

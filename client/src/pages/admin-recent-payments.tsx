@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -18,8 +19,7 @@ import {
   CheckCircle,
   Clock,
   RefreshCw,
-  Download,
-  ArrowLeft
+  Download
 } from "lucide-react";
 
 interface Payment {
@@ -143,39 +143,23 @@ export default function AdminRecentPayments() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/10">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                className="mr-4"
-                onClick={() => setLocation("/admin/enrollments")}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Payment Tracking</h1>
-                <p className="text-gray-600 mt-1">Monitor all payment transactions</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              <Button onClick={exportPayments}>
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <AppShell
+      title="Payment Tracking"
+      breadcrumb={["Admin", "Payments"]}
+      actions={
+        <>
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button onClick={exportPayments}>
+            <Download className="h-4 w-4 mr-2" />
+            Export
+          </Button>
+        </>
+      }
+    >
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card>
@@ -326,7 +310,6 @@ export default function AdminRecentPayments() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </AppShell>
   );
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,6 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { 
-  ChevronLeft, 
   AlertCircle, 
   CreditCard, 
   RefreshCw, 
@@ -139,34 +139,16 @@ export default function AgentFailedPayments() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setLocation("/agent")}
-          >
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            Back to Dashboard
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Failed Payments</h1>
-            <p className="text-gray-600 mt-1">
-              Manage and retry failed payment transactions for your members
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-        >
+    <AppShell
+      title="Failed Payments"
+      breadcrumb={["Agent"]}
+      actions={
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
-      </div>
+      }
+    >
 
       {/* Summary Card */}
       <Card className="mb-6">
@@ -399,6 +381,6 @@ export default function AgentFailedPayments() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -17,7 +18,6 @@ import {
   Clock,
   Mail,
   Phone,
-  ArrowLeft,
   RefreshCw,
   Download
 } from "lucide-react";
@@ -138,44 +138,25 @@ export default function AdminFailedPayments() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-red-50/10">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                className="mr-4"
-                onClick={() => setLocation("/admin/enrollments")}
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-                  <AlertTriangle className="h-6 w-6 mr-2 text-red-600" />
-                  Failed & Pending Payments
-                </h1>
-                <p className="text-gray-600 mt-1">Payments requiring attention or follow-up</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => refetch()}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              {payments.length > 0 && (
-                <Button onClick={exportFailedPayments}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+    <AppShell
+      title="Failed & Pending Payments"
+      breadcrumb={["Admin", "Payments"]}
+      actions={
+        <>
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          {payments.length > 0 && (
+            <Button onClick={exportFailedPayments}>
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </Button>
+          )}
+        </>
+      }
+    >
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Alert Summary */}
         {payments.length > 0 && (
           <Alert className="mb-6 border-red-200 bg-red-50">
@@ -342,7 +323,6 @@ export default function AdminFailedPayments() {
             )}
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </AppShell>
   );
 }

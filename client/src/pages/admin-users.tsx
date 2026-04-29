@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import AppShell from '@/components/AppShell';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +54,6 @@ async function apiRequest(url: string, options: RequestInit = {}) {
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CardDescription } from "@/components/ui/card";
 import { 
-  ChevronLeft, 
   Search, 
   Users, 
   Shield, 
@@ -861,36 +861,8 @@ export default function AdminUsers() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                onClick={() => setLocation('/admin')}
-                className="mr-4"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Back to Dashboard
-              </Button>
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">User Management</h1>
-                <p className="text-sm text-gray-600">Manage users by role</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Badge variant="outline" className="text-blue-600 border-blue-600">
-                <Users className="h-3 w-3 mr-1" />
-                {safeUsersData.totalCount || 0} Total Users
-              </Badge>
-            </div>
-          </div>
-        </div>
-      </div>
+    <AppShell title="User Management" breadcrumb={["Admin"]}>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card>
@@ -1090,6 +1062,6 @@ export default function AdminUsers() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </AppShell>
   );
 }

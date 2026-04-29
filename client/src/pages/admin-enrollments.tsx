@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react"; // Added React import
+import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,7 +17,6 @@ import {
   Calendar,
   Search,
   Filter,
-  ChevronLeft,
   Plus,
   FileEdit,
   DollarSign,
@@ -1022,45 +1022,27 @@ export default function AdminEnrollments() {
   const safeAgents = Array.isArray(agents) ? agents : [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-              <Button
-                variant="ghost"
-                className="mr-4"
-                onClick={() => setLocation("/admin")}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">
-                    Membership Operations
-                  </h1>
-                  <p className="text-gray-600 mt-1">
-                    People view: manage individual and family records with assignment, payment, and lifecycle status
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <Button onClick={handleNewEnrollment}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Enrollment
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => exportMutation.mutate()}
-                  disabled={exportMutation.isPending}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export All
-                </Button>
-              </div>
-            </div>
-
+    <AppShell
+      title="Membership Operations"
+      breadcrumb={["Admin", "Operations"]}
+      actions={
+        <>
+          <Button onClick={handleNewEnrollment}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Enrollment
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export All
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4 mb-6">
             <div className="w-fit rounded-lg border border-gray-200 p-1 bg-gray-50">
               <div className="flex items-center gap-1">
                 <Button
@@ -1237,11 +1219,8 @@ export default function AdminEnrollments() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {(focusMemberId || focusAlertType) && (
           <Card className="mb-6 border-blue-200 bg-blue-50/60">
             <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1717,7 +1696,6 @@ export default function AdminEnrollments() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </div>
+    </AppShell>
   );
 }

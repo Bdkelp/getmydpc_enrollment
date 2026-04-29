@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AppShell from '@/components/AppShell';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,6 @@ import { supabase } from "@/lib/supabase";
 import { hasAtLeastRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { 
-  ChevronLeft, 
   Plus, 
   Edit, 
   Trash2, 
@@ -266,31 +266,19 @@ export default function AdminDiscountCodes() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              onClick={() => setLocation("/admin")}
-              className="flex items-center gap-2"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Back to Dashboard
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Discount Codes</h1>
-              <p className="text-gray-600 mt-1">Manage enrollment discount codes</p>
-            </div>
-          </div>
-          {isAdminOrAbove && (
-            <Button onClick={() => setShowCreateDialog(true)} className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Create Discount Code
-            </Button>
-          )}
-        </div>
+    <AppShell
+      title="Discount Codes"
+      breadcrumb={["Admin"]}
+      actions={
+        isAdminOrAbove ? (
+          <Button onClick={() => setShowCreateDialog(true)} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Create Discount Code
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="max-w-7xl mx-auto">
 
         {/* Stats Card */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -614,6 +602,6 @@ export default function AdminDiscountCodes() {
           </DialogContent>
         </Dialog>
       </div>
-    </div>
+    </AppShell>
   );
 }

@@ -49,12 +49,10 @@ import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
 import ChangePassword from "@/pages/change-password";
 import PendingApproval from "@/pages/pending-approval";
-import TestAuth from "@/pages/test-auth";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
 import { lazy } from "react";
 import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
 import { hasAtLeastRole } from "@/lib/roles";
-import ColorPaletteTest from "@/pages/ColorPaletteTest";
 import UiPreviewOrganized from "@/pages/ui-preview-organized";
 
 function Router() {
@@ -62,8 +60,6 @@ function Router() {
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const isAgentOrAbove = hasAtLeastRole(user?.role, "agent");
   const defaultAuthRoute = isAdminUser ? "/admin" : isAgentOrAbove ? "/agent" : "/no-access";
-
-  console.log('Router state:', { isAuthenticated, isLoading, user });
 
   // Always show loading when auth state is being determined
   // This prevents the 404 from showing while authentication is loading
@@ -82,7 +78,6 @@ function Router() {
     <Switch>
       {/* Public routes - always accessible */}
       <Route path="/" component={Landing} />
-      <Route path="/color-test" component={ColorPaletteTest} />
       <Route path="/ui-preview" component={UiPreviewOrganized} />
       <Route path="/quiz" component={Quiz} />
       <Route path="/payment/callback" component={PaymentCallback} />
@@ -100,7 +95,6 @@ function Router() {
       <Route path="/change-password" component={ChangePassword} />
       <Route path="/pending-approval" component={PendingApproval} />
       <Route path="/auth/callback" component={AuthCallback} />
-      <Route path="/test-auth" component={TestAuth} />
 
       {/* Protected routes - require authentication */}
       {isAuthenticated && (
@@ -125,18 +119,7 @@ function Router() {
               <Route path="/admin/analytics" component={AdminAnalytics} />
               <Route path="/admin/notifications" component={AdminNotifications} />
               <Route path="/admin/enrollment/:id" component={EnrollmentDetails} />
-              <Route path="/profile" component={Profile} />
               <Route path="/admin/groups" component={GroupEnrollment} />
-              <Route path="/agent" component={AgentDashboard} />
-              <Route path="/agent/leads" component={AgentLeads} />
-              <Route path="/agent/commissions" component={AgentCommissions} />
-              <Route path="/agent/failed-payments" component={AgentFailedPayments} />
-              <Route path="/registration" component={Registration} />
-              <Route path="/payment" component={Payment} />
-              <Route path="/payment/:planId/:userId" component={Payment} />
-              <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
-              <Route path="/confirmation" component={Confirmation} />
-              <Route path="/confirmation/:userId" component={Confirmation} />
             </>
           )}
 

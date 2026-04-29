@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import AppShell from '@/components/AppShell';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
@@ -13,7 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
-import { ChevronLeft, Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
+import { Phone, Mail, Clock, UserCheck, Users, AlertCircle, CheckCircle } from 'lucide-react';
 import { hasAtLeastRole } from "@/lib/roles";
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -343,18 +344,8 @@ export default function AdminLeads() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
+    <AppShell title="Lead Management" breadcrumb={["Admin"]}>
       <div className="mb-6">
-        <Button
-          variant="ghost"
-          onClick={() => setLocation("/admin")}
-          className="mb-4"
-        >
-          <ChevronLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Button>
-
-        <h1 className="text-3xl font-bold mb-6">Lead Management</h1>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -623,6 +614,6 @@ export default function AdminLeads() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }

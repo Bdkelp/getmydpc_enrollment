@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -600,71 +601,28 @@ export default function AgentDashboard() {
     : "Goal targets not configured yet";
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Avatar className="h-8 w-8 mr-3">
-                <AvatarImage 
-                  src={user?.profileImageUrl || getDefaultAvatar(user?.id || '', `${user?.firstName || ''} ${user?.lastName || ''}`)} 
-                  alt="Profile" 
-                />
-                <AvatarFallback className="bg-blue-600 text-white text-sm">
-                  {getUserInitials(`${user?.firstName || ''} ${user?.lastName || ''}`)}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <h1 className="text-2xl font-bold text-navy-500">Agent Dashboard</h1>
-                <span className="text-sm text-gray-600">
-                  Welcome back, {user?.firstName} | Agent #: {user?.agentNumber || 'Not assigned'}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              {isAdminUser && (
-                <Button variant="outline" onClick={() => setLocation('/admin')}>
-                  <Shield className="h-4 w-4 mr-2" />
-                  Back to Admin View
-                </Button>
-              )}
-              <Button
-                onClick={handleNewEnrollment}
-                className="bg-coral-500 hover:bg-coral-600 text-white shadow-lg animate-pulse-slow"
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                New Enrollment
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setLocation('/agent/groups')}
-              >
-                <Users className="mr-2 h-4 w-4" />
-                New Group Setup
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setLocation('/agent/failed-payments')}
-              >
-                <AlertCircle className="mr-2 h-4 w-4" />
-                Failed Payments
-              </Button>
-              <Button variant="outline" onClick={() => setLocation('/profile')}>
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </Button>
-              <Button variant="outline" onClick={async () => {
-                await logout({ redirectTo: "/", redirectMode: "assign" });
-              }}>
-                Logout
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+    <AppShell
+      title="Agent Dashboard"
+      breadcrumb={["Agent"]}
+      actions={
+        <>
+          {isAdminUser && (
+            <Button variant="outline" onClick={() => setLocation('/admin')}>
+              <Shield className="h-4 w-4 mr-2" />
+              Admin View
+            </Button>
+          )}
+          <Button
+            onClick={handleNewEnrollment}
+            className="bg-coral-500 hover:bg-coral-600 text-white"
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            New Enrollment
+          </Button>
+        </>
+      }
+    >
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Agent Selector for Admin/Super_Admin */}
         {isAdminUser && (
           <Card className="mb-6 bg-blue-50 border-blue-200">
@@ -1552,6 +1510,6 @@ export default function AgentDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }

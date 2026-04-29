@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
+import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { DollarSign, TrendingUp, Calendar, Download, ChevronLeft, AlertTriangle } from "lucide-react";
+import { DollarSign, TrendingUp, Calendar, Download, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import {
   Table,
@@ -383,31 +384,17 @@ export default function AgentCommissions() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                onClick={() => setLocation('/agent')}
-                className="mr-4"
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Back to Dashboard
-              </Button>
-              <h1 className="text-2xl font-bold text-gray-900">Commission Tracking</h1>
-            </div>
-            <Button onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              Export Report
-            </Button>
-          </div>
-        </div>
-      </header>
+    <AppShell
+      title="Commission Tracking"
+      breadcrumb={["Agent"]}
+      actions={
+        <Button onClick={handleExport}>
+          <Download className="h-4 w-4 mr-2" />
+          Export Report
+        </Button>
+      }
+    >
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {(focusMemberId || focusCommissionId) && (
           <Card className="mb-6 border-blue-200 bg-blue-50/50">
             <CardContent className="p-4 flex items-center justify-between gap-3">
@@ -853,7 +840,6 @@ export default function AgentCommissions() {
             )}
           </CardContent>
         </Card>
-      </main>
-    </div>
+    </AppShell>
   );
 }
