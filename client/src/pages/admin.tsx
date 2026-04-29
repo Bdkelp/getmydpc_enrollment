@@ -1244,69 +1244,6 @@ export default function Admin() {
 
   return (
     <AppShell title="Admin Dashboard" breadcrumb={["Admin"]}>
-      {/* Navigation Header - replaced by AppShell sidebar */}
-      {false && <div className="hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <Heart className="text-medical-blue-600 h-8 w-8 mr-3" />
-              <span className="text-xl font-bold text-gray-900">MyPremierPlans</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link href="/">
-                <Button variant="ghost">
-                  Home
-                </Button>
-              </Link>
-              <Link href="/admin">
-                <Button variant="ghost">
-                  Admin
-                </Button>
-              </Link>
-              <Link href="/admin/epx-certification">
-                <Button variant="ghost">
-                  EPX Tools
-                </Button>
-              </Link>
-              <Link href="/agent">
-                <Button variant="ghost">
-                  Agent View
-                </Button>
-              </Link>
-              <Link href="/quiz">
-                <Button variant="ghost">
-                  Quiz
-                </Button>
-              </Link>
-              <Button variant="ghost" onClick={() => setLocation('/profile')}>
-                <User className="mr-2 h-4 w-4" />
-                Profile
-              </Button>
-              <div className="flex items-center space-x-3">
-                <Avatar className="h-10 w-10">
-                  <AvatarImage 
-                    src={user?.profile_image_url || getDefaultAvatar(user?.id || '', user?.full_name)} 
-                    alt={user?.full_name || "Admin"} 
-                  />
-                  <AvatarFallback className="bg-medical-blue-600 text-white">
-                    {getUserInitials(user?.full_name)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="hidden sm:block">
-                  <p className="text-sm font-medium text-gray-900">{user?.full_name || 'Admin User'}</p>
-                  <p className="text-xs text-gray-500">Administrator</p>
-                </div>
-              </div>
-              <Button variant="ghost" onClick={async () => {
-                await logout({ redirectTo: "/", redirectMode: "assign" });
-              }}>
-                Sign Out
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div></div>}
-
       {/* Admin Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
