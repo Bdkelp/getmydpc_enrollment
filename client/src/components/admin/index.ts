@@ -5,3 +5,4 @@ export { PendingApprovalsCard } from "./PendingApprovalsCard";
 export { SystemActivityCard } from "./SystemActivityCard";
 export { AdminQuickActions } from "./AdminQuickActions";
 export { AdminUsersTableCard } from "./AdminUsersTableCard";
+export { AdminUserDialogs } from "./AdminUserDialogs";
