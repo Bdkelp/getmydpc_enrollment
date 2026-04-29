@@ -2,3 +2,4 @@
 export { WelcomeCard } from "./WelcomeCard";
 export { LifecycleAlertsCard } from "./LifecycleAlertsCard";
 export { PendingApprovalsCard } from "./PendingApprovalsCard";
+export { SystemActivityCard } from "./SystemActivityCard";
