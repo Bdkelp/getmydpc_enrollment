@@ -31,75 +31,29 @@ import {
   Upload,
   Download,
 } from "lucide-react";
+import {
+  CENSUS_TEMPLATE_PATH,
+  payorMixOptions,
+  preferredPaymentMethodOptions,
+  paymentResponsibilityModeOptions,
+  INDUSTRY_NOT_SET_VALUE,
+  INDUSTRY_OTHER_VALUE,
+  industryOptions,
+  isPresetIndustryValue,
+  statusOptions,
+  tierLabels,
+  doesTierRequirePrimaryEmail,
+  derivePlanTierFromName,
+  isMemberOnlyPlanName,
+  normalizeRelationshipForPlan,
+  toPlanTierMatrixKey,
+  resolveCoverageBucketFromPlanName,
+  GROUP_COMMISSION_MATRIX,
+  type CensusTemplateConfig,
+  type CoveragePricingRow,
+} from "@/components/group-enrollment/constants";
 
-const CENSUS_TEMPLATE_PATH = "/templates/MyPremierPlans_Census_Template.csv";
-
-type CensusTemplateConfig = {
-  source: "default" | "custom";
-  fileName: string;
-  url?: string;
-  mimeType?: string;
-  base64?: string;
-  updatedAt?: string;
-};
-
-const payorMixOptions = [
-  { value: "full", label: "Employer Pays All" },
-  { value: "member", label: "Member Pays All" },
-  { value: "fixed", label: "Fixed Dollar Split" },
-  { value: "percentage", label: "Percentage Split" },
-];
-
-const preferredPaymentMethodOptions = [
-  { value: "card", label: "Card" },
-  { value: "ach", label: "ACH" },
-];
-
-const paymentResponsibilityModeOptions = [
-  { value: "group_invoice", label: "Employer Pays Group Invoice" },
-  { value: "member_self_pay", label: "Employer Enables Only (Member Self-Pay)" },
-  { value: "hybrid_split", label: "Hybrid (Employer + Member Split)" },
-  { value: "payroll_external", label: "Payroll Deduction Managed Externally" },
-];
-
-const INDUSTRY_NOT_SET_VALUE = "__not_set__";
-const INDUSTRY_OTHER_VALUE = "__other__";
-const industryOptions = [
-  { value: "Healthcare", label: "Healthcare" },
-  { value: "Logistics", label: "Logistics" },
-  { value: "Retail", label: "Retail" },
-  { value: "Manufacturing", label: "Manufacturing" },
-  { value: "Construction", label: "Construction" },
-  { value: "Hospitality", label: "Hospitality" },
-  { value: "Professional Services", label: "Professional Services" },
-  { value: "Technology", label: "Technology" },
-  { value: "Education", label: "Education" },
-  { value: "Nonprofit", label: "Nonprofit" },
-  { value: "Government", label: "Government" },
-  { value: "Other", label: "Other" },
-];
-
-const isPresetIndustryValue = (value: string): boolean =>
-  industryOptions.some((option) => option.value.toLowerCase() === value.trim().toLowerCase());
-
-const statusOptions = [
-  { value: "draft", label: "Draft" },
-  { value: "ready", label: "Ready" },
-  { value: "registered", label: "Registered" },
-  { value: "terminated", label: "Terminated" },
-];
-
-const tierLabels: Record<string, string> = {
-  member: "Member Only",
-  spouse: "Member + Spouse",
-  child: "Member + Child(ren)",
-  family: "Member + Family",
-};
-
-const doesTierRequirePrimaryEmail = (tier: string | undefined | null): boolean => {
-  const normalized = String(tier || "").trim().toLowerCase();
-  return normalized !== "spouse" && normalized !== "child";
-};
+// Rest of file continues below (removed constants defined here)
 
 const isPrimaryRelationshipValue = (relationship: string | undefined | null): boolean => {
   const normalized = String(relationship || "").trim().toLowerCase();
@@ -817,87 +771,8 @@ type PlanCatalogItem = {
   features: string[];
 };
 
-type CoveragePricingRow = {
-  coverageLabel: string;
-  monthlyPrice: number;
-  agentCommission: number;
-};
-
-const GROUP_COMMISSION_MATRIX: Record<string, CoveragePricingRow[]> = {
-  base: [
-    { coverageLabel: "Member Only (EE)", monthlyPrice: 59, agentCommission: 9 },
-    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 99, agentCommission: 15 },
-    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 129, agentCommission: 17 },
-    { coverageLabel: "Family (FAM)", monthlyPrice: 149, agentCommission: 17 },
-  ],
-  plus: [
-    { coverageLabel: "Member Only (EE)", monthlyPrice: 99, agentCommission: 20 },
-    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 179, agentCommission: 40 },
-    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 229, agentCommission: 40 },
-    { coverageLabel: "Family (FAM)", monthlyPrice: 279, agentCommission: 40 },
-  ],
-  elite: [
-    { coverageLabel: "Member Only (EE)", monthlyPrice: 119, agentCommission: 20 },
-    { coverageLabel: "Member + Spouse (ESP)", monthlyPrice: 209, agentCommission: 40 },
-    { coverageLabel: "Member + Child (ECH)", monthlyPrice: 279, agentCommission: 40 },
-    { coverageLabel: "Family (FAM)", monthlyPrice: 349, agentCommission: 40 },
-  ],
-};
-
-const derivePlanTierFromName = (planName: string): string => {
-  const normalized = String(planName || "").toLowerCase();
-  if (normalized.includes("elite")) return "Elite";
-  if (normalized.includes("plus") || normalized.includes("+")) return "Plus";
-  return "Base";
-};
-
-const isMemberOnlyPlanName = (planName: string | undefined | null): boolean => {
-  const normalized = String(planName || "").toLowerCase();
-  return normalized.includes("member only") || /\(ee\)|\bee\b/.test(normalized);
-};
-
-const normalizeRelationshipForPlan = (
-  relationship: string,
-  selectedPlanName: string,
-): string => {
-  if (isMemberOnlyPlanName(selectedPlanName)) {
-    return "primary";
-  }
-  return relationship;
-};
-
-const toPlanTierMatrixKey = (value: string | undefined | null): "base" | "plus" | "elite" => {
-  const normalized = String(value || "").toLowerCase();
-  if (normalized.includes("elite")) return "elite";
-  if (normalized.includes("plus")) return "plus";
-  return "base";
-};
-
-const resolveCoverageBucketFromPlanName = (value: string): "member" | "spouse" | "child" | "family" | null => {
-  const normalized = String(value || "").toLowerCase();
-
-  if (!normalized) {
-    return null;
-  }
-
-  if (normalized.includes("family") || normalized.includes(" fam ") || normalized.endsWith(" fam")) {
-    return "family";
-  }
-
-  if (normalized.includes("spouse")) {
-    return "spouse";
-  }
-
-  if (normalized.includes("child") || normalized.includes("children")) {
-    return "child";
-  }
-
-  if (normalized.includes("member only") || /\(ee\)|\bee\b/.test(normalized)) {
-    return "member";
-  }
-
-  return null;
-};
+// CoveragePricingRow type and GROUP_COMMISSION_MATRIX are now imported from constants
+// Utility functions derivePlanTierFromName, isMemberOnlyPlanName, etc. are now imported from constants
 
 const resolveMemberCoverageMonthlyPrice = (
   relationship: string,
