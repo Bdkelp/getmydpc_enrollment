@@ -29,6 +29,14 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { hasAtLeastRole, normalizeRole } from "@/lib/roles";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
+import {
+  getLifecyclePendingBadgeClasses,
+  getLifecyclePendingLabel,
+  getLifecyclePaymentRiskBadgeClasses,
+  getLifecyclePaymentRiskLabel,
+  getLifecycleSubscriptionBadgeClasses,
+  getLifecycleSubscriptionLabel,
+} from "@/lib/lifecycleSummaryUi";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -65,6 +73,18 @@ interface Enrollment {
   customerNumber?: string | null;
   payment_status?: string | null;
   payment_id?: number | null;
+  subscriptionStatus?: string | null;
+  nextBillingDate?: string | null;
+  subscriptionEndDate?: string | null;
+  lifecycleSummary?: {
+    subscriptionStatus?: string | null;
+    pendingAction?: string | null;
+    nextBillingDate?: string | null;
+    accessThroughDate?: string | null;
+    paidThroughDate?: string | null;
+    paymentRiskStatus?: string;
+    commissionStatus?: string | null;
+  };
   businessCategory?: 'individual' | 'family' | 'group' | string;
   source?: 'individual' | 'group' | string;
   groupName?: string | null;
@@ -160,6 +180,9 @@ export default function AgentDashboard() {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
   const [businessFilter, setBusinessFilter] = useState<'all' | 'individual' | 'group'>('all');
+  const [pendingActionFilter, setPendingActionFilter] = useState<string>('all');
+  const [paymentRiskFilter, setPaymentRiskFilter] = useState<string>('all');
+  const [accessWindowFilter, setAccessWindowFilter] = useState<string>('all');
   const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
@@ -216,15 +239,58 @@ export default function AgentDashboard() {
 
   const filteredEnrollments = useMemo(() => {
     const all = Array.isArray(enrollments) ? enrollments : [];
+
+    const getLifecycleSummary = (enrollment: Enrollment) => {
+      return enrollment.lifecycleSummary || {
+        subscriptionStatus: enrollment.subscriptionStatus || null,
+        pendingAction: enrollment.pendingReason || null,
+        nextBillingDate: enrollment.nextBillingDate || null,
+        accessThroughDate: enrollment.subscriptionEndDate || null,
+        paymentRiskStatus: String(enrollment.payment_status || '').toLowerCase() || 'unknown',
+      };
+    };
+
     const segmentFiltered = all.filter((enrollment: any) => {
       if (businessFilter === 'all') return true;
       const category = String(enrollment.businessCategory || enrollment.source || '').toLowerCase();
       const isGroup = category === 'group' || Boolean(enrollment.groupName);
-      return businessFilter === 'group' ? isGroup : !isGroup;
+      if (!(businessFilter === 'group' ? isGroup : !isGroup)) {
+        return false;
+      }
+
+      const lifecycle = getLifecycleSummary(enrollment);
+      const normalizedPendingAction = String(lifecycle.pendingAction || '').trim().toLowerCase();
+      const normalizedRisk = String(lifecycle.paymentRiskStatus || '').trim().toLowerCase() || 'unknown';
+      const accessThroughDate = lifecycle.accessThroughDate ? new Date(lifecycle.accessThroughDate) : null;
+      const accessEnded = accessThroughDate ? accessThroughDate.getTime() < Date.now() : false;
+
+      const matchesPendingAction =
+        pendingActionFilter === 'all' ||
+        (pendingActionFilter === 'none' && !normalizedPendingAction) ||
+        normalizedPendingAction === pendingActionFilter;
+
+      const matchesPaymentRisk =
+        paymentRiskFilter === 'all' || normalizedRisk === paymentRiskFilter;
+
+      const matchesAccessWindow =
+        accessWindowFilter === 'all' ||
+        (accessWindowFilter === 'has_access_through' && Boolean(lifecycle.accessThroughDate)) ||
+        (accessWindowFilter === 'missing_access_through' && !lifecycle.accessThroughDate) ||
+        (accessWindowFilter === 'access_ended' && accessEnded) ||
+        (accessWindowFilter === 'access_active_or_future' && Boolean(lifecycle.accessThroughDate) && !accessEnded);
+
+      return matchesPendingAction && matchesPaymentRisk && matchesAccessWindow;
     });
     if (!focusMemberId) return segmentFiltered;
     return segmentFiltered.filter((enrollment) => String(enrollment.id) === focusMemberId);
-  }, [enrollments, focusMemberId, businessFilter]);
+  }, [
+    enrollments,
+    focusMemberId,
+    businessFilter,
+    pendingActionFilter,
+    paymentRiskFilter,
+    accessWindowFilter,
+  ]);
 
   useEffect(() => {
     if (hasExpandedFocusRange || !focusMemberId) {
@@ -983,6 +1049,51 @@ export default function AgentDashboard() {
                     className="px-3 py-1 border rounded"
                   />
                 </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Pending:</label>
+                  <Select value={pendingActionFilter} onValueChange={setPendingActionFilter}>
+                    <SelectTrigger className="w-[180px] h-9">
+                      <SelectValue placeholder="All pending" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All pending</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="member_cancelled">Member Cancelled</SelectItem>
+                      <SelectItem value="plan_change">Plan Change</SelectItem>
+                      <SelectItem value="payment_delinquent">Payment Delinquent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Risk:</label>
+                  <Select value={paymentRiskFilter} onValueChange={setPaymentRiskFilter}>
+                    <SelectTrigger className="w-[140px] h-9">
+                      <SelectValue placeholder="All risk" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All risk</SelectItem>
+                      <SelectItem value="ok">OK</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="unknown">Unknown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600">Access:</label>
+                  <Select value={accessWindowFilter} onValueChange={setAccessWindowFilter}>
+                    <SelectTrigger className="w-[200px] h-9">
+                      <SelectValue placeholder="All access windows" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All access windows</SelectItem>
+                      <SelectItem value="has_access_through">Has access-through date</SelectItem>
+                      <SelectItem value="missing_access_through">Missing access-through date</SelectItem>
+                      <SelectItem value="access_ended">Access ended</SelectItem>
+                      <SelectItem value="access_active_or_future">Access active/future</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1017,6 +1128,7 @@ export default function AgentDashboard() {
                     <th className="text-left py-2">Commission</th>
                     <th className="text-left py-2">Enrolled By</th>
                     <th className="text-left py-2">Status</th>
+                    <th className="text-left py-2">Lifecycle</th>
                     <th className="text-left py-2">Payment</th>
                     <th className="text-left py-2">Actions</th>
                   </tr>
@@ -1067,6 +1179,46 @@ export default function AgentDashboard() {
                             <span className="ml-1">ⓘ</span>
                           )}
                         </span>
+                      </td>
+                      <td className="py-2 text-xs">
+                        {(() => {
+                          const lifecycle = enrollment.lifecycleSummary;
+
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Sub:</span>
+                                <Badge className={getLifecycleSubscriptionBadgeClasses(lifecycle?.subscriptionStatus)}>
+                                  {getLifecycleSubscriptionLabel(lifecycle?.subscriptionStatus)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Pending:</span>
+                                <Badge className={getLifecyclePendingBadgeClasses(lifecycle?.pendingAction)}>
+                                  {getLifecyclePendingLabel(lifecycle?.pendingAction)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Risk:</span>
+                                <Badge className={getLifecyclePaymentRiskBadgeClasses(lifecycle?.paymentRiskStatus)}>
+                                  {getLifecyclePaymentRiskLabel(lifecycle?.paymentRiskStatus)}
+                                </Badge>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Next:</span>{' '}
+                                <span className="font-medium">
+                                  {lifecycle?.nextBillingDate ? format(new Date(lifecycle.nextBillingDate), 'MMM d, yyyy') : 'n/a'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Through:</span>{' '}
+                                <span className="font-medium">
+                                  {lifecycle?.accessThroughDate ? format(new Date(lifecycle.accessThroughDate), 'MMM d, yyyy') : 'n/a'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-2">
                         {(() => {
@@ -1351,7 +1503,7 @@ export default function AgentDashboard() {
                 })
               }
             >
-              Cancel Membership
+              Schedule Cancellation
             </Button>
             <Button
               variant="outline"

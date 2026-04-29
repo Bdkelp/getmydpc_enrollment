@@ -102,6 +102,17 @@ interface EnrollmentDetails {
   subscriptionStatus?: string | null;
   nextBillingDate?: string | null;
   subscriptionEndDate?: string | null;
+  subscriptionPendingReason?: string | null;
+  subscriptionPendingDetails?: any;
+  lifecycleSummary?: {
+    subscriptionStatus?: string | null;
+    pendingAction?: string | null;
+    nextBillingDate?: string | null;
+    accessThroughDate?: string | null;
+    paidThroughDate?: string | null;
+    paymentRiskStatus?: string;
+    commissionStatus?: string | null;
+  };
   // Family Members
   familyMembers?: FamilyMember[];
 }
@@ -746,10 +757,18 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
     ? monthlyPremiumValue.toFixed(2)
     : "0.00";
   const nextBillingDateLabel = formatDateDisplay(
-    enrollment.nextBillingDate || null,
+    enrollment.lifecycleSummary?.nextBillingDate || enrollment.nextBillingDate || null,
     "MMMM d, yyyy",
     "Not scheduled",
   );
+  const accessThroughDateLabel = formatDateDisplay(
+    enrollment.lifecycleSummary?.accessThroughDate || enrollment.subscriptionEndDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
+  const pendingLifecycleLabel = String(enrollment.lifecycleSummary?.pendingAction || enrollment.subscriptionPendingReason || '')
+    .trim()
+    .replace(/_/g, ' ') || 'None';
   
   const startEditingContact = () => {
     setEditedContact({
@@ -919,6 +938,34 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     <Badge className={enrollment.status === 'active' ? 'bg-green-100 text-green-800' : ''}>
                       {enrollment.status}
                     </Badge>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+                    <div>
+                      <Label className="text-gray-600">Subscription Status</Label>
+                      <p className="font-semibold capitalize">{enrollment.subscriptionStatus || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Next Billing Date</Label>
+                      <p className="font-semibold">{nextBillingDateLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Access Through</Label>
+                      <p className="font-semibold">{accessThroughDateLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Pending Lifecycle Action</Label>
+                      <p className="font-semibold capitalize">{pendingLifecycleLabel}</p>
+                    </div>
+                    {enrollment.subscriptionPendingDetails && (
+                      <div>
+                        <Label className="text-gray-600">Pending Details</Label>
+                        <pre className="text-xs whitespace-pre-wrap bg-white border rounded p-2 mt-1">
+                          {typeof enrollment.subscriptionPendingDetails === 'string'
+                            ? enrollment.subscriptionPendingDetails
+                            : JSON.stringify(enrollment.subscriptionPendingDetails, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                   </div>
                   <div className="border-t pt-4 space-y-3">
                     <Label className="text-gray-600">Membership Actions</Label>

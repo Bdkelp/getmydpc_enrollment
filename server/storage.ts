@@ -286,6 +286,42 @@ type EnrollmentRow = Record<string, any> & {
   plan_name?: string | null;
 };
 
+const toPaidThroughDate = (nextBillingDate?: string | null): string | null => {
+  if (!nextBillingDate) return null;
+  const parsed = new Date(nextBillingDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setUTCDate(parsed.getUTCDate() - 1);
+  return parsed.toISOString().slice(0, 10);
+};
+
+const buildLifecycleSummary = (input: {
+  subscriptionStatus?: string | null;
+  pendingReason?: string | null;
+  nextBillingDate?: string | null;
+  accessThroughDate?: string | null;
+  paymentStatus?: string | null;
+  commissionStatus?: string | null;
+}) => {
+  const paymentStatus = String(input.paymentStatus || '').toLowerCase();
+  const paymentRiskStatus = ['failed', 'declined', 'canceled', 'cancelled'].includes(paymentStatus)
+    ? 'failed'
+    : paymentStatus === 'pending'
+      ? 'pending'
+      : paymentStatus === ''
+        ? 'unknown'
+        : 'ok';
+
+  return {
+    subscriptionStatus: input.subscriptionStatus || null,
+    pendingAction: input.pendingReason || null,
+    nextBillingDate: input.nextBillingDate || null,
+    accessThroughDate: input.accessThroughDate || null,
+    paidThroughDate: toPaidThroughDate(input.nextBillingDate),
+    paymentRiskStatus,
+    commissionStatus: input.commissionStatus || null,
+  };
+};
+
 const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberRow[]) => {
   const mapped = {
     id: row.id?.toString(),
@@ -331,6 +367,14 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
       if (!raw) return null;
       try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return raw; }
     })(),
+    lifecycleSummary: buildLifecycleSummary({
+      subscriptionStatus: row.subscription_status || null,
+      pendingReason: (row as any).subscription_pending_reason || null,
+      nextBillingDate: row.next_billing_date || null,
+      accessThroughDate: row.subscription_end_date || null,
+      paymentStatus: null,
+      commissionStatus: null,
+    }),
     familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
   };
   
@@ -1896,11 +1940,26 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         u.email as agent_email,
         u.first_name as agent_first_name,
         u.last_name as agent_last_name,
-        u.agent_number as enrolling_agent_number
+        u.agent_number as enrolling_agent_number,
+        sub.status as subscription_status,
+        sub.next_billing_date as subscription_next_billing_date,
+        sub.end_date as subscription_end_date,
+        sub.pending_reason as subscription_pending_reason,
+        sub.pending_details as subscription_pending_details
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
       LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id::uuid
+      LEFT JOIN LATERAL (
+        SELECT s.id, s.status, s.next_billing_date, s.end_date, s.pending_reason, s.pending_details
+        FROM subscriptions s
+        WHERE s.member_id = m.id
+        ORDER BY
+          CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+          COALESCE(s.updated_at, s.created_at) DESC,
+          s.id DESC
+        LIMIT 1
+      ) sub ON true
       WHERE m.enrolled_by_agent_id::uuid = ANY($1::uuid[])
     `;
     const params: any[] = [allAgentIds];
@@ -2021,6 +2080,27 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         commissionStatus: row.commission_status,
         payment_status: row.payment_status || row.commission_status || null,
         payment_id: row.payment_id || null,
+        subscriptionStatus: row.subscription_status || null,
+        nextBillingDate: row.subscription_next_billing_date || null,
+        subscriptionEndDate: row.subscription_end_date || null,
+        pendingReason: row.subscription_pending_reason || null,
+        pendingDetails: (() => {
+          const raw = row.subscription_pending_details;
+          if (!raw) return null;
+          try {
+            return typeof raw === 'string' ? JSON.parse(raw) : raw;
+          } catch {
+            return raw;
+          }
+        })(),
+        lifecycleSummary: buildLifecycleSummary({
+          subscriptionStatus: row.subscription_status || null,
+          pendingReason: row.subscription_pending_reason || null,
+          nextBillingDate: row.subscription_next_billing_date || null,
+          accessThroughDate: row.subscription_end_date || null,
+          paymentStatus: row.payment_status || row.commission_status || null,
+          commissionStatus: row.commission_status || null,
+        }),
         businessCategory: String(row.coverage_type || '').toLowerCase().includes('family') || String(row.coverage_type || '').toLowerCase().includes('spouse') || String(row.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
         source: 'individual',
         status: row.status,
@@ -2057,6 +2137,14 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       commissionStatus: null,
       payment_status: null,
       payment_id: null,
+      lifecycleSummary: buildLifecycleSummary({
+        subscriptionStatus: null,
+        pendingReason: null,
+        nextBillingDate: null,
+        accessThroughDate: null,
+        paymentStatus: null,
+        commissionStatus: null,
+      }),
       businessCategory: 'group',
       source: 'group',
       groupName: row.group_name || '',

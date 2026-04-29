@@ -236,7 +236,13 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
           p.amount AS "paymentAmount",
           p.transaction_id,
           p.created_at AS "payment_date",
-          p.epx_auth_guid AS "epxAuthGuid"
+          p.epx_auth_guid AS "epxAuthGuid",
+          s.id AS "subscriptionId",
+          s.status AS "subscriptionStatus",
+          s.next_billing_date AS "nextBillingDate",
+          s.end_date AS "subscriptionEndDate",
+          s.pending_reason AS "subscriptionPendingReason",
+          s.pending_details AS "subscriptionPendingDetails"
         FROM members m
         LEFT JOIN plans pl ON m.plan_id = pl.id
         LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
@@ -246,6 +252,15 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
           ORDER BY created_at DESC 
           LIMIT 1
         ) p ON true
+        LEFT JOIN LATERAL (
+          SELECT * FROM subscriptions
+          WHERE member_id = m.id
+          ORDER BY
+            CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+            COALESCE(updated_at, created_at) DESC,
+            id DESC
+          LIMIT 1
+        ) s ON true
         WHERE m.status != 'archived'
         ${agentFilter}
         ORDER BY m.created_at DESC
@@ -254,10 +269,48 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
       params
     );
 
+    const enrichLifecycleSummary = (row: any) => {
+      const paymentStatus = String(row?.payment_status || '').toLowerCase();
+      const paymentRiskStatus = ['failed', 'declined', 'canceled', 'cancelled'].includes(paymentStatus)
+        ? 'failed'
+        : paymentStatus === 'pending'
+          ? 'pending'
+          : paymentStatus === ''
+            ? 'unknown'
+            : 'ok';
+
+      const toPaidThroughDate = (nextBillingDate?: string | null): string | null => {
+        if (!nextBillingDate) return null;
+        const parsed = new Date(nextBillingDate);
+        if (Number.isNaN(parsed.getTime())) return null;
+        parsed.setUTCDate(parsed.getUTCDate() - 1);
+        return parsed.toISOString().slice(0, 10);
+      };
+
+      const pendingAction = row?.subscriptionPendingReason || null;
+      const nextBillingDate = row?.nextBillingDate || null;
+      const accessThroughDate = row?.subscriptionEndDate || null;
+
+      return {
+        ...row,
+        lifecycleSummary: {
+          subscriptionStatus: row?.subscriptionStatus || null,
+          pendingAction,
+          nextBillingDate,
+          accessThroughDate,
+          paidThroughDate: toPaidThroughDate(nextBillingDate),
+          paymentRiskStatus,
+          commissionStatus: null,
+        },
+      };
+    };
+
+    const enrollments = (result.rows || []).map(enrichLifecycleSummary);
+
     res.json({
       success: true,
-      enrollments: result.rows,
-      total: result.rows.length
+      enrollments,
+      total: enrollments.length
     });
   } catch (error: any) {
     console.error('[Payment Tracking] Error fetching enrollments with payments:', error);

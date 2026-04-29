@@ -46,6 +46,14 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
+import {
+  getLifecyclePendingBadgeClasses,
+  getLifecyclePendingLabel,
+  getLifecyclePaymentRiskBadgeClasses,
+  getLifecyclePaymentRiskLabel,
+  getLifecycleSubscriptionBadgeClasses,
+  getLifecycleSubscriptionLabel,
+} from "@/lib/lifecycleSummaryUi";
 
 interface Enrollment {
   id: string;
@@ -59,7 +67,6 @@ interface Enrollment {
   status: string;
   enrolledBy: string;
   enrolledByAgentId: string;
-  subscriptionId?: number;
   memberPublicId?: string | null;
   customerNumber?: string | null;
   // Payment fields
@@ -69,6 +76,21 @@ interface Enrollment {
   transaction_id?: string | null;
   payment_date?: string | null;
   epx_auth_guid?: string | null;
+  subscriptionId?: number | null;
+  subscriptionStatus?: string | null;
+  nextBillingDate?: string | null;
+  subscriptionEndDate?: string | null;
+  subscriptionPendingReason?: string | null;
+  subscriptionPendingDetails?: any;
+  lifecycleSummary?: {
+    subscriptionStatus?: string | null;
+    pendingAction?: string | null;
+    nextBillingDate?: string | null;
+    accessThroughDate?: string | null;
+    paidThroughDate?: string | null;
+    paymentRiskStatus?: string;
+    commissionStatus?: string | null;
+  };
 }
 
 interface Agent {
@@ -227,6 +249,9 @@ export default function AdminEnrollments() {
   });
   const [selectedAgentId, setSelectedAgentId] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [pendingActionFilter, setPendingActionFilter] = useState<string>("all");
+  const [paymentRiskFilter, setPaymentRiskFilter] = useState<string>("all");
+  const [accessWindowFilter, setAccessWindowFilter] = useState<string>("all");
   const [showMembershipOversight, setShowMembershipOversight] = useState(false);
 
   const searchParams = React.useMemo(() => {
@@ -796,6 +821,17 @@ export default function AdminEnrollments() {
     return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
   };
 
+  const getLifecycleSummary = (enrollment: Enrollment) => {
+    return enrollment.lifecycleSummary || {
+      subscriptionStatus: enrollment.subscriptionStatus || null,
+      pendingAction: enrollment.subscriptionPendingReason || null,
+      nextBillingDate: enrollment.nextBillingDate || null,
+      accessThroughDate: enrollment.subscriptionEndDate || null,
+      paymentRiskStatus: String(enrollment.payment_status || '').toLowerCase() || 'unknown',
+      commissionStatus: null,
+    };
+  };
+
   const openHostedCheckout = (enrollment: Enrollment) => {
     const params = new URLSearchParams({
       memberId: enrollment.id.toString(),
@@ -842,6 +878,27 @@ export default function AdminEnrollments() {
       const matchesStatus =
         statusFilter === "all" || enrollment.status === statusFilter;
 
+      const lifecycle = getLifecycleSummary(enrollment);
+      const normalizedPendingAction = String(lifecycle.pendingAction || '').trim().toLowerCase();
+      const normalizedRisk = String(lifecycle.paymentRiskStatus || '').trim().toLowerCase() || 'unknown';
+      const accessThroughDate = lifecycle.accessThroughDate ? new Date(lifecycle.accessThroughDate) : null;
+      const accessEnded = accessThroughDate ? accessThroughDate.getTime() < Date.now() : false;
+
+      const matchesPendingAction =
+        pendingActionFilter === 'all' ||
+        (pendingActionFilter === 'none' && !normalizedPendingAction) ||
+        normalizedPendingAction === pendingActionFilter;
+
+      const matchesPaymentRisk =
+        paymentRiskFilter === 'all' || normalizedRisk === paymentRiskFilter;
+
+      const matchesAccessWindow =
+        accessWindowFilter === 'all' ||
+        (accessWindowFilter === 'has_access_through' && Boolean(lifecycle.accessThroughDate)) ||
+        (accessWindowFilter === 'missing_access_through' && !lifecycle.accessThroughDate) ||
+        (accessWindowFilter === 'access_ended' && accessEnded) ||
+        (accessWindowFilter === 'access_active_or_future' && Boolean(lifecycle.accessThroughDate) && !accessEnded);
+
       const matchesFocusedMember =
         !focusMemberId ||
         String(enrollment.id || "") === focusMemberId ||
@@ -856,9 +913,26 @@ export default function AdminEnrollments() {
         (focusAlertType === "overdue" && !hasSuccessfulPayment(enrollment.payment_status)) ||
         (focusAlertType === "due_soon");
 
-      return matchesSearch && matchesStatus && matchesFocusedMember && matchesAlertHint;
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesPendingAction &&
+        matchesPaymentRisk &&
+        matchesAccessWindow &&
+        matchesFocusedMember &&
+        matchesAlertHint
+      );
     });
-  }, [enrollments, searchTerm, statusFilter, focusMemberId, focusAlertType]);
+  }, [
+    enrollments,
+    searchTerm,
+    statusFilter,
+    pendingActionFilter,
+    paymentRiskFilter,
+    accessWindowFilter,
+    focusMemberId,
+    focusAlertType,
+  ]);
 
   // Calculate total revenue - safe array handling
   const totalRevenue = React.useMemo(() => {
@@ -903,6 +977,9 @@ export default function AdminEnrollments() {
   const activeFilterCount =
     (selectedAgentId !== "all" ? 1 : 0) +
     (statusFilter !== "all" ? 1 : 0) +
+    (pendingActionFilter !== "all" ? 1 : 0) +
+    (paymentRiskFilter !== "all" ? 1 : 0) +
+    (accessWindowFilter !== "all" ? 1 : 0) +
     (focusMemberId ? 1 : 0) +
     (focusAlertType ? 1 : 0);
 
@@ -1010,7 +1087,7 @@ export default function AdminEnrollments() {
 
             <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">People View Filters</p>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-4">
                 <div>
                   <label htmlFor="admin-enrollments-search" className="block text-sm font-medium text-gray-700 mb-1">
                     Search
@@ -1103,6 +1180,60 @@ export default function AdminEnrollments() {
                     }
                     autoComplete="off"
                   />
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-pending-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Pending Action
+                  </label>
+                  <Select value={pendingActionFilter} onValueChange={setPendingActionFilter} name="enrollmentPendingActionFilter">
+                    <SelectTrigger id="admin-enrollments-pending-filter">
+                      <SelectValue placeholder="All pending actions" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All pending actions</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="member_cancelled">Member Cancelled</SelectItem>
+                      <SelectItem value="plan_change">Plan Change</SelectItem>
+                      <SelectItem value="payment_delinquent">Payment Delinquent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-payment-risk-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Payment Risk
+                  </label>
+                  <Select value={paymentRiskFilter} onValueChange={setPaymentRiskFilter} name="enrollmentPaymentRiskFilter">
+                    <SelectTrigger id="admin-enrollments-payment-risk-filter">
+                      <SelectValue placeholder="All payment risk" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All payment risk</SelectItem>
+                      <SelectItem value="ok">OK</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="unknown">Unknown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label htmlFor="admin-enrollments-access-window-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Access Window
+                  </label>
+                  <Select value={accessWindowFilter} onValueChange={setAccessWindowFilter} name="enrollmentAccessWindowFilter">
+                    <SelectTrigger id="admin-enrollments-access-window-filter">
+                      <SelectValue placeholder="All access windows" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All access windows</SelectItem>
+                      <SelectItem value="has_access_through">Has access-through date</SelectItem>
+                      <SelectItem value="missing_access_through">Missing access-through date</SelectItem>
+                      <SelectItem value="access_ended">Access ended</SelectItem>
+                      <SelectItem value="access_active_or_future">Access active/future</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -1378,6 +1509,7 @@ export default function AdminEnrollments() {
                     <TableHead>Price</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Lifecycle</TableHead>
                     <TableHead>Enrolled By</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -1467,6 +1599,46 @@ export default function AdminEnrollments() {
                             </Button>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const lifecycle = enrollment.lifecycleSummary;
+
+                          return (
+                            <div className="text-xs space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Subscription:</span>
+                                <Badge className={getLifecycleSubscriptionBadgeClasses(lifecycle?.subscriptionStatus)}>
+                                  {getLifecycleSubscriptionLabel(lifecycle?.subscriptionStatus)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Pending:</span>
+                                <Badge className={getLifecyclePendingBadgeClasses(lifecycle?.pendingAction)}>
+                                  {getLifecyclePendingLabel(lifecycle?.pendingAction)}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-500">Risk:</span>
+                                <Badge className={getLifecyclePaymentRiskBadgeClasses(lifecycle?.paymentRiskStatus)}>
+                                  {getLifecyclePaymentRiskLabel(lifecycle?.paymentRiskStatus)}
+                                </Badge>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Next billing:</span>{' '}
+                                <span className="font-medium">
+                                  {lifecycle?.nextBillingDate ? format(new Date(lifecycle.nextBillingDate), 'MMM d, yyyy') : 'n/a'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500">Access through:</span>{' '}
+                                <span className="font-medium">
+                                  {lifecycle?.accessThroughDate ? format(new Date(lifecycle.accessThroughDate), 'MMM d, yyyy') : 'n/a'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>{enrollment.enrolledBy}</TableCell>
                       <TableCell>
