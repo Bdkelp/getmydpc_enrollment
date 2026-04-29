@@ -298,7 +298,6 @@ export default function AdminAgentHierarchy() {
             )}
           </CardContent>
         </Card>
-      </main>
 
       {/* Edit Hierarchy Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

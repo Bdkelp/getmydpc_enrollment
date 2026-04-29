@@ -869,7 +869,6 @@ export default function AdminAnalytics() {
             No analytics data available
           </div>
         )}
-      </div>
     </AppShell>
   );
 }

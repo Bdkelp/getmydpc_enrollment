@@ -1279,7 +1279,6 @@ export default function AgentDashboard() {
             </div>
           </CardContent>
         </Card>
-      </main>
 
       {/* Pending Enrollment Dialog */}
       <Dialog open={showPendingDialog} onOpenChange={setShowPendingDialog}>
