@@ -58,6 +58,7 @@ import { AdminUsersTableCard } from "@/components/admin/AdminUsersTableCard";
 import { AdminUserDialogs } from "@/components/admin/AdminUserDialogs";
 import { PartnerLeadDialog } from "@/components/admin/PartnerLeadDialog";
 import { RecurringBillingDialogs } from "@/components/admin/RecurringBillingDialogs";
+import { AdminConfirmationDialogs } from "@/components/admin/AdminConfirmationDialogs";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -1873,36 +1874,20 @@ export default function Admin() {
           }}
         />
 
-        <AlertDialog open={!!manualConfirmPayload} onOpenChange={(open) => {
-          if (!open && !manualTransactionMutation.isPending) {
-            setManualConfirmPayload(null);
-          }
-        }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm manual EPX transaction</AlertDialogTitle>
-              <AlertDialogDescription>
-                You're about to send a {getManualTranLabel(manualConfirmPayload?.tranType || '')} request{' '}
-                for <span className="font-semibold">$
-                  {manualConfirmPayload ? manualConfirmPayload.amount.toFixed(2) : '0.00'}
-                </span>.{' '}
-                {manualConfirmPayload?.memberId ? `on member #${manualConfirmPayload.memberId} ` : ''}
-                This will post directly to EPX.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={manualTransactionMutation.isPending}>
-                Never mind
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={executeManualTransaction}
-                disabled={manualTransactionMutation.isPending}
-              >
-                {manualTransactionMutation.isPending ? 'Sending...' : 'Send to EPX'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <AdminConfirmationDialogs
+          manualConfirmPayload={manualConfirmPayload}
+          setManualConfirmPayload={setManualConfirmPayload}
+          manualTransactionPending={manualTransactionMutation.isPending}
+          getManualTranLabel={getManualTranLabel}
+          executeManualTransaction={executeManualTransaction}
+          cancelConfirmPayload={cancelConfirmPayload}
+          setCancelConfirmPayload={setCancelConfirmPayload}
+          cancelSubscriptionPending={cancelSubscriptionMutation.isPending}
+          executeCancelSubscription={executeCancelSubscription}
+          hostedConfirmPayload={hostedConfirmPayload}
+          setHostedConfirmPayload={setHostedConfirmPayload}
+          finalizeHostedCheckoutLaunch={finalizeHostedCheckoutLaunch}
+        />
 
         <RecurringBillingDialogs
           recurringWorkflowMutation={recurringWorkflowMutation}
@@ -1922,60 +1907,7 @@ export default function Admin() {
           handleCopyLiveRecurringSummary={handleCopyLiveRecurringSummary}
         />
 
-        <AlertDialog open={!!cancelConfirmPayload} onOpenChange={(open) => {
-          if (!open && !cancelSubscriptionMutation.isPending) {
-            setCancelConfirmPayload(null);
-          }
-        }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm membership cancellation</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will immediately halt the member's EPX subscription
-                {cancelConfirmPayload?.subscriptionId ? ` #${cancelConfirmPayload.subscriptionId}` : ''} and prevent future billing.
-                Make sure the member understands this change.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={cancelSubscriptionMutation.isPending}>
-                Keep Active
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={executeCancelSubscription}
-                disabled={cancelSubscriptionMutation.isPending}
-              >
-                {cancelSubscriptionMutation.isPending ? 'Submitting...' : 'Confirm Cancellation'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
-        <AlertDialog open={!!hostedConfirmPayload} onOpenChange={(open) => {
-          if (!open) {
-            setHostedConfirmPayload(null);
-          }
-        }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Launch hosted checkout?</AlertDialogTitle>
-              <AlertDialogDescription>
-                We'll open a secure EPX window to collect{' '}
-                <span className="font-semibold">${hostedConfirmPayload?.amount?.toFixed(2) ?? '0.00'}</span>
-                {' '}from member #{hostedConfirmPayload?.memberId}. Continue only if the member is ready to provide card details.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>
-                Not yet
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={finalizeHostedCheckoutLaunch}
-              >
-                Open Hosted Checkout
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
       </div>
     </AppShell>

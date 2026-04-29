@@ -8,3 +8,4 @@ export { AdminUsersTableCard } from "./AdminUsersTableCard";
 export { AdminUserDialogs } from "./AdminUserDialogs";
 export { PartnerLeadDialog } from "./PartnerLeadDialog";
 export { RecurringBillingDialogs } from "./RecurringBillingDialogs";
+export { AdminConfirmationDialogs } from "./AdminConfirmationDialogs";
