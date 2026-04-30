@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { hasAtLeastRole } from "@/lib/roles";
+import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
@@ -159,11 +160,10 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
       </aside>
 
       <div
-        className={`grid min-h-screen transition-all duration-300 grid-cols-1 md:${
-          sidebarOpen
-            ? "grid-cols-[260px_1fr]"
-            : "grid-cols-[64px_1fr]"
-        }`}
+        className={cn(
+          "grid min-h-screen transition-all duration-300 grid-cols-1",
+          sidebarOpen ? "md:grid-cols-[260px_1fr]" : "md:grid-cols-[64px_1fr]",
+        )}
       >
         {/* Sidebar */}
         <aside className="hidden border-r border-slate-200 bg-white md:flex md:flex-col">
