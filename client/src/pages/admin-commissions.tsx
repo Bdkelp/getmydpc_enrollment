@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { formatLocalDate } from "@shared/localDate";
 import { DollarSign, Calendar, CheckCircle, Clock, AlertTriangle, FileText, Download, Printer } from "lucide-react";
 import { hasAtLeastRole } from "@/lib/roles";
-import { endOfWeek, format, isFuture, isToday, startOfWeek } from "date-fns";
+import { format, isFuture, isToday } from "date-fns";
 import {
   Table,
   TableBody,
@@ -31,6 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 import { useAdminCommissionsFilters } from "@/hooks/useAdminCommissionsFilters";
+import { useAdminCommissionsQueries } from "@/hooks/useAdminCommissionsQueries";
 
 interface Commission {
   id: string;
@@ -235,66 +236,25 @@ export default function AdminCommissions() {
   const [overrideReason, setOverrideReason] = useState('');
   const [selectedCarryForwardCandidate, setSelectedCarryForwardCandidate] = useState<PayoutBatchDetail['carryForwardCandidates'][number] | null>(null);
 
-  // Fetch all commissions (admin view)
-  const { data: commissions, isLoading } = useQuery<Commission[]>({
-    queryKey: ["/api/admin/commissions", dateFilter.startDate, dateFilter.endDate],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-      });
-      return await apiRequest(`/api/admin/commissions?${params}`, { method: "GET" });
-    },
-    enabled: !!user && isAdminUser,
-  });
-
-  const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
-    queryKey: ["/api/admin/lifecycle-alerts"],
-    queryFn: async () => {
-      return await apiRequest('/api/admin/lifecycle-alerts?days=7', { method: 'GET' });
-    },
-    enabled: !!user && isAdminUser,
-    refetchInterval: 60_000,
-  });
-
-  const { data: statementData, isFetching: isStatementLoading } = useQuery<CommissionStatement>({
-    queryKey: [
-      "/api/admin/commissions/statement",
-      dateFilter.startDate,
-      dateFilter.endDate,
-      statementAgentId,
-      statementStatus,
-      isStatementOpen,
-    ],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        status: statementStatus,
-      });
-      if (statementAgentId !== 'all') {
-        params.set('agentId', statementAgentId);
-      }
-      return await apiRequest(`/api/admin/commissions/statement?${params.toString()}`, { method: "GET" });
-    },
-    enabled: !!user && isAdminUser && isStatementOpen,
-  });
-
-  const { data: payoutDashboard, isFetching: isPayoutDashboardLoading } = useQuery<PayoutDashboardSummary>({
-    queryKey: ["/api/admin/commissions/payout-dashboard"],
-    queryFn: async () => {
-      return await apiRequest('/api/admin/commissions/payout-dashboard', { method: 'GET' });
-    },
-    enabled: !!user && isAdminUser,
-    refetchInterval: 60000,
-  });
-
-  const { data: selectedBatchDetail, isFetching: isBatchDetailLoading } = useQuery<PayoutBatchDetail>({
-    queryKey: ["/api/admin/commissions/payout-batches", selectedBatchId],
-    queryFn: async () => {
-      return await apiRequest(`/api/admin/commissions/payout-batches/${selectedBatchId}`, { method: 'GET' });
-    },
-    enabled: !!user && isAdminUser && !!selectedBatchId && isBatchDetailOpen,
+  const {
+    commissions,
+    isLoading,
+    lifecycleAlerts,
+    statementData,
+    isStatementLoading,
+    payoutDashboard,
+    isPayoutDashboardLoading,
+    selectedBatchDetail,
+    isBatchDetailLoading,
+  } = useAdminCommissionsQueries({
+    isAdminUser,
+    userId: user?.id,
+    dateFilter,
+    statementAgentId,
+    statementStatus,
+    isStatementOpen,
+    selectedBatchId,
+    isBatchDetailOpen,
   });
 
   // Mark commissions as paid mutation

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -39,6 +39,7 @@ import {
   getLifecycleSubscriptionLabel,
 } from "@/lib/lifecycleSummaryUi";
 import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
+import { useAgentDashboardQueries } from "@/hooks/useAgentDashboardQueries";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -170,9 +171,39 @@ export default function AgentDashboard() {
     return "Agent";
   };
   
+  const [dateFilter, setDateFilter] = useState({
+    startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
+    endDate: format(new Date(), "yyyy-MM-dd"),
+  });
+
+  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
+  const [showPendingDialog, setShowPendingDialog] = useState(false);
+  const [consentType, setConsentType] = useState<string>("");
+  const [consentNotes, setConsentNotes] = useState<string>("");
+  const [showMembershipDialog, setShowMembershipDialog] = useState(false);
+  const [membershipTarget, setMembershipTarget] = useState<Enrollment | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [selectedMemberType, setSelectedMemberType] = useState<string>('');
+  const [membershipReason, setMembershipReason] = useState<string>('');
+
   const {
+    allAgents,
+    stats,
+    statsLoading,
+    statsError,
+    enrollments,
+    enrollmentsLoading,
+    enrollmentsError,
+    availablePlans,
+    lifecycleAlerts,
+  } = useAgentDashboardQueries({
+    isAdminUser,
+    viewingAgentId,
+    currentUserId: user?.id,
     dateFilter,
-    setDateFilter,
+  });
+
+  const {
     businessFilter,
     setBusinessFilter,
     pendingActionFilter,
@@ -185,76 +216,10 @@ export default function AgentDashboard() {
     focusMemberId,
   } = useAgentDashboardFilters(enrollments, locationPath);
 
-  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
-  const [showPendingDialog, setShowPendingDialog] = useState(false);
-  const [consentType, setConsentType] = useState<string>("");
-  const [consentNotes, setConsentNotes] = useState<string>("");
-  const [showMembershipDialog, setShowMembershipDialog] = useState(false);
-  const [membershipTarget, setMembershipTarget] = useState<Enrollment | null>(null);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
-  const [selectedMemberType, setSelectedMemberType] = useState<string>('');
-  const [membershipReason, setMembershipReason] = useState<string>('');
-
-  // For admin/super_admin: fetch all agents for selector
-  const { data: allAgents } = useQuery({
-    queryKey: ["/api/agents"],
-    queryFn: () => apiRequest("/api/agents"),
-    enabled: isAdminUser,
-    staleTime: 1000 * 60, // agent roster updates infrequently, cache for a minute
-  });
-
-  // Get agent stats (for selected agent if admin, or current user)
-  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<AgentStats>({
-    queryKey: ["/api/agent/stats", viewingAgentId],
-    queryFn: () => {
-      const query = viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}` : "";
-      return apiRequest(`/api/agent/stats${query}`);
-    },
-    enabled: !!viewingAgentId,
-  });
-
   // Log errors for debugging
   if (statsError) {
     console.error('[Agent Dashboard] Stats error:', statsError);
   }
-
-  // Get recent enrollments (for selected agent if admin, or current user)
-  const { data: enrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useQuery<Enrollment[]>({
-    queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter],
-    queryFn: async () => {
-      const query = new URLSearchParams({
-        ...(viewingAgentId && viewingAgentId !== user?.id ? { agentId: viewingAgentId } : {}),
-        ...dateFilter,
-      }).toString();
-      const response = await apiRequest(`/api/agent/enrollments?${query}`);
-      if (Array.isArray(response)) {
-        return response;
-      }
-      if (Array.isArray(response?.enrollments)) {
-        return response.enrollments;
-      }
-      return [];
-    },
-    enabled: !!viewingAgentId,
-  });
-
-  const { data: availablePlans = [] } = useQuery<PlanOption[]>({
-    queryKey: ["/api/plans"],
-    queryFn: async () => {
-      const plans = await apiRequest('/api/plans');
-      return Array.isArray(plans) ? plans : [];
-    },
-  });
-
-  const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
-    queryKey: ["/api/agent/lifecycle-alerts", viewingAgentId],
-    queryFn: async () => {
-      const query = viewingAgentId && viewingAgentId !== user?.id ? `?agentId=${viewingAgentId}&days=7` : '?days=7';
-      return apiRequest(`/api/agent/lifecycle-alerts${query}`);
-    },
-    enabled: !!viewingAgentId,
-    refetchInterval: 60_000,
-  });
 
   // Log errors for debugging
   if (enrollmentsError) {
