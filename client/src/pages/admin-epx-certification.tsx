@@ -1,8 +1,6 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -14,100 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { ArrowLeft } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-type JsonRecord = Record<string, any>;
-
-interface CertificationRequestBody extends JsonRecord {
-  form?: JsonRecord;
-  rawFields?: JsonRecord;
-  raw?: string;
-  authGuid?: string;
-  authGuidVisibility?: string;
-}
-
-interface CertificationResponseBody extends JsonRecord {
-  fields?: JsonRecord;
-  raw?: string;
-}
-
-interface CertificationRequestInfo extends JsonRecord {
-  body?: CertificationRequestBody;
-}
-
-interface CertificationResponseInfo extends JsonRecord {
-  body?: CertificationResponseBody;
-}
-
-interface CertificationLogEntry {
-  transactionId?: string;
-  customerId?: string;
-  purpose?: string;
-  amount?: number;
-  environment?: string;
-  timestamp?: string;
-  fileName?: string;
-  metadata?: Record<string, any>;
-  request?: CertificationRequestInfo;
-  response?: CertificationResponseInfo;
-}
-
-interface CertificationLogResponse {
-  success: boolean;
-  entries: CertificationLogEntry[];
-  totalEntries: number;
-  limit: number;
-  sources?: {
-    certificationFiles?: number;
-    runtimeEPX?: number;
-    includeRuntimeLogs?: boolean;
-  };
-}
-
-interface CertificationExportResponse {
-  success: boolean;
-  fileName: string;
-  filePath: string;
-  totalEntries: number;
-  entries: CertificationLogEntry[];
-}
-
-interface CertificationPayment {
-  id: number;
-  memberId?: number | null;
-  planName?: string | null;
-  amount?: number | string | null;
-  status?: string | null;
-  createdAt?: string | null;
-  transactionId?: string | null;
-  epxAuthGuid?: string | null;
-  environment?: string | null;
-  metadata?: Record<string, any> | null;
-  member?: {
-    firstName?: string | null;
-    lastName?: string | null;
-    email?: string | null;
-    customerNumber?: string | null;
-  } | null;
-}
-
-interface CertificationPaymentsResponse {
-  success: boolean;
-  payments: CertificationPayment[];
-  limit: number;
-  status?: string;
-}
-
-const TRAN_TYPES = [
-  { value: "CCE1", label: "MIT (CCE1)" },
-  { value: "CCE9", label: "Refund (CCE9)" },
-] as const;
-type TranType = (typeof TRAN_TYPES)[number]["value"];
+import { useEpxCertificationQueries, type CertificationRequestBody, type CertificationResponseBody, type CertificationLogEntry, type CertificationExportResponse, type CertificationPayment } from "@/hooks/useEpxCertificationQueries";
+import { useEpxCertificationMutations, TRAN_TYPES, type TranType } from "@/hooks/useEpxCertificationMutations";
 
 const AdminEPXCertification = () => {
   const [, setLocation] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const isAdmin = hasAtLeastRole(user?.role, "admin");
   const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
 
@@ -130,163 +41,12 @@ const AdminEPXCertification = () => {
     description: "EPX token-based sale sample",
   });
 
-  // AUTH_GUID query
-  const authGuidQuery = useQuery({
-    queryKey: ["epx-auth-guid"],
-    enabled: isAuthenticated && isAdmin,
-    queryFn: async () => {
-      const response = await apiClient.get("/api/epx/certification/auth-guid");
-      return response;
-    },
-  });
-
-  const logsQuery = useQuery<CertificationLogResponse>(
-    {
-      queryKey: ["epx-cert-logs", logsLimit],
-      enabled: isAuthenticated && isSuperAdmin,
-      queryFn: async () => {
-        const response = await apiClient.get(`/api/epx/certification/logs?limit=${logsLimit}&includeRuntimeLogs=true`);
-        return response as CertificationLogResponse;
-      },
-    }
-  );
-
-  const runTestMutation = useMutation({
-    mutationFn: async (payload: Record<string, any>) => {
-      return apiClient.post("/api/epx/certification/server-post", payload);
-    },
-    onSuccess: (data) => {
-      setLatestResult(data);
-      toast({
-        title: "Server Post submitted",
-        description: "Check the log viewer below for captured samples.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to submit Server Post",
-        description: error?.message || "See console for details",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const exportLogsMutation = useMutation({
-    mutationFn: async () => {
-      return apiClient.post("/api/epx/certification/export", {
-        filename: exportFileName,
-      });
-    },
-    onSuccess: (data: CertificationExportResponse) => {
-      setExportPreview(data);
-      toast({
-        title: "Export ready",
-        description: `${data.totalEntries} entries bundled into ${data.fileName}`,
-      });
-
-      if (Array.isArray(data.entries)) {
-        const blob = new Blob([JSON.stringify(data.entries, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = data.fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Export failed",
-        description: error?.message || "Unable to export certification logs",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const paymentsQuery = useQuery<CertificationPaymentsResponse>({
-    queryKey: ["epx-cert-payments", paymentsLimit],
-    enabled: isAuthenticated && isAdmin,
-    queryFn: async () => {
-      const response = await apiClient.get(`/api/epx/certification/payments?limit=${paymentsLimit}`);
-      return response as CertificationPaymentsResponse;
-    },
-  });
-
-  const paymentActionMutation = useMutation({
-    mutationFn: async ({ payment, action }: { payment: CertificationPayment; action: TranType }) => {
-      const amountValue = payment.amount ? Number(payment.amount) : 0;
-      if (!payment.transactionId && !payment.epxAuthGuid) {
-        throw new Error("Payment is missing both transaction ID and AUTH GUID.");
-      }
-
-      const payload: Record<string, any> = {
-        tranType: action,
-        transactionId: payment.transactionId,
-        memberId: payment.memberId,
-        authGuid: payment.epxAuthGuid,
-        description: `Toolkit ${action} for payment ${payment.id}`,
-      };
-
-      if (amountValue <= 0) {
-        throw new Error("Payment amount missing or invalid.");
-      }
-
-      payload.amount = amountValue;
-
-      return apiClient.post("/api/epx/certification/server-post", payload);
-    },
-    onSuccess: (data) => {
-      setLatestResult(data);
-      toast({
-        title: "Server Post submitted",
-        description: "EPX response captured below.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Unable to submit",
-        description: error?.message || "The requested action could not be sent to EPX.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const runAchRecurringMutation = useMutation({
-    mutationFn: async (payload: { memberId: number; amount: number; description?: string }) => {
-      return apiClient.post("/api/payments/ach/recurring", payload);
-    },
-    onSuccess: (data) => {
-      setLatestResult({
-        request: {
-          endpoint: "/api/payments/ach/recurring",
-          body: achRecurringForm,
-        },
-        response: data,
-      });
-      toast({
-        title: "ACH token-based test sent",
-        description: "Recurring/token sale request submitted. Refresh logs/export to capture sample.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-logs"] });
-      queryClient.invalidateQueries({ queryKey: ["epx-cert-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["epx-auth-guid"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "ACH token-based test failed",
-        description: error?.message || "Unable to run recurring ACH test",
-        variant: "destructive",
-      });
-    },
-  });
+  const { authGuidQuery, logsQuery, paymentsQuery } = useEpxCertificationQueries(logsLimit, paymentsLimit);
+  const { runTestMutation, exportLogsMutation, paymentActionMutation, runAchRecurringMutation } =
+    useEpxCertificationMutations({
+      onResult: setLatestResult,
+      onExport: setExportPreview,
+    });
 
   const handleInputChange = (field: keyof typeof formState) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormState((prev) => ({ ...prev, [field]: event.target.value }));
@@ -778,7 +538,7 @@ const AdminEPXCertification = () => {
               </p>
               <Button
                 className="w-full"
-                onClick={() => exportLogsMutation.mutate()}
+                onClick={() => exportLogsMutation.mutate(exportFileName)}
                 disabled={exportLogsMutation.isPending}
               >
                 {exportLogsMutation.isPending ? "Preparing Export..." : "Download All Logs"}

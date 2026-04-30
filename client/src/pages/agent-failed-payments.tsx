@@ -1,12 +1,10 @@
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
 import { 
   AlertCircle, 
   CreditCard, 
@@ -14,8 +12,7 @@ import {
   User, 
   Mail, 
   Phone,
-  DollarSign,
-  Calendar
+  DollarSign
 } from "lucide-react";
 import { format } from "date-fns";
 import {
@@ -27,36 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-
-interface FailedPayment {
-  id: number;
-  transactionId: string;
-  amount: number;
-  status: string;
-  paymentMethod: string;
-  failureReason: string;
-  createdAt: string;
-  updatedAt: string;
-  member: {
-    id: number;
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone: string;
-    customerNumber: string;
-    monthlyPrice: number;
-  };
-  plan: {
-    name: string;
-    monthlyPrice: number;
-  };
-  commission: {
-    amount: number | null;
-    status: string;
-  };
-  canRetry: boolean;
-  metadata: any;
-}
+import { useAgentFailedPaymentsQuery, type FailedPayment } from "@/hooks/useAgentFailedPaymentsQuery";
 
 export default function AgentFailedPayments() {
   const [, setLocation] = useLocation();
@@ -65,19 +33,7 @@ export default function AgentFailedPayments() {
   const [showRetryDialog, setShowRetryDialog] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  // Fetch failed payments
-  const { data: response, isLoading, refetch } = useQuery<{
-    success: boolean;
-    payments: FailedPayment[];
-    total: number;
-  }>({
-    queryKey: ["/api/agent/failed-payments"],
-    queryFn: async () => {
-      return await apiRequest("/api/agent/failed-payments");
-    }
-  });
-
-  const payments = response?.payments || [];
+  const { payments, isLoading, refetch } = useAgentFailedPaymentsQuery();
 
   const handleRetryPayment = (payment: FailedPayment) => {
     setSelectedPayment(payment);
