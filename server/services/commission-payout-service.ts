@@ -79,6 +79,7 @@ export async function createMonthlyPayout(params: CreatePayoutParams): Promise<a
     .from('commission_payouts')
     .insert({
       commission_id: commissionId,
+      payout_amount: amount,
       payout_month: payoutMonthStr,
       payment_captured_at: paymentCapturedAt.toISOString(),
       payment_eligible_date: paymentEligibleDate.toISOString(),

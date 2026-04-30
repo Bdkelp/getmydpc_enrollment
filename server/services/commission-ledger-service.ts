@@ -28,6 +28,7 @@ interface CommissionFeedItem {
   notes?: string;
   isClawedBack?: boolean;
   paymentStatus?: string;
+  paymentCaptured?: boolean;
 }
 
 function toIsoDate(value: Date): string {
@@ -600,7 +601,11 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
         : 'renewal';
 
       const paidFromFeed = item.paymentStatus === 'paid' && firstRowForItem;
-      const rowStatus: LedgerStatus = intersectsCancellation && !paidFromFeed
+      // Hold if: cancellation intersects, OR member's payment was not captured (unfunded).
+      // paymentCaptured === false means explicitly unfunded (e.g. admin-created without payment).
+      // undefined means source commission predates this field — do not hold for backward compat.
+      const unfundedHold = item.paymentCaptured === false;
+      const rowStatus: LedgerStatus = (intersectsCancellation && !paidFromFeed) || unfundedHold
         ? 'held'
         : (paidFromFeed ? 'paid' : 'earned');
 
@@ -696,9 +701,20 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
     throw new Error(`Failed to load eligible ledger records: ${ledgerError.message}`);
   }
 
+  const VESTING_DAYS = parseInt(process.env.COMMISSION_VESTING_DAYS || '30', 10);
+
   const eligible = (ledgerRows || []).filter((row: any) => {
     if (row.cancellation_date && parseLocalDate(row.cancellation_date).getTime() <= parseLocalDate(row.commission_period_end).getTime()) {
       return false;
+    }
+    // Vesting check: commission must be at least VESTING_DAYS old before it can be batched.
+    // Uses effective_date (member's coverage start) as the vesting clock start.
+    if (row.effective_date) {
+      const vestedAt = parseLocalDate(row.effective_date);
+      vestedAt.setDate(vestedAt.getDate() + VESTING_DAYS);
+      if (vestedAt > cutoffDate) {
+        return false; // Not yet vested — stays as 'earned', picked up in a future batch run
+      }
     }
     const cycle = getCycleAnchorForEntry(parseLocalDate(row.commission_period_end));
     return cycle.anchorDate <= cutoffDate;
@@ -1095,7 +1111,7 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
 
   const { data: rows, error: rowsError } = await supabase
     .from('commission_ledger')
-    .select('id, status, agent_id, writing_number, statement_number')
+    .select('id, status, agent_id, writing_number, statement_number, source_commission_id')
     .eq('payout_batch_id', batchId);
 
   if (rowsError) {
@@ -1180,6 +1196,31 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
       reason: 'Batch marked as paid',
     }))
   );
+
+  const sourceCommissionIds = [...new Set(
+    payableRows
+      .map((row: any) => String(row?.source_commission_id || '').trim())
+      .filter(Boolean)
+  )];
+
+  if (sourceCommissionIds.length > 0) {
+    const { error: legacyUpdateError } = await supabase
+      .from('agent_commissions')
+      .update({
+        payment_status: 'paid',
+        paid_date: new Date().toISOString(),
+      })
+      .in('id', sourceCommissionIds)
+      .neq('payment_status', 'paid');
+
+    if (legacyUpdateError) {
+      console.error('[CommissionLedger] Warning: failed reconciling legacy commission payment status after batch paid:', {
+        batchId,
+        sourceCommissionCount: sourceCommissionIds.length,
+        error: legacyUpdateError.message,
+      });
+    }
+  }
 
   const { error: batchUpdateError } = await supabase
     .from('commission_payout_batches')
@@ -1344,9 +1385,11 @@ export async function applyCancellationToLedger(input: {
   cancellationDate: string;
   cancellationReason?: string;
   createReversalForPaid?: boolean;
-}): Promise<{ heldCount: number; reversalCount: number }> {
+  refundWindowDays?: number;
+}): Promise<{ heldCount: number; reversalCount: number; withinRefundWindow: boolean }> {
   const memberId = String(input.memberId);
   const cancellationDate = toIsoDate(new Date(input.cancellationDate));
+  const REFUND_WINDOW_DAYS = input.refundWindowDays ?? parseInt(process.env.REFUND_WINDOW_DAYS || '14', 10);
 
   const { error: cancelAuditError } = await supabase
     .from('commission_cancellation_events')
@@ -1359,6 +1402,39 @@ export async function applyCancellationToLedger(input: {
 
   if (cancelAuditError) {
     throw new Error(`Failed to create cancellation audit event: ${cancelAuditError.message}`);
+  }
+
+  // Check if cancellation is within the refund window from membership_start_date.
+  // Refund eligibility: within 14 days of enrollment AND no service usage.
+  // If outside this window, no commission clawback applies (firm policy).
+  const { data: member, error: memberError } = await supabase
+    .from('members')
+    .select('membership_start_date')
+    .eq('id', memberId)
+    .maybeSingle();
+
+  if (memberError) {
+    throw new Error(`Failed to load member for refund window check: ${memberError.message}`);
+  }
+
+  let withinRefundWindow = true; // Default: treat as refund (no start date means proceed with hold)
+  if (member?.membership_start_date) {
+    const startDate = dateOnly(member.membership_start_date);
+    const refundDeadline = new Date(startDate);
+    refundDeadline.setDate(refundDeadline.getDate() + REFUND_WINDOW_DAYS);
+    const cancellationDateParsed = dateOnly(cancellationDate);
+    withinRefundWindow = cancellationDateParsed.getTime() <= refundDeadline.getTime();
+  }
+
+  // TODO: Add service usage validation — refunds only valid if member has NOT:
+  // - Scheduled any appointments
+  // - Attended any consultations
+  // - Used any services
+  // Currently checks date window only. Service usage check must be implemented separately.
+
+  // If outside refund window, no commission adjustments apply (no clawback policy).
+  if (!withinRefundWindow) {
+    return { heldCount: 0, reversalCount: 0, withinRefundWindow: false };
   }
 
   const { data: unpaidRows, error: unpaidRowsError } = await supabase
@@ -1457,5 +1533,6 @@ export async function applyCancellationToLedger(input: {
   return {
     heldCount: impactedIds.length,
     reversalCount,
+    withinRefundWindow: true,
   };
 }

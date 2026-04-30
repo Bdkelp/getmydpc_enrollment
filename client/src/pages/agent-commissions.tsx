@@ -307,6 +307,38 @@ export default function AgentCommissions() {
     );
   }, [safeCommissions]);
 
+  const nextScheduledPayout = useMemo(() => {
+    const rows = Array.isArray(agentLedger?.rows) ? agentLedger.rows : [];
+    const scheduledRows = rows.filter((row) => row.displayStatus === 'scheduled' && !!row.scheduledPayDate);
+    if (scheduledRows.length === 0) {
+      return null;
+    }
+
+    const totalsByDate = new Map<string, { amount: number; count: number }>();
+    for (const row of scheduledRows) {
+      const rawDate = String(row.scheduledPayDate || '').slice(0, 10);
+      if (!rawDate) continue;
+      const existing = totalsByDate.get(rawDate) || { amount: 0, count: 0 };
+      totalsByDate.set(rawDate, {
+        amount: existing.amount + Number(row.commissionAmount || 0),
+        count: existing.count + 1,
+      });
+    }
+
+    const sortedDates = Array.from(totalsByDate.keys()).sort();
+    if (sortedDates.length === 0) {
+      return null;
+    }
+
+    const nextDate = sortedDates[0];
+    const totals = totalsByDate.get(nextDate) || { amount: 0, count: 0 };
+    return {
+      date: nextDate,
+      amount: totals.amount,
+      rowCount: totals.count,
+    };
+  }, [agentLedger]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
@@ -633,6 +665,37 @@ export default function AgentCommissions() {
             <p className="text-sm text-gray-500">Read-only payout lifecycle view for your commission records.</p>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Next Scheduled Payout</p>
+                  {nextScheduledPayout ? (
+                    <p className="text-lg font-semibold text-blue-900">
+                      ${Number(nextScheduledPayout.amount || 0).toFixed(2)} on {format(new Date(nextScheduledPayout.date), 'MM/dd/yyyy')}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-blue-900">No scheduled payout rows yet. Run ledger sync and batch generation to populate upcoming payout details.</p>
+                  )}
+                </div>
+                {nextScheduledPayout && (
+                  <div className="text-sm text-blue-800">
+                    {nextScheduledPayout.rowCount} scheduled line item(s)
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {Number(agentLedger?.summary?.carryForwardTotal || 0) > 0 && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-800">
+                  ${Number(agentLedger?.summary?.carryForwardTotal || 0).toFixed(2)} is being carried forward.
+                </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Your current cycle total is below the $25.00 minimum payout threshold. This amount will be combined with your next cycle and released automatically once the combined total meets the threshold.
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pending Total</CardTitle></CardHeader>

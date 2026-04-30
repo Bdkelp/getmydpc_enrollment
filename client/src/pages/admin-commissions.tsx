@@ -122,6 +122,14 @@ interface PayoutDashboardSummary {
     adjustmentOrReversal: number;
     cancellations: number;
   };
+  cancellations?: {
+    heldCount: number;
+    heldAmount: number;
+    pendingReversalCount: number;
+    pendingReversalAmount: number;
+    paidReversalCount: number;
+    paidReversalAmount: number;
+  };
 }
 
 interface PayoutBatchDetail {
@@ -1024,7 +1032,7 @@ export default function AdminCommissions() {
             <CardTitle>Recurring Commission Payout Ledger</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-4">
               <div className="rounded border p-3 bg-white">
                 <p className="text-xs text-gray-500">Next Payout Date</p>
                 <p className="text-lg font-semibold">{payoutDashboard?.nextPayoutDate ? format(new Date(payoutDashboard.nextPayoutDate), 'MM/dd/yyyy') : 'N/A'}</p>
@@ -1041,6 +1049,21 @@ export default function AdminCommissions() {
                 <p className="text-xs text-gray-500">New / Renewal / Adj-Reversal / Cancellation</p>
                 <p className="text-sm font-semibold">
                   {(payoutDashboard?.counts?.new || 0)} / {(payoutDashboard?.counts?.renewal || 0)} / {(payoutDashboard?.counts?.adjustmentOrReversal || 0)} / {(payoutDashboard?.counts?.cancellations || 0)}
+                </p>
+              </div>
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">Held Cancellations</p>
+                <p className="text-sm font-semibold">
+                  {(payoutDashboard?.cancellations?.heldCount || 0)} row(s) · ${Number(payoutDashboard?.cancellations?.heldAmount || 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded border p-3 bg-white">
+                <p className="text-xs text-gray-500">Reversal Pipeline (Pending / Paid)</p>
+                <p className="text-sm font-semibold">
+                  {(payoutDashboard?.cancellations?.pendingReversalCount || 0)} / {(payoutDashboard?.cancellations?.paidReversalCount || 0)}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  ${Number(payoutDashboard?.cancellations?.pendingReversalAmount || 0).toFixed(2)} / ${Number(payoutDashboard?.cancellations?.paidReversalAmount || 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -1081,6 +1104,9 @@ export default function AdminCommissions() {
                       <TableCell>${Number(batch.total_amount || 0).toFixed(2)}</TableCell>
                       <TableCell>
                         <Badge variant={batch.status === 'paid' ? 'secondary' : 'outline'}>{batch.status}</Badge>
+                        {batch.status === 'paid' && batch.paid_at && (
+                          <p className="text-xs text-gray-500 mt-1">{format(new Date(batch.paid_at), 'MM/dd/yyyy')}</p>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">

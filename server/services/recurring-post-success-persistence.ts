@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabaseClient';
 import { createPayment, getPaymentByTransactionId } from '../storage';
+import { syncCommissionLedgerFromFeed } from './commission-ledger-service';
 import { calculateNextBillingDate } from '../utils/membership-dates';
 
 interface RecurringPostSuccessOptions {
@@ -22,6 +23,12 @@ interface RecurringPostSuccessResult {
   payoutSummary?: {
     directCount: number;
     overrideCount: number;
+  };
+  ledgerSyncSummary?: {
+    inserted: number;
+    skipped: number;
+    newlyEligible: number;
+    error?: string;
   };
   failureReason?: string;
 }
@@ -199,6 +206,93 @@ async function createCommissionPayoutsIdempotently(options: RecurringPostSuccess
   }
 }
 
+async function syncCommissionLedgerForMemberIdempotently(
+  options: RecurringPostSuccessOptions
+): Promise<{ inserted: number; skipped: number; newlyEligible: number } | { error: string }> {
+  try {
+    const { data: sourceCommissions, error: sourceError } = await supabase
+      .from('agent_commissions')
+      .select('id, agent_id, agent_number, member_id, enrollment_id, commission_amount, coverage_type, notes, is_clawed_back, payment_status, payment_captured, created_at')
+      .eq('member_id', options.memberId);
+
+    if (sourceError) {
+      return { error: `Failed loading source commissions for ledger sync: ${sourceError.message}` };
+    }
+
+    const commissions = Array.isArray(sourceCommissions) ? sourceCommissions : [];
+    if (commissions.length === 0) {
+      return { inserted: 0, skipped: 0, newlyEligible: 0 };
+    }
+
+    const agentIds = [...new Set(
+      commissions
+        .map((commission: any) => String(commission?.agent_id || '').trim())
+        .filter(Boolean)
+    )];
+
+    const agentById = new Map<string, any>();
+    if (agentIds.length > 0) {
+      const { data: agents, error: agentsError } = await supabase
+        .from('users')
+        .select('id, first_name, last_name, email, agent_number')
+        .in('id', agentIds);
+
+      if (agentsError) {
+        return { error: `Failed loading agents for ledger sync: ${agentsError.message}` };
+      }
+
+      for (const agent of agents || []) {
+        if (!agent?.id) continue;
+        agentById.set(String(agent.id), agent);
+      }
+    }
+
+    const { data: member, error: memberError } = await supabase
+      .from('members')
+      .select('id, first_name, last_name, coverage_type, membership_start_date, created_at')
+      .eq('id', options.memberId)
+      .maybeSingle();
+
+    if (memberError) {
+      return { error: `Failed loading member for ledger sync: ${memberError.message}` };
+    }
+
+    const memberName = member?.first_name && member?.last_name
+      ? `${member.first_name} ${member.last_name}`
+      : (member?.first_name || member?.last_name || `Member ${options.memberId}`);
+
+    const feed = commissions.map((commission: any) => {
+      const agentId = String(commission?.agent_id || '').trim();
+      const agent = agentById.get(agentId);
+      const agentName = agent?.first_name && agent?.last_name
+        ? `${agent.first_name} ${agent.last_name}`
+        : (agent?.email || 'Unknown Agent');
+
+      return {
+        id: String(commission.id),
+        agentId: agentId || undefined,
+        agentName,
+        agentNumber: commission?.agent_number || agent?.agent_number || undefined,
+        memberId: String(commission?.member_id || options.memberId),
+        enrollmentId: commission?.enrollment_id ? String(commission.enrollment_id) : undefined,
+        memberName,
+        coverageType: commission?.coverage_type || member?.coverage_type || undefined,
+        effectiveDate: member?.membership_start_date || commission?.created_at || options.billedCycleDate,
+        createdAt: commission?.created_at || options.billedCycleDate,
+        commissionAmount: Number(commission?.commission_amount || 0),
+        notes: commission?.notes || undefined,
+        isClawedBack: Boolean(commission?.is_clawed_back),
+        paymentStatus: commission?.payment_status || undefined,
+        paymentCaptured: commission?.payment_captured === true ? true : (commission?.payment_captured === false ? false : undefined),
+      };
+    });
+
+    return await syncCommissionLedgerFromFeed(feed);
+  } catch (error: any) {
+    return { error: `Failed syncing commission ledger: ${error?.message || 'unknown error'}` };
+  }
+}
+
 export async function persistRecurringPostSuccess(
   options: RecurringPostSuccessOptions
 ): Promise<RecurringPostSuccessResult> {
@@ -226,10 +320,27 @@ export async function persistRecurringPostSuccess(
     };
   }
 
+  const ledgerSyncResult = await syncCommissionLedgerForMemberIdempotently(options);
+  if ('error' in ledgerSyncResult) {
+    console.error('[RecurringPostSuccess] Ledger sync warning:', {
+      memberId: options.memberId,
+      transactionId: options.transactionId,
+      error: ledgerSyncResult.error,
+    });
+  }
+
   return {
     success: true,
     paymentId: paymentResult.paymentId,
     nextBillingDate: billingResult.nextBillingDate,
     payoutSummary: payoutResult,
+    ledgerSyncSummary: 'error' in ledgerSyncResult
+      ? {
+        inserted: 0,
+        skipped: 0,
+        newlyEligible: 0,
+        error: ledgerSyncResult.error,
+      }
+      : ledgerSyncResult,
   };
 }

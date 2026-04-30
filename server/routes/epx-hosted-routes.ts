@@ -3470,6 +3470,8 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                     coverage_type: 'other' as const,
                     status: 'pending' as const,
                     payment_status: 'unpaid' as const,
+                    payment_captured: true,
+                    payment_captured_at: new Date().toISOString(),
                     base_premium: commissionResult.totalCost,
                     notes: `Commission created via EPX callback - Plan: ${planName}, Coverage: ${coverageType}${hasRxValet ? ', RxValet: +$' + RX_VALET_COMMISSION : ''}, Total: $${commissionResult.commission}`
                   };
@@ -4235,6 +4237,8 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
                     coverage_type: 'other' as const,
                     status: 'pending' as const,
                     payment_status: 'unpaid' as const,
+                    payment_captured: true,
+                    payment_captured_at: new Date().toISOString(),
                     base_premium: commissionResult.totalCost,
                     notes: `Commission created via admin manual payment approval - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`
                   })
