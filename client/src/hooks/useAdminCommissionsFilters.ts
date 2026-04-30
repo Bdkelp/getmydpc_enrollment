@@ -7,7 +7,6 @@ export function useAdminCommissionsFilters(locationPath: string) {
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
   const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
-  const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
 
   const searchParams = useMemo(() => {
@@ -46,8 +45,6 @@ export function useAdminCommissionsFilters(locationPath: string) {
     setDateFilter,
     selectedCommissions,
     setSelectedCommissions,
-    paymentDate,
-    setPaymentDate,
     focusMemberId,
     focusCommissionId,
     handleQuickSelectWeek,

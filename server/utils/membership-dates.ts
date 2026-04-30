@@ -160,16 +160,20 @@ function getNextBillingAnchorDate(afterDate: Date): Date {
 
 /**
  * Calculate next recurring billing date (same day next month)
- * @param billingDate - The original billing date
- * @returns The next billing date (same day next month)
+ * @param billingDate - The current billing date (used for year/month/time)
+ * @param anchorDay - The original enrollment day-of-month to preserve across months.
+ *   If provided, this day is used instead of billingDate's day so that clamped dates
+ *   (e.g. Jan 31 → Feb 28) snap back to the original day in longer months (e.g. Mar 31).
+ * @returns The next billing date (anchor day next month, clamped to month length)
  */
-export function calculateNextBillingDate(billingDate: Date): Date {
+export function calculateNextBillingDate(billingDate: Date, anchorDay?: number): Date {
   // Recurring billing must preserve the member's billing day month-over-month.
-  // Example: Apr 18 -> May 18 (not May 1 / May 15 anchors).
-  // For shorter months, clamp to the month's last day.
+  // Always use anchorDay (the original enrollment day) when provided so that
+  // dates clamped by short months (e.g. Feb 28) revert correctly in longer months.
+  // Example: anchorDay=31, Apr 30 -> May 31 (not May 30).
   const year = billingDate.getUTCFullYear();
   const month = billingDate.getUTCMonth();
-  const day = billingDate.getUTCDate();
+  const day = anchorDay ?? billingDate.getUTCDate();
 
   const targetMonthIndex = month + 1;
   const targetYear = year + Math.floor(targetMonthIndex / 12);

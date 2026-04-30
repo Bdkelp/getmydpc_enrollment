@@ -22,7 +22,6 @@ interface Params {
   focusCommissionId: string | null;
   selectedCommissions: Set<string>;
   setSelectedCommissions: (value: Set<string>) => void;
-  toast: (args: { title: string; description: string; variant?: "default" | "destructive" }) => void;
 }
 
 export function useAdminCommissionsDerived({
@@ -31,7 +30,6 @@ export function useAdminCommissionsDerived({
   focusCommissionId,
   selectedCommissions,
   setSelectedCommissions,
-  toast,
 }: Params) {
   const safeCommissions = useMemo(() => {
     const all = Array.isArray(commissions) ? commissions : [];
@@ -145,30 +143,6 @@ export function useAdminCommissionsDerived({
     setSelectedCommissions(newSelected);
   };
 
-  const showLegacyStatementExportDisabled = () => {
-    toast({
-      title: "Legacy Statement/Export Disabled",
-      description: "Use payout batches: open a batch, then use batch statement/export actions.",
-      variant: "destructive",
-    });
-  };
-
-  const handleMarkAsPaid = () => {
-    toast({
-      title: "Legacy Direct Pay Disabled",
-      description: "Use recurring payout batches: sync ledger, generate batch, export, then mark batch as paid.",
-      variant: "destructive",
-    });
-  };
-
-  const handleExportQuickBooksCsv = async () => {
-    showLegacyStatementExportDisabled();
-  };
-
-  const handleExportHexonaCsv = async () => {
-    showLegacyStatementExportDisabled();
-  };
-
   return {
     safeCommissions,
     unpaidCommissions,
@@ -182,8 +156,5 @@ export function useAdminCommissionsDerived({
     availableAgents,
     handleSelectAll,
     handleSelectCommission,
-    handleMarkAsPaid,
-    handleExportQuickBooksCsv,
-    handleExportHexonaCsv,
   };
 }

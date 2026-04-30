@@ -73,20 +73,100 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
   const [location] = useLocation();
   const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navItems = getNavItems(user?.role);
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {mobileNavOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="fixed inset-0 z-40 bg-slate-950/40 md:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-slate-200 bg-white flex flex-col transition-transform duration-300 md:hidden ${
+          mobileNavOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
+              <Shield className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wider text-slate-400">MPP</p>
+              <p className="font-semibold text-slate-900 leading-tight">GetMyDPC</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMobileNavOpen(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive =
+              location === item.href ||
+              (item.href !== "/admin" && item.href !== "/agent" && location.startsWith(item.href));
+            return (
+              <Link key={`mobile-${item.href}`} href={item.href}>
+                <button
+                  onClick={() => setMobileNavOpen(false)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-blue-50 text-blue-700"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-blue-700" : ""}`} />
+                  <span>{item.label}</span>
+                </button>
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="p-3 border-t border-slate-100">
+          <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 transition-colors">
+            <Avatar className="h-8 w-8 flex-shrink-0">
+              <AvatarImage src={getDefaultAvatar(user?.email || "")} />
+              <AvatarFallback className="bg-blue-700 text-white text-xs">
+                {getUserInitials(user?.firstName, user?.lastName)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-slate-900 truncate">
+                {user?.firstName || user?.name || "User"}
+              </p>
+              <p className="text-xs text-slate-500 capitalize">{user?.role || "agent"}</p>
+            </div>
+          </button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/profile">Profile</Link>
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => logout()}>
+              Log out
+            </Button>
+          </div>
+        </div>
+      </aside>
+
       <div
-        className={`grid min-h-screen transition-all duration-300 ${
+        className={`grid min-h-screen transition-all duration-300 grid-cols-1 md:${
           sidebarOpen
             ? "grid-cols-[260px_1fr]"
             : "grid-cols-[64px_1fr]"
         }`}
       >
         {/* Sidebar */}
-        <aside className="border-r border-slate-200 bg-white flex flex-col">
+        <aside className="hidden border-r border-slate-200 bg-white md:flex md:flex-col">
           {/* Brand */}
           <div className="p-4 border-b border-slate-100 flex items-center gap-3">
             <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
@@ -180,7 +260,15 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 flex-shrink-0 text-slate-500"
+                className="h-8 w-8 flex-shrink-0 text-slate-500 md:hidden"
+                onClick={() => setMobileNavOpen(true)}
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden h-8 w-8 flex-shrink-0 text-slate-500 md:inline-flex"
                 onClick={() => setSidebarOpen((v) => !v)}
               >
                 {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -209,7 +297,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
           </header>
 
           {/* Page content */}
-          <main className="flex-1 overflow-y-auto p-5">
+          <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-5">
             {children}
           </main>
         </div>

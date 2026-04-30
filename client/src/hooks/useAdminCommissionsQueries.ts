@@ -5,9 +5,6 @@ interface QueryParams {
   isAdminUser: boolean;
   userId?: string | null;
   dateFilter: { startDate: string; endDate: string };
-  statementAgentId: string;
-  statementStatus: "all" | "paid" | "scheduled" | "unpaid";
-  isStatementOpen: boolean;
   selectedBatchId: string | null;
   isBatchDetailOpen: boolean;
 }
@@ -16,9 +13,6 @@ export function useAdminCommissionsQueries({
   isAdminUser,
   userId,
   dateFilter,
-  statementAgentId,
-  statementStatus,
-  isStatementOpen,
   selectedBatchId,
   isBatchDetailOpen,
 }: QueryParams) {
@@ -45,29 +39,6 @@ export function useAdminCommissionsQueries({
     refetchInterval: 60_000,
   });
 
-  const { data: statementData, isFetching: isStatementLoading } = useQuery({
-    queryKey: [
-      "/api/admin/commissions/statement",
-      dateFilter.startDate,
-      dateFilter.endDate,
-      statementAgentId,
-      statementStatus,
-      isStatementOpen,
-    ],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        status: statementStatus,
-      });
-      if (statementAgentId !== "all") {
-        params.set("agentId", statementAgentId);
-      }
-      return await apiRequest(`/api/admin/commissions/statement?${params.toString()}`, { method: "GET" });
-    },
-    enabled: enabled && isStatementOpen,
-  });
-
   const { data: payoutDashboard, isFetching: isPayoutDashboardLoading } = useQuery({
     queryKey: ["/api/admin/commissions/payout-dashboard"],
     queryFn: async () => {
@@ -89,8 +60,6 @@ export function useAdminCommissionsQueries({
     commissions,
     isLoading,
     lifecycleAlerts,
-    statementData,
-    isStatementLoading,
     payoutDashboard,
     isPayoutDashboardLoading,
     selectedBatchDetail,

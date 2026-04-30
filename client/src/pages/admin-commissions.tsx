@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { DollarSign, Calendar, CheckCircle, Clock, AlertTriangle, FileText, Download, Printer } from "lucide-react";
+import { DollarSign, Calendar, CheckCircle, Clock, AlertTriangle } from "lucide-react";
 import { hasAtLeastRole } from "@/lib/roles";
 import { format } from "date-fns";
 import {
@@ -23,7 +23,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 import { useAdminCommissionsFilters } from "@/hooks/useAdminCommissionsFilters";
 import { useAdminCommissionsQueries } from "@/hooks/useAdminCommissionsQueries";
@@ -59,41 +58,6 @@ interface Commission {
   planName?: string;
   planTier?: string;
   effectiveDate?: string;
-}
-
-interface StatementLineItem {
-  commissionId: string;
-  memberName: string;
-  memberId?: string | null;
-  effectiveDate?: string | null;
-  membershipTier?: string | null;
-  coverageType?: string | null;
-  commissionAmount: number;
-  description: string;
-  statementStatus: 'paid' | 'scheduled' | 'unpaid';
-  isAdjustment?: boolean;
-  adjustmentReason?: string | null;
-}
-
-interface CommissionStatement {
-  statementDate: string;
-  payoutPeriod: { startDate: string; endDate: string };
-  fromCompany: { name: string; address: string };
-  agent: {
-    id: string;
-    fullName: string;
-    writingNumber?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    address?: string | null;
-  } | null;
-  lineItems: StatementLineItem[];
-  subtotal: number;
-  adjustments: number;
-  totalPayout: number;
-  statementNumber: string | null;
-  payoutBatchId: string | null;
-  status: 'all' | 'paid' | 'scheduled' | 'unpaid';
 }
 
 interface PayoutBatchSummary {
@@ -216,16 +180,11 @@ export default function AdminCommissions() {
     setDateFilter,
     selectedCommissions,
     setSelectedCommissions,
-    paymentDate,
-    setPaymentDate,
     focusMemberId,
     focusCommissionId,
     handleQuickSelectWeek,
   } = useAdminCommissionsFilters(locationPath);
 
-  const [statementAgentId, setStatementAgentId] = useState<string>("all");
-  const [statementStatus, setStatementStatus] = useState<'all' | 'paid' | 'scheduled' | 'unpaid'>("all");
-  const [isStatementOpen, setIsStatementOpen] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [isBatchDetailOpen, setIsBatchDetailOpen] = useState(false);
   const [isOverrideConfirmOpen, setIsOverrideConfirmOpen] = useState(false);
@@ -236,8 +195,6 @@ export default function AdminCommissions() {
     commissions,
     isLoading,
     lifecycleAlerts,
-    statementData,
-    isStatementLoading,
     payoutDashboard,
     isPayoutDashboardLoading,
     selectedBatchDetail,
@@ -246,15 +203,11 @@ export default function AdminCommissions() {
     isAdminUser,
     userId: user?.id,
     dateFilter,
-    statementAgentId,
-    statementStatus,
-    isStatementOpen,
     selectedBatchId,
     isBatchDetailOpen,
   });
 
   const {
-    markAsPaidMutation,
     syncLedgerMutation,
     generateBatchesMutation,
     markBatchPaidMutation,
@@ -262,7 +215,6 @@ export default function AdminCommissions() {
     handleExportBatchCsv,
   } = useAdminCommissionsMutations({
     dateFilter,
-    selectedCommissionsSize: selectedCommissions.size,
     selectedBatchId,
     toast,
     setSelectedCommissions,
@@ -284,104 +236,13 @@ export default function AdminCommissions() {
     availableAgents,
     handleSelectAll,
     handleSelectCommission,
-    handleMarkAsPaid,
-    handleExportQuickBooksCsv,
-    handleExportHexonaCsv,
   } = useAdminCommissionsDerived({
     commissions,
     focusMemberId,
     focusCommissionId,
     selectedCommissions,
     setSelectedCommissions,
-    toast,
   });
-
-  const renderStatementDocument = (statement: CommissionStatement): string => {
-    const lineRows = (statement.lineItems || []).map((item) => `
-      <tr>
-        <td>${item.memberName || ''}</td>
-        <td>${item.memberId || ''}</td>
-        <td>${item.effectiveDate ? format(new Date(item.effectiveDate), 'MM/dd/yyyy') : ''}</td>
-        <td>${item.membershipTier || ''}</td>
-        <td>${item.coverageType || ''}</td>
-        <td style="text-align:right;">$${Number(item.commissionAmount || 0).toFixed(2)}</td>
-      </tr>
-    `).join('');
-
-    return `
-      <html>
-        <head>
-          <title>Agent Commission Statement</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; color: #1f2937; }
-            h1 { margin: 0 0 12px 0; }
-            .meta { display: flex; justify-content: space-between; margin-bottom: 16px; }
-            .section { margin-bottom: 16px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #d1d5db; padding: 8px; }
-            th { background: #f3f4f6; text-align: left; }
-            .totals { margin-top: 16px; width: 320px; margin-left: auto; }
-            .totals-row { display: flex; justify-content: space-between; padding: 6px 0; }
-            .total { font-weight: 700; border-top: 1px solid #111827; padding-top: 8px; }
-          </style>
-        </head>
-        <body>
-          <h1>Agent Commission Statement</h1>
-          <div class="meta">
-            <div>
-              <div><strong>${statement.fromCompany.name}</strong></div>
-              <div>${statement.fromCompany.address || ''}</div>
-            </div>
-            <div>
-              <div><strong>Statement Date:</strong> ${format(new Date(statement.statementDate), 'MM/dd/yyyy')}</div>
-              <div><strong>Payout Period:</strong> ${statement.payoutPeriod.startDate} to ${statement.payoutPeriod.endDate}</div>
-              <div><strong>Statement #:</strong> ${statement.statementNumber || ''}</div>
-              <div><strong>Batch ID:</strong> ${statement.payoutBatchId || ''}</div>
-            </div>
-          </div>
-          <div class="section">
-            <div><strong>Agent:</strong> ${statement.agent?.fullName || ''}</div>
-            <div><strong>Writing Number:</strong> ${statement.agent?.writingNumber || ''}</div>
-            <div><strong>Contact:</strong> ${statement.agent?.email || ''}${statement.agent?.phone ? ` | ${statement.agent.phone}` : ''}</div>
-            <div><strong>Address:</strong> ${statement.agent?.address || ''}</div>
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Member Name</th>
-                <th>Member ID</th>
-                <th>Effective Date</th>
-                <th>Membership Tier</th>
-                <th>Coverage Type</th>
-                <th style="text-align:right;">Commission Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lineRows}
-            </tbody>
-          </table>
-          <div class="totals">
-            <div class="totals-row"><span>Subtotal</span><span>$${Number(statement.subtotal || 0).toFixed(2)}</span></div>
-            <div class="totals-row"><span>Adjustments / Chargebacks</span><span>$${Number(statement.adjustments || 0).toFixed(2)}</span></div>
-            <div class="totals-row total"><span>Total Payout</span><span>$${Number(statement.totalPayout || 0).toFixed(2)}</span></div>
-          </div>
-        </body>
-      </html>
-    `;
-  };
-
-  const openStatementPrintWindow = () => {
-    if (!statementData) return;
-    const popup = window.open('', '_blank', 'width=1100,height=900');
-    if (!popup) {
-      toast({ title: 'Pop-up Blocked', description: 'Please allow pop-ups to print statements.', variant: 'destructive' });
-      return;
-    }
-    popup.document.write(renderStatementDocument(statementData));
-    popup.document.close();
-    popup.focus();
-    popup.print();
-  };
 
   if (isLoading) {
     return (
@@ -584,44 +445,14 @@ export default function AdminCommissions() {
           </Card>
         )}
 
-        {/* Payment Action Card */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Process Payment (Legacy Disabled)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
-                <Label htmlFor="paymentDate">Payment Date</Label>
-                <Input
-                  id="paymentDate"
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  Direct pay is disabled. Use payout batches: Sync Ledger, Generate Draft Payout Batches, Export, then Mark Paid.
-                </p>
-              </div>
-              <Button
-                onClick={handleMarkAsPaid}
-                disabled={true}
-                className="mb-0"
-              >
-                Use Batch Workflow
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Date Filters */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Filter by Date Range</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end">
+              <div className="w-full md:flex-1">
                 <Label htmlFor="startDate">Start Date (Sunday)</Label>
                 <Input
                   id="startDate"
@@ -630,7 +461,7 @@ export default function AdminCommissions() {
                   onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
                 />
               </div>
-              <div className="flex-1">
+              <div className="w-full md:flex-1">
                 <Label htmlFor="endDate">End Date (Saturday)</Label>
                 <Input
                   id="endDate"
@@ -639,66 +470,9 @@ export default function AdminCommissions() {
                   onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
                 />
               </div>
-              <Button onClick={handleQuickSelectWeek} variant="outline">
+              <Button onClick={handleQuickSelectWeek} variant="outline" className="w-full md:w-auto">
                 Current Week
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Statements & Accounting Export</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label>Agent</Label>
-                <Select value={statementAgentId} onValueChange={setStatementAgentId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Agents" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Agents</SelectItem>
-                    {availableAgents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.name} ({agent.writingNumber})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Statement Status</Label>
-                <Select
-                  value={statementStatus}
-                  onValueChange={(value: 'all' | 'paid' | 'scheduled' | 'unpaid') => setStatementStatus(value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="unpaid">Unpaid</SelectItem>
-                    <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end gap-2">
-                <Button onClick={showLegacyStatementExportDisabled}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Generate Statement
-                </Button>
-                <Button variant="outline" onClick={handleExportQuickBooksCsv}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export QuickBooks CSV
-                </Button>
-                <Button variant="outline" onClick={handleExportHexonaCsv}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export Hexona CSV
-                </Button>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -744,11 +518,11 @@ export default function AdminCommissions() {
               </div>
             </div>
 
-            <div className="flex gap-2 mb-4">
-              <Button variant="outline" onClick={() => syncLedgerMutation.mutate()} disabled={syncLedgerMutation.isPending || isPayoutDashboardLoading}>
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => syncLedgerMutation.mutate()} disabled={syncLedgerMutation.isPending || isPayoutDashboardLoading}>
                 {syncLedgerMutation.isPending ? 'Syncing...' : 'Sync Ledger From Existing Commissions'}
               </Button>
-              <Button onClick={() => generateBatchesMutation.mutate()} disabled={generateBatchesMutation.isPending || isPayoutDashboardLoading}>
+              <Button className="w-full sm:w-auto" onClick={() => generateBatchesMutation.mutate()} disabled={generateBatchesMutation.isPending || isPayoutDashboardLoading}>
                 {generateBatchesMutation.isPending ? 'Generating...' : 'Generate Draft Payout Batches'}
               </Button>
             </div>
@@ -1091,94 +865,6 @@ export default function AdminCommissions() {
             </Tabs>
           </CardContent>
         </Card>
-
-        <Dialog open={isStatementOpen} onOpenChange={setIsStatementOpen}>
-          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Agent Commission Statement</DialogTitle>
-              <DialogDescription>
-                Statement-ready view for payout period {dateFilter.startDate} to {dateFilter.endDate}
-              </DialogDescription>
-            </DialogHeader>
-
-            {isStatementLoading ? (
-              <div className="py-10 flex justify-center">
-                <LoadingSpinner />
-              </div>
-            ) : !statementData ? (
-              <p className="text-sm text-gray-500">No statement data available.</p>
-            ) : (
-              <div className="space-y-6">
-                <div className="rounded-lg border p-4 bg-white">
-                  <div className="flex justify-between items-start gap-4">
-                    <div>
-                      <h3 className="text-xl font-semibold">Agent Commission Statement</h3>
-                      <p className="text-sm text-gray-600">{statementData.fromCompany.name}</p>
-                      <p className="text-sm text-gray-600">{statementData.fromCompany.address}</p>
-                    </div>
-                    <div className="text-sm text-right">
-                      <p><span className="font-medium">Statement Date:</span> {format(new Date(statementData.statementDate), "MM/dd/yyyy")}</p>
-                      <p><span className="font-medium">Payout Period:</span> {statementData.payoutPeriod.startDate} to {statementData.payoutPeriod.endDate}</p>
-                      <p><span className="font-medium">Statement #:</span> {statementData.statementNumber || 'N/A'}</p>
-                      <p><span className="font-medium">Batch ID:</span> {statementData.payoutBatchId || 'N/A'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border p-4 bg-white text-sm">
-                  <p><span className="font-medium">Agent:</span> {statementData.agent?.fullName || 'N/A'}</p>
-                  <p><span className="font-medium">Writing Number:</span> {statementData.agent?.writingNumber || 'N/A'}</p>
-                  <p><span className="font-medium">Contact:</span> {statementData.agent?.email || 'N/A'}{statementData.agent?.phone ? ` | ${statementData.agent.phone}` : ''}</p>
-                  <p><span className="font-medium">Address:</span> {statementData.agent?.address || 'N/A'}</p>
-                </div>
-
-                <div className="rounded-lg border bg-white">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Member Name</TableHead>
-                        <TableHead>Member ID</TableHead>
-                        <TableHead>Effective Date</TableHead>
-                        <TableHead>Membership Tier</TableHead>
-                        <TableHead>Coverage Type</TableHead>
-                        <TableHead className="text-right">Commission Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(statementData.lineItems || []).map((item) => (
-                        <TableRow key={item.commissionId}>
-                          <TableCell>{item.memberName}</TableCell>
-                          <TableCell>{item.memberId || '-'}</TableCell>
-                          <TableCell>{item.effectiveDate ? format(new Date(item.effectiveDate), 'MM/dd/yyyy') : '-'}</TableCell>
-                          <TableCell>{item.membershipTier || '-'}</TableCell>
-                          <TableCell>{item.coverageType || '-'}</TableCell>
-                          <TableCell className="text-right font-semibold">${Number(item.commissionAmount || 0).toFixed(2)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-
-                <div className="ml-auto w-full max-w-sm rounded-lg border bg-white p-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span>Subtotal</span><span>${Number(statementData.subtotal || 0).toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span>Adjustments / Chargebacks</span><span>${Number(statementData.adjustments || 0).toFixed(2)}</span></div>
-                  <div className="flex justify-between font-bold border-t pt-2"><span>Total Payout</span><span>${Number(statementData.totalPayout || 0).toFixed(2)}</span></div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={openStatementPrintWindow}>
-                    <Printer className="h-4 w-4 mr-2" />
-                    Print
-                  </Button>
-                  <Button onClick={openStatementPrintWindow}>
-                    <Download className="h-4 w-4 mr-2" />
-                    Download PDF
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
 
         <Dialog open={isBatchDetailOpen} onOpenChange={setIsBatchDetailOpen}>
           <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">

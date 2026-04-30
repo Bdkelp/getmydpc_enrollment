@@ -11,7 +11,6 @@ interface DateFilter {
 
 interface UseAdminCommissionsMutationsParams {
   dateFilter: DateFilter;
-  selectedCommissionsSize: number;
   selectedBatchId: string | null;
   toast: (args: { title: string; description: string; variant?: "default" | "destructive" }) => void;
   setSelectedCommissions: (value: Set<string>) => void;
@@ -22,7 +21,6 @@ interface UseAdminCommissionsMutationsParams {
 
 export function useAdminCommissionsMutations({
   dateFilter,
-  selectedCommissionsSize,
   selectedBatchId,
   toast,
   setSelectedCommissions,
@@ -31,31 +29,6 @@ export function useAdminCommissionsMutations({
   setSelectedCarryForwardCandidate,
 }: UseAdminCommissionsMutationsParams) {
   const queryClient = useQueryClient();
-
-  const markAsPaidMutation = useMutation({
-    mutationFn: async (data: { commissionIds: string[]; paymentDate: string }) => {
-      return await apiRequest("/api/admin/mark-commissions-paid", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: `${selectedCommissionsSize} commission(s) marked as paid`,
-      });
-      setSelectedCommissions(new Set());
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/lifecycle-alerts"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to mark commissions as paid",
-        variant: "destructive",
-      });
-    },
-  });
 
   const syncLedgerMutation = useMutation({
     mutationFn: async () => {
@@ -186,7 +159,6 @@ export function useAdminCommissionsMutations({
   };
 
   return {
-    markAsPaidMutation,
     syncLedgerMutation,
     generateBatchesMutation,
     markBatchPaidMutation,

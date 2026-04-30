@@ -106,7 +106,7 @@ async function advanceBillingDateIdempotently(options: RecurringPostSuccessOptio
 
   const { data: currentSub, error: readError } = await supabase
     .from('subscriptions')
-    .select('id, next_billing_date')
+    .select('id, next_billing_date, start_date')
     .eq('id', options.subscriptionId)
     .single();
 
@@ -134,7 +134,12 @@ async function advanceBillingDateIdempotently(options: RecurringPostSuccessOptio
     };
   }
 
-  const computedNextBillingDate = calculateNextBillingDate(new Date(options.billedCycleDate)).toISOString();
+  // Derive the original enrollment anchor day from start_date so that dates clamped
+  // by short months (e.g. Jan 31 → Feb 28) snap back correctly in longer months (→ Mar 31).
+  const startDate = currentSub?.start_date as string | null;
+  const anchorDay = startDate ? new Date(startDate).getUTCDate() : undefined;
+
+  const computedNextBillingDate = calculateNextBillingDate(new Date(options.billedCycleDate), anchorDay).toISOString();
 
   const { data: updatedRows, error: updateError } = await supabase
     .from('subscriptions')

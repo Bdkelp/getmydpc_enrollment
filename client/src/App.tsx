@@ -50,8 +50,6 @@ import ResetPassword from "@/pages/reset-password";
 import ChangePassword from "@/pages/change-password";
 import PendingApproval from "@/pages/pending-approval";
 import Profile from "@/pages/profile"; // Assuming Profile component exists
-import { lazy } from "react";
-import ErrorBoundary from "@/components/ErrorBoundary"; // Assuming ErrorBoundary component exists
 import { hasAtLeastRole } from "@/lib/roles";
 import UiPreviewOrganized from "@/pages/ui-preview-organized";
 

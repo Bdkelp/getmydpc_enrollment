@@ -4,5 +4,8 @@
     "mssql.autoDisableNonTSqlLanguageService": true,
     "files.associations": {
         "migrations/*.sql": "postgres"
+    },
+    "chat.tools.terminal.autoApprove": {
+        "npm --prefix client": true
     }
 }
