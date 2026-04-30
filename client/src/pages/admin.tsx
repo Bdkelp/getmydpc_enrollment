@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,7 +37,6 @@ import {
   Bell
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { supabase } from "@/lib/supabase";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
@@ -66,6 +64,7 @@ import { useAdminRecurringBilling } from "@/hooks/useAdminRecurringBilling";
 import { useAdminEPXOperations } from "@/hooks/useAdminEPXOperations";
 import { useAdminPartnerLeads } from "@/hooks/useAdminPartnerLeads";
 import { useAdminUserManagement } from "@/hooks/useAdminUserManagement";
+import { useAdminDashboardMetrics } from "@/hooks/useAdminDashboardMetrics";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -78,56 +77,6 @@ import {
 } from "@/components/ui/alert-dialog";
 
 // Type definitions for API responses
-interface AdminStats {
-  totalUsers: number;
-  monthlyRevenue: number;
-  individualMonthlyRevenue?: number;
-  familyMonthlyRevenue?: number;
-  groupMonthlyRevenue?: number;
-  newEnrollments: number;
-  churnRate: number;
-}
-
-interface LifecycleAlertSummary {
-  generatedAt: string;
-  horizonDays: number;
-  billing: {
-    dueSoon: number;
-    overdue: number;
-    failed: number;
-    stalePending: number;
-    totalAttention: number;
-    nextCycleDate: string | null;
-  };
-  commissions: {
-    dueSoon: number;
-    overdue: number;
-    unscheduled: number;
-    pending: number;
-    totalAttention: number;
-    nextEligibleDate: string | null;
-  };
-  totals: {
-    totalAttention: number;
-  };
-  billingItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'failed' | 'stale_pending';
-    subscriptionId?: number | null;
-    memberId: number;
-    memberLabel: string;
-    referenceDate: string | null;
-    details?: string | null;
-  }>;
-  commissionItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'unscheduled';
-    commissionId: string;
-    memberId: number;
-    memberLabel: string;
-    referenceDate: string | null;
-    amount: number;
-  }>;
-}
-
 interface RecurringDuePreviewRow {
   subscriptionId: number;
   memberId: number;
@@ -295,6 +244,13 @@ export default function Admin() {
     rejectUserMutation,
   } = useAdminUserManagement(isAuthenticated, isAdminUser);
 
+  const {
+    adminStats,
+    statsLoading,
+    statsError,
+    lifecycleAlerts,
+  } = useAdminDashboardMetrics(isAuthenticated, isAdminUser);
+
   const getEnrollmentRecordsRoute = () => {
     const savedView = window.localStorage.getItem(ENROLLMENT_RECORD_VIEW_KEY);
     return savedView === "groups" ? "/admin/groups" : "/admin/enrollments";
@@ -341,80 +297,7 @@ export default function Admin() {
     }
   }, [isAuthenticated, authLoading, user, toast]);
 
-  // Set up real-time subscriptions for dashboard data
-  useEffect(() => {
-    console.log('[AdminDashboard] Setting up real-time subscriptions...');
 
-    // Subscribe to key table changes that affect dashboard stats
-    const dashboardSubscription = supabase
-      .channel('dashboard-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'users' },
-        (payload) => {
-          console.log('[AdminDashboard] Users change detected:', payload);
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/lifecycle-alerts"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-users"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] }); // Invalidate users query for table updates
-        }
-      )
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'subscriptions' },
-        (payload) => {
-          console.log('[AdminDashboard] Subscriptions change detected:', payload);
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/lifecycle-alerts"] });
-        }
-      )
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'payments' },
-        (payload) => {
-          console.log('[AdminDashboard] Payments change detected:', payload);
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/revenue"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/lifecycle-alerts"] });
-          toast({
-            title: "Payment Activity",
-            description: "New payment activity detected",
-          });
-        }
-      )
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'commissions' },
-        (payload) => {
-          console.log('[AdminDashboard] Commissions change detected:', payload);
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/analytics"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/admin/data-viewer"] });
-          toast({
-            title: "Commission Update",
-            description: "Commission data has been updated",
-          });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      console.log('[AdminDashboard] Cleaning up real-time subscriptions...');
-      dashboardSubscription.unsubscribe();
-    };
-  }, [queryClient, toast]);
-
-
-  const { data: adminStats, isLoading: statsLoading, error: statsError } = useQuery<AdminStats>({
-    queryKey: ["/api/admin/stats"],
-    enabled: isAuthenticated && isAdminUser,
-  });
-
-  const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
-    queryKey: ["/api/admin/lifecycle-alerts"],
-    enabled: isAuthenticated && isAdminUser,
-    queryFn: async () => {
-      return apiRequest('/api/admin/lifecycle-alerts?days=7');
-    },
-    refetchInterval: 60_000,
-  });
 
   // Handle stats error
   useEffect(() => {
