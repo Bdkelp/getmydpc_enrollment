@@ -62,6 +62,7 @@ import { AdminConfirmationDialogs } from "@/components/admin/AdminConfirmationDi
 import { RecurringBillingControlPanel } from "@/components/admin/RecurringBillingControlPanel";
 import { ManualEPXTransactionCard } from "@/components/admin/ManualEPXTransactionCard";
 import { SubscriptionCancellationCard } from "@/components/admin/SubscriptionCancellationCard";
+import { PartnerLeadsTableCard } from "@/components/admin/PartnerLeadsTableCard";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -1338,6 +1339,15 @@ export default function Admin() {
         />
 
 
+        <PartnerLeadsTableCard
+          partnerLeads={partnerLeads}
+          partnerLeadCount={partnerLeadCount}
+          partnerLeadsLoading={partnerLeadsLoading}
+          partnerLeadFilter={partnerLeadFilter}
+          setPartnerLeadFilter={setPartnerLeadFilter}
+          openPartnerLeadDialog={openPartnerLeadDialog}
+        />
+
         {/* Pending Approvals Section */}
         <PendingApprovalsCard
           pendingLoading={pendingLoading}
@@ -1441,127 +1451,4 @@ export default function Admin() {
     </AppShell>
   );
 
-        {/* Partner Leads - dead code below return */}
-        <Card className="mb-8 border border-cyan-200 bg-white">
-          <CardContent className="p-6 space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Partner Leads</h2>
-                <p className="text-sm text-gray-600">
-                  Review inbound agency partners from the public "Partner with us" form and leave follow-up notes.
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge className="bg-cyan-100 text-cyan-800 border-none font-semibold">
-                  {partnerLeadCount} lead{partnerLeadCount === 1 ? '' : 's'}
-                </Badge>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status filter</span>
-                  <Select value={partnerLeadFilter} onValueChange={(value) => setPartnerLeadFilter(value as PartnerLeadStatusFilter)}>
-                    <SelectTrigger className="w-48">
-                      <SelectValue placeholder="Filter status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PARTNER_LEAD_STATUS_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {partnerLeadsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <LoadingSpinner />
-              </div>
-            ) : partnerLeads.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-cyan-200 bg-cyan-50 p-8 text-center text-sm text-cyan-900">
-                {partnerLeadEmptyCopy}
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Agency</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Contact</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Markets & Experience</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600">Last touch</th>
-                      <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {partnerLeads.map((lead) => {
-                      const statusMeta = getPartnerLeadStatusMeta(lead.status);
-                      const createdLabel = lead.createdAt
-                        ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })
-                        : '—';
-                      const latestNote = lead.adminNotes && lead.adminNotes.length > 0
-                        ? lead.adminNotes[lead.adminNotes.length - 1]
-                        : null;
-
-                      return (
-                        <tr key={lead.id} className="bg-white">
-                          <td className="px-4 py-3 align-top">
-                            <div className="font-semibold text-gray-900">{lead.agencyName}</div>
-                            {lead.agencyWebsite ? (
-                              <a
-                                href={lead.agencyWebsite}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-cyan-700 hover:underline"
-                              >
-                                {lead.agencyWebsite}
-                              </a>
-                            ) : (
-                              <p className="text-xs text-gray-500">Website not provided</p>
-                            )}
-                            {lead.message && (
-                              <p className="mt-1 text-xs text-gray-600 max-w-xs truncate">{lead.message}</p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="font-medium text-gray-900">
-                              {lead.firstName} {lead.lastName}
-                            </div>
-                            <p className="text-xs text-gray-600">{lead.email}</p>
-                            <p className="text-xs text-gray-600">{lead.phone || '—'}</p>
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="text-sm text-gray-900">
-                              {lead.statesServed || '—'}
-                            </div>
-                            <p className="text-xs text-gray-600">
-                              {formatExperienceLabel(lead.experienceLevel)} · {formatVolumeEstimate(lead.volumeEstimate)}
-                            </p>
-                            {latestNote && (
-                              <p className="mt-1 text-xs text-gray-500 max-w-xs truncate">
-                                Last note: {latestNote.message}
-                              </p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 align-top">
-                            <Badge className={`${statusMeta.badgeClass} border-none text-xs font-semibold`}>{statusMeta.label}</Badge>
-                          </td>
-                          <td className="px-4 py-3 align-top text-sm text-gray-600">
-                            {createdLabel}
-                          </td>
-                          <td className="px-4 py-3 align-top text-right">
-                            <Button variant="outline" size="sm" onClick={() => openPartnerLeadDialog(lead)}>
-                              Update
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
 }

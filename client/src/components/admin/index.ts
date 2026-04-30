@@ -12,3 +12,4 @@ export { AdminConfirmationDialogs } from "./AdminConfirmationDialogs";
 export { RecurringBillingControlPanel } from "./RecurringBillingControlPanel";
 export { ManualEPXTransactionCard } from "./ManualEPXTransactionCard";
 export { SubscriptionCancellationCard } from "./SubscriptionCancellationCard";
+export { PartnerLeadsTableCard } from "./PartnerLeadsTableCard";
