@@ -3,9 +3,6 @@ import AppShell from "@/components/AppShell";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -13,38 +10,8 @@ import { hasAtLeastRole, isSuperAdmin as isSuperAdminRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { AdminCreateUserDialog } from "@/components/admin-create-user-dialog";
 import DashboardStats from "@/components/DashboardStats";
-import EPXHostedPayment from "@/components/EPXHostedPayment";
-import { 
-  Users, 
-  DollarSign, 
-  UserPlus, 
-  UserX, 
-  Search, 
-  Download,
-  Plus,
-  TrendingUp,
-  Heart,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Shield,
-  Lock,
-  BarChart,
-  User,
-  FileText,
-  AlertTriangle,
-  Target,
-  Bell
-} from "lucide-react";
-import { Link, useLocation } from "wouter";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
-import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
-import { Switch } from "@/components/ui/switch";
-import { TableCell, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+import { Shield } from "lucide-react";
+import { useLocation } from "wouter";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { WelcomeCard } from "@/components/admin/WelcomeCard";
 import { LifecycleAlertsCard } from "@/components/admin/LifecycleAlertsCard";
@@ -65,79 +32,6 @@ import { useAdminEPXOperations } from "@/hooks/useAdminEPXOperations";
 import { useAdminPartnerLeads } from "@/hooks/useAdminPartnerLeads";
 import { useAdminUserManagement } from "@/hooks/useAdminUserManagement";
 import { useAdminDashboardMetrics } from "@/hooks/useAdminDashboardMetrics";
-import { 
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle
-} from "@/components/ui/alert-dialog";
-
-// Type definitions for API responses
-interface RecurringDuePreviewRow {
-  subscriptionId: number;
-  memberId: number;
-  memberOrAccountName: string;
-  payerType: 'member' | 'group';
-  amount: number;
-  nextBillingDate: string | null;
-  readinessState: string;
-  skipReason: string | null;
-  chargeAttemptResult: string | null;
-}
-
-interface RecurringWorkflowResponse {
-  success: boolean;
-  mode: 'preview' | 'live';
-  run?: {
-    startedAt: string;
-    completedAt: string;
-    mode: string;
-    metrics?: {
-      processed: number;
-      skipped: number;
-      errors: number;
-    };
-  };
-  duePreview?: {
-    dueCount: number;
-    rows: RecurringDuePreviewRow[];
-    estimatedCommissionImpact: {
-      potentialSuccessfulPayments: number;
-      estimatedCommissionEntries: number;
-      note: string;
-    };
-    note: string;
-  };
-  dueRows?: RecurringDuePreviewRow[];
-  billingSummary?: {
-    totalDue: number;
-    processed: number;
-    succeeded: number;
-    failed: number;
-    skipped: number;
-  };
-  commissionSummary?: {
-    successfulPaymentsThatCreatedCommissionEntries: number;
-    totalCommissionEntriesCreated: number;
-    payoutBatchesAffectedGenerated: Array<{
-      id: string;
-      batchName: string;
-      totalRecords: number;
-      totalAmount: number;
-    }>;
-    membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped: Array<{
-      memberId: number;
-      memberOrAccountName: string;
-      payerType: 'member' | 'group';
-      reason: string;
-    }>;
-  };
-}
-
 const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
 
 export default function Admin() {
