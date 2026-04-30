@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -33,20 +32,28 @@ import { useAdminPartnerLeads } from "@/hooks/useAdminPartnerLeads";
 import { useAdminUserManagement } from "@/hooks/useAdminUserManagement";
 import { useAdminDashboardMetrics } from "@/hooks/useAdminDashboardMetrics";
 import { useAdminAuthGuard } from "@/hooks/useAdminAuthGuard";
+import { useAdminUserDialogState } from "@/hooks/useAdminUserDialogState";
 const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
 
 export default function Admin() {
   const { toast } = useToast();
-  const { user, isLoading: authLoading, isAuthenticated, logout } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
   const isSuperAdmin = isSuperAdminRole(user?.role);
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const [assignAgentNumberDialog, setAssignAgentNumberDialog] = useState<{ open: boolean; userId: string; currentNumber: string | null }>({ open: false, userId: '', currentNumber: null });
-  const [agentNumberInput, setAgentNumberInput] = useState('');
-  const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
-  const [editUserDialog, setEditUserDialog] = useState<{ open: boolean; user: any | null }>({ open: false, user: null });
-  const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
+  const {
+    assignAgentNumberDialog,
+    setAssignAgentNumberDialog,
+    agentNumberInput,
+    setAgentNumberInput,
+    createUserDialogOpen,
+    setCreateUserDialogOpen,
+    editUserDialog,
+    setEditUserDialog,
+    editFormData,
+    setEditFormData,
+  } = useAdminUserDialogState();
 
   const {
     confirmLiveRecurringOpen,
@@ -140,7 +147,6 @@ export default function Admin() {
   } = useAdminUserManagement(isAuthenticated, isAdminUser);
 
   const {
-    adminStats,
     statsLoading,
     statsError,
     lifecycleAlerts,
