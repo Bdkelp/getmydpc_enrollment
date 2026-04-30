@@ -38,6 +38,7 @@ import {
 import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
 import { useAgentDashboardQueries } from "@/hooks/useAgentDashboardQueries";
 import { useAgentDashboardMutations } from "@/hooks/useAgentDashboardMutations";
+import { useAgentDashboardUiState } from "@/hooks/useAgentDashboardUiState";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -152,37 +153,38 @@ export default function AgentDashboard() {
   const viewingAgentId = selectedAgentId || user?.id;
   const isAdminViewing = isAdminUser && selectedAgentId;
 
-  
-  // Get current time of day for personalized greeting
-  const getTimeOfDayGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good morning";
-    if (hour < 17) return "Good afternoon";
-    return "Good evening";
-  };
-  
-  // Get user's first name for personalized greeting
-  const getUserName = () => {
-    if (user?.firstName) return user.firstName;
-    if (user?.name) return user.name.split(' ')[0];
-    if (user?.email) return user.email.split('@')[0];
-    return "Agent";
-  };
-  
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
     endDate: format(new Date(), "yyyy-MM-dd"),
   });
 
-  const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
-  const [showPendingDialog, setShowPendingDialog] = useState(false);
-  const [consentType, setConsentType] = useState<string>("");
-  const [consentNotes, setConsentNotes] = useState<string>("");
-  const [showMembershipDialog, setShowMembershipDialog] = useState(false);
-  const [membershipTarget, setMembershipTarget] = useState<Enrollment | null>(null);
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
-  const [selectedMemberType, setSelectedMemberType] = useState<string>('');
-  const [membershipReason, setMembershipReason] = useState<string>('');
+  const {
+    selectedEnrollment,
+    showPendingDialog,
+    setShowPendingDialog,
+    consentType,
+    setConsentType,
+    consentNotes,
+    setConsentNotes,
+    showMembershipDialog,
+    setShowMembershipDialog,
+    membershipTarget,
+    selectedPlanId,
+    setSelectedPlanId,
+    selectedMemberType,
+    setSelectedMemberType,
+    membershipReason,
+    setMembershipReason,
+    getTimeOfDayGreeting,
+    getUserName,
+    handlePendingClick,
+    openMembershipDialog,
+    closeMembershipDialog,
+    clearPendingDialogState,
+    hasSuccessfulPayment,
+    getEnrollmentPaymentStatus,
+    openEnrollmentCheckout,
+  } = useAgentDashboardUiState();
 
   const {
     allAgents,
@@ -230,14 +232,10 @@ export default function AgentDashboard() {
       viewingAgentId,
       toast,
       onMembershipSuccess: () => {
-        setShowMembershipDialog(false);
-        setMembershipTarget(null);
+        closeMembershipDialog();
       },
       onResolvePendingSuccess: () => {
-        setShowPendingDialog(false);
-        setSelectedEnrollment(null);
-        setConsentType("");
-        setConsentNotes("");
+        clearPendingDialogState();
       },
     });
 
@@ -245,57 +243,8 @@ export default function AgentDashboard() {
     setLocation("/registration");
   };
 
-  const handlePendingClick = (enrollment: Enrollment) => {
-    setSelectedEnrollment(enrollment);
-    setShowPendingDialog(true);
-  };
-  
   const handleLeadClick = (leadId: number) => {
     setLocation(`/agent/leads/${leadId}`);
-  };
-
-  const openMembershipDialog = (enrollment: Enrollment) => {
-    setMembershipTarget(enrollment);
-    setSelectedPlanId(String(enrollment.planId || ''));
-    setSelectedMemberType(enrollment.memberType || 'member-only');
-    setMembershipReason('');
-    setShowMembershipDialog(true);
-  };
-
-  const hasSuccessfulPayment = (paymentStatus?: string | null) => {
-    const normalized = (paymentStatus || '').toLowerCase();
-    return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
-  };
-
-  const getEnrollmentPaymentStatus = (enrollment: Enrollment): string => {
-    return String(
-      enrollment.payment_status
-      || (enrollment as any).paymentStatus
-      || (enrollment as any).commissionStatus
-      || (enrollment as any).commission_status
-      || ''
-    ).trim().toLowerCase();
-  };
-
-  const isRetryablePaymentStatus = (paymentStatus?: string | null): boolean => {
-    const normalized = String(paymentStatus || '').trim().toLowerCase();
-    if (!normalized) return false;
-    return ['failed', 'declined', 'canceled', 'cancelled', 'error', 'pending', 'requires_action'].includes(normalized);
-  };
-
-  const openEnrollmentCheckout = (enrollment: Enrollment) => {
-    const params = new URLSearchParams({
-      memberId: String(enrollment.id),
-      amount: String(enrollment.totalMonthlyPrice || 0),
-      description: `Enrollment payment for member #${enrollment.id}`,
-    });
-
-    if (enrollment.payment_id) {
-      params.set('retryPaymentId', String(enrollment.payment_id));
-      params.set('retryMemberId', String(enrollment.id));
-    }
-
-    setLocation(`/payments/checkout?${params.toString()}`);
   };
 
   const handleResolvePending = async () => {
@@ -482,7 +431,7 @@ export default function AgentDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold mb-1">
-                  {getTimeOfDayGreeting()}, {getUserName()}! 🎯
+                  {getTimeOfDayGreeting()}, {getUserName(user)}! 🎯
                 </h2>
                 <p className="text-blue-100">
                   Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
@@ -998,7 +947,7 @@ export default function AgentDashboard() {
                             size="sm"
                             onClick={(event) => {
                               event.stopPropagation();
-                              openEnrollmentCheckout(enrollment);
+                              openEnrollmentCheckout(enrollment, setLocation);
                             }}
                           >
                             {buttonLabel}
