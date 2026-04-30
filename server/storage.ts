@@ -8065,6 +8065,18 @@ export const storage = {
         return Number.isFinite(amount) ? amount : 0;
       };
 
+      const toObjectOrNull = (value: unknown): Record<string, any> | null => {
+        if (!value) return null;
+        if (typeof value === 'object') return value as Record<string, any>;
+
+        try {
+          const parsed = JSON.parse(String(value));
+          return parsed && typeof parsed === 'object' ? (parsed as Record<string, any>) : null;
+        } catch {
+          return null;
+        }
+      };
+
       const parseAssignedAgentId = (metadata: any): string | null => {
         if (!metadata || typeof metadata !== 'object') {
           return null;
