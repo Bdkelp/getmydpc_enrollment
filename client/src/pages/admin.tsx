@@ -64,6 +64,7 @@ import { SubscriptionCancellationCard } from "@/components/admin/SubscriptionCan
 import { PartnerLeadsTableCard } from "@/components/admin/PartnerLeadsTableCard";
 import { useAdminRecurringBilling } from "@/hooks/useAdminRecurringBilling";
 import { useAdminEPXOperations } from "@/hooks/useAdminEPXOperations";
+import { useAdminPartnerLeads } from "@/hooks/useAdminPartnerLeads";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -199,56 +200,7 @@ interface RecurringWorkflowResponse {
   };
 }
 
-type PartnerLeadStatus = 'new' | 'contacted' | 'qualified' | 'enrolled' | 'closed_lost';
-type PartnerLeadStatusFilter = PartnerLeadStatus | 'all';
-
-interface PartnerLeadAdminNote {
-  id: string;
-  message: string;
-  createdAt: string;
-  createdBy?: string | null;
-}
-
-interface PartnerLeadRecord {
-  id: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  message?: string | null;
-  status: string;
-  agencyName: string;
-  agencyWebsite?: string | null;
-  statesServed?: string | null;
-  experienceLevel?: string | null;
-  volumeEstimate?: string | null;
-  createdAt?: string;
-  updatedAt?: string;
-  adminNotes?: PartnerLeadAdminNote[];
-}
-
-interface PartnerLeadResponse {
-  leads: PartnerLeadRecord[];
-  total: number;
-  filter: string;
-  timestamp: string;
-}
-
-const PARTNER_LEAD_STATUS_VALUES: PartnerLeadStatus[] = ['new', 'contacted', 'qualified', 'enrolled', 'closed_lost'];
-
-const PARTNER_LEAD_STATUS_OPTIONS: { value: PartnerLeadStatusFilter; label: string }[] = [
-  { value: 'all', label: 'All statuses' },
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'qualified', label: 'Qualified' },
-  { value: 'enrolled', label: 'Enrolled' },
-  { value: 'closed_lost', label: 'Closed - Lost' },
-];
-
 const ENROLLMENT_RECORD_VIEW_KEY = "adminEnrollmentRecordsView";
-
-const isPartnerLeadStatus = (value: string): value is PartnerLeadStatus =>
-  PARTNER_LEAD_STATUS_VALUES.includes(value as PartnerLeadStatus);
 
 export default function Admin() {
   const { toast } = useToast();
@@ -262,10 +214,6 @@ export default function Admin() {
   const [createUserDialogOpen, setCreateUserDialogOpen] = useState(false);
   const [editUserDialog, setEditUserDialog] = useState<{ open: boolean; user: any | null }>({ open: false, user: null });
   const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
-  const [partnerLeadFilter, setPartnerLeadFilter] = useState<PartnerLeadStatusFilter>('all');
-  const [selectedPartnerLead, setSelectedPartnerLead] = useState<PartnerLeadRecord | null>(null);
-  const [partnerLeadStatusSelection, setPartnerLeadStatusSelection] = useState<PartnerLeadStatus>('new');
-  const [partnerLeadNote, setPartnerLeadNote] = useState('');
 
   const {
     confirmLiveRecurringOpen,
@@ -326,6 +274,24 @@ export default function Admin() {
     handleHostedCheckoutRequest,
     finalizeHostedCheckoutLaunch,
   } = useAdminEPXOperations(isSuperAdmin, isAuthenticated, isAdminUser);
+
+  const {
+    partnerLeads,
+    partnerLeadCount,
+    partnerLeadsLoading,
+    partnerLeadFilter,
+    setPartnerLeadFilter,
+    selectedPartnerLead,
+    setSelectedPartnerLead,
+    partnerLeadStatusSelection,
+    setPartnerLeadStatusSelection,
+    partnerLeadNote,
+    setPartnerLeadNote,
+    updatePartnerLeadMutation,
+    openPartnerLeadDialog,
+    handlePartnerLeadUpdate,
+    statusOptions,
+  } = useAdminPartnerLeads(isAuthenticated, isAdminUser);
 
   const getEnrollmentRecordsRoute = () => {
     const savedView = window.localStorage.getItem(ENROLLMENT_RECORD_VIEW_KEY);
@@ -493,19 +459,6 @@ export default function Admin() {
     enabled: isAuthenticated && isAdminUser,
   });
 
-  const { data: partnerLeadResponse, isLoading: partnerLeadsLoading } = useQuery<PartnerLeadResponse>({
-    queryKey: ["/api/admin/partner-leads", partnerLeadFilter],
-    enabled: isAuthenticated && isAdminUser,
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (partnerLeadFilter !== 'all') {
-        params.set('status', partnerLeadFilter);
-      }
-      const path = params.size ? `/api/admin/partner-leads?${params.toString()}` : '/api/admin/partner-leads';
-      return apiRequest(path);
-    },
-  });
-
   // Approve user mutation
   const approveUserMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -554,31 +507,6 @@ export default function Admin() {
     },
   });
 
-  const updatePartnerLeadMutation = useMutation({
-    mutationFn: async ({ id, status, adminNote }: { id: number; status: string; adminNote?: string }) => {
-      return apiRequest(`/api/admin/partner-leads/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status, adminNote }),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: 'Partner lead updated',
-        description: 'Status and notes saved successfully.',
-      });
-      setSelectedPartnerLead(null);
-      setPartnerLeadNote('');
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/partner-leads"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: 'Failed to update lead',
-        description: error?.message || 'Please try again or refresh the page.',
-        variant: 'destructive',
-      });
-    }
-  });
-
   if (authLoading || statsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -606,32 +534,6 @@ export default function Admin() {
   }
 
   const superAdminRestricted = !isSuperAdmin;
-
-  const partnerLeads = partnerLeadResponse?.leads ?? [];
-  const partnerLeadCount = partnerLeadResponse?.total ?? partnerLeads.length;
-
-  const openPartnerLeadDialog = (lead: PartnerLeadRecord) => {
-    setSelectedPartnerLead(lead);
-    setPartnerLeadStatusSelection(
-      isPartnerLeadStatus(lead.status) ? lead.status : 'new'
-    );
-    setPartnerLeadNote('');
-  };
-
-  const handlePartnerLeadUpdate = async () => {
-    if (!selectedPartnerLead) return;
-    try {
-      await updatePartnerLeadMutation.mutateAsync({
-        id: selectedPartnerLead.id,
-        status: partnerLeadStatusSelection,
-        adminNote: partnerLeadNote.trim() || undefined,
-      });
-    } catch (error) {
-      // Error handling managed inside mutation onError
-    }
-  };
-
-
 
   return (
     <AppShell title="Admin Dashboard" breadcrumb={["Admin"]}>
@@ -775,7 +677,7 @@ export default function Admin() {
           setPartnerLeadNote={setPartnerLeadNote}
           updatePartnerLeadMutation={updatePartnerLeadMutation}
           handlePartnerLeadUpdate={handlePartnerLeadUpdate}
-          statusOptions={PARTNER_LEAD_STATUS_OPTIONS as Array<{ value: string; label: string }>}
+          statusOptions={statusOptions}
         />
 
         {/* Admin Create User Dialog */}
