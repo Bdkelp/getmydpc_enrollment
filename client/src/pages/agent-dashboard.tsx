@@ -1,14 +1,11 @@
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { isUnauthorizedError } from "@/lib/authUtils";
 import { Download, Users, DollarSign, Phone, UserPlus, TrendingUp, AlertCircle, Shield, User, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { PerformanceGoals } from "@shared/performanceGoals";
@@ -40,6 +37,7 @@ import {
 } from "@/lib/lifecycleSummaryUi";
 import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
 import { useAgentDashboardQueries } from "@/hooks/useAgentDashboardQueries";
+import { useAgentDashboardMutations } from "@/hooks/useAgentDashboardMutations";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -145,7 +143,7 @@ type PlanGoalField = "weeklyEnrollments" | "monthlyEnrollments" | "quarterlyEnro
 export default function AgentDashboard() {
   const [locationPath, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const isAgentOrAbove = hasAtLeastRole(user?.role, 'agent');
   
@@ -226,58 +224,22 @@ export default function AgentDashboard() {
     console.error('[Agent Dashboard] Enrollments error:', enrollmentsError);
   }
 
-  // Download enrollments spreadsheet
-  const downloadMutation = useMutation({
-    mutationFn: async () => {
-      const { API_URL } = await import("@/lib/apiClient");
-      const { supabase } = await import("@/lib/supabase");
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-
-      const response = await fetch(`${API_URL}/api/agent/export-enrollments`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/csv",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(dateFilter),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to export enrollments");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `enrollments-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    },
-    onError: (error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/login";
-        }, 500);
-        return;
-      }
-      toast({
-        title: "Export Failed",
-        description: "Unable to download enrollments spreadsheet.",
-        variant: "destructive",
-      });
-    },
-  });
+  const { downloadMutation, membershipMutation, handleResolvePending: resolvePending } =
+    useAgentDashboardMutations({
+      dateFilter,
+      viewingAgentId,
+      toast,
+      onMembershipSuccess: () => {
+        setShowMembershipDialog(false);
+        setMembershipTarget(null);
+      },
+      onResolvePendingSuccess: () => {
+        setShowPendingDialog(false);
+        setSelectedEnrollment(null);
+        setConsentType("");
+        setConsentNotes("");
+      },
+    });
 
   const handleNewEnrollment = () => {
     setLocation("/registration");
@@ -299,39 +261,6 @@ export default function AgentDashboard() {
     setMembershipReason('');
     setShowMembershipDialog(true);
   };
-
-  const membershipMutation = useMutation({
-    mutationFn: async (payload: {
-      memberId: string;
-      action: 'change' | 'cancel' | 'reactivate';
-      planId?: number;
-      memberType?: string;
-      reason?: string;
-    }) => {
-      const { memberId, ...body } = payload;
-      return apiRequest(`/api/members/${memberId}/membership`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: 'Membership updated',
-        description: 'The membership change has been applied.',
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter] });
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/stats", viewingAgentId] });
-      setShowMembershipDialog(false);
-      setMembershipTarget(null);
-    },
-    onError: (error: any) => {
-      toast({
-        title: 'Membership update failed',
-        description: error?.message || 'Unable to update membership.',
-        variant: 'destructive',
-      });
-    },
-  });
 
   const hasSuccessfulPayment = (paymentStatus?: string | null) => {
     const normalized = (paymentStatus || '').toLowerCase();
@@ -370,45 +299,12 @@ export default function AgentDashboard() {
   };
 
   const handleResolvePending = async () => {
-    if (!selectedEnrollment || !consentType || !consentNotes) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide consent type and notes before proceeding.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await apiRequest(`/api/enrollment/${selectedEnrollment.id}/resolve`, {
-        method: "PUT",
-        body: JSON.stringify({
-          subscriptionId: selectedEnrollment.subscriptionId,
-          consentType,
-          consentNotes,
-          modifiedBy: user?.id,
-        }),
-      });
-
-      toast({
-        title: "Enrollment Updated",
-        description: "The enrollment has been resolved with member consent.",
-      });
-
-      setShowPendingDialog(false);
-      setSelectedEnrollment(null);
-      setConsentType("");
-      setConsentNotes("");
-      
-      // Refresh enrollments
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments"] });
-    } catch (error) {
-      toast({
-        title: "Update Failed", 
-        description: "Failed to update enrollment. Please try again.",
-        variant: "destructive",
-      });
-    }
+    await resolvePending({
+      selectedEnrollment,
+      consentType,
+      consentNotes,
+      userId: user?.id,
+    });
   };
 
   const formatCurrency = (value?: number | null) =>

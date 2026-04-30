@@ -1,16 +1,11 @@
 import React, { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { apiRequest } from "@/lib/queryClient";
-import { API_URL } from "@/lib/apiClient";
-import { supabase } from "@/lib/supabase";
-import { formatLocalDate } from "@shared/localDate";
 import { DollarSign, Calendar, CheckCircle, Clock, AlertTriangle, FileText, Download, Printer } from "lucide-react";
 import { hasAtLeastRole } from "@/lib/roles";
 import { format, isFuture, isToday } from "date-fns";
@@ -32,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 import { useAdminCommissionsFilters } from "@/hooks/useAdminCommissionsFilters";
 import { useAdminCommissionsQueries } from "@/hooks/useAdminCommissionsQueries";
+import { useAdminCommissionsMutations } from "@/hooks/useAdminCommissionsMutations";
 
 interface Commission {
   id: string;
@@ -213,7 +209,6 @@ export default function AdminCommissions() {
   const { toast } = useToast();
   const { user } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
-  const queryClient = useQueryClient();
 
   const {
     dateFilter,
@@ -257,114 +252,22 @@ export default function AdminCommissions() {
     isBatchDetailOpen,
   });
 
-  // Mark commissions as paid mutation
-  const markAsPaidMutation = useMutation({
-    mutationFn: async (data: { commissionIds: string[], paymentDate: string }) => {
-      return await apiRequest("/api/admin/mark-commissions-paid", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: `${selectedCommissions.size} commission(s) marked as paid`,
-      });
-      setSelectedCommissions(new Set());
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/commissions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/lifecycle-alerts"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to mark commissions as paid",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const syncLedgerMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest('/api/admin/commissions/ledger/sync', {
-        method: 'POST',
-        body: JSON.stringify({
-          startDate: dateFilter.startDate,
-          endDate: dateFilter.endDate,
-        }),
-      });
-    },
-    onSuccess: (result: any) => {
-      toast({
-        title: 'Ledger Synced',
-        description: `Inserted ${result?.inserted || 0} row(s), newly eligible since last payout ${result?.newlyEligible || 0}, skipped ${result?.skipped || 0}.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
-    },
-    onError: (error: any) => {
-      toast({ title: 'Sync Failed', description: error?.message || 'Unable to sync ledger.', variant: 'destructive' });
-    },
-  });
-
-  const generateBatchesMutation = useMutation({
-    mutationFn: async () => {
-      return await apiRequest('/api/admin/commissions/payout-batches/generate', {
-        method: 'POST',
-        body: JSON.stringify({ cutoffDate: formatLocalDate(new Date()) }),
-      });
-    },
-    onSuccess: (result: any) => {
-      toast({
-        title: 'Draft Batches Generated',
-        description: `${result?.count || 0} payout batch(es) were generated.`,
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
-    },
-    onError: (error: any) => {
-      toast({ title: 'Batch Generation Failed', description: error?.message || 'Unable to generate payout batches.', variant: 'destructive' });
-    },
-  });
-
-  const markBatchPaidMutation = useMutation({
-    mutationFn: async (batchId: string) => {
-      return await apiRequest(`/api/admin/commissions/payout-batches/${batchId}/mark-paid`, {
-        method: 'POST',
-      });
-    },
-    onSuccess: () => {
-      toast({ title: 'Batch Marked Paid', description: 'All included ledger records were updated to paid.' });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
-      if (selectedBatchId) {
-        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
-      }
-    },
-    onError: (error: any) => {
-      toast({ title: 'Mark Paid Failed', description: error?.message || 'Unable to mark batch paid.', variant: 'destructive' });
-    },
-  });
-
-  const overrideCarryForwardMutation = useMutation({
-    mutationFn: async (payload: { batchId: string; agentId: string; reason: string }) => {
-      return await apiRequest(`/api/admin/commissions/payout-batches/${payload.batchId}/override-carry-forward`, {
-        method: 'POST',
-        body: JSON.stringify({ agentId: payload.agentId, reason: payload.reason }),
-      });
-    },
-    onSuccess: (result: any) => {
-      toast({
-        title: 'Under-Minimum Release Applied',
-        description: `Released ${result?.releasedRows || 0} row(s) for under-minimum payout override.`,
-      });
-      setIsOverrideConfirmOpen(false);
-      setOverrideReason('');
-      setSelectedCarryForwardCandidate(null);
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
-      if (selectedBatchId) {
-        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
-      }
-    },
-    onError: (error: any) => {
-      toast({ title: 'Under-Minimum Release Failed', description: error?.message || 'Unable to override under-minimum payout rows.', variant: 'destructive' });
-    },
+  const {
+    markAsPaidMutation,
+    syncLedgerMutation,
+    generateBatchesMutation,
+    markBatchPaidMutation,
+    overrideCarryForwardMutation,
+    handleExportBatchCsv,
+  } = useAdminCommissionsMutations({
+    dateFilter,
+    selectedCommissionsSize: selectedCommissions.size,
+    selectedBatchId,
+    toast,
+    setSelectedCommissions,
+    setIsOverrideConfirmOpen,
+    setOverrideReason,
+    setSelectedCarryForwardCandidate,
   });
 
   const safeCommissions = useMemo(() => {
@@ -509,48 +412,6 @@ export default function AdminCommissions() {
 
   const handleExportHexonaCsv = async () => {
     showLegacyStatementExportDisabled();
-  };
-
-  const handleExportBatchCsv = async (batchId: string, formatType: 'quickbooks-csv' | 'hexona-csv') => {
-    try {
-      const params = new URLSearchParams({ format: formatType });
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(`${API_URL}/api/admin/commissions/payout-batches/${batchId}/export?${params.toString()}`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || `Export failed with status ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const prefix = formatType === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
-      link.download = `${prefix}-payout-batch-${batchId}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-dashboard'] });
-      if (selectedBatchId) {
-        queryClient.invalidateQueries({ queryKey: ['/api/admin/commissions/payout-batches', selectedBatchId] });
-      }
-
-      toast({
-        title: 'Batch Export Complete',
-        description: formatType === 'quickbooks-csv' ? 'QuickBooks CSV exported.' : 'Hexona CSV exported.',
-      });
-    } catch (error: any) {
-      toast({ title: 'Batch Export Failed', description: error?.message || 'Unable to export batch CSV.', variant: 'destructive' });
-    }
   };
 
   const renderStatementDocument = (statement: CommissionStatement): string => {
