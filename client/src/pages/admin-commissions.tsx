@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import AppShell from "@/components/AppShell";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
+import { useAdminCommissionsFilters } from "@/hooks/useAdminCommissionsFilters";
 
 interface Commission {
   id: string;
@@ -213,15 +214,18 @@ export default function AdminCommissions() {
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
   const queryClient = useQueryClient();
 
-  // Month to date by default (more useful than current week)
-  const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
-  });
+  const {
+    dateFilter,
+    setDateFilter,
+    selectedCommissions,
+    setSelectedCommissions,
+    paymentDate,
+    setPaymentDate,
+    focusMemberId,
+    focusCommissionId,
+    handleQuickSelectWeek,
+  } = useAdminCommissionsFilters(locationPath);
 
-  const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
-  const [paymentDate, setPaymentDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
   const [statementAgentId, setStatementAgentId] = useState<string>("all");
   const [statementStatus, setStatementStatus] = useState<'all' | 'paid' | 'scheduled' | 'unpaid'>("all");
   const [isStatementOpen, setIsStatementOpen] = useState(false);
@@ -230,28 +234,6 @@ export default function AdminCommissions() {
   const [isOverrideConfirmOpen, setIsOverrideConfirmOpen] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [selectedCarryForwardCandidate, setSelectedCarryForwardCandidate] = useState<PayoutBatchDetail['carryForwardCandidates'][number] | null>(null);
-
-  const searchParams = useMemo(() => {
-    const query = locationPath.includes('?')
-      ? locationPath.slice(locationPath.indexOf('?'))
-      : window.location.search;
-    return new URLSearchParams(query);
-  }, [locationPath]);
-
-  const focusMemberId = searchParams.get('memberId');
-  const focusCommissionId = searchParams.get('commissionId');
-
-  useEffect(() => {
-    if (hasExpandedFocusRange || (!focusMemberId && !focusCommissionId)) {
-      return;
-    }
-
-    setDateFilter({
-      startDate: format(new Date(new Date().getFullYear() - 1, 0, 1), "yyyy-MM-dd"),
-      endDate: format(new Date(), "yyyy-MM-dd"),
-    });
-    setHasExpandedFocusRange(true);
-  }, [focusMemberId, focusCommissionId, hasExpandedFocusRange]);
 
   // Fetch all commissions (admin view)
   const { data: commissions, isLoading } = useQuery<Commission[]>({
@@ -558,15 +540,6 @@ export default function AdminCommissions() {
       title: 'Legacy Statement/Export Disabled',
       description: 'Use payout batches: open a batch, then use batch statement/export actions.',
       variant: 'destructive',
-    });
-  };
-
-  const handleQuickSelectWeek = () => {
-    const sunday = startOfWeek(new Date(), { weekStartsOn: 0 });
-    const saturday = endOfWeek(new Date(), { weekStartsOn: 0 });
-    setDateFilter({
-      startDate: format(sunday, "yyyy-MM-dd"),
-      endDate: format(saturday, "yyyy-MM-dd"),
     });
   };
 

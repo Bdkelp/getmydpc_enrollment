@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -38,6 +38,7 @@ import {
   getLifecycleSubscriptionBadgeClasses,
   getLifecycleSubscriptionLabel,
 } from "@/lib/lifecycleSummaryUi";
+import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -152,13 +153,6 @@ export default function AgentDashboard() {
   const viewingAgentId = selectedAgentId || user?.id;
   const isAdminViewing = isAdminUser && selectedAgentId;
 
-  const searchParams = useMemo(() => {
-    const query = locationPath.includes('?')
-      ? locationPath.slice(locationPath.indexOf('?'))
-      : window.location.search;
-    return new URLSearchParams(query);
-  }, [locationPath]);
-  const focusMemberId = searchParams.get('memberId');
   
   // Get current time of day for personalized greeting
   const getTimeOfDayGreeting = () => {
@@ -176,15 +170,21 @@ export default function AgentDashboard() {
     return "Agent";
   };
   
-  const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
-  });
-  const [businessFilter, setBusinessFilter] = useState<'all' | 'individual' | 'group'>('all');
-  const [pendingActionFilter, setPendingActionFilter] = useState<string>('all');
-  const [paymentRiskFilter, setPaymentRiskFilter] = useState<string>('all');
-  const [accessWindowFilter, setAccessWindowFilter] = useState<string>('all');
-  const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
+  const {
+    dateFilter,
+    setDateFilter,
+    businessFilter,
+    setBusinessFilter,
+    pendingActionFilter,
+    setPendingActionFilter,
+    paymentRiskFilter,
+    setPaymentRiskFilter,
+    accessWindowFilter,
+    setAccessWindowFilter,
+    filteredEnrollments,
+    focusMemberId,
+  } = useAgentDashboardFilters(enrollments, locationPath);
+
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [showPendingDialog, setShowPendingDialog] = useState(false);
   const [consentType, setConsentType] = useState<string>("");
@@ -237,73 +237,6 @@ export default function AgentDashboard() {
     },
     enabled: !!viewingAgentId,
   });
-
-  const filteredEnrollments = useMemo(() => {
-    const all = Array.isArray(enrollments) ? enrollments : [];
-
-    const getLifecycleSummary = (enrollment: Enrollment) => {
-      return enrollment.lifecycleSummary || {
-        subscriptionStatus: enrollment.subscriptionStatus || null,
-        pendingAction: enrollment.pendingReason || null,
-        nextBillingDate: enrollment.nextBillingDate || null,
-        accessThroughDate: enrollment.subscriptionEndDate || null,
-        paymentRiskStatus: String(enrollment.payment_status || '').toLowerCase() || 'unknown',
-      };
-    };
-
-    const segmentFiltered = all.filter((enrollment: any) => {
-      if (businessFilter === 'all') return true;
-      const category = String(enrollment.businessCategory || enrollment.source || '').toLowerCase();
-      const isGroup = category === 'group' || Boolean(enrollment.groupName);
-      if (!(businessFilter === 'group' ? isGroup : !isGroup)) {
-        return false;
-      }
-
-      const lifecycle = getLifecycleSummary(enrollment);
-      const normalizedPendingAction = String(lifecycle.pendingAction || '').trim().toLowerCase();
-      const normalizedRisk = String(lifecycle.paymentRiskStatus || '').trim().toLowerCase() || 'unknown';
-      const accessThroughDate = lifecycle.accessThroughDate ? new Date(lifecycle.accessThroughDate) : null;
-      const accessEnded = accessThroughDate ? accessThroughDate.getTime() < Date.now() : false;
-
-      const matchesPendingAction =
-        pendingActionFilter === 'all' ||
-        (pendingActionFilter === 'none' && !normalizedPendingAction) ||
-        normalizedPendingAction === pendingActionFilter;
-
-      const matchesPaymentRisk =
-        paymentRiskFilter === 'all' || normalizedRisk === paymentRiskFilter;
-
-      const matchesAccessWindow =
-        accessWindowFilter === 'all' ||
-        (accessWindowFilter === 'has_access_through' && Boolean(lifecycle.accessThroughDate)) ||
-        (accessWindowFilter === 'missing_access_through' && !lifecycle.accessThroughDate) ||
-        (accessWindowFilter === 'access_ended' && accessEnded) ||
-        (accessWindowFilter === 'access_active_or_future' && Boolean(lifecycle.accessThroughDate) && !accessEnded);
-
-      return matchesPendingAction && matchesPaymentRisk && matchesAccessWindow;
-    });
-    if (!focusMemberId) return segmentFiltered;
-    return segmentFiltered.filter((enrollment) => String(enrollment.id) === focusMemberId);
-  }, [
-    enrollments,
-    focusMemberId,
-    businessFilter,
-    pendingActionFilter,
-    paymentRiskFilter,
-    accessWindowFilter,
-  ]);
-
-  useEffect(() => {
-    if (hasExpandedFocusRange || !focusMemberId) {
-      return;
-    }
-
-    setDateFilter({
-      startDate: format(new Date(new Date().getFullYear() - 1, 0, 1), "yyyy-MM-dd"),
-      endDate: format(new Date(), "yyyy-MM-dd"),
-    });
-    setHasExpandedFocusRange(true);
-  }, [focusMemberId, hasExpandedFocusRange]);
 
   const { data: availablePlans = [] } = useQuery<PlanOption[]>({
     queryKey: ["/api/plans"],
