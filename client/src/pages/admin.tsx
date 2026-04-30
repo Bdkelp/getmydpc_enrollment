@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -65,6 +65,7 @@ import { PartnerLeadsTableCard } from "@/components/admin/PartnerLeadsTableCard"
 import { useAdminRecurringBilling } from "@/hooks/useAdminRecurringBilling";
 import { useAdminEPXOperations } from "@/hooks/useAdminEPXOperations";
 import { useAdminPartnerLeads } from "@/hooks/useAdminPartnerLeads";
+import { useAdminUserManagement } from "@/hooks/useAdminUserManagement";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -125,18 +126,6 @@ interface LifecycleAlertSummary {
     referenceDate: string | null;
     amount: number;
   }>;
-}
-
-interface UserData {
-  users: any[];
-  totalCount: number;
-}
-
-interface PendingUser {
-  id: string;
-  email: string;
-  created_at: string;
-  [key: string]: any;
 }
 
 interface RecurringDuePreviewRow {
@@ -293,6 +282,19 @@ export default function Admin() {
     statusOptions,
   } = useAdminPartnerLeads(isAuthenticated, isAdminUser);
 
+  const {
+    usersData,
+    usersLoading,
+    usersError,
+    refetch,
+    pendingUsers,
+    pendingLoading,
+    allLoginSessions,
+    sessionsLoading,
+    approveUserMutation,
+    rejectUserMutation,
+  } = useAdminUserManagement(isAuthenticated, isAdminUser);
+
   const getEnrollmentRecordsRoute = () => {
     const savedView = window.localStorage.getItem(ENROLLMENT_RECORD_VIEW_KEY);
     return savedView === "groups" ? "/admin/groups" : "/admin/enrollments";
@@ -428,11 +430,6 @@ export default function Admin() {
     }
   }, [statsError, toast]);
 
-  const { data: usersData, isLoading: usersLoading, error: usersError, refetch } = useQuery<UserData>({
-    queryKey: ["/api/admin/users"],
-    enabled: isAuthenticated && isAdminUser,
-  });
-
   // Handle users error
   useEffect(() => {
     if (usersError && isUnauthorizedError(usersError as Error)) {
@@ -446,66 +443,6 @@ export default function Admin() {
       }, 500);
     }
   }, [usersError, toast]);
-
-  // Fetch pending users
-  const { data: pendingUsers, isLoading: pendingLoading } = useQuery<PendingUser[]>({
-    queryKey: ["/api/admin/pending-users"],
-    enabled: isAuthenticated && isAdminUser,
-  });
-
-  // Fetch all login sessions for monitoring
-  const { data: allLoginSessions = [], isLoading: sessionsLoading } = useQuery<any[]>({
-    queryKey: ["/api/admin/login-sessions"],
-    enabled: isAuthenticated && isAdminUser,
-  });
-
-  // Approve user mutation
-  const approveUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return apiRequest(`/api/admin/approve-user/${userId}`, {
-        method: 'POST',
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "User Approved",
-        description: "The user has been approved and can now access the platform.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-users"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to approve user. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Reject user mutation
-  const rejectUserMutation = useMutation({
-    mutationFn: async ({ userId, reason }: { userId: string; reason: string }) => {
-      return apiRequest(`/api/admin/reject-user/${userId}`, {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "User Rejected",
-        description: "The user has been rejected.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/pending-users"] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to reject user. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   if (authLoading || statsLoading) {
     return (
