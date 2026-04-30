@@ -59,6 +59,9 @@ import { AdminUserDialogs } from "@/components/admin/AdminUserDialogs";
 import { PartnerLeadDialog } from "@/components/admin/PartnerLeadDialog";
 import { RecurringBillingDialogs } from "@/components/admin/RecurringBillingDialogs";
 import { AdminConfirmationDialogs } from "@/components/admin/AdminConfirmationDialogs";
+import { RecurringBillingControlPanel } from "@/components/admin/RecurringBillingControlPanel";
+import { ManualEPXTransactionCard } from "@/components/admin/ManualEPXTransactionCard";
+import { SubscriptionCancellationCard } from "@/components/admin/SubscriptionCancellationCard";
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -1274,185 +1277,13 @@ export default function Admin() {
         {/* Enhanced Dashboard Stats */}
         <DashboardStats userRole="admin" />
 
-        <Card className="mb-8 border border-indigo-200 bg-white shadow-soft">
-          <CardContent className="p-6 space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-lg font-semibold text-gray-900">Recurring Billing Control Panel</h2>
-              <p className="text-sm text-gray-600">
-                Use this operator-safe flow to preview due recurring billing, run live billing, and then update commissions in the correct order.
-              </p>
-            </div>
-
-            <Alert className="border-indigo-200 bg-indigo-50 text-indigo-900">
-              <div className="flex gap-3">
-                <Shield className="h-5 w-5 mt-0.5" />
-                <div>
-                  <AlertTitle>Safety note</AlertTitle>
-                  <AlertDescription>
-                    The system selects all currently due records automatically. Members/accounts cannot be manually chosen for billing from this screen.
-                  </AlertDescription>
-                </div>
-              </div>
-            </Alert>
-
-            <div className="flex flex-col gap-3 md:flex-row">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handlePreviewRecurringBilling}
-                disabled={recurringWorkflowMutation.isPending}
-              >
-                {recurringWorkflowMutation.isPending ? 'Running preview...' : 'Preview Recurring Billing'}
-              </Button>
-
-              <Button
-                type="button"
-                onClick={handleOpenLiveRecurringConfirmation}
-                disabled={recurringWorkflowMutation.isPending || superAdminRestricted}
-                className="bg-indigo-600 text-white hover:bg-indigo-700"
-              >
-                {recurringWorkflowMutation.isPending ? 'Running live workflow...' : 'Run Recurring Billing + Commission Update'}
-              </Button>
-            </div>
-
-            {recurringWorkflowResult?.mode === 'preview' && (
-              <div className="space-y-4 rounded-lg border border-slate-200 p-4">
-                <h3 className="text-base font-semibold text-gray-900">Preview Results</h3>
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded border bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Due member/account count</p>
-                    <p className="text-xl font-semibold text-gray-900">{recurringWorkflowResult.duePreview?.dueCount || 0}</p>
-                  </div>
-                  <div className="rounded border bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Potential successful payments</p>
-                    <p className="text-xl font-semibold text-gray-900">
-                      {recurringWorkflowResult.duePreview?.estimatedCommissionImpact?.potentialSuccessfulPayments || 0}
-                    </p>
-                  </div>
-                  <div className="rounded border bg-slate-50 p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Estimated commission entries</p>
-                    <p className="text-xl font-semibold text-gray-900">
-                      {recurringWorkflowResult.duePreview?.estimatedCommissionImpact?.estimatedCommissionEntries || 0}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Member/Account</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">payerType</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Amount</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">next_billing_date</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-600">Readiness State</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 bg-white">
-                      {(recurringWorkflowResult.duePreview?.rows || []).map((row) => (
-                        <tr key={`preview-${row.subscriptionId}-${row.memberId}`}>
-                          <td className="px-3 py-2 text-gray-900">{row.memberOrAccountName}</td>
-                          <td className="px-3 py-2 text-gray-700">{row.payerType}</td>
-                          <td className="px-3 py-2 text-gray-700">${Number(row.amount || 0).toFixed(2)}</td>
-                          <td className="px-3 py-2 text-gray-700">
-                            {row.nextBillingDate ? format(new Date(row.nextBillingDate), 'yyyy-MM-dd HH:mm') : 'N/A'}
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">{row.readinessState}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <Alert className="border-sky-200 bg-sky-50 text-sky-900">
-                  <AlertDescription>
-                    Preview only. No payments or commissions have been created.
-                  </AlertDescription>
-                </Alert>
-              </div>
-            )}
-
-            {recurringWorkflowResult?.mode === 'live' && (
-              <div className="space-y-4 rounded-lg border border-emerald-200 p-4">
-                <h3 className="text-base font-semibold text-gray-900">Live Run Results</h3>
-
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Billing summary</h4>
-                  <div className="grid gap-3 md:grid-cols-5">
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Total due</p>
-                      <p className="text-xl font-semibold text-gray-900">{recurringWorkflowResult.billingSummary?.totalDue || 0}</p>
-                    </div>
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Processed</p>
-                      <p className="text-xl font-semibold text-gray-900">{recurringWorkflowResult.billingSummary?.processed || 0}</p>
-                    </div>
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Succeeded</p>
-                      <p className="text-xl font-semibold text-emerald-700">{recurringWorkflowResult.billingSummary?.succeeded || 0}</p>
-                    </div>
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Failed</p>
-                      <p className="text-xl font-semibold text-red-700">{recurringWorkflowResult.billingSummary?.failed || 0}</p>
-                    </div>
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Skipped</p>
-                      <p className="text-xl font-semibold text-amber-700">{recurringWorkflowResult.billingSummary?.skipped || 0}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-600">Commission summary</h4>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Successful payments that created commission entries</p>
-                      <p className="text-xl font-semibold text-gray-900">
-                        {recurringWorkflowResult.commissionSummary?.successfulPaymentsThatCreatedCommissionEntries || 0}
-                      </p>
-                    </div>
-                    <div className="rounded border bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">Total commission entries created</p>
-                      <p className="text-xl font-semibold text-gray-900">
-                        {recurringWorkflowResult.commissionSummary?.totalCommissionEntriesCreated || 0}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded border bg-white p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Payout batches affected/generated</p>
-                    {(recurringWorkflowResult.commissionSummary?.payoutBatchesAffectedGenerated || []).length > 0 ? (
-                      <ul className="space-y-1 text-sm text-gray-700">
-                        {(recurringWorkflowResult.commissionSummary?.payoutBatchesAffectedGenerated || []).map((batch) => (
-                          <li key={batch.id}>
-                            {batch.batchName} · records: {batch.totalRecords} · total: ${Number(batch.totalAmount || 0).toFixed(2)}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-gray-600">No payout batches generated in this run.</p>
-                    )}
-                  </div>
-
-                  <div className="rounded border bg-white p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-2">Members/accounts with no commission because payment failed/skipped</p>
-                    {(recurringWorkflowResult.commissionSummary?.membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped || []).length > 0 ? (
-                      <ul className="space-y-1 text-sm text-gray-700">
-                        {(recurringWorkflowResult.commissionSummary?.membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped || []).map((item, idx) => (
-                          <li key={`${item.memberId}-${idx}`}>
-                            {item.memberOrAccountName} ({item.payerType}) · {item.reason}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-gray-600">None.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <RecurringBillingControlPanel
+          recurringWorkflowResult={recurringWorkflowResult}
+          recurringWorkflowPending={recurringWorkflowMutation.isPending}
+          superAdminRestricted={superAdminRestricted}
+          handlePreviewRecurringBilling={handlePreviewRecurringBilling}
+          handleOpenLiveRecurringConfirmation={handleOpenLiveRecurringConfirmation}
+        />
 
         {superAdminRestricted && (
           <Alert className="mb-8 border-amber-300 bg-amber-50 text-amber-900">
@@ -1469,346 +1300,43 @@ export default function Admin() {
           </Alert>
         )}
 
-        {/* Manual EPX Transactions */}
-        <Card className="mb-8 border border-navy-200 bg-white shadow-soft">
-          <CardContent className="p-6 space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-navy-500">Manual EPX Transactions</h2>
-                <p className="text-sm text-gray-600">
-                  Run SALE, refund, or void events directly from the admin dashboard without opening the certification toolkit.
-                </p>
-              </div>
-              <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
-                <div className="flex flex-col items-start gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment Environment</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={`${paymentEnvironmentBadgeClasses} text-xs font-semibold uppercase tracking-wide`}>
-                      {paymentEnvironmentBadgeLabel}
-                    </Badge>
-                    {isSuperAdmin && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={paymentEnvironmentButtonTarget === 'production' ? 'default' : 'outline'}
-                        onClick={() => handlePaymentEnvironmentChange(paymentEnvironmentButtonTarget)}
-                        disabled={paymentEnvironmentLoading || updatePaymentEnvironmentMutation.isPending}
-                      >
-                        {updatePaymentEnvironmentMutation.isPending ? 'Updating...' : paymentEnvironmentButtonLabel}
-                      </Button>
-                    )}
-                  </div>
-                  {paymentEnvironmentUpdatedText && (
-                    <span className="text-xs text-gray-500">{paymentEnvironmentUpdatedText}</span>
-                  )}
-                </div>
-                <div className="flex w-full gap-2 md:w-auto">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setManualTransactionResult(null)}
-                    disabled={!manualTransactionResult}
-                  >
-                    Clear Result
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={resetManualTransactionForm}
-                    disabled={manualTransactionMutation.isPending}
-                  >
-                    Reset Form
-                  </Button>
-                </div>
-              </div>
-            </div>
+        <ManualEPXTransactionCard
+          manualTransactionForm={manualTransactionForm}
+          manualTransactionResult={manualTransactionResult}
+          manualTransactionPending={manualTransactionMutation.isPending}
+          superAdminRestricted={superAdminRestricted}
+          isSuperAdmin={isSuperAdmin}
+          paymentEnvironmentBadgeClasses={paymentEnvironmentBadgeClasses}
+          paymentEnvironmentBadgeLabel={paymentEnvironmentBadgeLabel}
+          paymentEnvironmentLoading={paymentEnvironmentLoading}
+          paymentEnvironmentButtonTarget={paymentEnvironmentButtonTarget}
+          paymentEnvironmentButtonLabel={paymentEnvironmentButtonLabel}
+          updatePaymentEnvironmentPending={updatePaymentEnvironmentMutation.isPending}
+          paymentEnvironmentUpdatedText={paymentEnvironmentUpdatedText}
+          environmentAlertClasses={environmentAlertClasses}
+          environmentAlertTitle={environmentAlertTitle}
+          environmentAlertDescription={environmentAlertDescription}
+          EnvironmentAlertIcon={EnvironmentAlertIcon}
+          handlePaymentEnvironmentChange={handlePaymentEnvironmentChange}
+          setManualTransactionResult={setManualTransactionResult}
+          resetManualTransactionForm={resetManualTransactionForm}
+          handleManualTransactionSubmit={handleManualTransactionSubmit}
+          handleManualFieldChange={handleManualFieldChange}
+          handleManualTranTypeChange={handleManualTranTypeChange}
+          handleHostedCheckoutRequest={handleHostedCheckoutRequest}
+        />
 
-            <Alert className={environmentAlertClasses}>
-              <div className="flex gap-3">
-                <EnvironmentAlertIcon className="h-5 w-5 mt-0.5" />
-                <div>
-                  <AlertTitle>{environmentAlertTitle}</AlertTitle>
-                  <AlertDescription>
-                    {environmentAlertDescription}
-                  </AlertDescription>
-                </div>
-              </div>
-            </Alert>
+        <SubscriptionCancellationCard
+          cancelSubscriptionForm={cancelSubscriptionForm}
+          cancelSubscriptionResult={cancelSubscriptionResult}
+          cancelSubscriptionPending={cancelSubscriptionMutation.isPending}
+          superAdminRestricted={superAdminRestricted}
+          setCancelSubscriptionResult={setCancelSubscriptionResult}
+          resetCancelSubscriptionForm={resetCancelSubscriptionForm}
+          handleCancelSubscriptionSubmit={handleCancelSubscriptionSubmit}
+          handleCancelFieldChange={handleCancelFieldChange}
+        />
 
-            {superAdminRestricted && (
-              <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-900">
-                <div className="flex gap-3">
-                  <Lock className="h-5 w-5 mt-0.5" />
-                  <div>
-                    <AlertTitle>Super admin access required</AlertTitle>
-                    <AlertDescription>
-                      Manual EPX commands stay read-only for admins. Ping a super admin when you need to run a charge, refund, or hosted checkout.
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            )}
-
-            <form onSubmit={handleManualTransactionSubmit}>
-              <fieldset disabled={superAdminRestricted} className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <Label htmlFor="manual-member-id">Member ID</Label>
-                  <Input
-                    id="manual-member-id"
-                    placeholder="1234"
-                    value={manualTransactionForm.memberId}
-                    onChange={handleManualFieldChange('memberId')}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="manual-transaction-id">Transaction ID</Label>
-                  <Input
-                    id="manual-transaction-id"
-                    placeholder="Existing EPX transaction"
-                    value={manualTransactionForm.transactionId}
-                    onChange={handleManualFieldChange('transactionId')}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="manual-auth-guid">EPX AUTH GUID</Label>
-                  <Input
-                    id="manual-auth-guid"
-                    placeholder="Paste AUTH GUID"
-                    value={manualTransactionForm.authGuid}
-                    onChange={handleManualFieldChange('authGuid')}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <Label htmlFor="manual-amount">Amount (USD)</Label>
-                  <Input
-                    id="manual-amount"
-                    type="number"
-                    min={0.01}
-                    step="0.01"
-                    value={manualTransactionForm.amount}
-                    onChange={handleManualFieldChange('amount')}
-                    required
-                    placeholder="100.00"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Required for sales and refunds. Enter the dollar amount you wish to charge or return.
-                  </p>
-                </div>
-                <div>
-                  <Label htmlFor="manual-tran-type">Transaction Type</Label>
-                  <Select value={manualTransactionForm.tranType} onValueChange={handleManualTranTypeChange}>
-                    <SelectTrigger id="manual-tran-type">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MANUAL_TRANSACTION_TYPES.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{option.label}</span>
-                            {option.description && (
-                              <span className="text-xs text-muted-foreground">{option.description}</span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="manual-description">Reference Note</Label>
-                  <Input
-                    id="manual-description"
-                    placeholder="Shown in EPX memo"
-                    value={manualTransactionForm.description}
-                    onChange={handleManualFieldChange('description')}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <p className="text-sm text-gray-600">
-                  Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.
-                </p>
-                <div className="flex flex-col gap-2 w-full md:w-auto md:flex-row">
-                  <Button
-                    type="submit"
-                    className="w-full md:w-auto"
-                    disabled={manualTransactionMutation.isPending}
-                  >
-                    {manualTransactionMutation.isPending ? 'Submitting...' : 'Run Transaction'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="w-full md:w-auto"
-                    onClick={handleHostedCheckoutRequest}
-                    disabled={manualTransactionMutation.isPending}
-                  >
-                    Launch Hosted Checkout
-                  </Button>
-                </div>
-              </div>
-              </fieldset>
-            </form>
-
-            {manualTransactionResult && (
-              <div className="grid gap-4 md:grid-cols-2">
-                {manualTransactionResult.transactionReference && (
-                  <div className="md:col-span-2 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-900">
-                    Transaction Reference: <span className="font-semibold">{manualTransactionResult.transactionReference}</span>
-                  </div>
-                )}
-                {manualTransactionResult.request && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
-                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                      {JSON.stringify(manualTransactionResult.request || {}, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {manualTransactionResult.response && (
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
-                    <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                      {JSON.stringify(manualTransactionResult.response || {}, null, 2)}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Subscription Cancellation */}
-        <Card className="mb-8 border border-red-200 bg-white">
-          <CardContent className="p-6 space-y-6">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Membership Cancellation</h2>
-                <p className="text-sm text-gray-600">
-                  Cancel a recurring subscription directly from the admin dashboard. Hosted checkout remains available for new payments.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setCancelSubscriptionResult(null)}
-                  disabled={!cancelSubscriptionResult}
-                >
-                  Clear Result
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={resetCancelSubscriptionForm}
-                  disabled={cancelSubscriptionMutation.isPending}
-                >
-                  Reset Form
-                </Button>
-              </div>
-            </div>
-
-            <Alert variant="destructive" className="border-red-300 bg-red-50 text-red-900">
-              <div className="flex gap-3">
-                <AlertTriangle className="h-5 w-5 mt-0.5" />
-                <div>
-                  <AlertTitle>Heads up</AlertTitle>
-                  <AlertDescription>
-                    Canceling a subscription immediately halts future billing and notifies EPX. Confirm with the member before continuing.
-                    Pause functionality will be added next, but for now this action cannot be undone from the dashboard.
-                  </AlertDescription>
-                </div>
-              </div>
-            </Alert>
-
-            {superAdminRestricted && (
-              <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-900">
-                <div className="flex gap-3">
-                  <Lock className="h-5 w-5 mt-0.5" />
-                  <div>
-                    <AlertTitle>Super admin access required</AlertTitle>
-                    <AlertDescription>
-                      Only super admins can cancel active subscriptions from this dashboard.
-                    </AlertDescription>
-                  </div>
-                </div>
-              </Alert>
-            )}
-
-            <form onSubmit={handleCancelSubscriptionSubmit}>
-              <fieldset disabled={superAdminRestricted} className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div>
-                  <Label htmlFor="cancel-subscription-id">Subscription ID</Label>
-                  <Input
-                    id="cancel-subscription-id"
-                    placeholder="Numeric subscription ID"
-                    value={cancelSubscriptionForm.subscriptionId}
-                    onChange={handleCancelFieldChange('subscriptionId')}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cancel-transaction-id">Transaction ID</Label>
-                  <Input
-                    id="cancel-transaction-id"
-                    placeholder="Reference payment (optional)"
-                    value={cancelSubscriptionForm.transactionId}
-                    onChange={handleCancelFieldChange('transactionId')}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="cancel-reason">Reason</Label>
-                  <Textarea
-                    id="cancel-reason"
-                    placeholder="Visible in audit logs"
-                    value={cancelSubscriptionForm.reason}
-                    onChange={handleCancelFieldChange('reason')}
-                    rows={3}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <p className="text-sm text-gray-600">
-                  Provide either a subscription ID or a transaction ID that contains subscription metadata. Cancellations are sent directly to EPX.
-                </p>
-                <Button
-                  type="submit"
-                  className="w-full md:w-auto"
-                  disabled={cancelSubscriptionMutation.isPending}
-                >
-                  {cancelSubscriptionMutation.isPending ? 'Submitting...' : 'Submit Cancellation'}
-                </Button>
-              </div>
-              </fieldset>
-            </form>
-
-            {cancelSubscriptionResult && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="md:col-span-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                  Subscription ID: <span className="font-semibold">{cancelSubscriptionResult.subscriptionId || 'N/A'}</span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900 mb-2">Request Snapshot</p>
-                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(cancelSubscriptionResult.request || {}, null, 2)}
-                  </pre>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900 mb-2">Response Snapshot</p>
-                  <pre className="bg-slate-900 text-slate-100 rounded-md p-3 text-xs overflow-x-auto">
-                    {JSON.stringify(cancelSubscriptionResult.response || cancelSubscriptionResult || {}, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
         {/* Pending Approvals Section */}
         <PendingApprovalsCard
