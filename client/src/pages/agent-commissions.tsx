@@ -1,14 +1,14 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/useAuth";
-import { apiRequest } from "@/lib/queryClient";
 import { DollarSign, TrendingUp, Calendar, Download, AlertTriangle } from "lucide-react";
+import { useAgentCommissionsFilters } from "@/hooks/useAgentCommissionsFilters";
+import { useAgentCommissionsQueries, type AgentLedgerRow } from "@/hooks/useAgentCommissionsQueries";
+import { useAgentCommissionsDerived } from "@/hooks/useAgentCommissionsDerived";
 import { format } from "date-fns";
 import {
   Table,
@@ -24,368 +24,83 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 
-interface Commission {
-  id: number;
-  subscriptionId?: number;
-  userId?: string;
-  userName?: string;
-  memberId?: string | number;
-  membershipId?: string;
-  planName?: string;
-  planType?: string;
-  planTier?: string;
-  commissionAmount?: number;
-  totalPlanCost?: number;
-  businessCategory?: 'individual' | 'family' | 'group';
-  status?: string;
-  paymentStatus?: string;
-  paymentDate?: string;
-  createdAt?: string;
-}
+const getStatusBadge = (status: string) => {
+  switch (status) {
+    case 'active': return <Badge className="bg-green-100 text-green-800">Active</Badge>;
+    case 'cancelled': return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+    case 'pending': return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+    default: return <Badge>{status}</Badge>;
+  }
+};
 
-interface CommissionStats {
-  mtd: number;
-  ytd: number;
-  lifetime: number;
-  pending: number;
-}
+const getPaymentBadge = (status: string) => {
+  switch (status) {
+    case 'paid': return <Badge className="bg-blue-100 text-blue-800">Paid</Badge>;
+    case 'unpaid': return <Badge className="bg-gray-100 text-gray-800">Unpaid</Badge>;
+    case 'cancelled': return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
+    default: return <Badge>{status}</Badge>;
+  }
+};
 
-interface LifecycleAlertSummary {
-  generatedAt: string;
-  horizonDays: number;
-  billing: {
-    dueSoon: number;
-    overdue: number;
-    failed: number;
-    stalePending: number;
-    totalAttention: number;
-    nextCycleDate: string | null;
-  };
-  commissions: {
-    dueSoon: number;
-    overdue: number;
-    unscheduled: number;
-    pending: number;
-    totalAttention: number;
-    nextEligibleDate: string | null;
-  };
-  totals: {
-    totalAttention: number;
-  };
-  billingItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'failed' | 'stale_pending';
-    subscriptionId?: number | null;
-    memberId: number;
-    memberLabel: string;
-    referenceDate: string | null;
-    details?: string | null;
-  }>;
-  commissionItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'unscheduled';
-    commissionId: string;
-    memberId: number;
-    memberLabel: string;
-    referenceDate: string | null;
-    amount: number;
-  }>;
-}
-
-interface AgentLedgerRow {
-  id: string;
-  memberId?: string | null;
-  memberName: string;
-  membershipTier?: string | null;
-  coverageType?: string | null;
-  effectiveDate?: string | null;
-  commissionType: 'new' | 'renewal' | 'adjustment' | 'reversal';
-  commissionAmount: number;
-  displayStatus: 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed';
-  payoutBatchId?: string | null;
-  payoutBatchName?: string | null;
-  scheduledPayDate?: string | null;
-  paidAt?: string | null;
-  statementNumber?: string | null;
-}
-
-interface AgentLedgerResponse {
-  rows: AgentLedgerRow[];
-  summary: {
-    pendingTotal: number;
-    scheduledTotal: number;
-    carryForwardTotal: number;
-    paidTotal: number;
-    reversalsAdjustmentsTotal: number;
-  };
-}
+const getLedgerStatusBadge = (status: AgentLedgerRow['displayStatus']) => {
+  switch (status) {
+    case 'pending': return <Badge className="bg-yellow-100 text-yellow-800">Pending (Earned)</Badge>;
+    case 'scheduled': return <Badge className="bg-blue-100 text-blue-800">Scheduled</Badge>;
+    case 'carry_forward': return <Badge className="bg-amber-100 text-amber-800">Carry Forward (&lt;$25)</Badge>;
+    case 'paid': return <Badge className="bg-green-100 text-green-800">Paid</Badge>;
+    case 'held': return <Badge className="bg-orange-100 text-orange-800">Held</Badge>;
+    case 'reversed':
+    default: return <Badge className="bg-red-100 text-red-800">Reversed</Badge>;
+  }
+};
 
 export default function AgentCommissions() {
-  const [locationPath, setLocation] = useLocation();
-  const { toast } = useToast();
-  const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
 
-  const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().setMonth(new Date().getMonth() - 1)), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
+  const {
+    dateFilter,
+    setDateFilter,
+    ledgerStatusFilter,
+    setLedgerStatusFilter,
+    ledgerPayoutPeriodFilter,
+    setLedgerPayoutPeriodFilter,
+    ledgerMemberNameFilter,
+    setLedgerMemberNameFilter,
+    resetLedgerFilters,
+    focusMemberId,
+    focusCommissionId,
+  } = useAgentCommissionsFilters();
+
+  const {
+    stats,
+    statsLoading,
+    statsError,
+    commissions,
+    commissionsLoading,
+    commissionsError,
+    lifecycleAlerts,
+    agentLedger,
+    ledgerLoading,
+    ledgerError,
+  } = useAgentCommissionsQueries({
+    dateFilter,
+    ledgerStatusFilter,
+    ledgerPayoutPeriodFilter,
+    ledgerMemberNameFilter,
   });
-  const [hasExpandedFocusRange, setHasExpandedFocusRange] = useState(false);
-  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'all' | 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed'>('all');
-  const [ledgerPayoutPeriodFilter, setLedgerPayoutPeriodFilter] = useState<'all' | '1st-cycle' | '15th-cycle'>('all');
-  const [ledgerMemberNameFilter, setLedgerMemberNameFilter] = useState('');
 
-  const searchParams = useMemo(() => {
-    const query = locationPath.includes('?')
-      ? locationPath.slice(locationPath.indexOf('?'))
-      : window.location.search;
-    return new URLSearchParams(query);
-  }, [locationPath]);
-
-  const focusMemberId = searchParams.get('memberId');
-  const focusCommissionId = searchParams.get('commissionId');
-
-  useEffect(() => {
-    if (hasExpandedFocusRange || (!focusMemberId && !focusCommissionId)) {
-      return;
-    }
-
-    setDateFilter({
-      startDate: format(new Date(new Date().getFullYear() - 1, 0, 1), "yyyy-MM-dd"),
-      endDate: format(new Date(), "yyyy-MM-dd"),
+  const { safeCommissions, safeStats, businessMix, nextScheduledPayout, handleExport } =
+    useAgentCommissionsDerived({
+      commissions,
+      stats,
+      agentLedger,
+      focusMemberId,
+      focusCommissionId,
+      dateFilter,
     });
-    setHasExpandedFocusRange(true);
-  }, [focusMemberId, focusCommissionId, hasExpandedFocusRange]);
 
-  // Fetch commission stats (using the new commission-totals endpoint for MTD/YTD/Lifetime)
-  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<CommissionStats>({
-    queryKey: ["/api/agent/commission-totals"],
-    queryFn: async () => {
-      return await apiRequest(`/api/agent/commission-totals`, { method: "GET" });
-    },
-    enabled: !!user,
-    retry: 1,
-  });
-
-  // Fetch commissions with filters
-  const { data: commissions, isLoading: commissionsLoading, error: commissionsError } = useQuery<Commission[]>({
-    queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-      });
-      return await apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
-    },
-    enabled: !!user && !!dateFilter.startDate && !!dateFilter.endDate,
-    retry: 1,
-  });
-
-  const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
-    queryKey: ["/api/agent/lifecycle-alerts"],
-    queryFn: async () => {
-      return await apiRequest('/api/agent/lifecycle-alerts?days=7', { method: 'GET' });
-    },
-    enabled: !!user,
-    retry: 1,
-    refetchInterval: 60_000,
-  });
-
-  const { data: agentLedger, isLoading: ledgerLoading, error: ledgerError } = useQuery<AgentLedgerResponse>({
-    queryKey: [
-      '/api/agent/commission-ledger',
-      dateFilter.startDate,
-      dateFilter.endDate,
-      ledgerStatusFilter,
-      ledgerPayoutPeriodFilter,
-      ledgerMemberNameFilter,
-    ],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-        status: ledgerStatusFilter,
-        payoutPeriod: ledgerPayoutPeriodFilter,
-      });
-      if (ledgerMemberNameFilter.trim()) {
-        params.set('memberName', ledgerMemberNameFilter.trim());
-      }
-      return await apiRequest(`/api/agent/commission-ledger?${params.toString()}`, { method: 'GET' });
-    },
-    enabled: !!user,
-    retry: 1,
-  });
-
-  const handleExport = async () => {
-    try {
-      const params = new URLSearchParams({
-        startDate: dateFilter.startDate,
-        endDate: dateFilter.endDate,
-      });
-
-      const response = await fetch(`/api/agent/export-commissions?${params}`, {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (!response.ok) throw new Error("Export failed");
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `commissions-${dateFilter.startDate}-to-${dateFilter.endDate}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      toast({
-        title: "Export Successful",
-        description: "Your commission report has been downloaded.",
-      });
-    } catch (error) {
-      toast({
-        title: "Export Failed",
-        description: "Unable to download commission report.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Safe array handling for commissions data with comprehensive checks
-  const safeCommissions = useMemo(() => {
-    const all = Array.isArray(commissions) ? commissions : [];
-
-    if (!focusMemberId && !focusCommissionId) {
-      return all;
-    }
-
-    return all.filter((commission) => {
-      const memberMatch = focusMemberId
-        ? String(commission.memberId || '') === focusMemberId
-        : true;
-      const commissionMatch = focusCommissionId
-        ? String(commission.id || '') === focusCommissionId
-        : true;
-      return memberMatch && commissionMatch;
-    });
-  }, [commissions, focusMemberId, focusCommissionId]);
-
-  // Safe stats object with defaults and null checks
-  const safeStats = useMemo(() => {
-    return {
-      mtd: (stats && typeof stats.mtd === 'number') ? stats.mtd : 0,
-      ytd: (stats && typeof stats.ytd === 'number') ? stats.ytd : 0,
-      lifetime: (stats && typeof stats.lifetime === 'number') ? stats.lifetime : 0,
-      pending: (stats && typeof stats.pending === 'number') ? stats.pending : 0
-    };
-  }, [stats]);
-
-  const businessMix = useMemo(() => {
-    return safeCommissions.reduce(
-      (acc, commission) => {
-        const category = commission.businessCategory || 'individual';
-        const amount = Number(commission.commissionAmount || 0);
-
-        if (category === 'family') {
-          acc.family.count += 1;
-          acc.family.amount += amount;
-        } else if (category === 'group') {
-          acc.group.count += 1;
-          acc.group.amount += amount;
-        } else {
-          acc.individual.count += 1;
-          acc.individual.amount += amount;
-        }
-
-        return acc;
-      },
-      {
-        individual: { count: 0, amount: 0 },
-        family: { count: 0, amount: 0 },
-        group: { count: 0, amount: 0 },
-      }
-    );
-  }, [safeCommissions]);
-
-  const nextScheduledPayout = useMemo(() => {
-    const rows = Array.isArray(agentLedger?.rows) ? agentLedger.rows : [];
-    const scheduledRows = rows.filter((row) => row.displayStatus === 'scheduled' && !!row.scheduledPayDate);
-    if (scheduledRows.length === 0) {
-      return null;
-    }
-
-    const totalsByDate = new Map<string, { amount: number; count: number }>();
-    for (const row of scheduledRows) {
-      const rawDate = String(row.scheduledPayDate || '').slice(0, 10);
-      if (!rawDate) continue;
-      const existing = totalsByDate.get(rawDate) || { amount: 0, count: 0 };
-      totalsByDate.set(rawDate, {
-        amount: existing.amount + Number(row.commissionAmount || 0),
-        count: existing.count + 1,
-      });
-    }
-
-    const sortedDates = Array.from(totalsByDate.keys()).sort();
-    if (sortedDates.length === 0) {
-      return null;
-    }
-
-    const nextDate = sortedDates[0];
-    const totals = totalsByDate.get(nextDate) || { amount: 0, count: 0 };
-    return {
-      date: nextDate,
-      amount: totals.amount,
-      rowCount: totals.count,
-    };
-  }, [agentLedger]);
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
-      case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
-
-  const getPaymentBadge = (status: string) => {
-    switch (status) {
-      case 'paid':
-        return <Badge className="bg-blue-100 text-blue-800">Paid</Badge>;
-      case 'unpaid':
-        return <Badge className="bg-gray-100 text-gray-800">Unpaid</Badge>;
-      case 'cancelled':
-        return <Badge className="bg-red-100 text-red-800">Cancelled</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
-    }
-  };
-
-  const getLedgerStatusBadge = (status: AgentLedgerRow['displayStatus']) => {
-    switch (status) {
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending (Earned)</Badge>;
-      case 'scheduled':
-        return <Badge className="bg-blue-100 text-blue-800">Scheduled</Badge>;
-      case 'carry_forward':
-        return <Badge className="bg-amber-100 text-amber-800">Carry Forward (&lt;$25)</Badge>;
-      case 'paid':
-        return <Badge className="bg-green-100 text-green-800">Paid</Badge>;
-      case 'held':
-        return <Badge className="bg-orange-100 text-orange-800">Held</Badge>;
-      case 'reversed':
-      default:
-        return <Badge className="bg-red-100 text-red-800">Reversed</Badge>;
-    }
-  };
-
-  // Show errors if any
   if (statsError || commissionsError || ledgerError) {
-    console.error('[AgentCommissions] Query errors:', { statsError, commissionsError, ledgerError });
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="max-w-md p-6">
@@ -441,7 +156,7 @@ export default function AgentCommissions() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">This Month</CardTitle>
@@ -487,7 +202,7 @@ export default function AgentCommissions() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Individual Business</CardTitle>
@@ -632,7 +347,7 @@ export default function AgentCommissions() {
             <CardTitle>Filter by Date Range</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <Label htmlFor="startDate">Start Date</Label>
                 <Input
@@ -696,7 +411,7 @@ export default function AgentCommissions() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
               <Card>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Pending Total</CardTitle></CardHeader>
                 <CardContent><div className="text-xl font-bold">${Number(agentLedger?.summary?.pendingTotal || 0).toFixed(2)}</div></CardContent>
@@ -719,7 +434,7 @@ export default function AgentCommissions() {
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div>
                 <Label>Status</Label>
                 <Select value={ledgerStatusFilter} onValueChange={(value: any) => setLedgerStatusFilter(value)}>
@@ -756,20 +471,12 @@ export default function AgentCommissions() {
                 />
               </div>
               <div className="flex items-end">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setLedgerStatusFilter('all');
-                    setLedgerPayoutPeriodFilter('all');
-                    setLedgerMemberNameFilter('');
-                  }}
-                >
-                  Reset Filters
-                </Button>
+                <Button variant="outline" onClick={resetLedgerFilters}>Reset Filters</Button>
               </div>
             </div>
 
             {Array.isArray(agentLedger?.rows) && agentLedger.rows.length > 0 ? (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -826,6 +533,7 @@ export default function AgentCommissions() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             ) : (
               <div className="text-center py-8">
                 <p className="text-gray-500">No agent commission ledger records for the selected filters.</p>
@@ -841,6 +549,7 @@ export default function AgentCommissions() {
           </CardHeader>
           <CardContent>
             {Array.isArray(safeCommissions) && safeCommissions.length > 0 ? (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -896,6 +605,7 @@ export default function AgentCommissions() {
                   }).filter(Boolean)}
                 </TableBody>
               </Table>
+              </div>
             ) : (
               <div className="text-center py-12">
                 <p className="text-gray-500">No commissions found for the selected date range.</p>

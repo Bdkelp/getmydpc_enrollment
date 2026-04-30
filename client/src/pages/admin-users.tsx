@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import AppShell from '@/components/AppShell';
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,60 +10,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
-import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
-import { API_URL } from "@/lib/apiClient";
-
-// API request helper function
-async function apiRequest(url: string, options: RequestInit = {}) {
-  const session = await supabase.auth.getSession();
-  const token = session.data.session?.access_token;
-  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url.startsWith('/') ? url : `/${url}`}`;
-
-  console.log('[apiRequest] Auth check:', {
-    hasSession: !!session.data.session,
-    hasToken: !!token,
-    tokenPreview: token ? token.substring(0, 20) + '...' : 'NO TOKEN',
-    url: fullUrl
-  });
-
-  const response = await fetch(fullUrl, {
-    ...options,
-    credentials: options.credentials || 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` }),
-      ...options.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[apiRequest] HTTP error:', {
-      status: response.status,
-      statusText: response.statusText,
-      body: errorText,
-      url: fullUrl
-    });
-    throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-  }
-
-  return response.json();
-}
+import { useAdminUsersQueries } from "@/hooks/useAdminUsersQueries";
+import { useAdminUsersMutations } from "@/hooks/useAdminUsersMutations";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CardDescription } from "@/components/ui/card";
 import { 
   Search, 
-  Users, 
   Shield, 
   UserCheck, 
   User, 
   AlertCircle, 
-  Edit, 
   Ban, 
-  Calendar, 
   Mail, 
-  Phone,
   Eye,
   CreditCard,
   MapPin
@@ -102,8 +59,6 @@ interface UserType {
 
 export default function AdminUsers() {
   const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
@@ -112,351 +67,20 @@ export default function AdminUsers() {
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [selectedProfileUser, setSelectedProfileUser] = useState<UserType | null>(null);
 
-  // Test authentication on mount
-  useEffect(() => {
-    import('@/lib/supabase').then(({ getSession }) => {
-      getSession().then(session => {
-        console.log('[AdminUsers] Current session:', {
-          hasSession: !!session,
-          hasToken: !!session?.access_token,
-          tokenPreview: session?.access_token?.substring(0, 20) + '...'
-        });
-      });
-    });
-  }, []);
-
-  // Set up real-time subscriptions
-  useEffect(() => {
-    console.log('[AdminUsers] Setting up real-time subscriptions...');
-
-    // Subscribe to users table changes
-    const usersSubscription = supabase
-      .channel('users-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'users' },
-        (payload) => {
-          console.log('[AdminUsers] Users table change:', payload);
-          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-          toast({
-            title: "Data Updated",
-            description: "User data has been updated in real-time",
-          });
-        }
-      )
-      .subscribe();
-
-    // Subscribe to subscriptions table changes
-    const subscriptionsSubscription = supabase
-      .channel('subscriptions-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'subscriptions' },
-        (payload) => {
-          console.log('[AdminUsers] Subscriptions table change:', payload);
-          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-        }
-      )
-      .subscribe();
-
-    // Subscribe to payments table changes
-    const paymentsSubscription = supabase
-      .channel('payments-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'payments' },
-        (payload) => {
-          console.log('[AdminUsers] Payments table change:', payload);
-          queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      console.log('[AdminUsers] Cleaning up subscriptions...');
-      supabase.removeChannel(usersSubscription);
-      supabase.removeChannel(subscriptionsSubscription);
-      supabase.removeChannel(paymentsSubscription);
-    };
-  }, [queryClient, toast]);
-
-  // Fetch users (agents and admins from Supabase)
-  const { data: usersData, isLoading, error } = useQuery({
-    queryKey: ['/api/admin/users'],
-    queryFn: async () => {
-      console.log('[AdminUsers] Fetching users...');
-      const data = await apiRequest('/api/admin/users');
-      console.log('[AdminUsers] Fetched users:', data);
-      return data;
-    },
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
-
-  // Fetch DPC members (from Neon database)
-  const { data: dpcMembersData, isLoading: membersLoading, error: membersError } = useQuery({
-    queryKey: ['/api/admin/members'],
-    queryFn: async () => {
-      console.log('[AdminUsers] Fetching DPC members...');
-      const data = await apiRequest('/api/admin/members');
-      console.log('[AdminUsers] Fetched DPC members:', data);
-      return data;
-    },
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
-
-  // Fetch pending users
-  const { data: pendingUsers = [] } = useQuery({
-    queryKey: ['/api/admin/pending-users'],
-    queryFn: async () => {
-      console.log('[AdminUsers] Fetching pending users...');
-      const data = await apiRequest('/api/admin/pending-users');
-      console.log('[AdminUsers] Fetched pending users:', data);
-      return data;
-    },
-    refetchInterval: 10000, // Check for pending users every 10 seconds
-  });
-
-  // Fetch login sessions
-  const { data: loginSessions = [] } = useQuery({
-    queryKey: ['/api/admin/login-sessions'],
-    queryFn: async () => {
-      console.log('[AdminUsers] Fetching login sessions...');
-      const data = await apiRequest('/api/admin/login-sessions');
-      console.log('[AdminUsers] Fetched login sessions:', data);
-      return data;
-    },
-    refetchInterval: 60000, // Refresh every minute
-  });
-
-  // Update user role mutation
-  const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
-      const response = await fetch(`/api/admin/users/${userId}/role`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({ role }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        let errorMessage = 'Failed to update user role';
-        try {
-          const parsedError = JSON.parse(errorData);
-          errorMessage = parsedError.message || errorMessage;
-        } catch {
-          errorMessage = errorData || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "User role updated successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-    },
-    onError: (error: Error) => {
-      console.error('[AdminUsers] Error updating role:', error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update user role.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Update agent number mutation
-  const updateAgentNumberMutation = useMutation({
-    mutationFn: async ({ userId, agentNumber }: { userId: string; agentNumber: string }) => {
-      return apiRequest(`/api/admin/users/${userId}/agent-number`, {
-        method: 'PUT',
-        body: JSON.stringify({ agentNumber }),
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Agent number updated successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update agent number.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Suspend user mutation (for agents/admins)
-  const suspendUserMutation = useMutation({
-    mutationFn: async ({ userId, reason }: { userId: string; reason?: string }) => {
-      const response = await fetch(`/api/admin/users/${userId}/suspend`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({ reason }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to suspend user');
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "User suspended successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to suspend user.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Suspend DPC member mutation (for members in Neon database)
-  const suspendMemberMutation = useMutation({
-    mutationFn: async ({ customerId, reason }: { customerId: string; reason?: string }) => {
-      const response = await fetch(`/api/admin/members/${customerId}/suspend`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({ reason }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to suspend member');
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Member suspended successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/members'] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to suspend member.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Reactivate user mutation (for agents/admins)
-  const reactivateUserMutation = useMutation({
-    mutationFn: async ({ userId, reactivateSubscriptions }: { userId: string; reactivateSubscriptions: boolean }) => {
-      const response = await fetch(`/api/admin/users/${userId}/reactivate`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-        body: JSON.stringify({ reactivateSubscriptions }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reactivate user');
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "User reactivated successfully.",
-      });
-      // Invalidate queries to refresh the user list and show updated status
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/pending-users'] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to reactivate user.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Reactivate DPC member mutation (for members in Neon database)
-  const reactivateMemberMutation = useMutation({
-    mutationFn: async ({ customerId }: { customerId: string }) => {
-      const response = await fetch(`/api/admin/members/${customerId}/reactivate`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reactivate member');
-      }
-
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Success",
-        description: "Member reactivated successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/members'] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to reactivate member.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Approve user mutation
-  const approveUserMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      return apiRequest(`/api/admin/approve-user/${userId}`, {
-        method: 'POST',
-      });
-    },
-    onSuccess: () => {
-      toast({
-        title: "User Approved",
-        description: "The user has been approved successfully.",
-      });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/admin/pending-users'] });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to approve user. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
+  const { usersData, isLoading, error, dpcMembersData, membersLoading, membersError } = useAdminUsersQueries();
+  const {
+    updateRoleMutation,
+    updateAgentNumberMutation,
+    suspendUserMutation,
+    suspendMemberMutation,
+    reactivateUserMutation,
+    reactivateMemberMutation,
+    approveUserMutation,
+  } = useAdminUsersMutations();
 
   // Safe array handling for users data (agents and admins)
   const rawUsers = usersData?.users;
   const safeUsers = Array.isArray(rawUsers) ? rawUsers : [];
-  const safeUsersData = usersData || { users: [], totalCount: 0 };
 
   // Safe array handling for DPC members data (from Neon database)
   const rawMembers = dpcMembersData?.members;
@@ -864,7 +488,7 @@ export default function AdminUsers() {
     <AppShell title="User Management" breadcrumb={["Admin"]}>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
