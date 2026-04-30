@@ -1,10 +1,8 @@
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, TrendingUp, TrendingDown, Users, DollarSign, UserPlus, UserMinus, Calendar } from "lucide-react";
-import { Link } from "wouter";
+import { Download, TrendingUp, TrendingDown, Users, DollarSign, UserPlus, UserMinus } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -29,128 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface AnalyticsData {
-  overview: {
-    totalMembers: number;
-    activeSubscriptions: number;
-    monthlyRevenue: number;
-    averageRevenue: number;
-    churnRate: number;
-    growthRate: number;
-    newEnrollmentsThisMonth: number;
-    cancellationsThisMonth: number;
-    sourceBreakdown?: {
-      individualMembers: number;
-      familyMembers?: number;
-      groupMembers: number;
-      individualMonthlyRevenue: number;
-      familyMonthlyRevenue?: number;
-      groupMonthlyRevenue: number;
-      newIndividualEnrollmentsThisMonth: number;
-      newGroupEnrollmentsThisMonth: number;
-      cancelledIndividualsThisMonth: number;
-      cancelledGroupMembersThisMonth: number;
-    };
-  };
-  planBreakdown: Array<{
-    planName: string;
-    planId: number;
-    memberCount: number;
-    monthlyRevenue: number;
-    percentage: number;
-  }>;
-  recentEnrollments: Array<{
-    id: string;
-    memberId: string;
-    memberPublicId: string;
-    customerNumber: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    planName: string;
-    amount: number;
-    enrolledDate: string;
-    status: string;
-  }>;
-  monthlyTrends: Array<{
-    month: string;
-    enrollments: number;
-    cancellations: number;
-    netGrowth: number;
-    revenue: number;
-  }>;
-  agentPerformance: Array<{
-    agentId: string;
-    agentName: string;
-    agentNumber: string;
-    totalEnrollments: number;
-    individualEnrollments?: number;
-    familyEnrollments?: number;
-    groupEnrollments?: number;
-    totalCommissions: number;
-    paidCommissions: number;
-    pendingCommissions: number;
-    monthlyEnrollments: number;
-    conversionRate: number;
-    averageCommission: number;
-  }>;
-  memberReports: Array<{
-    id: string;
-    memberId: string;
-    memberPublicId: string;
-    customerNumber: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-    businessCategory?: 'individual' | 'family' | 'group';
-    groupName?: string;
-    phone: string;
-    planName: string;
-    status: string;
-    enrolledDate: string;
-    lastPayment: string;
-    totalPaid: number;
-    agentName: string;
-  }>;
-  commissionReports: Array<{
-    id: string;
-    memberId: string;
-    memberPublicId?: string;
-    membershipId?: string;
-    agentName: string;
-    agentNumber: string;
-    memberName: string;
-    businessCategory?: 'individual' | 'family' | 'group';
-    groupName?: string;
-    planName: string;
-    commissionAmount: number;
-    totalPlanCost: number;
-    status: string;
-    paymentStatus: string;
-    createdDate: string;
-    paymentDate: string | null;
-  }>;
-  revenueBreakdown: {
-    totalRevenue: number;
-    subscriptionRevenue: number;
-    oneTimeRevenue: number;
-    refunds: number;
-    netRevenue: number;
-    projectedAnnualRevenue: number;
-    averageRevenuePerUser: number;
-    individualRevenue?: number;
-    familyRevenue?: number;
-    groupRevenue?: number;
-    revenueByMonth: Array<{
-      month: string;
-      revenue: number;
-      subscriptions: number;
-      oneTime: number;
-      refunds: number;
-    }>;
-  };
-}
+import { useAdminAnalyticsQuery } from "@/hooks/useAdminAnalyticsQuery";
 
 export default function AdminAnalytics() {
   const { toast } = useToast();
@@ -159,35 +36,22 @@ export default function AdminAnalytics() {
   const [exportFormat, setExportFormat] = useState("csv");
   const [emailAddress, setEmailAddress] = useState("");
 
-  // Fetch analytics data
   const {
-    data: analytics,
+    analytics,
     isLoading,
     isError,
     error,
     isFetching,
     refetch,
     dataUpdatedAt,
-  } = useQuery<AnalyticsData>({
-    queryKey: ['/api/admin/analytics', timeRange],
-    queryFn: async () => {
-      const response = await apiRequest(`/api/admin/analytics?days=${timeRange}`, {
-        method: "GET"
-      });
-      return response; // apiRequest already returns parsed JSON
-    }
-  });
-
-  // Safe array handling for all analytics data arrays
-  const safePlanBreakdown = Array.isArray(analytics?.planBreakdown) ? analytics.planBreakdown : [];
-  const safeRecentEnrollments = Array.isArray(analytics?.recentEnrollments) ? analytics.recentEnrollments : [];
-  const safeMonthlyTrends = Array.isArray(analytics?.monthlyTrends) ? analytics.monthlyTrends : [];
-  const safeMemberReports = Array.isArray(analytics?.memberReports) ? analytics.memberReports : [];
-  const safeAgentPerformance = Array.isArray(analytics?.agentPerformance) ? analytics.agentPerformance : [];
-  const safeCommissionReports = Array.isArray(analytics?.commissionReports) ? analytics.commissionReports : [];
-  const safeRevenueByMonth = Array.isArray(analytics?.revenueBreakdown?.revenueByMonth)
-    ? analytics.revenueBreakdown.revenueByMonth
-    : [];
+    safePlanBreakdown,
+    safeRecentEnrollments,
+    safeMonthlyTrends,
+    safeMemberReports,
+    safeAgentPerformance,
+    safeCommissionReports,
+    safeRevenueByMonth,
+  } = useAdminAnalyticsQuery(timeRange);
 
   const renderEmptyRow = (colSpan: number, message: string) => (
     <TableRow>
@@ -365,7 +229,7 @@ export default function AdminAnalytics() {
         ) : analytics ? (
           <>
             {/* Key Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">

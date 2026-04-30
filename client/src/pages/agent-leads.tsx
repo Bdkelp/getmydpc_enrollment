@@ -1,13 +1,10 @@
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Phone, Mail, MessageSquare, Calendar, CheckCircle, XCircle, Plus } from "lucide-react";
+import { Phone, Mail, MessageSquare, CheckCircle, Plus } from "lucide-react";
 import { format } from "date-fns";
 import {
   Select,
@@ -27,126 +24,23 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAgentLeadsQueries, type Lead } from "@/hooks/useAgentLeadsQueries";
+import { useAgentLeadsMutations } from "@/hooks/useAgentLeadsMutations";
 
-interface Lead {
-  id: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  message: string;
-  status: string;
-  source: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface LeadActivity {
-  id: number;
-  leadId: number;
-  agentId: string;
-  activityType: string;
-  notes: string;
-  createdAt: string;
-}
+const EMPTY_LEAD = { firstName: "", lastName: "", email: "", phone: "", message: "" };
 
 export default function AgentLeads() {
   const [, setLocation] = useLocation();
-  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showActivityDialog, setShowActivityDialog] = useState(false);
   const [showAddLeadDialog, setShowAddLeadDialog] = useState(false);
   const [activityType, setActivityType] = useState<string>("call");
   const [activityNotes, setActivityNotes] = useState<string>("");
+  const [newLead, setNewLead] = useState(EMPTY_LEAD);
 
-  // New lead form state
-  const [newLead, setNewLead] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    message: ""
-  });
-
-  // Fetch leads
-  const { data: leads, isLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/agent/leads", statusFilter],
-    queryFn: async () => {
-      const url = statusFilter === 'all' 
-        ? '/api/agent/leads' 
-        : `/api/agent/leads?status=${statusFilter}`;
-      const response = await apiRequest(url);
-      return Array.isArray(response) ? response : [];
-    }
-  });
-
-  // Update lead status
-  const updateLeadMutation = useMutation({
-    mutationFn: async ({ leadId, status }: { leadId: number; status: string }) => {
-      return apiRequest(`/api/leads/${leadId}`, {
-        method: "PUT",
-        body: JSON.stringify({ status }),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/leads"] });
-      toast({
-        title: "Lead Updated",
-        description: "Lead status has been updated successfully.",
-      });
-    },
-  });
-
-  // Add activity
-  const addActivityMutation = useMutation({
-    mutationFn: async ({ leadId, activityType, notes }: { leadId: number; activityType: string; notes: string }) => {
-      return apiRequest(`/api/leads/${leadId}/activities`, {
-        method: "POST",
-        body: JSON.stringify({ activityType, notes }),
-      });
-    },
-    onSuccess: () => {
-      setShowActivityDialog(false);
-      setActivityNotes("");
-      toast({
-        title: "Activity Added",
-        description: "Activity has been recorded successfully.",
-      });
-    },
-  });
-
-  // Add new lead
-  const addLeadMutation = useMutation({
-    mutationFn: async (leadData: typeof newLead) => {
-      return apiRequest("/api/leads", {
-        method: "POST",
-        body: JSON.stringify(leadData),
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/leads"] });
-      setShowAddLeadDialog(false);
-      setNewLead({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        message: ""
-      });
-      toast({
-        title: "Lead Added",
-        description: "New lead has been created successfully.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: "Failed to add lead. Please try again.",
-        variant: "destructive"
-      });
-    }
-  });
+  const { leads, isLoading } = useAgentLeadsQueries(statusFilter);
+  const { updateLeadMutation, addActivityMutation, addLeadMutation } = useAgentLeadsMutations();
 
   const handleStatusChange = (leadId: number, newStatus: string) => {
     updateLeadMutation.mutate({ leadId, status: newStatus });
@@ -154,11 +48,10 @@ export default function AgentLeads() {
 
   const handleAddActivity = () => {
     if (selectedLead && activityNotes) {
-      addActivityMutation.mutate({
-        leadId: selectedLead.id,
-        activityType,
-        notes: activityNotes,
-      });
+      addActivityMutation.mutate(
+        { leadId: selectedLead.id, activityType, notes: activityNotes },
+        { onSuccess: () => { setShowActivityDialog(false); setActivityNotes(""); } }
+      );
     }
   };
 
@@ -400,8 +293,8 @@ export default function AgentLeads() {
             <Button variant="outline" onClick={() => setShowAddLeadDialog(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={() => addLeadMutation.mutate(newLead)}
+            <Button
+              onClick={() => addLeadMutation.mutate(newLead, { onSuccess: () => { setShowAddLeadDialog(false); setNewLead(EMPTY_LEAD); } })}
               disabled={!newLead.firstName || !newLead.lastName || !newLead.email || !newLead.phone || addLeadMutation.isPending}
             >
               {addLeadMutation.isPending ? "Adding..." : "Add Lead"}
