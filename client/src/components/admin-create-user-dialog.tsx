@@ -17,6 +17,21 @@ interface AgentOption {
   overrideSuppressed: boolean;
 }
 
+function mapHierarchyOptions(input: any): AgentOption[] {
+  const list: any[] = Array.isArray(input)
+    ? input
+    : (input?.agents || input?.data || input?.users || []);
+
+  return list
+    .map((a: any) => ({
+      id: a.id,
+      name: `${a.firstName ?? a.first_name ?? ''} ${a.lastName ?? a.last_name ?? ''}`.trim(),
+      agentNumber: a.agentNumber ?? a.agent_number ?? 'N/A',
+      overrideSuppressed: Boolean(a.overrideSuppressed || a.override_suppressed),
+    }))
+    .filter((a: AgentOption) => Boolean(a.id));
+}
+
 export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminCreateUserDialogProps) {
   const [formData, setFormData] = useState({
     email: '',
@@ -28,6 +43,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
   const [uplineAgentId, setUplineAgentId] = useState('');
   const [overrideRate, setOverrideRate] = useState(5);
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>([]);
+  const [uplineLoadError, setUplineLoadError] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
   const [tempPassword, setTempPassword] = useState<string | null>(null);
@@ -36,19 +52,29 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
   // Load agents for upline selector whenever dialog opens
   useEffect(() => {
     if (!isOpen) return;
+    setUplineLoadError('');
     apiClient.get<any>('/api/admin/agents/hierarchy')
       .then(res => {
-        // Endpoint returns a plain array, not { agents: [] }
-        const list: any[] = Array.isArray(res) ? res : (res.agents || []);
-        const agents = list.map((a: any) => ({
-          id: a.id,
-          name: `${a.firstName} ${a.lastName}`,
-          agentNumber: a.agentNumber,
-          overrideSuppressed: a.overrideSuppressed || false
-        }));
-        setAgentOptions(agents);
+        const options = mapHierarchyOptions(res);
+        if (options.length > 0) {
+          setAgentOptions(options);
+          return;
+        }
+
+        // Fallback to admin users endpoint if hierarchy payload is empty/unexpected
+        return apiClient.get<any>('/api/admin/users').then((fallbackRes) => {
+          const fallbackOptions = mapHierarchyOptions(fallbackRes).filter((u) => u.agentNumber !== 'N/A');
+          setAgentOptions(fallbackOptions);
+          if (fallbackOptions.length === 0) {
+            setUplineLoadError('No active hierarchy users available.');
+          }
+        });
       })
-      .catch(() => setAgentOptions([]));
+      .catch((error: any) => {
+        console.error('[CreateUser] Failed loading hierarchy options:', error);
+        setAgentOptions([]);
+        setUplineLoadError('Unable to load upline options. Please refresh and try again.');
+      });
   }, [isOpen]);
 
   const createUserMutation = useMutation({
@@ -342,6 +368,12 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                   </option>
                 ))}
               </select>
+              {uplineLoadError && (
+                <p className="mt-1 text-xs text-red-600">{uplineLoadError}</p>
+              )}
+              {!uplineLoadError && agentOptions.length > 0 && (
+                <p className="mt-1 text-xs text-gray-500">{agentOptions.length} active users available for upline assignment</p>
+              )}
             </div>
 
             {uplineAgentId && (() => {
