@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
-import { storage } from '../storage';
+import { storage, updateAgentHierarchy } from '../storage';
 import { sendEmailVerification, sendWelcomeWithPassword } from '../email';
 import { isAtLeastAdmin } from '../auth/roles';
 import axios from 'axios';
@@ -379,7 +379,7 @@ router.post('/api/auth/logout', async (req, res) => {
  */
 router.post('/api/admin/create-user', async (req, res) => {
   try {
-    const { email, firstName, lastName, password, role } = req.body;
+    const { email, firstName, lastName, password, role, uplineAgentId, overrideCommissionRate } = req.body;
     const authHeader = req.headers.authorization;
 
     // ============================================
@@ -519,6 +519,20 @@ router.post('/api/admin/create-user', async (req, res) => {
     });
 
     console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
+
+    // ============================================
+    // ASSIGN HIERARCHY IF PROVIDED (AGENTS ONLY)
+    // ============================================
+    if (role === 'agent' && uplineAgentId) {
+      const rate = typeof overrideCommissionRate === 'number' ? overrideCommissionRate : 5;
+      try {
+        await updateAgentHierarchy(dbUser.id, uplineAgentId, rate, adminUser.id, 'Set at account creation');
+        console.log(`[Admin Create User] Hierarchy set: ${dbUser.id} → upline ${uplineAgentId}, rate $${rate}`);
+      } catch (hierarchyError: any) {
+        console.error('[Admin Create User] Failed to set hierarchy (non-fatal):', hierarchyError.message);
+        // Non-fatal — user is created; hierarchy can be set later via the hierarchy page
+      }
+    }
 
     // ============================================
     // SEND WELCOME EMAIL WITH CREDENTIALS

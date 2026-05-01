@@ -1,12 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { X, AlertCircle, CheckCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { apiClient } from '@/lib/apiClient';
 
 interface AdminCreateUserDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onUserCreated?: (user: any) => void;
+}
+
+interface AgentOption {
+  id: string;
+  name: string;
+  agentNumber: string;
 }
 
 export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminCreateUserDialogProps) {
@@ -17,10 +24,28 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
     role: 'agent',
     generatePassword: true
   });
+  const [uplineAgentId, setUplineAgentId] = useState('');
+  const [overrideRate, setOverrideRate] = useState(5);
+  const [agentOptions, setAgentOptions] = useState<AgentOption[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState('');
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [copiedPassword, setCopiedPassword] = useState(false);
+
+  // Load agents for upline selector whenever dialog opens
+  useEffect(() => {
+    if (!isOpen) return;
+    apiClient.get<{ agents: any[] }>('/api/admin/agents/hierarchy')
+      .then(res => {
+        const agents = (res.agents || []).map((a: any) => ({
+          id: a.id,
+          name: `${a.firstName} ${a.lastName}`,
+          agentNumber: a.agentNumber
+        }));
+        setAgentOptions(agents);
+      })
+      .catch(() => setAgentOptions([]));
+  }, [isOpen]);
 
   const createUserMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -31,19 +56,25 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         throw new Error('Not authenticated. Please log in again.');
       }
 
+      const body: Record<string, any> = {
+        email: data.email.toLowerCase(),
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role: data.role,
+      };
+
+      if (data.role === 'agent' && uplineAgentId) {
+        body.uplineAgentId = uplineAgentId;
+        body.overrideCommissionRate = overrideRate;
+      }
+
       const response = await fetch('/api/admin/create-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          email: data.email.toLowerCase(),
-          firstName: data.firstName,
-          lastName: data.lastName,
-          role: data.role,
-          // If generatePassword is false, password will be generated server-side
-        })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {
@@ -66,6 +97,8 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         role: 'agent',
         generatePassword: true
       });
+      setUplineAgentId('');
+      setOverrideRate(5);
       setErrors({});
 
       // Call callback
@@ -110,6 +143,8 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
     setSuccessMessage('');
     setTempPassword(null);
     setCopiedPassword(false);
+    setUplineAgentId('');
+    setOverrideRate(5);
     onClose();
   };
 
@@ -278,6 +313,53 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
               {formData.role === 'user' && 'Basic user with limited access'}
             </p>
           </div>
+
+          {/* Upline Agent (only for agent role) */}
+          {formData.role === 'agent' && (
+            <div className="space-y-3 border border-gray-200 rounded-lg p-4">
+              <p className="text-sm font-medium text-gray-700">Hierarchy Assignment <span className="text-gray-400 font-normal">(optional)</span></p>
+
+              <div>
+                <label htmlFor="uplineAgent" className="block text-sm font-medium text-gray-700 mb-1">
+                  Upline Agent
+                </label>
+                <select
+                  id="uplineAgent"
+                  value={uplineAgentId}
+                  onChange={(e) => setUplineAgentId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={createUserMutation.isPending}
+                >
+                  <option value="">No Upline</option>
+                  {agentOptions.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.agentNumber})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {uplineAgentId && (
+                <div>
+                  <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
+                    Override Commission Rate ($)
+                  </label>
+                  <input
+                    id="overrideRate"
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={0.50}
+                    value={overrideRate}
+                    onChange={(e) => setOverrideRate(parseFloat(e.target.value) || 5)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={createUserMutation.isPending}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Password Generation Checkbox */}
           <div className="flex items-center gap-2">
