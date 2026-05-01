@@ -889,16 +889,37 @@ export async function createUser(userData: Partial<User>): Promise<User> {
       approval_status: insertData.approval_status
     });
     
-    const { data, error } = await supabase
-      .from('users')
-      .insert([insertData])
-      .select()
-      .single();
-    if (error) {
+    const optionalColumns = new Set(['password_change_required', 'email_verified']);
+    const mutableInsertData: Record<string, any> = { ...insertData };
+
+    // Production can lag schema migrations. If Supabase reports a missing optional
+    // column in schema cache, remove that column and retry once per missing field.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const { data, error } = await supabase
+        .from('users')
+        .insert([mutableInsertData])
+        .select()
+        .single();
+
+      if (!error) {
+        return mapUserFromDB(data);
+      }
+
+      const errorMessage = String(error.message || '');
+      const missingColumnMatch = errorMessage.match(/'([^']+)'/);
+      const missingColumn = missingColumnMatch?.[1];
+
+      if (missingColumn && optionalColumns.has(missingColumn) && missingColumn in mutableInsertData) {
+        console.warn(`[Storage] createUser: Missing optional column '${missingColumn}' in target schema. Retrying without it.`);
+        delete mutableInsertData[missingColumn];
+        continue;
+      }
+
       console.error('Error creating user:', error);
       throw new Error(`Failed to create user: ${error.message}`);
     }
-    return mapUserFromDB(data);
+
+    throw new Error('Failed to create user: exhausted insert retries');
   } catch (error: any) {
     console.error('Error creating user:', error);
     throw new Error(`Failed to create user: ${error.message}`);
