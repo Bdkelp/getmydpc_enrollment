@@ -308,3 +308,71 @@ export async function sendRecurringBillingCycleReport(
     return false;
   }
 }
+
+export interface AnalyticsReportEmailData {
+  recipient: string;
+  reportType: string;
+  format: 'csv' | 'xlsx' | 'pdf';
+  fileBuffer: Buffer;
+  timeRange?: string;
+}
+
+export async function sendAnalyticsReportEmail(data: AnalyticsReportEmailData): Promise<boolean> {
+  if (!SENDGRID_API_KEY) {
+    console.warn('[Email] Skipping analytics report email - SendGrid not configured');
+    return false;
+  }
+
+  const recipient = String(data.recipient || '').trim();
+  if (!recipient) {
+    console.warn('[Email] Skipping analytics report email - recipient missing');
+    return false;
+  }
+
+  const safeReportType = String(data.reportType || 'overview').trim().toLowerCase();
+  const safeFormat = (data.format || 'csv') as 'csv' | 'xlsx' | 'pdf';
+  const safeTimeRange = String(data.timeRange || '30');
+  const filename = `${safeReportType}_report_${new Date().toISOString().slice(0, 10)}.${safeFormat}`;
+
+  try {
+    await sgMail.send({
+      to: recipient,
+      from: SENDGRID_FROM_EMAIL,
+      subject: `Analytics Report Ready: ${safeReportType.toUpperCase()} (${safeTimeRange}d)`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+          <div style="background: #0f172a; color: #fff; padding: 24px; border-radius: 12px 12px 0 0;">
+            <h2 style="margin: 0; font-size: 22px;">Analytics Report Attached</h2>
+          </div>
+          <div style="border: 1px solid #e2e8f0; border-top: none; padding: 24px; background: #fff;">
+            <p style="font-size: 14px; color: #1f2937; margin: 0 0 12px;">
+              Your <strong>${escapeHtml(safeReportType)}</strong> analytics report is attached in <strong>${escapeHtml(safeFormat.toUpperCase())}</strong> format.
+            </p>
+            <p style="font-size: 14px; color: #4b5563; margin: 0;">
+              Requested window: ${escapeHtml(safeTimeRange)} days
+            </p>
+          </div>
+        </div>
+      `,
+      attachments: [
+        {
+          content: data.fileBuffer.toString('base64'),
+          filename,
+          type:
+            safeFormat === 'csv'
+              ? 'text/csv'
+              : safeFormat === 'xlsx'
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : 'application/pdf',
+          disposition: 'attachment',
+        },
+      ],
+    });
+
+    console.log('[Email] Analytics report email sent to:', recipient, 'file:', filename);
+    return true;
+  } catch (error) {
+    console.error('[Email] Failed to send analytics report email:', error);
+    return false;
+  }
+}

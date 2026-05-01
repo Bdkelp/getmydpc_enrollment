@@ -129,6 +129,16 @@ function hasSuccessfulPayment(paymentStatus?: string | null): boolean {
   return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
 }
 
+function toMoneyNumber(value: unknown): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  const cleaned = String(value ?? '').replace(/[^\d.-]/g, '');
+  const parsed = parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getLifecycleSummary(enrollment: Enrollment) {
   return enrollment.lifecycleSummary || {
     subscriptionStatus: enrollment.subscriptionStatus || null,
@@ -324,9 +334,10 @@ export default function AdminEnrollments() {
   };
 
   const openHostedCheckout = (enrollment: Enrollment) => {
+    const monthlyPrice = toMoneyNumber(enrollment.totalMonthlyPrice);
     const params = new URLSearchParams({
       memberId: enrollment.id.toString(),
-      amount: String(enrollment.totalMonthlyPrice || 0),
+      amount: String(monthlyPrice),
       description: `Enrollment payment for member #${enrollment.id}`,
     });
 
@@ -368,6 +379,29 @@ export default function AdminEnrollments() {
                 <p className="mt-2 text-sm text-gray-600">
                   Manage DPC enrollments, members, and agents
                 </p>
+                <div className="mt-3 w-fit rounded-lg border border-gray-200 bg-gray-50 p-1">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="bg-white text-gray-900 shadow-sm hover:bg-white"
+                    >
+                      People
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-gray-600 hover:text-gray-900"
+                      onClick={() => {
+                        window.localStorage.setItem(ENROLLMENT_RECORD_VIEW_KEY, "groups");
+                        setLocation("/admin/groups");
+                      }}
+                    >
+                      Groups
+                    </Button>
+                  </div>
+                </div>
               </div>
               <Button
                 onClick={handleNewEnrollment}
@@ -865,6 +899,7 @@ export default function AdminEnrollments() {
                       <TableBody>
                         {enrollmentData.filteredEnrollments.map((enrollment) => {
                           const lifecycle = getLifecycleSummary(enrollment);
+                          const monthlyPrice = toMoneyNumber(enrollment.totalMonthlyPrice);
                           return (
                             <TableRow
                               key={enrollment.id}
@@ -896,7 +931,7 @@ export default function AdminEnrollments() {
                                   <p className="font-medium text-gray-900">{enrollment.planName}</p>
                                   <p className="text-xs text-gray-500">{enrollment.memberType}</p>
                                   <p className="text-sm font-semibold text-blue-600 mt-1">
-                                    ${enrollment.totalMonthlyPrice.toFixed(2)}/mo
+                                    ${monthlyPrice.toFixed(2)}/mo
                                   </p>
                                 </div>
                               </TableCell>

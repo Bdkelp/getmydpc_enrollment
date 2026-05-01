@@ -11,7 +11,7 @@ import {
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
 import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
-import { sendEmailVerification, sendUserCredentialsEmail } from "./email";
+import { sendEmailVerification, sendUserCredentialsEmail, sendAnalyticsReportEmail } from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
 import {
@@ -4408,24 +4408,24 @@ router.post(
 
     try {
       const { reportType, format, timeRange, email, data } = req.body;
+      const normalizedFormat = ["csv", "xlsx", "pdf"].includes(String(format)) ? String(format) : "csv";
+      const fileBuffer = await generateReportFile(reportType, data, normalizedFormat);
 
       if (email) {
-        // Send report via email
-        const emailContent = await generateReportEmail(
+        const sent = await sendAnalyticsReportEmail({
+          recipient: String(email),
           reportType,
-          data,
-          format,
-        );
+          format: normalizedFormat,
+          fileBuffer,
+          timeRange: String(timeRange || "30"),
+        });
 
-        // Here you would integrate with your email service
-        // For now, we'll just simulate success
-        console.log(`Sending ${reportType} report to ${email}`);
+        if (!sent) {
+          return res.status(500).json({ message: "Failed to send report email" });
+        }
 
         res.json({ message: "Report sent successfully" });
       } else {
-        // Generate file for download
-        const fileBuffer = await generateReportFile(reportType, data, format);
-
         const contentTypes = {
           csv: "text/csv",
           xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4434,11 +4434,11 @@ router.post(
 
         res.setHeader(
           "Content-Type",
-          contentTypes[format as keyof typeof contentTypes],
+          contentTypes[normalizedFormat as keyof typeof contentTypes],
         );
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename="${reportType}_report.${format}"`,
+          `attachment; filename="${reportType}_report.${normalizedFormat}"`,
         );
         res.send(fileBuffer);
       }
@@ -4448,15 +4448,6 @@ router.post(
     }
   },
 );
-
-async function generateReportEmail(
-  reportType: string,
-  data: any,
-  format: string,
-): Promise<string> {
-  // Generate email content based on report type
-  return `Your ${reportType} report is ready and has been generated in ${format} format.`;
-}
 
 async function generateReportFile(
   reportType: string,
@@ -4474,26 +4465,131 @@ async function generateReportFile(
 }
 
 function generateCSV(reportType: string, data: any): Buffer {
+  const csvEscape = (value: unknown): string => {
+    const text = String(value ?? "").replace(/"/g, '""');
+    return `"${text}"`;
+  };
+
+  const addRow = (cells: unknown[]): string => `${cells.map(csvEscape).join(",")}\n`;
+
   let csvContent = "";
 
   if (reportType === "members" && Array.isArray(data)) {
-    csvContent =
-      "Name,Email,Phone,Plan,Business Segment,Status,Enrolled Date,Total Paid,Agent\n";
+    csvContent = addRow(["Name", "Email", "Phone", "Plan", "Business Segment", "Status", "Enrolled Date", "Total Paid", "Agent"]);
     data.forEach((member: any) => {
-      csvContent += `"${member.firstName} ${member.lastName}",${member.email},${member.phone},${member.planName},${member.businessCategory || member.source || 'individual'},${member.status},${member.enrolledDate},${member.totalPaid},${member.agentName}\n`;
+      csvContent += addRow([
+        `${member.firstName || ""} ${member.lastName || ""}`.trim(),
+        member.email,
+        member.phone,
+        member.planName,
+        member.businessCategory || member.source || "individual",
+        member.status,
+        member.enrolledDate,
+        member.totalPaid,
+        member.agentName,
+      ]);
     });
   } else if (reportType === "agents" && Array.isArray(data)) {
-    csvContent =
-      "Agent Name,Agent Number,Total Enrollments,Individual Enrollments,Family Enrollments,Group Enrollments,Monthly Enrollments,Total Commissions,Paid Commissions,Pending Commissions,Conversion Rate\n";
+    csvContent = addRow([
+      "Agent Name",
+      "Agent Number",
+      "Total Enrollments",
+      "Individual Enrollments",
+      "Family Enrollments",
+      "Group Enrollments",
+      "Monthly Enrollments",
+      "Total Commissions",
+      "Paid Commissions",
+      "Pending Commissions",
+      "Conversion Rate",
+    ]);
     data.forEach((agent: any) => {
-      csvContent += `${agent.agentName},${agent.agentNumber},${agent.totalEnrollments},${agent.individualEnrollments || 0},${agent.familyEnrollments || 0},${agent.groupEnrollments || 0},${agent.monthlyEnrollments},${agent.totalCommissions},${agent.paidCommissions},${agent.pendingCommissions},${agent.conversionRate}%\n`;
+      csvContent += addRow([
+        agent.agentName,
+        agent.agentNumber,
+        agent.totalEnrollments,
+        agent.individualEnrollments || 0,
+        agent.familyEnrollments || 0,
+        agent.groupEnrollments || 0,
+        agent.monthlyEnrollments,
+        agent.totalCommissions,
+        agent.paidCommissions,
+        agent.pendingCommissions,
+        `${agent.conversionRate || 0}%`,
+      ]);
     });
   } else if (reportType === "commissions" && Array.isArray(data)) {
-    csvContent =
-      "Agent,Agent Number,Member,Plan,Business Segment,Commission Amount,Plan Cost,Status,Payment Status,Created Date\n";
+    csvContent = addRow([
+      "Agent",
+      "Agent Number",
+      "Member",
+      "Plan",
+      "Business Segment",
+      "Commission Amount",
+      "Plan Cost",
+      "Status",
+      "Payment Status",
+      "Created Date",
+    ]);
     data.forEach((commission: any) => {
-      csvContent += `${commission.agentName},${commission.agentNumber},${commission.memberName},${commission.planName},${commission.businessCategory || 'individual'},${commission.commissionAmount},${commission.totalPlanCost},${commission.status},${commission.paymentStatus},${commission.createdDate}\n`;
+      csvContent += addRow([
+        commission.agentName,
+        commission.agentNumber,
+        commission.memberName,
+        commission.planName,
+        commission.businessCategory || "individual",
+        commission.commissionAmount,
+        commission.totalPlanCost,
+        commission.status,
+        commission.paymentStatus,
+        commission.createdDate,
+      ]);
     });
+  } else if (reportType === "revenue" && data && typeof data === "object") {
+    csvContent += addRow(["Metric", "Value"]);
+    csvContent += addRow(["Total Revenue", data.totalRevenue || 0]);
+    csvContent += addRow(["Subscription Revenue", data.subscriptionRevenue || 0]);
+    csvContent += addRow(["Individual Revenue", data.individualRevenue || 0]);
+    csvContent += addRow(["Family Revenue", data.familyRevenue || 0]);
+    csvContent += addRow(["Group Revenue", data.groupRevenue || 0]);
+    csvContent += addRow(["One-Time Revenue", data.oneTimeRevenue || 0]);
+    csvContent += addRow(["Refunds", data.refunds || 0]);
+    csvContent += addRow(["Net Revenue", data.netRevenue || 0]);
+    csvContent += addRow(["Projected Annual Revenue", data.projectedAnnualRevenue || 0]);
+    csvContent += addRow(["Average Revenue Per User", data.averageRevenuePerUser || 0]);
+
+    const monthlyRows = Array.isArray(data.revenueByMonth) ? data.revenueByMonth : [];
+    csvContent += "\n";
+    csvContent += addRow(["Month", "Revenue", "Subscriptions", "One-Time", "Refunds"]);
+    monthlyRows.forEach((row: any) => {
+      csvContent += addRow([
+        row.month,
+        row.revenue || 0,
+        row.subscriptions || 0,
+        row.oneTime || 0,
+        row.refunds || 0,
+      ]);
+    });
+  } else if (reportType === "overview" && data && typeof data === "object") {
+    const overview = data.overview || {};
+    const sourceBreakdown = overview.sourceBreakdown || {};
+    csvContent += addRow(["Metric", "Value"]);
+    csvContent += addRow(["Total Members", overview.totalMembers || 0]);
+    csvContent += addRow(["Active Subscriptions", overview.activeSubscriptions || 0]);
+    csvContent += addRow(["Monthly Revenue", overview.monthlyRevenue || 0]);
+    csvContent += addRow(["Average Revenue", overview.averageRevenue || 0]);
+    csvContent += addRow(["Churn Rate", overview.churnRate || 0]);
+    csvContent += addRow(["Growth Rate", overview.growthRate || 0]);
+    csvContent += addRow(["New Enrollments", overview.newEnrollmentsThisMonth || 0]);
+    csvContent += addRow(["Cancellations", overview.cancellationsThisMonth || 0]);
+    csvContent += addRow(["Individual Members", sourceBreakdown.individualMembers || 0]);
+    csvContent += addRow(["Family Members", sourceBreakdown.familyMembers || 0]);
+    csvContent += addRow(["Group Members", sourceBreakdown.groupMembers || 0]);
+    csvContent += addRow(["Individual Revenue", sourceBreakdown.individualMonthlyRevenue || 0]);
+    csvContent += addRow(["Family Revenue", sourceBreakdown.familyMonthlyRevenue || 0]);
+    csvContent += addRow(["Group Revenue", sourceBreakdown.groupMonthlyRevenue || 0]);
+  } else {
+    csvContent = addRow(["message", "No export data found for selected report type"]);
   }
 
   return Buffer.from(csvContent);
