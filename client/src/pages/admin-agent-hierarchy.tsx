@@ -40,6 +40,7 @@ import {
 interface Agent {
   id: string;
   email: string;
+  role: string;
   firstName: string;
   lastName: string;
   agentNumber: string;
@@ -47,6 +48,7 @@ interface Agent {
   overrideCommissionRate: number;
   hierarchyLevel: number;
   canReceiveOverrides: boolean;
+  overrideSuppressed: boolean;
   uplineEmail?: string;
   downlineCount?: number;
 }
@@ -124,13 +126,10 @@ export default function AdminAgentHierarchy() {
     return grouped;
   }, [safeAgents]);
 
-  // Get potential upline agents (exclude self and downlines)
+  // All users can be uplines (admins too, but they won't receive override pay)
   const potentialUplines = useMemo(() => {
     if (!selectedAgent) return safeAgents;
-    return safeAgents.filter(a => 
-      a.id !== selectedAgent.id && 
-      a.hierarchyLevel <= selectedAgent.hierarchyLevel
-    );
+    return safeAgents.filter(a => a.id !== selectedAgent.id);
   }, [safeAgents, selectedAgent]);
 
   const handleEditAgent = (agent: Agent) => {
@@ -187,7 +186,7 @@ export default function AdminAgentHierarchy() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Top Level Agents</CardTitle>
+              <CardTitle className="text-sm font-medium">Direct Agents</CardTitle>
               <Network className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -249,9 +248,14 @@ export default function AdminAgentHierarchy() {
                       </TableHeader>
                       <TableBody>
                         {agentsByLevel[level].map((agent) => (
-                          <TableRow key={agent.id} className={level > 0 ? 'bg-blue-50' : ''}>
+                          <TableRow key={agent.id} className={agent.overrideSuppressed ? 'bg-orange-50' : level > 0 ? 'bg-blue-50' : ''}>
                             <TableCell className="font-medium">
-                              {agent.firstName} {agent.lastName}
+                              <div className="flex items-center gap-2">
+                                {agent.firstName} {agent.lastName}
+                                {agent.overrideSuppressed && (
+                                  <Badge variant="outline" className="text-orange-700 border-orange-300 text-xs">Admin</Badge>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>{agent.email}</TableCell>
                             <TableCell>
@@ -261,13 +265,16 @@ export default function AdminAgentHierarchy() {
                               {agent.uplineEmail ? (
                                 <span className="text-sm text-gray-600">{agent.uplineEmail}</span>
                               ) : (
-                                <Badge>Top Level</Badge>
+                                <Badge>Direct</Badge>
                               )}
                             </TableCell>
                             <TableCell>
-                              <span className="font-semibold text-green-600">
-                                ${agent.overrideCommissionRate?.toFixed(2) || '0.00'}
+                              <span className={`font-semibold ${agent.overrideSuppressed ? 'text-gray-400' : 'text-green-600'}`}>
+                                {agent.overrideSuppressed ? 'N/A' : `$${agent.overrideCommissionRate?.toFixed(2) || '0.00'}`}
                               </span>
+                              {agent.overrideSuppressed && (
+                                <span className="ml-1 text-xs text-orange-600">(no override)</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               {agent.canReceiveOverrides && (
@@ -317,10 +324,10 @@ export default function AdminAgentHierarchy() {
                   <SelectValue placeholder="Select upline agent" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No Upline (Top Level)</SelectItem>
+                  <SelectItem value="none">Direct (No Upline)</SelectItem>
                   {potentialUplines.map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>
-                      {agent.firstName} {agent.lastName} ({agent.agentNumber}) - Level {agent.hierarchyLevel}
+                      {agent.firstName} {agent.lastName} ({agent.agentNumber}){agent.overrideSuppressed ? ' — Admin (no override pay)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -329,18 +336,26 @@ export default function AdminAgentHierarchy() {
 
             <div className="space-y-2">
               <Label htmlFor="override">Override Commission Rate ($1-$10)</Label>
-              <Input
-                id="override"
-                type="number"
-                min="1"
-                max="10"
-                step="0.50"
-                value={overrideAmount}
-                onChange={(e) => setOverrideAmount(parseFloat(e.target.value) || 5)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Amount paid to upline agent per enrollment (based on contract level)
-              </p>
+              {newUplineId !== "none" && potentialUplines.find(a => a.id === newUplineId)?.overrideSuppressed ? (
+                <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                  Selected upline is an admin — override commissions are not paid to admins. This assignment is for org structure only.
+                </p>
+              ) : (
+                <>
+                  <Input
+                    id="override"
+                    type="number"
+                    min="1"
+                    max="10"
+                    step="0.50"
+                    value={overrideAmount}
+                    onChange={(e) => setOverrideAmount(parseFloat(e.target.value) || 5)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Amount paid to upline agent per enrollment (based on contract level)
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="space-y-2">

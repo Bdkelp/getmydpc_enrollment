@@ -4733,6 +4733,8 @@ export async function clawbackCommission(
 
 export async function getAgentHierarchy(): Promise<any[]> {
   try {
+    // Include all users (agents AND admins/super_admins) so admins can be assigned
+    // as structural uplines without receiving override commissions
     const { data, error } = await supabase
       .from('users')
       .select(`
@@ -4748,7 +4750,7 @@ export async function getAgentHierarchy(): Promise<any[]> {
         can_receive_overrides,
         upline:upline_agent_id(email)
       `)
-      .ilike('role', 'agent%')
+      .in('role', ['agent', 'admin', 'super_admin'])
       .order('hierarchy_level', { ascending: true })
       .order('agent_number', { ascending: true });
 
@@ -4756,17 +4758,18 @@ export async function getAgentHierarchy(): Promise<any[]> {
       throw new Error(`Failed to get agent hierarchy: ${error.message}`);
     }
 
-    // Get downline counts for each agent
+    // Get downline counts for each user
     const agentsWithCounts = await Promise.all((data || []).map(async (agent) => {
       const { count } = await supabase
         .from('users')
         .select('id', { count: 'exact', head: true })
-        .eq('upline_agent_id', agent.id)
-        .ilike('role', 'agent%');
+        .eq('upline_agent_id', agent.id);
 
+      const isAdmin = agent.role === 'admin' || agent.role === 'super_admin';
       return {
         id: agent.id,
         email: agent.email,
+        role: agent.role,
         firstName: agent.first_name,
         lastName: agent.last_name,
         agentNumber: agent.agent_number,
@@ -4775,6 +4778,8 @@ export async function getAgentHierarchy(): Promise<any[]> {
         overrideCommissionRate: parseFloat(agent.override_commission_rate || '0'),
         hierarchyLevel: agent.hierarchy_level || 0,
         canReceiveOverrides: agent.can_receive_overrides || false,
+        // Admins appear in the tree for org structure but never receive overrides
+        overrideSuppressed: isAdmin,
         downlineCount: count || 0
       };
     }));

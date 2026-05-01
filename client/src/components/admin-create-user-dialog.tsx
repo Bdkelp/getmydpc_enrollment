@@ -14,6 +14,7 @@ interface AgentOption {
   id: string;
   name: string;
   agentNumber: string;
+  overrideSuppressed: boolean;
 }
 
 export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminCreateUserDialogProps) {
@@ -40,7 +41,8 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         const agents = (res.agents || []).map((a: any) => ({
           id: a.id,
           name: `${a.firstName} ${a.lastName}`,
-          agentNumber: a.agentNumber
+          agentNumber: a.agentNumber,
+          overrideSuppressed: a.overrideSuppressed || false
         }));
         setAgentOptions(agents);
       })
@@ -65,7 +67,9 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
 
       if (data.role === 'agent' && uplineAgentId) {
         body.uplineAgentId = uplineAgentId;
-        body.overrideCommissionRate = overrideRate;
+        const selectedUpline = agentOptions.find(a => a.id === uplineAgentId);
+        // Don't set an override rate for admin uplines — they receive no commission
+        body.overrideCommissionRate = selectedUpline?.overrideSuppressed ? 0 : overrideRate;
       }
 
       const response = await fetch('/api/admin/create-user', {
@@ -330,34 +334,44 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={createUserMutation.isPending}
                 >
-                  <option value="">No Upline</option>
+                  <option value="">Direct (No Upline)</option>
                   {agentOptions.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.name} ({a.agentNumber})
+                      {a.name} ({a.agentNumber}){a.overrideSuppressed ? ' — Admin (no override pay)' : ''}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {uplineAgentId && (
-                <div>
-                  <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
-                    Override Commission Rate ($)
-                  </label>
-                  <input
-                    id="overrideRate"
-                    type="number"
-                    min={1}
-                    max={10}
-                    step={0.50}
-                    value={overrideRate}
-                    onChange={(e) => setOverrideRate(parseFloat(e.target.value) || 5)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    disabled={createUserMutation.isPending}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
-                </div>
-              )}
+              {uplineAgentId && (() => {
+                const selectedUpline = agentOptions.find(a => a.id === uplineAgentId);
+                if (selectedUpline?.overrideSuppressed) {
+                  return (
+                    <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                      This upline is an admin — no override commission will be paid. Assignment is for org structure only.
+                    </p>
+                  );
+                }
+                return (
+                  <div>
+                    <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
+                      Override Commission Rate ($)
+                    </label>
+                    <input
+                      id="overrideRate"
+                      type="number"
+                      min={1}
+                      max={10}
+                      step={0.50}
+                      value={overrideRate}
+                      onChange={(e) => setOverrideRate(parseFloat(e.target.value) || 5)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={createUserMutation.isPending}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

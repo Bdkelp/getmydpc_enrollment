@@ -6053,6 +6053,17 @@ export async function registerRoutes(app: any) {
                     if (agentError) {
                       console.error("[Registration] Could not fetch agent upline data:", agentError);
                     } else if (agentData?.upline_agent_id && agentData.override_commission_rate > 0) {
+                      // Fetch the upline's role — admins/super_admins are structural only, no override pay
+                      const { data: uplineData } = await supabase
+                        .from('users')
+                        .select('role')
+                        .eq('id', agentData.upline_agent_id)
+                        .single();
+
+                      const uplineIsAdmin = uplineData?.role === 'admin' || uplineData?.role === 'super_admin';
+                      if (uplineIsAdmin) {
+                        console.log("[Registration] Upline is admin/super_admin — override commission suppressed (no payout to admins)");
+                      } else {
                       const existingOverrideCommission = await findExistingCommissionUnit({
                         memberId: member.id.toString(),
                         enrollmentId: subscriptionId ? subscriptionId.toString() : null,
@@ -6098,6 +6109,7 @@ export async function registerRoutes(app: any) {
                           console.log("[Registration] Override Commission ID:", overrideCommission.id);
                         }
                       }
+                      } // end else (upline is not admin)
                     } else {
                       console.log("[Registration] No override commission - agent has no upline or override rate is $0");
                     }
