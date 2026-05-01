@@ -36,9 +36,11 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
   // Load agents for upline selector whenever dialog opens
   useEffect(() => {
     if (!isOpen) return;
-    apiClient.get<{ agents: any[] }>('/api/admin/agents/hierarchy')
+    apiClient.get<any>('/api/admin/agents/hierarchy')
       .then(res => {
-        const agents = (res.agents || []).map((a: any) => ({
+        // Endpoint returns a plain array, not { agents: [] }
+        const list: any[] = Array.isArray(res) ? res : (res.agents || []);
+        const agents = list.map((a: any) => ({
           id: a.id,
           name: `${a.firstName} ${a.lastName}`,
           agentNumber: a.agentNumber,

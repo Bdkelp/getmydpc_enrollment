@@ -482,21 +482,50 @@ router.post('/api/admin/create-user', async (req, res) => {
       }
     });
 
-    if (signUpError || !signUpData.user) {
-      console.error('[Admin Create User] Supabase Auth creation failed:', signUpError);
-      return res.status(400).json({
-        message: signUpError?.message || 'Failed to create user in authentication system',
-        code: 'AUTH_CREATION_FAILED'
-      });
+    // Resolve the auth user ID — either freshly created or recovered from a split-state
+    let authUserId: string;
+    let isRecoveredAuthUser = false;
+
+    if (signUpError || !signUpData?.user) {
+      const isDuplicate =
+        signUpError?.message?.toLowerCase().includes('already') ||
+        signUpError?.message?.toLowerCase().includes('registered') ||
+        (signUpError as any)?.status === 422;
+
+      if (isDuplicate) {
+        // Email exists in Auth but not in our DB — recover the existing Auth user
+        console.warn(`[Admin Create User] Split-state detected — recovering existing Auth user: ${email}`);
+        const { data: { users: authUsers } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+        const existingAuthUser = authUsers?.find(
+          (u: any) => u.email?.toLowerCase() === email.toLowerCase()
+        );
+        if (!existingAuthUser) {
+          return res.status(400).json({
+            message: 'Email exists in the authentication system but the record could not be found. Contact support.',
+            code: 'AUTH_RECOVERY_FAILED'
+          });
+        }
+        authUserId = existingAuthUser.id;
+        isRecoveredAuthUser = true;
+        console.log(`[Admin Create User] Recovered Auth user ID: ${authUserId}`);
+      } else {
+        console.error('[Admin Create User] Supabase Auth creation failed:', signUpError);
+        return res.status(400).json({
+          message: signUpError?.message || 'Failed to create user in authentication system',
+          code: 'AUTH_CREATION_FAILED'
+        });
+      }
+    } else {
+      authUserId = signUpData.user.id;
     }
 
     // ============================================
     // CREATE USER IN DATABASE WITH AUDIT TRAIL
     // ============================================
-    console.log(`[Admin Create User] Creating database user record: ${email}`);
+    console.log(`[Admin Create User] Creating database user record: ${email} (recovered=${isRecoveredAuthUser})`);
 
     const dbUser = await storage.createUser({
-      id: signUpData.user.id,
+      id: authUserId,
       email,
       firstName,
       lastName,

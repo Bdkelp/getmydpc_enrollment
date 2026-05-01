@@ -4734,7 +4734,8 @@ export async function clawbackCommission(
 export async function getAgentHierarchy(): Promise<any[]> {
   try {
     // Include all users (agents AND admins/super_admins) so admins can be assigned
-    // as structural uplines without receiving override commissions
+    // as structural uplines without receiving override commissions.
+    // Avoid PostgREST relational join on upline — RLS on production can block it.
     const { data, error } = await supabase
       .from('users')
       .select(`
@@ -4747,10 +4748,10 @@ export async function getAgentHierarchy(): Promise<any[]> {
         upline_agent_id,
         override_commission_rate,
         hierarchy_level,
-        can_receive_overrides,
-        upline:upline_agent_id(email)
+        can_receive_overrides
       `)
       .in('role', ['agent', 'admin', 'super_admin'])
+      .eq('is_active', true)
       .order('hierarchy_level', { ascending: true })
       .order('agent_number', { ascending: true });
 
@@ -4758,8 +4759,12 @@ export async function getAgentHierarchy(): Promise<any[]> {
       throw new Error(`Failed to get agent hierarchy: ${error.message}`);
     }
 
+    // Build a map of id → email for upline lookups (avoids relational join RLS issues)
+    const emailMap: Record<string, string> = {};
+    (data || []).forEach((u: any) => { emailMap[u.id] = u.email; });
+
     // Get downline counts for each user
-    const agentsWithCounts = await Promise.all((data || []).map(async (agent) => {
+    const agentsWithCounts = await Promise.all((data || []).map(async (agent: any) => {
       const { count } = await supabase
         .from('users')
         .select('id', { count: 'exact', head: true })
@@ -4774,11 +4779,10 @@ export async function getAgentHierarchy(): Promise<any[]> {
         lastName: agent.last_name,
         agentNumber: agent.agent_number,
         uplineAgentId: agent.upline_agent_id,
-        uplineEmail: agent.upline?.email,
+        uplineEmail: agent.upline_agent_id ? emailMap[agent.upline_agent_id] : undefined,
         overrideCommissionRate: parseFloat(agent.override_commission_rate || '0'),
         hierarchyLevel: agent.hierarchy_level || 0,
         canReceiveOverrides: agent.can_receive_overrides || false,
-        // Admins appear in the tree for org structure but never receive overrides
         overrideSuppressed: isAdmin,
         downlineCount: count || 0
       };
