@@ -445,27 +445,19 @@ router.post('/api/admin/create-user', async (req, res) => {
     }
 
     // ============================================
-    // CHECK EMAIL UNIQUENESS
+    // CHECK EMAIL UNIQUENESS (database only)
     // ============================================
     const existingUser = await storage.getUserByEmail(email);
     if (existingUser) {
-      console.warn(`[Admin Create User] Email already exists: ${email}`);
+      console.warn(`[Admin Create User] Email already exists in users table: ${email}`);
       return res.status(409).json({
         message: 'Email already exists',
         code: 'EMAIL_EXISTS'
       });
     }
-
-    // Also check Supabase Auth
-    const { data: supabaseUser } = await supabase.auth.admin.listUsers();
-    const emailExists = supabaseUser?.users?.some(u => u.email?.toLowerCase() === email.toLowerCase());
-    if (emailExists) {
-      console.warn(`[Admin Create User] Email exists in Supabase Auth: ${email}`);
-      return res.status(409).json({
-        message: 'Email already exists',
-        code: 'EMAIL_EXISTS'
-      });
-    }
+    // Note: we no longer pre-scan Supabase Auth with listUsers() — that API paginates
+    // and produces false positives. If the email already exists in Auth, createUser
+    // below will return a duplicate error which we surface cleanly.
 
     // ============================================
     // GENERATE TEMPORARY PASSWORD IF NOT PROVIDED
