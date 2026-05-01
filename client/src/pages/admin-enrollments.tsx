@@ -970,7 +970,7 @@ export default function AdminEnrollments() {
                                     enrollment.payment_status,
                                     enrollment.transaction_id,
                                   )}
-                                  {!formatters.hasSuccessfulPayment(enrollment.payment_status) && (
+                                  {!hasSuccessfulPayment(enrollment.payment_status) && (
                                     <Button
                                       size="sm"
                                       variant="outline"
