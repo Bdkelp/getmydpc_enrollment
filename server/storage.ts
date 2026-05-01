@@ -7329,6 +7329,8 @@ export const storage = {
   // Core user functions that exist
   getUser,
   createUser,
+  getAgentHierarchy,
+  updateAgentHierarchy,
   updateUser,
   getUserByEmail,
   getUserByUsername,
