@@ -67,7 +67,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         role: data.role,
       };
 
-      if (data.role === 'agent' && uplineAgentId) {
+      if (uplineAgentId) {
         body.uplineAgentId = uplineAgentId;
         const selectedUpline = agentOptions.find(a => a.id === uplineAgentId);
         // Don't set an override rate for admin uplines — they receive no commission
@@ -320,62 +320,60 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
             </p>
           </div>
 
-          {/* Upline Agent (only for agent role) */}
-          {formData.role === 'agent' && (
-            <div className="space-y-3 border border-gray-200 rounded-lg p-4">
-              <p className="text-sm font-medium text-gray-700">Hierarchy Assignment <span className="text-gray-400 font-normal">(optional)</span></p>
+          {/* Hierarchy Assignment */}
+          <div className="space-y-3 border border-gray-200 rounded-lg p-4">
+            <p className="text-sm font-medium text-gray-700">Hierarchy Assignment <span className="text-gray-400 font-normal">(optional)</span></p>
 
-              <div>
-                <label htmlFor="uplineAgent" className="block text-sm font-medium text-gray-700 mb-1">
-                  Upline Agent
-                </label>
-                <select
-                  id="uplineAgent"
-                  value={uplineAgentId}
-                  onChange={(e) => setUplineAgentId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={createUserMutation.isPending}
-                >
-                  <option value="">Direct (No Upline)</option>
-                  {agentOptions.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} ({a.agentNumber}){a.overrideSuppressed ? ' — Admin (no override pay)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {uplineAgentId && (() => {
-                const selectedUpline = agentOptions.find(a => a.id === uplineAgentId);
-                if (selectedUpline?.overrideSuppressed) {
-                  return (
-                    <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded px-3 py-2">
-                      This upline is an admin — no override commission will be paid. Assignment is for org structure only.
-                    </p>
-                  );
-                }
-                return (
-                  <div>
-                    <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
-                      Override Commission Rate ($)
-                    </label>
-                    <input
-                      id="overrideRate"
-                      type="number"
-                      min={1}
-                      max={10}
-                      step={0.50}
-                      value={overrideRate}
-                      onChange={(e) => setOverrideRate(parseFloat(e.target.value) || 5)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={createUserMutation.isPending}
-                    />
-                    <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
-                  </div>
-                );
-              })()}
+            <div>
+              <label htmlFor="uplineAgent" className="block text-sm font-medium text-gray-700 mb-1">
+                Upline Agent
+              </label>
+              <select
+                id="uplineAgent"
+                value={uplineAgentId}
+                onChange={(e) => setUplineAgentId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={createUserMutation.isPending}
+              >
+                <option value="">Direct (No Upline)</option>
+                {agentOptions.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.agentNumber}){a.overrideSuppressed ? ' — Admin (no override pay)' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
+
+            {uplineAgentId && (() => {
+              const selectedUpline = agentOptions.find(a => a.id === uplineAgentId);
+              if (selectedUpline?.overrideSuppressed) {
+                return (
+                  <p className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded px-3 py-2">
+                    This upline is an admin — no override commission will be paid. Assignment is for org structure only.
+                  </p>
+                );
+              }
+              return (
+                <div>
+                  <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
+                    Override Commission Rate ($)
+                  </label>
+                  <input
+                    id="overrideRate"
+                    type="number"
+                    min={1}
+                    max={10}
+                    step={0.50}
+                    value={overrideRate}
+                    onChange={(e) => setOverrideRate(parseFloat(e.target.value) || 5)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={createUserMutation.isPending}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
+                </div>
+              );
+            })()}
+          </div>
 
           {/* Password Generation Checkbox */}
           <div className="flex items-center gap-2">

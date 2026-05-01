@@ -542,9 +542,9 @@ router.post('/api/admin/create-user', async (req, res) => {
     console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
 
     // ============================================
-    // ASSIGN HIERARCHY IF PROVIDED (AGENTS ONLY)
+    // ASSIGN HIERARCHY IF PROVIDED
     // ============================================
-    if (role === 'agent' && uplineAgentId) {
+    if (uplineAgentId) {
       const rate = typeof overrideCommissionRate === 'number' ? overrideCommissionRate : 5;
       try {
         await updateAgentHierarchy(dbUser.id, uplineAgentId, rate, adminUser.id, 'Set at account creation');
