@@ -495,14 +495,41 @@ router.post('/api/admin/create-user', async (req, res) => {
       if (isDuplicate) {
         // Email exists in Auth but not in our DB — recover the existing Auth user
         console.warn(`[Admin Create User] Split-state detected — recovering existing Auth user: ${email}`);
-        const { data: { users: authUsers } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-        const existingAuthUser = authUsers?.find(
-          (u: any) => u.email?.toLowerCase() === email.toLowerCase()
+        let authUsers: any[] = [];
+
+        // Be defensive: listUsers response shape/params can vary by SDK version.
+        try {
+          const listResult = await (supabase.auth.admin as any).listUsers({ perPage: 1000 });
+          if (listResult?.error) {
+            console.error('[Admin Create User] Auth listUsers(perPage) failed:', listResult.error);
+          } else {
+            authUsers = listResult?.data?.users || [];
+          }
+        } catch (listErr) {
+          console.warn('[Admin Create User] Auth listUsers(perPage) threw, retrying with default params', listErr);
+        }
+
+        // Fallback for environments where listUsers options are unsupported.
+        if (!authUsers.length) {
+          try {
+            const listResultFallback = await (supabase.auth.admin as any).listUsers();
+            if (listResultFallback?.error) {
+              console.error('[Admin Create User] Auth listUsers() fallback failed:', listResultFallback.error);
+            } else {
+              authUsers = listResultFallback?.data?.users || [];
+            }
+          } catch (fallbackErr) {
+            console.error('[Admin Create User] Auth listUsers() fallback threw:', fallbackErr);
+          }
+        }
+
+        const existingAuthUser = authUsers.find(
+          (u: any) => u?.email?.toLowerCase() === email.toLowerCase()
         );
         if (!existingAuthUser) {
-          return res.status(400).json({
-            message: 'Email exists in the authentication system but the record could not be found. Contact support.',
-            code: 'AUTH_RECOVERY_FAILED'
+          return res.status(409).json({
+            message: 'Email already exists in authentication. Unable to auto-link account. Contact support to complete linkage.',
+            code: 'AUTH_RECOVERY_NOT_FOUND'
           });
         }
         authUserId = existingAuthUser.id;
