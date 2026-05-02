@@ -30,6 +30,7 @@ import { displaySSN } from "@shared/display-ssn";
 import { addDaysLocal, formatLocalDate, parseLocalDate } from "@shared/localDate";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import adminHierarchyRoutes from "./routes/admin-hierarchy";
+import adminLoginSessionsRoutes from "./routes/admin-login-sessions";
 import { 
   calculateMembershipStartDate, 
   calculateNextBillingDate,
@@ -3102,33 +3103,6 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
   }
 });
 
-router.get(
-  "/api/admin/login-sessions",
-  authenticateToken,
-  async (req: AuthRequest, res) => {
-    console.log("🔍 LOGIN SESSIONS ROUTE HIT");
-    console.log("User:", req.user?.email);
-    console.log("Role:", req.user?.role);
-    console.log("Headers:", req.headers.authorization);
-
-    if (!isAdmin(req.user!.role)) {
-      console.log("❌ Access denied - not admin");
-      return res.status(403).json({ message: "Admin access required" });
-    }
-
-    try {
-      console.log("✅ Calling getAllLoginSessions...");
-      const { limit = "50" } = req.query;
-      const loginSessions = await storage.getAllLoginSessions(parseInt(limit as string));
-      console.log("✅ Got", loginSessions?.length || 0, "login sessions");
-      res.json(loginSessions);
-    } catch (error) {
-      console.error("❌ Error fetching login sessions:", error);
-      res.status(500).json({ message: "Failed to fetch login sessions" });
-    }
-  },
-);
-
 router.put(
   "/api/admin/leads/:leadId/assign",
   authenticateToken,
@@ -5590,6 +5564,7 @@ export async function registerRoutes(app: any) {
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
   app.use(adminHierarchyRoutes);
+  app.use(adminLoginSessionsRoutes);
 
   // ============================================================
   // ============================================================
@@ -7450,32 +7425,19 @@ export async function registerRoutes(app: any) {
     }
   });
 
-  // Admin: Get all commissions
   // Admin: Get all commissions (admin/super_admin can see ALL, agents see only their own via /api/agent/commissions)
   app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
     try {
-      console.log('[Admin Commissions] Request from user:', req.user?.email, 'Role:', req.user?.role);
-      
-      // Only admins and super_admins can access this endpoint to see ALL commissions
-      const hasAdminPrivileges = isAdmin(req.user?.role);
-      
-      if (!hasAdminPrivileges) {
-        console.error('[Admin Commissions] Access denied - user role:', req.user?.role);
-        return res.status(403).json({ 
-          error: 'Admin access required',
-          userRole: req.user?.role,
-          message: 'Only admin or super_admin can view all commissions. Agents should use /api/agent/commissions'
-        });
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: 'Admin access required' });
       }
 
       const { startDate, endDate } = req.query;
-      console.log('[Admin Commissions] Fetching ALL commissions with date filter:', { startDate, endDate });
-      
       const commissions = await storage.getAllCommissionsNew(
         startDate as string,
         endDate as string
       );
-      
+
       console.log('[Admin Commissions] Successfully fetched', commissions?.length || 0, 'total commissions');
       res.json(commissions);
     } catch (error: any) {
