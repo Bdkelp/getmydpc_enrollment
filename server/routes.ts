@@ -29,6 +29,7 @@ import {
 import { displaySSN } from "@shared/display-ssn";
 import { addDaysLocal, formatLocalDate, parseLocalDate } from "@shared/localDate";
 import supabaseAuthRoutes from "./routes/supabase-auth";
+import adminHierarchyRoutes from "./routes/admin-hierarchy";
 import { 
   calculateMembershipStartDate, 
   calculateNextBillingDate,
@@ -5588,6 +5589,7 @@ export async function registerRoutes(app: any) {
 
   // Register Supabase auth routes (after main routes)
   app.use(supabaseAuthRoutes);
+  app.use(adminHierarchyRoutes);
 
   // ============================================================
   // ============================================================
@@ -8124,49 +8126,6 @@ export async function registerRoutes(app: any) {
     } catch (error: any) {
       console.error('Error fetching commissions for payout:', error);
       res.status(500).json({ error: 'Failed to fetch commissions for payout', details: error.message });
-    }
-  });
-
-  // Admin: Get agent hierarchy
-  app.get('/api/admin/agents/hierarchy', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const agents = await storage.getAgentHierarchy();
-      res.json(agents);
-    } catch (error: any) {
-      console.error('Error fetching agent hierarchy:', error);
-      res.status(500).json({ error: 'Failed to fetch agent hierarchy' });
-    }
-  });
-
-  // Admin: Update agent hierarchy
-  app.post('/api/admin/agents/update-hierarchy', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { agentId, uplineId, overrideAmount, reason } = req.body;
-
-      if (!agentId) {
-        return res.status(400).json({ error: 'Agent ID is required' });
-      }
-
-      await storage.updateAgentHierarchy(
-        agentId,
-        uplineId,
-        overrideAmount,
-        req.user.id,
-        reason
-      );
-
-      res.json({ success: true, message: 'Agent hierarchy updated successfully' });
-    } catch (error: any) {
-      console.error('Error updating agent hierarchy:', error);
-      res.status(500).json({ error: 'Failed to update agent hierarchy' });
     }
   });
 
