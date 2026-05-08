@@ -1064,7 +1064,6 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       ? paymentRecord.epx_auth_guid.trim()
       : null);
   const currentAmount = parseNumericValue(paymentRecord.amount) ?? parseNumericValue(groupMember.total_amount) ?? 0;
-  const planId = resolveGroupMemberPlanId(groupMember, paymentMetadata);
 
   let memberId = parseNumericValue(groupMember.member_id);
   if (memberId) {
@@ -1104,41 +1103,13 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   }
 
   if (!memberId) {
-    if (!planId) {
-      logEPX({
-        level: 'warn',
-        phase: 'callback',
-        message: 'Group member recurring setup skipped because planId is missing',
-        data: { groupId, groupMemberId, paymentId: paymentRecord.id }
-      });
-      return { memberId: null, subscriptionId: null };
-    }
-
-    const createdMember = await storage.createMember({
-      firstName: groupMember.first_name || 'Group',
-      lastName: groupMember.last_name || 'Member',
-      email: groupMember.email || `group-member-${groupMemberId}@getmydpc.local`,
-      phone: groupMember.phone || null,
-      dateOfBirth: groupMember.date_of_birth || null,
-      memberType: normalizeGroupRelationshipToMemberType(groupMember.relationship),
-      planId,
-      coverageType: groupMember.tier || null,
-      totalMonthlyPrice: currentAmount > 0 ? currentAmount : null,
-      paymentToken: bricToken,
-      paymentMethodType: normalizedMethodType,
-      status: 'active',
-      isActive: true,
-      firstPaymentDate: new Date().toISOString(),
-      membershipStartDate: new Date().toISOString(),
+    logEPX({
+      level: 'warn',
+      phase: 'callback',
+      message: 'Group member recurring setup blocked because member linkage is missing (no auto-create in payment flow)',
+      data: { groupId, groupMemberId, paymentId: paymentRecord.id }
     });
-
-    memberId = Number(createdMember.id);
-
-    await supabase
-      .from('group_members')
-      .update({ member_id: memberId, updated_at: new Date().toISOString() })
-      .eq('id', groupMemberId)
-      .eq('group_id', groupId);
+    return { memberId: null, subscriptionId: null };
   } else {
     await storage.updateMember(memberId, {
       paymentToken: bricToken,
@@ -1187,18 +1158,21 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
     }
 
     await storage.updateSubscription(subscriptionId, subscriptionUpdate);
-  } else if (planId) {
-    const createdSubscription = await storage.createSubscription({
-      userId: null,
-      memberId,
-      planId,
-      status: 'active',
-      amount: currentAmount > 0 ? currentAmount : 0,
-      startDate: new Date(),
-      nextBillingDate: new Date(computedNextBillingDate),
-      updatedAt: new Date(),
-    } as any);
-    subscriptionId = Number(createdSubscription.id);
+  } else {
+    const planId = resolveGroupMemberPlanId(groupMember, paymentMetadata);
+    if (planId) {
+      const createdSubscription = await storage.createSubscription({
+        userId: null,
+        memberId,
+        planId,
+        status: 'active',
+        amount: currentAmount > 0 ? currentAmount : 0,
+        startDate: new Date(),
+        nextBillingDate: new Date(computedNextBillingDate),
+        updatedAt: new Date(),
+      } as any);
+      subscriptionId = Number(createdSubscription.id);
+    }
   }
 
   if (subscriptionId) {
