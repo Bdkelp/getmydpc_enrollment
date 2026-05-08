@@ -432,7 +432,7 @@ function resolveAchRuntimeData(sub: BillableSubscription):
     return { error: 'Missing or invalid ACH routing number (must be 9 digits)' };
   }
 
-  const encryptedOrRawAccountNumber = (sub.memberBankAccountNumber || '').trim();
+  const encryptedOrRawAccountNumber = (sub.tokenBankAccountNumber || sub.memberBankAccountNumber || '').trim();
   if (!encryptedOrRawAccountNumber) {
     return { error: 'Missing ACH account number on member record' };
   }
@@ -456,7 +456,7 @@ function resolveAchRuntimeData(sub: BillableSubscription):
   }
 
   const fallbackName = `${sub.memberFirstName || ''} ${sub.memberLastName || ''}`.trim();
-  const accountHolderName = (sub.memberBankAccountHolderName || fallbackName).trim();
+  const accountHolderName = (sub.tokenBankAccountHolderName || sub.memberBankAccountHolderName || fallbackName).trim();
   if (!accountHolderName) {
     return { error: 'Missing ACH account holder name' };
   }

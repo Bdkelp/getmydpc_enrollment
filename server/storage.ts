@@ -687,6 +687,7 @@ export interface IStorage {
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
   upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }>;
+  upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInput): Promise<{ id: number }>;
   getUserPayments(user_Id: string): Promise<Payment[]>;
   getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
 
@@ -5571,6 +5572,7 @@ export interface BillableSubscription {
   payerContactEmail: string | null;
   groupId: string | null;
   groupName: string | null;
+  tokenOwnerType: 'member' | 'group';
   tokenId: number;
   bricToken: string;
   paymentMethodType: string;
@@ -5582,6 +5584,8 @@ export interface BillableSubscription {
   memberFirstName: string | null;
   memberLastName: string | null;
   tokenBankRoutingNumber: string | null;
+  tokenBankAccountNumber: string | null;
+  tokenBankAccountHolderName: string | null;
   tokenBankAccountType: string | null;
   tokenBankAccountLastFour: string | null;
   memberBankRoutingNumber: string | null;
@@ -5634,16 +5638,22 @@ export async function getSubscriptionsDueForBilling(
         gp.payer_contact_email,
         gp.group_id,
         gp.group_name,
-        t.id AS token_id,
-        t.bric_token,
-        t.payment_method_type,
-        t.original_network_trans_id,
+        CASE
+          WHEN gp.payer_type = 'group' AND t_group.id IS NOT NULL THEN 'group'
+          ELSE 'member'
+        END AS token_owner_type,
+        COALESCE(t_group.id, t_member.id) AS token_id,
+        COALESCE(t_group.bric_token, t_member.bric_token) AS bric_token,
+        COALESCE(t_group.payment_method_type, t_member.payment_method_type) AS payment_method_type,
+        COALESCE(t_group.original_network_trans_id, t_member.original_network_trans_id) AS original_network_trans_id,
         p_auth.epx_auth_guid AS latest_payment_auth_guid,
-        t.card_last_four,
-        t.card_type,
-        t.bank_routing_number AS token_bank_routing_number,
-        t.bank_account_type AS token_bank_account_type,
-        t.bank_account_last_four AS token_bank_account_last_four,
+        COALESCE(t_group.card_last_four, t_member.card_last_four) AS card_last_four,
+        COALESCE(t_group.card_type, t_member.card_type) AS card_type,
+        COALESCE(t_group.bank_routing_number, t_member.bank_routing_number) AS token_bank_routing_number,
+        COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,
+        COALESCE(t_group.bank_account_holder_name, t_member.bank_account_holder_name) AS token_bank_account_holder_name,
+        COALESCE(t_group.bank_account_type, t_member.bank_account_type) AS token_bank_account_type,
+        COALESCE(t_group.bank_account_last_four, t_member.bank_account_last_four) AS token_bank_account_last_four,
         m.email,
         m.first_name,
         m.last_name,
@@ -5687,7 +5697,7 @@ export async function getSubscriptionsDueForBilling(
           gm.id DESC
         LIMIT 1
       ) gp ON true
-      INNER JOIN LATERAL (
+      LEFT JOIN LATERAL (
         SELECT
           pt.id,
           pt.bric_token,
@@ -5696,15 +5706,39 @@ export async function getSubscriptionsDueForBilling(
           pt.card_last_four,
           pt.card_type,
           pt.bank_routing_number,
+          pt.bank_account_number,
+          pt.bank_account_holder_name,
           pt.bank_account_type,
           pt.bank_account_last_four
         FROM payment_tokens pt
         WHERE pt.member_id = s.member_id
+          AND pt.group_id IS NULL
           AND pt.is_active = true
           AND pt.payment_method_type = ANY($2::text[])
         ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
-      ) t ON true
+      ) t_member ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          pt.id,
+          pt.bric_token,
+          pt.payment_method_type,
+          pt.original_network_trans_id,
+          pt.card_last_four,
+          pt.card_type,
+          pt.bank_routing_number,
+          pt.bank_account_number,
+          pt.bank_account_holder_name,
+          pt.bank_account_type,
+          pt.bank_account_last_four
+        FROM payment_tokens pt
+        WHERE gp.group_id IS NOT NULL
+          AND pt.group_id = gp.group_id
+          AND pt.is_active = true
+          AND pt.payment_method_type = ANY($2::text[])
+        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        LIMIT 1
+      ) t_group ON true
       LEFT JOIN LATERAL (
         SELECT p.epx_auth_guid
         FROM payments p
@@ -5725,6 +5759,11 @@ export async function getSubscriptionsDueForBilling(
       ) retry_gate ON true
       WHERE s.status = ANY($3::text[])
         AND s.member_id IS NOT NULL
+        AND (
+          (gp.payer_type = 'group' AND (t_group.id IS NOT NULL OR t_member.id IS NOT NULL))
+          OR
+          (COALESCE(gp.payer_type, 'member') <> 'group' AND t_member.id IS NOT NULL)
+        )
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= $1::timestamptz
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
@@ -5753,6 +5792,7 @@ export async function getSubscriptionsDueForBilling(
       payerContactEmail: row.payer_contact_email || null,
       groupId: row.group_id || null,
       groupName: row.group_name || null,
+      tokenOwnerType: row.token_owner_type === 'group' ? 'group' : 'member',
       tokenId: row.token_id,
       bricToken: row.bric_token,
       paymentMethodType: row.payment_method_type,
@@ -5764,6 +5804,8 @@ export async function getSubscriptionsDueForBilling(
       memberFirstName: row.first_name ?? null,
       memberLastName: row.last_name ?? null,
       tokenBankRoutingNumber: row.token_bank_routing_number ?? null,
+      tokenBankAccountNumber: row.token_bank_account_number ?? null,
+      tokenBankAccountHolderName: row.token_bank_account_holder_name ?? null,
       tokenBankAccountType: row.token_bank_account_type ?? null,
       tokenBankAccountLastFour: row.token_bank_account_last_four ?? null,
       memberBankRoutingNumber: row.member_bank_routing_number ?? null,
@@ -5807,6 +5849,25 @@ export interface UpsertPaymentTokenInput {
   bankAccountLastFour?: string | null;
   bankAccountType?: string | null;
   bankName?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountHolderName?: string | null;
+}
+
+export interface UpsertGroupPaymentTokenInput {
+  groupId: string;
+  paymentMethodType: 'CreditCard' | 'ACH' | 'BankAccount';
+  token: string;
+  cardLastFour?: string | null;
+  cardType?: string | null;
+  expiryMonth?: string | null;
+  expiryYear?: string | null;
+  originalNetworkTransId?: string | null;
+  bankRoutingNumber?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountLastFour?: string | null;
+  bankAccountType?: string | null;
+  bankAccountHolderName?: string | null;
+  bankName?: string | null;
 }
 
 export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }> {
@@ -5838,7 +5899,9 @@ export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): 
         expiry_year,
         original_network_trans_id,
         bank_routing_number,
+        bank_account_number,
         bank_account_last_four,
+        bank_account_holder_name,
         bank_account_type,
         bank_name,
         is_active,
@@ -5858,7 +5921,9 @@ export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): 
         expiry_year = EXCLUDED.expiry_year,
         original_network_trans_id = EXCLUDED.original_network_trans_id,
         bank_routing_number = EXCLUDED.bank_routing_number,
+        bank_account_number = EXCLUDED.bank_account_number,
         bank_account_last_four = EXCLUDED.bank_account_last_four,
+        bank_account_holder_name = EXCLUDED.bank_account_holder_name,
         bank_account_type = EXCLUDED.bank_account_type,
         bank_name = EXCLUDED.bank_name,
         is_active = true,
@@ -5876,7 +5941,92 @@ export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): 
       input.expiryYear ?? null,
       input.originalNetworkTransId ?? null,
       input.bankRoutingNumber ?? null,
+      input.bankAccountNumber ? encryptSensitiveData(input.bankAccountNumber) : null,
       input.bankAccountLastFour ?? null,
+      input.bankAccountHolderName ?? null,
+      input.bankAccountType ?? null,
+      input.bankName ?? null,
+    ]
+  );
+
+  return { id: Number(result.rows[0]?.id) };
+}
+
+export async function upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInput): Promise<{ id: number }> {
+  const encryptedToken = encryptPaymentToken(input.token);
+
+  await query(
+    `
+      UPDATE payment_tokens
+      SET is_active = false,
+          is_primary = false,
+          last_used_at = NOW()
+      WHERE group_id = $1
+        AND payment_method_type = $2
+        AND is_active = true
+    `,
+    [input.groupId, input.paymentMethodType]
+  );
+
+  const result = await query(
+    `
+      INSERT INTO payment_tokens (
+        member_id,
+        group_id,
+        payment_method_type,
+        bric_token,
+        card_last_four,
+        card_type,
+        expiry_month,
+        expiry_year,
+        original_network_trans_id,
+        bank_routing_number,
+        bank_account_number,
+        bank_account_last_four,
+        bank_account_holder_name,
+        bank_account_type,
+        bank_name,
+        is_active,
+        is_primary,
+        created_at,
+        last_used_at
+      ) VALUES (
+        NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, true, NOW(), NOW()
+      )
+      ON CONFLICT (bric_token)
+      DO UPDATE SET
+        member_id = NULL,
+        group_id = EXCLUDED.group_id,
+        payment_method_type = EXCLUDED.payment_method_type,
+        card_last_four = EXCLUDED.card_last_four,
+        card_type = EXCLUDED.card_type,
+        expiry_month = EXCLUDED.expiry_month,
+        expiry_year = EXCLUDED.expiry_year,
+        original_network_trans_id = EXCLUDED.original_network_trans_id,
+        bank_routing_number = EXCLUDED.bank_routing_number,
+        bank_account_number = EXCLUDED.bank_account_number,
+        bank_account_last_four = EXCLUDED.bank_account_last_four,
+        bank_account_holder_name = EXCLUDED.bank_account_holder_name,
+        bank_account_type = EXCLUDED.bank_account_type,
+        bank_name = EXCLUDED.bank_name,
+        is_active = true,
+        is_primary = true,
+        last_used_at = NOW()
+      RETURNING id
+    `,
+    [
+      input.groupId,
+      input.paymentMethodType,
+      encryptedToken,
+      input.cardLastFour ?? null,
+      input.cardType ?? null,
+      input.expiryMonth ?? null,
+      input.expiryYear ?? null,
+      input.originalNetworkTransId ?? null,
+      input.bankRoutingNumber ?? null,
+      input.bankAccountNumber ? encryptSensitiveData(input.bankAccountNumber) : null,
+      input.bankAccountLastFour ?? null,
+      input.bankAccountHolderName ?? null,
       input.bankAccountType ?? null,
       input.bankName ?? null,
     ]
@@ -7610,6 +7760,7 @@ export const storage = {
   getActiveSubscriptions,  // Use real function defined above
 
   upsertMemberPaymentToken,
+  upsertGroupPaymentToken,
 
   createPayment,
 

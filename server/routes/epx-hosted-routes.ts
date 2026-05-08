@@ -1067,15 +1067,80 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
 
   const gmPayorType = String(groupMember.payor_type || '').trim().toLowerCase();
   let groupPayorType = '';
+  let groupMetadata: Record<string, any> = {};
   try {
     const { data: groupRow } = await supabase
       .from('groups')
-      .select('payor_type')
+      .select('payor_type, metadata')
       .eq('id', groupId)
       .maybeSingle();
     groupPayorType = String(groupRow?.payor_type || '').trim().toLowerCase();
+    groupMetadata = groupRow?.metadata && typeof groupRow.metadata === 'object'
+      ? (groupRow.metadata as Record<string, any>)
+      : {};
   } catch {
     // Non-fatal: payor type fallback can rely on group member row.
+  }
+
+  const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
+  const resolvedAuthGuid = typeof authGuid === 'string' && authGuid.trim()
+    ? authGuid.trim()
+    : (typeof paymentRecord?.epx_auth_guid === 'string' && paymentRecord.epx_auth_guid.trim()
+      ? paymentRecord.epx_auth_guid.trim()
+      : null);
+
+  try {
+    const groupProfile = groupMetadata.groupProfile && typeof groupMetadata.groupProfile === 'object'
+      ? (groupMetadata.groupProfile as Record<string, any>)
+      : {};
+    const achDetails = groupProfile.achDetails && typeof groupProfile.achDetails === 'object'
+      ? (groupProfile.achDetails as Record<string, any>)
+      : {};
+    const cardDetails = groupProfile.cardDetails && typeof groupProfile.cardDetails === 'object'
+      ? (groupProfile.cardDetails as Record<string, any>)
+      : {};
+
+    const rawAccountNumber = String(achDetails.accountNumber || '').replace(/\D/g, '');
+    const rawRoutingNumber = String(achDetails.routingNumber || '').replace(/\D/g, '');
+    const rawAccountType = String(achDetails.accountType || '').trim().toLowerCase();
+    const normalizedAccountType = rawAccountType === 'savings'
+      ? 'Savings'
+      : (rawAccountType ? 'Checking' : null);
+    const holderName = String(
+      groupProfile?.responsiblePerson?.name
+      || groupProfile?.contactPerson?.name
+      || cardDetails.billingName
+      || ''
+    ).trim();
+
+    await storage.upsertGroupPaymentToken({
+      groupId,
+      paymentMethodType: normalizedMethodType,
+      token: bricToken,
+      cardLastFour: String(cardDetails.last4 || '').trim() || null,
+      cardType: null,
+      expiryMonth: null,
+      expiryYear: null,
+      originalNetworkTransId: normalizedMethodType === 'CreditCard' ? resolvedAuthGuid : null,
+      bankRoutingNumber: rawRoutingNumber || null,
+      bankAccountNumber: rawAccountNumber || null,
+      bankAccountLastFour: rawAccountNumber ? rawAccountNumber.slice(-4) : null,
+      bankAccountType: normalizedAccountType,
+      bankAccountHolderName: holderName || null,
+      bankName: String(achDetails.bankName || '').trim() || null,
+    });
+  } catch (groupTokenError: any) {
+    logEPX({
+      level: 'warn',
+      phase: 'callback',
+      message: 'Unable to upsert group recurring payment token',
+      data: {
+        groupId,
+        groupMemberId,
+        paymentMethodType: normalizedMethodType,
+        error: groupTokenError?.message || null,
+      }
+    });
   }
 
   const effectivePayorType = gmPayorType || groupPayorType;
@@ -1099,13 +1164,6 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       decisionCode: EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE,
     };
   }
-
-  const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
-  const resolvedAuthGuid = typeof authGuid === 'string' && authGuid.trim()
-    ? authGuid.trim()
-    : (typeof paymentRecord?.epx_auth_guid === 'string' && paymentRecord.epx_auth_guid.trim()
-      ? paymentRecord.epx_auth_guid.trim()
-      : null);
   const currentAmount = parseNumericValue(paymentRecord.amount) ?? parseNumericValue(groupMember.total_amount) ?? 0;
 
   let memberId = parseNumericValue(groupMember.member_id);
