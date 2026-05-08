@@ -8518,6 +8518,29 @@ export const storage = {
 
   createMember: async (memberData: Partial<Member>): Promise<Member> => {
     try {
+      const normalizeMemberTypeForStorage = (value: unknown): string => {
+        const normalized = String(value || '').trim().toLowerCase();
+
+        if (!normalized) {
+          return 'member';
+        }
+
+        if (normalized === 'primary' || normalized === 'employee' || normalized === 'member') {
+          return 'employee';
+        }
+
+        if (normalized === 'spouse') {
+          return 'spouse';
+        }
+
+        if (normalized === 'child' || normalized === 'dependent' || normalized === 'dep') {
+          return 'child';
+        }
+
+        // members.member_type is varchar(8); enforce at write time.
+        return normalized.slice(0, 8);
+      };
+
       const toStoredSsnValue = (value: unknown): string | null => {
         const digits = String(value || '').replace(/\D/g, '');
         if (!digits) {
@@ -8562,6 +8585,7 @@ export const storage = {
         state: memberData.state ? memberData.state.toUpperCase().slice(0, 2) : null,
         // Gender to uppercase single char
         gender: memberData.gender ? memberData.gender.toUpperCase().slice(0, 1) : null,
+        memberType: normalizeMemberTypeForStorage(memberData.memberType),
       };
 
       // Use database function to generate customer number

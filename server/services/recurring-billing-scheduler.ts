@@ -533,9 +533,11 @@ function resolvePayerContext(sub: BillableSubscription): {
     ? resolveGroupBillingContact(sub)
     : null;
 
+  const memberEmailFallback = normalizeEmail(sub.memberEmail);
+
   const payerEmail = payerType === 'group'
-    ? (groupContact?.email || null)
-    : (sub.memberEmail || null);
+    ? (groupContact?.email || memberEmailFallback || null)
+    : (memberEmailFallback || null);
 
   return {
     payerType,
@@ -543,7 +545,9 @@ function resolvePayerContext(sub: BillableSubscription): {
     payerDisplayName,
     payerEmail,
     groupContactSource: payerType === 'group' ? (groupContact?.source || null) : null,
-    contactResolutionSucceeded: payerType === 'group' ? Boolean(groupContact?.resolved) : true,
+    contactResolutionSucceeded: payerType === 'group'
+      ? Boolean(groupContact?.resolved || memberEmailFallback)
+      : true,
     chargeContact: {
       id: payerType === 'group' ? `group:${payerAccountId}` : String(sub.memberId),
       email: payerEmail,
