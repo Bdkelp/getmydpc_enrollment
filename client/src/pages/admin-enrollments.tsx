@@ -1018,6 +1018,15 @@ export default function AdminEnrollments() {
                               </TableCell>
                               <TableCell>
                                 <div className="flex gap-1">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="min-w-[118px] h-7 border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                                    onClick={() => setLocation(`/admin/enrollment/${enrollment.id}`)}
+                                  >
+                                    <FileEdit className="h-3 w-3 mr-1" />
+                                    View Member
+                                  </Button>
                                   {enrollment.status === "pending_activation" && (
                                     <Button
                                       size="sm"

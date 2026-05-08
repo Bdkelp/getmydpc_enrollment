@@ -1014,6 +1014,21 @@ const resolveGroupMemberPlanId = (groupMember: any, paymentMetadata: Record<stri
   return parsedPlanId && parsedPlanId > 0 ? Math.trunc(parsedPlanId) : null;
 };
 
+const normalizeGroupRelationshipToMemberType = (relationship: unknown): 'employee' | 'spouse' | 'child' => {
+  const normalized = String(relationship || '').trim().toLowerCase();
+
+  if (normalized === 'primary' || normalized === 'employee' || normalized === 'member') {
+    return 'employee';
+  }
+
+  if (normalized === 'spouse') {
+    return 'spouse';
+  }
+
+  // Keep within members.member_type varchar(8) constraints.
+  return 'child';
+};
+
 async function ensureRecurringArtifactsForGroupPayment(options: {
   groupId: string;
   groupMemberId: number;
@@ -1057,6 +1072,38 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   }
 
   if (!memberId) {
+    const normalizedGroupMemberEmail = String(groupMember.email || '').trim().toLowerCase();
+    if (normalizedGroupMemberEmail) {
+      try {
+        const existingMember = await storage.getMemberByEmail(normalizedGroupMemberEmail);
+        if (existingMember?.id) {
+          memberId = Number(existingMember.id);
+
+          await supabase
+            .from('group_members')
+            .update({ member_id: memberId, updated_at: new Date().toISOString() })
+            .eq('id', groupMemberId)
+            .eq('group_id', groupId);
+
+          logEPX({
+            level: 'info',
+            phase: 'callback',
+            message: 'Linked group member to existing member record before recurring artifact setup',
+            data: { groupId, groupMemberId, memberId }
+          });
+        }
+      } catch (lookupError: any) {
+        logEPX({
+          level: 'warn',
+          phase: 'callback',
+          message: 'Unable to resolve existing member by email during group recurring artifact setup',
+          data: { groupId, groupMemberId, error: lookupError?.message || null }
+        });
+      }
+    }
+  }
+
+  if (!memberId) {
     if (!planId) {
       logEPX({
         level: 'warn',
@@ -1073,7 +1120,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       email: groupMember.email || `group-member-${groupMemberId}@getmydpc.local`,
       phone: groupMember.phone || null,
       dateOfBirth: groupMember.date_of_birth || null,
-      memberType: groupMember.relationship === 'primary' ? 'employee' : (groupMember.relationship || 'dependent'),
+      memberType: normalizeGroupRelationshipToMemberType(groupMember.relationship),
       planId,
       coverageType: groupMember.tier || null,
       totalMonthlyPrice: currentAmount > 0 ? currentAmount : null,

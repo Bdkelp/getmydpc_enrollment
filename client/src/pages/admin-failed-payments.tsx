@@ -19,7 +19,8 @@ import {
   Mail,
   Phone,
   RefreshCw,
-  Download
+  Download,
+  FileEdit
 } from "lucide-react";
 
 interface FailedPayment {
@@ -308,9 +309,11 @@ export default function AdminFailedPayments() {
                             <Button
                               variant="outline"
                               size="sm"
+                              className="min-w-[118px] border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
                               onClick={() => setLocation(`/admin/enrollment/${payment.member_id}`)}
                               disabled={!payment.member_id}
                             >
+                              <FileEdit className="h-4 w-4 mr-1" />
                               View Member
                             </Button>
                           </div>

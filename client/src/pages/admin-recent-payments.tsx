@@ -19,7 +19,8 @@ import {
   CheckCircle,
   Clock,
   RefreshCw,
-  Download
+  Download,
+  FileEdit
 } from "lucide-react";
 
 interface Payment {
@@ -262,6 +263,7 @@ export default function AdminRecentPayments() {
                       <TableHead>Status</TableHead>
                       <TableHead>Transaction ID</TableHead>
                       <TableHead>Method</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -301,6 +303,18 @@ export default function AdminRecentPayments() {
                         </TableCell>
                         <TableCell className="capitalize text-sm">
                           {payment.payment_method || 'N/A'}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="min-w-[118px] border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                            onClick={() => setLocation(`/admin/enrollment/${payment.member_id}`)}
+                            disabled={!payment.member_id}
+                          >
+                            <FileEdit className="h-4 w-4 mr-1" />
+                            View Member
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
