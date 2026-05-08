@@ -2514,6 +2514,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
   try {
     const {
       transactionId,
+      orderNumber,
+      invoiceNumber,
       paymentToken,
       paymentMethodType,
       memberId,
@@ -2525,10 +2527,10 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     const normalizedAuthGuid = normalizeHostedAuthGuid(authGuid, paymentToken);
     const authGuidSource = normalizedAuthGuid ? 'complete.authGuid' : null;
 
-    if (!transactionId || !paymentToken) {
+    if (!transactionId) {
       return res.status(400).json({
         success: false,
-        error: 'transactionId and paymentToken are required'
+        error: 'transactionId is required'
       });
     }
 
@@ -2540,11 +2542,62 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     });
 
     // Look up payment record to find the member
-    const paymentRecord = await storage.getPaymentByTransactionId(transactionId);
+    const fallbackTransactionRefs = [orderNumber, invoiceNumber]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim());
+
+    let paymentRecord = await storage.getPaymentByTransactionId(transactionId);
     if (!paymentRecord) {
-      return res.status(404).json({
-        success: false,
-        error: 'Payment record not found for transaction'
+      for (const ref of fallbackTransactionRefs) {
+        paymentRecord = await storage.getPaymentByTransactionId(ref);
+        if (paymentRecord) {
+          logEPX({
+            level: 'info',
+            phase: 'hosted-complete',
+            message: 'Resolved hosted completion using fallback transaction reference',
+            data: { transactionId, fallbackReference: ref, paymentId: paymentRecord.id }
+          });
+          break;
+        }
+      }
+    }
+
+    if (!paymentRecord) {
+      logEPX({
+        level: 'warn',
+        phase: 'hosted-complete',
+        message: 'Payment record not found during hosted completion; acknowledging and deferring to callback reconciliation',
+        data: {
+          transactionId,
+          orderNumber: typeof orderNumber === 'string' ? orderNumber : null,
+          invoiceNumber: typeof invoiceNumber === 'string' ? invoiceNumber : null,
+        }
+      });
+
+      return res.json({
+        success: true,
+        callbackPending: true,
+        message: 'Completion acknowledged. Awaiting callback reconciliation.',
+      });
+    }
+
+    const paymentAlreadySucceeded = ['succeeded', 'success', 'completed'].includes(
+      String(paymentRecord.status || '').trim().toLowerCase()
+    );
+
+    if (!paymentToken && paymentAlreadySucceeded) {
+      logEPX({
+        level: 'info',
+        phase: 'hosted-complete',
+        message: 'Hosted completion received without token for already-succeeded payment; returning idempotent success',
+        data: { transactionId, paymentId: paymentRecord.id, memberId: paymentRecord.member_id || null }
+      });
+
+      return res.json({
+        success: true,
+        noOp: true,
+        paymentId: paymentRecord.id,
+        message: 'Payment already recorded as successful',
       });
     }
 
@@ -2757,13 +2810,18 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     let updatedMember: any = null;
 
     try {
-      updatedMember = await storage.updateMember(numericMemberId, {
-        paymentToken,
+      const memberUpdatePayload: Record<string, any> = {
         paymentMethodType: normalizedCompletePaymentMethodType,
         status: 'active',
         isActive: true,
         firstPaymentDate: new Date().toISOString()
-      });
+      };
+
+      if (typeof paymentToken === 'string' && paymentToken.trim()) {
+        memberUpdatePayload.paymentToken = paymentToken.trim();
+      }
+
+      updatedMember = await storage.updateMember(numericMemberId, memberUpdatePayload);
     } catch (memberUpdateError: any) {
       logEPX({
         level: 'error',
