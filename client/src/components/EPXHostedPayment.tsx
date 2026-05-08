@@ -471,14 +471,8 @@ export default function EPXHostedPayment({
         : overrideFallbackAmount ?? (Number.isFinite(amount) ? amount : undefined);
 
       if (!tokenFromPayload) {
-        console.error('[EPX Hosted] Missing BRIC token in success payload. Parsed message:', parsedMessage);
-        setError('Payment succeeded, but no billing token was returned. Please contact support.');
-        toast({
-          title: 'Payment Received – Action Needed',
-          description: 'Payment succeeded, but we could not finalize enrollment automatically. Please contact support.',
-          variant: 'destructive'
-        });
-        return;
+        // Some EPX success payloads omit GUID/token while server callback still completes.
+        console.warn('[EPX Hosted] Missing BRIC token in success payload; proceeding with server reconciliation fallback. Parsed message:', parsedMessage);
       }
 
       if (!transactionFromPayload) {
@@ -490,7 +484,7 @@ export default function EPXHostedPayment({
       setIsLoading(true);
 
       try {
-        await apiClient.post('/api/epx/hosted/complete', {
+        const completionResponse = await apiClient.post('/api/epx/hosted/complete', {
           transactionId: transactionFromPayload,
           paymentToken: tokenFromPayload,
           paymentMethodType:
@@ -503,10 +497,22 @@ export default function EPXHostedPayment({
           amount: parsedMessage.amount || overrideAmountValue || amount
         });
 
-        toast({
-          title: 'Payment Successful',
-          description: 'Enrollment finalized successfully.'
-        });
+        if (completionResponse?.requiresReview) {
+          toast({
+            title: 'Payment Successful',
+            description: completionResponse?.message || 'Payment was approved and queued for internal review.'
+          });
+        } else if (completionResponse?.callbackPending || completionResponse?.noOp) {
+          toast({
+            title: 'Payment Received',
+            description: completionResponse?.message || 'Payment was received and is being finalized in the background.'
+          });
+        } else {
+          toast({
+            title: 'Payment Successful',
+            description: 'Enrollment finalized successfully.'
+          });
+        }
 
         if (onSuccess) {
           onSuccess(transactionFromPayload || sessionData?.transactionId, normalizedAmount);
@@ -532,13 +538,30 @@ export default function EPXHostedPayment({
         }
       } catch (completionError: any) {
         console.error('[EPX Hosted] Failed to finalize enrollment after payment', completionError);
-        const message = completionError?.message || 'Payment succeeded, but we could not finalize enrollment. Please try again or contact support.';
-        setError(message);
+        const message = completionError?.message || 'Payment was received. Finalization may still complete via callback reconciliation.';
+        setError('Payment was received. We are reconciling enrollment details now.');
         toast({
-          title: 'Finalize Failed',
+          title: 'Payment Received',
           description: message,
-          variant: 'destructive'
         });
+
+        if (onSuccess) {
+          onSuccess(transactionFromPayload || sessionData?.transactionId || 'unknown', normalizedAmount);
+        }
+
+        if (redirectOnSuccess !== false) {
+          setTimeout(() => {
+            const transactionId = transactionFromPayload || sessionData?.transactionId || 'unknown';
+            const params = new URLSearchParams({ transaction: transactionId, reconciliation: 'pending' });
+            if (typeof normalizedAmount === 'number' && Number.isFinite(normalizedAmount)) {
+              params.append('amount', normalizedAmount.toFixed(2));
+            }
+            if (planId) {
+              params.append('planId', planId);
+            }
+            window.location.href = `/confirmation?${params.toString()}`;
+          }, 1500);
+        }
       } finally {
         setIsLoading(false);
       }
