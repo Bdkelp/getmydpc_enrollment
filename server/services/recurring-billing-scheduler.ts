@@ -383,6 +383,10 @@ function isAchRecurringTestMode(): boolean {
   return process.env.ACH_RECURRING_TEST_MODE !== 'false';
 }
 
+function isGroupPayerRecurringEnabled(): boolean {
+  return process.env.GROUP_PAYER_RECURRING_ENABLED === 'true';
+}
+
 export function normalizePaymentMethodType(paymentMethodType: string | null | undefined): 'CreditCard' | 'ACH' | 'UNKNOWN' {
   const normalized = String(paymentMethodType || '').trim().toUpperCase();
   if (normalized === 'CREDITCARD') return 'CreditCard';
@@ -1354,6 +1358,7 @@ async function processSubscription(
   source: SchedulerCycleSource,
 ): Promise<{ outcome: 'processed' | 'skipped'; skipReason?: string }> {
   const payerContext = resolvePayerContext(sub);
+  const groupPayerRecurringEnabled = isGroupPayerRecurringEnabled();
   const buildAttemptDiagBase = () => ({
     at: new Date().toISOString(),
     source,
@@ -1368,6 +1373,41 @@ async function processSubscription(
     groupContactSource: payerContext.groupContactSource,
     contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
   });
+
+  if (payerContext.payerType === 'group' && !groupPayerRecurringEnabled) {
+    console.warn(
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — group payer recurring is disabled (GROUP_PAYER_RECURRING_ENABLED !== 'true')`
+    );
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
+      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason: 'group_payer_disabled',
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      selected: true,
+      skipped: true,
+      skipReason: 'group_payer_disabled',
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason: 'group_payer_disabled' };
+  }
+
   const methodType = normalizePaymentMethodType(sub.paymentMethodType);
   if (methodType === 'UNKNOWN') {
     console.warn(
