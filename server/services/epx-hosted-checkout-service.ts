@@ -62,6 +62,90 @@ function extractAuthGuid(payload: any): string | undefined {
   return undefined;
 }
 
+function normalizeStatus(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+function extractTransactionId(payload: any): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const candidates = [
+    payload.transactionId,
+    payload.TRANSACTION_ID,
+    payload.transaction_id,
+    payload.TRAN_NBR,
+    payload.tranNbr,
+    payload.orderNumber,
+    payload.ORDER_NUMBER,
+    payload.invoiceNumber,
+    payload.INVOICE_NUMBER,
+    payload.result?.transactionId,
+    payload.result?.TRANSACTION_ID,
+    payload.result?.TRAN_NBR,
+    payload.result?.orderNumber,
+    payload.result?.ORDER_NUMBER,
+    payload.result?.invoiceNumber,
+    payload.result?.INVOICE_NUMBER,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function extractAuthCode(payload: any): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const candidates = [
+    payload.authCode,
+    payload.AUTH_CODE,
+    payload.AUTH_RESP,
+    payload.authResp,
+    payload.result?.authCode,
+    payload.result?.AUTH_CODE,
+    payload.result?.AUTH_RESP,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function extractAmount(payload: any): number | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const candidates = [
+    payload.amount,
+    payload.AUTH_AMOUNT,
+    payload.authAmount,
+    payload.result?.amount,
+    payload.result?.AUTH_AMOUNT,
+  ];
+
+  for (const value of candidates) {
+    const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
 export class EPXHostedCheckoutService {
   private config: EPXHostedCheckoutConfig;
   private scriptUrl: string;
@@ -154,23 +238,28 @@ export class EPXHostedCheckoutService {
   } {
     console.log("[EPX Hosted Checkout] Processing callback:", payload);
 
-    // EPX callback structure includes result.GUID for BRIC token
-    const isApproved = payload.status === "approved" || payload.success === true;
+    const status = normalizeStatus(payload?.status || payload?.Status || payload?.result?.status || payload?.result?.Status);
+    const authResp = normalizeStatus(payload?.AUTH_RESP || payload?.authResp || payload?.result?.AUTH_RESP || payload?.result?.authResp);
+    const successFlag = payload?.success === true || payload?.Success === true || payload?.approved === true || payload?.Approved === true;
+    // EPX callback variants can mark success via status strings, booleans, or auth response code.
+    const isApproved = successFlag
+      || ['approved', 'success', 'succeeded', 'completed'].includes(status)
+      || ['00', '0', 'approved', 'success'].includes(authResp);
 
     if (isApproved) {
       const authGuid = extractAuthGuid(payload);
       return {
         isApproved: true,
-        transactionId: payload.transactionId || payload.orderNumber,
-        authCode: payload.authCode,
-        amount: payload.amount ? parseFloat(payload.amount) : undefined,
+        transactionId: extractTransactionId(payload),
+        authCode: extractAuthCode(payload),
+        amount: extractAmount(payload),
         bricToken: payload.result?.GUID || payload.GUID, // BRIC token for recurring billing
         authGuid
       };
     } else {
       return {
         isApproved: false,
-        error: payload.error || payload.message || "Transaction declined"
+        error: payload.error || payload.message || payload.StatusMessage || "Transaction declined"
       };
     }
   }

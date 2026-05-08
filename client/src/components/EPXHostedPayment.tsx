@@ -455,7 +455,7 @@ export default function EPXHostedPayment({
       )
         ? extractedAuthGuid.trim()
         : undefined;
-      const transactionFromPayload = parsedMessage.transactionId || parsedMessage.orderNumber || sessionData?.transactionId;
+      const transactionFromPayload = extractTransactionReference(parsedMessage) || sessionData?.transactionId;
 
       const amountFromPayloadRaw = parsedMessage.amount ?? (parsedMessage as Record<string, any>)?.AMOUNT ?? null;
       const amountFromPayload = typeof amountFromPayloadRaw === 'number'
@@ -486,6 +486,8 @@ export default function EPXHostedPayment({
       try {
         const completionResponse = await apiClient.post('/api/epx/hosted/complete', {
           transactionId: transactionFromPayload,
+          orderNumber: sessionData?.transactionId || parsedMessage.orderNumber || parsedMessage.OrderNumber,
+          invoiceNumber: sessionData?.transactionId || parsedMessage.invoiceNumber || parsedMessage.InvoiceNumber,
           paymentToken: tokenFromPayload,
           paymentMethodType:
             parsedMessage.paymentMethodType
@@ -1130,6 +1132,24 @@ function extractAuthGuid(payload: Record<string, any>): string | undefined {
   return (
     extractCandidate(payload, EPX_GUID_CANDIDATES) ||
     findValueByKeyMatch(payload, key => key.toLowerCase().includes('auth_guid') || key.toLowerCase().includes('authguid'))
+  );
+}
+
+function extractTransactionReference(payload: Record<string, any>): string | undefined {
+  return (
+    extractCandidate(payload, [
+      'transactionId',
+      'TRANSACTION_ID',
+      'transaction_id',
+      'TRAN_NBR',
+      'tranNbr',
+      'orderNumber',
+      'OrderNumber',
+      'ORDER_NUMBER',
+      'invoiceNumber',
+      'InvoiceNumber',
+      'INVOICE_NUMBER',
+    ])
   );
 }
 
