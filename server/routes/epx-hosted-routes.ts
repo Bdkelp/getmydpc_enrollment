@@ -1029,6 +1029,14 @@ const normalizeGroupRelationshipToMemberType = (relationship: unknown): 'employe
   return 'child';
 };
 
+const EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE = 'EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED';
+
+type GroupRecurringArtifactResult = {
+  memberId: number | null;
+  subscriptionId: number | null;
+  decisionCode: string | null;
+};
+
 async function ensureRecurringArtifactsForGroupPayment(options: {
   groupId: string;
   groupMemberId: number;
@@ -1037,7 +1045,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
   bricToken: string;
   paymentMethodType: string;
   authGuid?: string | null;
-}): Promise<{ memberId: number | null; subscriptionId: number | null }> {
+}): Promise<GroupRecurringArtifactResult> {
   const { groupId, groupMemberId, paymentRecord, paymentMetadata, bricToken, paymentMethodType, authGuid } = options;
 
   const { data: groupMember, error: groupMemberError } = await supabase
@@ -1054,7 +1062,42 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       message: 'Unable to resolve group member for recurring artifact setup',
       data: { groupId, groupMemberId, error: groupMemberError?.message || null }
     });
-    return { memberId: null, subscriptionId: null };
+    return { memberId: null, subscriptionId: null, decisionCode: null };
+  }
+
+  const gmPayorType = String(groupMember.payor_type || '').trim().toLowerCase();
+  let groupPayorType = '';
+  try {
+    const { data: groupRow } = await supabase
+      .from('groups')
+      .select('payor_type')
+      .eq('id', groupId)
+      .maybeSingle();
+    groupPayorType = String(groupRow?.payor_type || '').trim().toLowerCase();
+  } catch {
+    // Non-fatal: payor type fallback can rely on group member row.
+  }
+
+  const effectivePayorType = gmPayorType || groupPayorType;
+  const memberContribution = parseNumericValue(groupMember.member_amount) ?? 0;
+  if (effectivePayorType === 'full' && memberContribution <= 0) {
+    logEPX({
+      level: 'info',
+      phase: 'callback',
+      message: 'Skipping individual recurring artifacts for employer-paid group member with no member contribution',
+      data: {
+        groupId,
+        groupMemberId,
+        decisionCode: EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE,
+        payorType: effectivePayorType,
+        memberContribution,
+      }
+    });
+    return {
+      memberId: null,
+      subscriptionId: null,
+      decisionCode: EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE,
+    };
   }
 
   const normalizedMethodType = paymentMethodType === 'ACH' ? 'ACH' : 'CreditCard';
@@ -1109,7 +1152,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
       message: 'Group member recurring setup blocked because member linkage is missing (no auto-create in payment flow)',
       data: { groupId, groupMemberId, paymentId: paymentRecord.id }
     });
-    return { memberId: null, subscriptionId: null };
+    return { memberId: null, subscriptionId: null, decisionCode: null };
   } else {
     await storage.updateMember(memberId, {
       paymentToken: bricToken,
@@ -1182,7 +1225,7 @@ async function ensureRecurringArtifactsForGroupPayment(options: {
     });
   }
 
-  return { memberId, subscriptionId };
+  return { memberId, subscriptionId, decisionCode: null };
 }
 
 type RecurringReadinessIssue = {
@@ -1267,6 +1310,7 @@ async function runRecurringReadinessIntegrityCheck(options: {
   paymentRecord?: PaymentRecord | null;
   expectedSubscriptionId?: number | null;
   paymentMethodType?: string | null;
+  nonBlockingDecisionCode?: string | null;
 }): Promise<RecurringReadinessResult> {
   const issues: RecurringReadinessIssue[] = [];
   const nowIso = new Date().toISOString();
@@ -1283,6 +1327,9 @@ async function runRecurringReadinessIntegrityCheck(options: {
     ? Math.trunc(options.groupMemberId)
     : null;
   const paymentRecord = options.paymentRecord || null;
+  const nonBlockingDecisionCode = typeof options.nonBlockingDecisionCode === 'string' && options.nonBlockingDecisionCode.trim()
+    ? options.nonBlockingDecisionCode.trim().toUpperCase()
+    : null;
   const paymentId = parseNumericValue(paymentRecord?.id);
   const expectedSubscriptionId = parseSubscriptionId(options.expectedSubscriptionId);
   const paymentSubscriptionId = parseSubscriptionId(paymentRecord?.subscription_id);
@@ -1296,7 +1343,14 @@ async function runRecurringReadinessIntegrityCheck(options: {
   let payerId: string | null = null;
   let resolvedSubscriptionId: number | null = expectedSubscriptionId || paymentSubscriptionId || null;
 
-  if (!memberId) {
+  if (!memberId && nonBlockingDecisionCode === EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE) {
+    addRecurringIssue(
+      issues,
+      EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE,
+      'Skipped individual recurring artifacts because this group member is employer-paid with no employee contribution.',
+      { groupId, groupMemberId },
+    );
+  } else if (!memberId) {
     addRecurringIssue(issues, 'MISSING_MEMBER_CONTEXT', 'Recurring readiness check is missing member context.');
   }
 
@@ -1584,8 +1638,10 @@ async function runRecurringReadinessIntegrityCheck(options: {
     }
   }
 
+  const blockingIssues = issues.filter((issue) => issue.code !== EMPLOYER_PAID_GROUP_MEMBER_EXCLUDED_CODE);
+
   return {
-    passed: issues.length === 0,
+    passed: blockingIssues.length === 0,
     checkedAt: nowIso,
     phase,
     flowType,
@@ -2542,6 +2598,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
             paymentRecord: persistResult.paymentRecord,
             expectedSubscriptionId: recurringArtifactResult.subscriptionId,
             paymentMethodType: normalizedCompletePaymentMethodType,
+            nonBlockingDecisionCode: recurringArtifactResult.decisionCode,
           });
           recurringReadinessChecks.push(recurringReadiness);
           await handleRecurringReadinessFailure(recurringReadiness);
@@ -2567,6 +2624,7 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
               paymentRecord: persistResult.paymentRecord,
               expectedSubscriptionId: recurringArtifactResult.subscriptionId,
               paymentMethodType: normalizedCompletePaymentMethodType,
+              nonBlockingDecisionCode: recurringArtifactResult.decisionCode,
             });
             recurringReadinessChecks.push(recurringReadiness);
             await handleRecurringReadinessFailure(recurringReadiness);
@@ -3127,6 +3185,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
                 attemptedAt: new Date().toISOString(),
                 memberId: recurringArtifactResult.memberId,
                 subscriptionId: recurringArtifactResult.subscriptionId,
+                decisionCode: recurringArtifactResult.decisionCode,
               },
             };
 
@@ -3139,6 +3198,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               paymentRecord: paymentRecordForLogging,
               expectedSubscriptionId: recurringArtifactResult.subscriptionId,
               paymentMethodType: callbackPaymentMethodType,
+              nonBlockingDecisionCode: recurringArtifactResult.decisionCode,
             });
             paymentMetadata.groupPaymentContext = {
               ...paymentMetadata.groupPaymentContext,
@@ -3210,7 +3270,12 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       if (!groupPaymentContext && groupInvoiceContext && paymentRecordForLogging && result.bricToken) {
         try {
           await upsertGroupCardProfileFromCallback(groupInvoiceContext.groupId, req.body || {});
-          const recurringSetupResults: Array<{ groupMemberId: number; memberId: number | null; subscriptionId: number | null }> = [];
+          const recurringSetupResults: Array<{
+            groupMemberId: number;
+            memberId: number | null;
+            subscriptionId: number | null;
+            decisionCode: string | null;
+          }> = [];
           const recurringReadinessChecks: RecurringReadinessResult[] = [];
 
           for (const selectedGroupMemberId of groupInvoiceContext.selectedGroupMemberIds) {
@@ -3227,6 +3292,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               groupMemberId: selectedGroupMemberId,
               memberId: recurringArtifactResult.memberId,
               subscriptionId: recurringArtifactResult.subscriptionId,
+              decisionCode: recurringArtifactResult.decisionCode,
             });
 
             const recurringReadiness = await runRecurringReadinessIntegrityCheck({
@@ -3238,6 +3304,7 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               paymentRecord: paymentRecordForLogging,
               expectedSubscriptionId: recurringArtifactResult.subscriptionId,
               paymentMethodType: callbackPaymentMethodType,
+              nonBlockingDecisionCode: recurringArtifactResult.decisionCode,
             });
             recurringReadinessChecks.push(recurringReadiness);
             await handleRecurringReadinessFailure(recurringReadiness);
