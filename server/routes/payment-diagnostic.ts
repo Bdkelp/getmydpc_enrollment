@@ -18,6 +18,7 @@ import {
   buildDraftPayoutBatches,
   getPayoutDashboardData,
 } from '../services/commission-ledger-service';
+import { calculateNextBillingDate } from '../utils/membership-dates';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -175,6 +176,33 @@ const buildCycleRows = (dueDecisions: any[], chargeAttempts: any[]) => {
       billingEventId: chargeAttempt?.billingEventId ?? null,
     };
   });
+};
+
+type ReconciliationMode = 'preview' | 'apply';
+
+const normalizePaymentStatus = (value: unknown): string => String(value || '').trim().toLowerCase();
+const normalizeCallbackStatus = (value: unknown): string => String(value || '').trim().toLowerCase();
+const isPaymentSucceededStatus = (status: string): boolean => ['succeeded', 'success', 'completed'].includes(status);
+const isCallbackSuccessStatus = (status: string): boolean => ['success', 'succeeded', 'approved'].includes(status);
+
+const parseNumericId = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.trunc(parsed);
+    }
+  }
+  return null;
+};
+
+const toIsoDate = (value: unknown): string | null => {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
 };
 
 const loadRecurringLogRows = async (billingEventIds: number[]) => {
@@ -584,6 +612,274 @@ router.post('/api/admin/diagnostic/recurring-billing/repair-card-auth-guids', au
     res.status(500).json({
       success: false,
       error: error?.message || 'Failed to run recurring auth-guid repair',
+    });
+  }
+});
+
+/**
+ * Diagnostic/repair endpoint: reconcile payments approved by EPX but left in partial app state.
+ * Mode defaults to preview. Use { mode: 'apply' } to persist updates.
+ */
+router.post('/api/admin/diagnostic/epx-approved-reconciliation', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const mode: ReconciliationMode = String(req.body?.mode || 'preview').toLowerCase() === 'apply' ? 'apply' : 'preview';
+    const isSuperAdmin = hasAtLeastRole(req.user.role, 'super_admin');
+
+    if (mode === 'apply' && !isSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can apply EPX reconciliation changes',
+      });
+    }
+
+    const requestedLookbackDays = Number(req.body?.lookbackDays);
+    const lookbackDays = Number.isFinite(requestedLookbackDays)
+      ? Math.min(Math.max(Math.trunc(requestedLookbackDays), 1), 90)
+      : 14;
+
+    const requestedLimit = Number(req.body?.limit);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 500)
+      : 200;
+
+    const candidateResult = await query(
+      `
+        SELECT
+          p.id AS payment_id,
+          p.member_id,
+          p.subscription_id,
+          p.status AS payment_status,
+          p.transaction_id,
+          p.amount,
+          p.created_at AS payment_created_at,
+          p.metadata,
+          m.status AS member_status,
+          m.is_active AS member_is_active,
+          m.first_payment_date AS member_first_payment_date,
+          s.status AS subscription_status,
+          s.next_billing_date,
+          s.member_id AS subscription_member_id
+        FROM payments p
+        LEFT JOIN members m ON m.id::text = p.member_id::text
+        LEFT JOIN subscriptions s ON s.id::text = p.subscription_id::text
+        WHERE p.created_at >= NOW() - ($1::int * INTERVAL '1 day')
+          AND (
+            (
+              LOWER(COALESCE(p.status, '')) NOT IN ('succeeded', 'success', 'completed')
+              AND LOWER(COALESCE(p.metadata->'hostedCallback'->>'status', '')) IN ('success', 'succeeded', 'approved')
+            )
+            OR (
+              LOWER(COALESCE(p.status, '')) IN ('succeeded', 'success', 'completed')
+              AND p.member_id IS NOT NULL
+              AND (
+                LOWER(COALESCE(m.status, '')) <> 'active'
+                OR COALESCE(m.is_active, false) = false
+                OR (
+                  p.subscription_id IS NOT NULL
+                  AND LOWER(COALESCE(s.status, '')) IN ('pending', 'pending_payment')
+                )
+                OR (
+                  p.subscription_id IS NULL
+                  AND COALESCE((p.metadata->>'paymentType'), '') = 'hosted-checkout'
+                )
+              )
+            )
+          )
+        ORDER BY p.created_at DESC
+        LIMIT $2
+      `,
+      [lookbackDays, limit],
+    );
+
+    const candidates = (candidateResult.rows || []).map((row: any) => {
+      const paymentStatus = normalizePaymentStatus(row.payment_status);
+      const callbackStatus = normalizeCallbackStatus(row?.metadata?.hostedCallback?.status);
+      const paymentId = parseNumericId(row.payment_id);
+      const memberId = parseNumericId(row.member_id);
+      const subscriptionId = parseNumericId(row.subscription_id);
+      const subscriptionMemberId = parseNumericId(row.subscription_member_id);
+
+      const needsPaymentStatusFix = !isPaymentSucceededStatus(paymentStatus) && isCallbackSuccessStatus(callbackStatus);
+      const needsMemberActivationFix = Boolean(memberId)
+        && isPaymentSucceededStatus(paymentStatus)
+        && (normalizePaymentStatus(row.member_status) !== 'active' || row.member_is_active !== true);
+      const needsSubscriptionActivationFix = Boolean(subscriptionId)
+        && normalizePaymentStatus(row.subscription_status) in ({ pending: true, pending_payment: true } as Record<string, boolean>);
+      const needsSubscriptionLinkFix = Boolean(memberId)
+        && !subscriptionId
+        && isPaymentSucceededStatus(paymentStatus);
+      const needsSubscriptionMemberAlignmentFix = Boolean(memberId && subscriptionId && subscriptionMemberId)
+        && memberId !== subscriptionMemberId;
+
+      return {
+        paymentId,
+        memberId,
+        subscriptionId,
+        paymentStatus,
+        callbackStatus,
+        paymentCreatedAt: toIsoDate(row.payment_created_at),
+        memberStatus: normalizePaymentStatus(row.member_status),
+        memberIsActive: row.member_is_active === true,
+        subscriptionStatus: normalizePaymentStatus(row.subscription_status),
+        nextBillingDate: toIsoDate(row.next_billing_date),
+        drift: {
+          needsPaymentStatusFix,
+          needsMemberActivationFix,
+          needsSubscriptionActivationFix,
+          needsSubscriptionLinkFix,
+          needsSubscriptionMemberAlignmentFix,
+        },
+      };
+    }).filter((row: any) => row.paymentId);
+
+    if (mode === 'preview') {
+      return res.json({
+        success: true,
+        mode,
+        lookbackDays,
+        limit,
+        candidateCount: candidates.length,
+        candidates,
+        summary: {
+          paymentStatusFixes: candidates.filter((row: any) => row.drift.needsPaymentStatusFix).length,
+          memberActivationFixes: candidates.filter((row: any) => row.drift.needsMemberActivationFix).length,
+          subscriptionActivationFixes: candidates.filter((row: any) => row.drift.needsSubscriptionActivationFix).length,
+          subscriptionLinkFixes: candidates.filter((row: any) => row.drift.needsSubscriptionLinkFix).length,
+          subscriptionMemberAlignmentIssues: candidates.filter((row: any) => row.drift.needsSubscriptionMemberAlignmentFix).length,
+        },
+        note: 'Preview only. No records were changed.',
+      });
+    }
+
+    const applied: any[] = [];
+    const errors: any[] = [];
+
+    for (const candidate of candidates) {
+      const actions: string[] = [];
+
+      try {
+        if (candidate.drift.needsPaymentStatusFix) {
+          await storage.updatePayment(candidate.paymentId, { status: 'succeeded' as any });
+          actions.push('payment_status->succeeded');
+        }
+
+        if (candidate.memberId && candidate.drift.needsMemberActivationFix) {
+          const firstPaymentDate = candidate.paymentCreatedAt || new Date().toISOString();
+          await storage.updateMember(candidate.memberId, {
+            status: 'active',
+            isActive: true,
+            firstPaymentDate,
+          } as any);
+          actions.push('member->active');
+        }
+
+        let effectiveSubscriptionId = candidate.subscriptionId;
+
+        if (candidate.memberId && candidate.drift.needsSubscriptionLinkFix) {
+          const { data: latestSubscription } = await supabase
+            .from('subscriptions')
+            .select('id, status, next_billing_date')
+            .eq('member_id', candidate.memberId)
+            .in('status', ['active', 'pending', 'pending_payment'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (latestSubscription?.id) {
+            effectiveSubscriptionId = Number(latestSubscription.id);
+            await storage.updatePayment(candidate.paymentId, { subscriptionId: String(effectiveSubscriptionId) });
+            actions.push('payment.subscription_id->linked');
+          }
+        }
+
+        if (effectiveSubscriptionId && candidate.memberId) {
+          const { data: currentSubscription } = await supabase
+            .from('subscriptions')
+            .select('id, status, next_billing_date, member_id')
+            .eq('id', effectiveSubscriptionId)
+            .maybeSingle();
+
+          const subscriptionStatus = normalizePaymentStatus(currentSubscription?.status);
+          const requiresStatusFix = subscriptionStatus === 'pending' || subscriptionStatus === 'pending_payment';
+          const requiresDateFix = !currentSubscription?.next_billing_date;
+          const memberMismatch = parseNumericId(currentSubscription?.member_id) !== candidate.memberId;
+
+          if (requiresStatusFix || requiresDateFix || memberMismatch) {
+            const subscriptionPatch: Record<string, any> = {
+              updated_at: new Date().toISOString(),
+            };
+
+            if (requiresStatusFix && !memberMismatch) {
+              subscriptionPatch.status = 'active';
+            }
+
+            if (requiresDateFix) {
+              const base = candidate.paymentCreatedAt ? new Date(candidate.paymentCreatedAt) : new Date();
+              subscriptionPatch.next_billing_date = calculateNextBillingDate(base).toISOString();
+            }
+
+            if (Object.keys(subscriptionPatch).length > 1) {
+              const { error: subscriptionUpdateError } = await supabase
+                .from('subscriptions')
+                .update(subscriptionPatch)
+                .eq('id', effectiveSubscriptionId)
+                .eq('member_id', candidate.memberId);
+
+              if (subscriptionUpdateError) {
+                throw new Error(`Failed updating subscription ${effectiveSubscriptionId}: ${subscriptionUpdateError.message}`);
+              }
+
+              if (subscriptionPatch.status === 'active') {
+                actions.push('subscription->active');
+              }
+              if (subscriptionPatch.next_billing_date) {
+                actions.push('subscription.next_billing_date->set');
+              }
+            }
+
+            if (memberMismatch) {
+              actions.push('subscription_member_mismatch_detected');
+            }
+          }
+        }
+
+        applied.push({
+          paymentId: candidate.paymentId,
+          memberId: candidate.memberId,
+          subscriptionId: effectiveSubscriptionId,
+          actions,
+        });
+      } catch (applyError: any) {
+        errors.push({
+          paymentId: candidate.paymentId,
+          memberId: candidate.memberId,
+          subscriptionId: candidate.subscriptionId,
+          error: applyError?.message || 'Unknown apply error',
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      mode,
+      lookbackDays,
+      limit,
+      candidateCount: candidates.length,
+      appliedCount: applied.length,
+      errorCount: errors.length,
+      applied,
+      errors,
+      note: 'Apply mode attempted deterministic reconciliation for EPX-approved drift records.',
+    });
+  } catch (error: any) {
+    console.error('[Diagnostic] Error running EPX approved reconciliation:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to run EPX approved reconciliation',
     });
   }
 });
