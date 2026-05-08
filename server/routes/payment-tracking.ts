@@ -11,6 +11,19 @@ import { query } from '../lib/neonDb';
 
 const router = Router();
 
+const normalizeBooleanQuery = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+};
+
+const normalizePositiveNumber = (value: unknown, fallback: number, min = 1, max = 10000): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+};
+
 /**
  * Get recent payments with member details
  */
@@ -22,8 +35,9 @@ router.get('/api/admin/payments/recent', authenticateToken, async (req: AuthRequ
 
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const status = req.query.status as string;
+    const includeArchived = normalizeBooleanQuery(req.query.includeArchived);
 
-    const payments = await storage.getRecentPaymentsDetailed({ limit, status });
+    const payments = await storage.getRecentPaymentsDetailed({ limit, status, includeArchived });
 
     res.json({
       success: true,
@@ -93,6 +107,11 @@ router.get('/api/admin/payments/failed', authenticateToken, async (req: AuthRequ
     }
 
     const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+    const includeArchived = normalizeBooleanQuery(req.query.includeArchived);
+
+    const archiveFilter = includeArchived
+      ? ''
+      : "AND COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'";
 
     const result = await query(
       `
@@ -116,6 +135,7 @@ router.get('/api/admin/payments/failed', authenticateToken, async (req: AuthRequ
         LEFT JOIN plans pl ON m.plan_id = pl.id
         LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
         WHERE p.status IN ('failed', 'pending', 'canceled', 'declined')
+        ${archiveFilter}
         ORDER BY p.created_at DESC
         LIMIT $1
       `,
@@ -132,6 +152,120 @@ router.get('/api/admin/payments/failed', authenticateToken, async (req: AuthRequ
     res.status(500).json({ 
       error: 'Failed to fetch failed payments',
       message: error.message 
+    });
+  }
+});
+
+/**
+ * Archive stale failed/pending payments from attention dashboards.
+ * Uses metadata flags so records remain fully auditable and recoverable.
+ */
+router.post('/api/admin/payments/archive-stale', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const mode = String(req.body?.mode || 'preview').toLowerCase() === 'apply' ? 'apply' : 'preview';
+    const pendingOlderThanHours = normalizePositiveNumber(req.body?.pendingOlderThanHours, 24, 1, 24 * 60);
+    const failedOlderThanHours = normalizePositiveNumber(req.body?.failedOlderThanHours, 72, 1, 24 * 180);
+
+    const staleWhere = `
+      COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'
+      AND (
+        (p.status = 'pending' AND p.created_at < NOW() - ($1::int * INTERVAL '1 hour'))
+        OR (p.status IN ('failed', 'declined', 'canceled') AND p.created_at < NOW() - ($2::int * INTERVAL '1 hour'))
+      )
+    `;
+
+    const summaryResult = await query(
+      `
+        SELECT
+          COUNT(*)::int AS total_candidates,
+          COUNT(*) FILTER (WHERE p.status = 'pending')::int AS pending_candidates,
+          COUNT(*) FILTER (WHERE p.status IN ('failed', 'declined', 'canceled'))::int AS failed_candidates
+        FROM payments p
+        WHERE ${staleWhere}
+      `,
+      [pendingOlderThanHours, failedOlderThanHours]
+    );
+
+    const summary = summaryResult.rows[0] || {
+      total_candidates: 0,
+      pending_candidates: 0,
+      failed_candidates: 0,
+    };
+
+    const sampleResult = await query(
+      `
+        SELECT p.id, p.member_id, p.status, p.transaction_id, p.created_at, p.amount
+        FROM payments p
+        WHERE ${staleWhere}
+        ORDER BY p.created_at ASC
+        LIMIT 50
+      `,
+      [pendingOlderThanHours, failedOlderThanHours]
+    );
+
+    if (mode === 'preview') {
+      return res.json({
+        success: true,
+        mode,
+        thresholds: {
+          pendingOlderThanHours,
+          failedOlderThanHours,
+        },
+        summary: {
+          totalCandidates: Number(summary.total_candidates) || 0,
+          pendingCandidates: Number(summary.pending_candidates) || 0,
+          failedCandidates: Number(summary.failed_candidates) || 0,
+        },
+        sample: sampleResult.rows || [],
+      });
+    }
+
+    const applyResult = await query(
+      `
+        WITH updated AS (
+          UPDATE payments p
+          SET
+            metadata = COALESCE(p.metadata, '{}'::jsonb) || jsonb_build_object(
+              'attentionArchived', true,
+              'attentionArchivedAt', NOW(),
+              'attentionArchivedBy', $3,
+              'attentionArchivedReason', 'stale_failed_pending_cleanup',
+              'attentionArchivePendingOlderThanHours', $1,
+              'attentionArchiveFailedOlderThanHours', $2
+            ),
+            updated_at = NOW()
+          WHERE ${staleWhere}
+          RETURNING id
+        )
+        SELECT COUNT(*)::int AS archived_count FROM updated
+      `,
+      [pendingOlderThanHours, failedOlderThanHours, req.user.id]
+    );
+
+    res.json({
+      success: true,
+      mode,
+      thresholds: {
+        pendingOlderThanHours,
+        failedOlderThanHours,
+      },
+      archivedCount: Number(applyResult.rows?.[0]?.archived_count) || 0,
+      previousCandidateSummary: {
+        totalCandidates: Number(summary.total_candidates) || 0,
+        pendingCandidates: Number(summary.pending_candidates) || 0,
+        failedCandidates: Number(summary.failed_candidates) || 0,
+      },
+      sample: sampleResult.rows || [],
+    });
+  } catch (error: any) {
+    console.error('[Payment Tracking] Error archiving stale payments:', error);
+    res.status(500).json({
+      error: 'Failed to archive stale payments',
+      message: error.message,
     });
   }
 });

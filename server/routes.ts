@@ -4618,7 +4618,8 @@ router.get(
     }
 
     try {
-      const failedPayments = await storage.getAgentFailedPayments(req.user!.id);
+      const includeArchived = ['1', 'true', 'yes'].includes(String(req.query.includeArchived || '').toLowerCase());
+      const failedPayments = await storage.getAgentFailedPayments(req.user!.id, { includeArchived });
 
       // Format and enrich the response
       const formattedPayments = failedPayments.map((payment) => ({

@@ -6538,7 +6538,7 @@ export async function getPaymentsWithFilters(filters: { limit?: number; offset?:
   return data || [];
 }
 
-export async function getRecentPaymentsDetailed(options: { limit?: number; status?: string } = {}): Promise<any[]> {
+export async function getRecentPaymentsDetailed(options: { limit?: number; status?: string; includeArchived?: boolean } = {}): Promise<any[]> {
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 200);
   const values: any[] = [];
   const whereClauses: string[] = [];
@@ -6546,6 +6546,10 @@ export async function getRecentPaymentsDetailed(options: { limit?: number; statu
   if (options.status) {
     values.push(options.status);
     whereClauses.push(`p.status = $${values.length}`);
+  }
+
+  if (!options.includeArchived) {
+    whereClauses.push(`COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'`);
   }
 
   const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
@@ -6571,7 +6575,11 @@ export async function getRecentPaymentsDetailed(options: { limit?: number; statu
  * Get failed payments for members enrolled by a specific agent
  * Returns failed payments with member details for agent's oversight
  */
-export async function getAgentFailedPayments(agentId: string): Promise<any[]> {
+export async function getAgentFailedPayments(agentId: string, options: { includeArchived?: boolean } = {}): Promise<any[]> {
+  const archiveFilter = options.includeArchived
+    ? ''
+    : `AND COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'`;
+
   const sql = `
     SELECT
       p.*,
@@ -6591,6 +6599,7 @@ export async function getAgentFailedPayments(agentId: string): Promise<any[]> {
     LEFT JOIN plans pl ON m.plan_id = pl.id
     LEFT JOIN agent_commissions ac ON ac.member_id = m.id AND ac.agent_id = $1
     WHERE p.status IN ('failed', 'canceled', 'declined')
+      ${archiveFilter}
       AND (m.enrolling_agent_id = $1 OR ac.agent_id = $1)
     ORDER BY p.created_at DESC
     LIMIT 100
