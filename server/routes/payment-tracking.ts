@@ -24,6 +24,67 @@ const normalizePositiveNumber = (value: unknown, fallback: number, min = 1, max 
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 };
 
+const normalizeStatus = (value: unknown): string => String(value || '').trim().toLowerCase();
+
+const buildPaymentVerification = (payment: any) => {
+  const metadata = (payment?.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+  const status = normalizeStatus(payment?.status);
+  const callbackStatus = normalizeStatus(
+    metadata.callbackStatus
+    || metadata.hostedCallbackStatus
+    || metadata.epxCallbackStatus
+    || metadata.Status
+  );
+  const authResp = normalizeStatus(metadata.AUTH_RESP || metadata.authResp);
+
+  const callbackApproved = metadata.callbackApproved === true
+    || metadata.hostedCallbackApproved === true
+    || ['approved', 'success', 'succeeded', 'completed'].includes(callbackStatus)
+    || ['00', '0'].includes(authResp);
+
+  const processorConfirmed = ['succeeded', 'success', 'completed'].includes(status)
+    || callbackApproved
+    || metadata.processorApproved === true;
+
+  const requiresReview = metadata.requiresReview === true || metadata.reviewRequired === true;
+
+  let finalizationState: 'finalized' | 'requires_review' | 'pending' | 'failed' | 'unknown' = 'unknown';
+  if (processorConfirmed && requiresReview) {
+    finalizationState = 'requires_review';
+  } else if (processorConfirmed) {
+    finalizationState = 'finalized';
+  } else if (['pending', 'processing', 'authorized'].includes(status)) {
+    finalizationState = 'pending';
+  } else if (['failed', 'declined', 'canceled', 'cancelled'].includes(status)) {
+    finalizationState = 'failed';
+  }
+
+  const normalizedCommissionStatus = normalizeStatus(payment?.commission_status || payment?.commissionStatus);
+  const commissionState = normalizedCommissionStatus
+    || (metadata.commissionCreated === true || metadata.commissionTriggered === true
+      ? 'created'
+      : processorConfirmed
+        ? 'pending_or_unknown'
+        : 'not_applicable');
+
+  return {
+    processorConfirmed,
+    callbackApproved,
+    finalizationState,
+    commissionState,
+    transactionId: payment?.transaction_id || payment?.transactionId || null,
+    authGuidPresent: Boolean(payment?.epx_auth_guid),
+    archivedFromAttention: metadata.attentionArchived === true,
+  };
+};
+
+const attachVerification = <T extends Record<string, any>>(payments: T[]): Array<T & { verification: ReturnType<typeof buildPaymentVerification> }> => {
+  return payments.map((payment) => ({
+    ...payment,
+    verification: buildPaymentVerification(payment),
+  }));
+};
+
 /**
  * Get recent payments with member details
  */
@@ -38,11 +99,12 @@ router.get('/api/admin/payments/recent', authenticateToken, async (req: AuthRequ
     const includeArchived = normalizeBooleanQuery(req.query.includeArchived);
 
     const payments = await storage.getRecentPaymentsDetailed({ limit, status, includeArchived });
+    const enrichedPayments = attachVerification(payments);
 
     res.json({
       success: true,
-      payments,
-      total: payments.length
+      payments: enrichedPayments,
+      total: enrichedPayments.length
     });
   } catch (error: any) {
     console.error('[Payment Tracking] Error fetching recent payments:', error);
@@ -83,10 +145,12 @@ router.get('/api/admin/payments/member/:memberId', authenticateToken, async (req
       [memberId]
     );
 
+    const enrichedPayments = attachVerification(result.rows || []);
+
     res.json({
       success: true,
-      payments: result.rows,
-      total: result.rows.length
+      payments: enrichedPayments,
+      total: enrichedPayments.length
     });
   } catch (error: any) {
     console.error('[Payment Tracking] Error fetching member payments:', error);
@@ -142,10 +206,12 @@ router.get('/api/admin/payments/failed', authenticateToken, async (req: AuthRequ
       [limit]
     );
 
+    const enrichedPayments = attachVerification(result.rows || []);
+
     res.json({
       success: true,
-      payments: result.rows,
-      total: result.rows.length
+      payments: enrichedPayments,
+      total: enrichedPayments.length
     });
   } catch (error: any) {
     console.error('[Payment Tracking] Error fetching failed payments:', error);
