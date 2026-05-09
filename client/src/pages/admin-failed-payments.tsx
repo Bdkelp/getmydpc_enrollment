@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   AlertTriangle, 
   XCircle, 
@@ -20,7 +21,8 @@ import {
   Phone,
   RefreshCw,
   Download,
-  FileEdit
+  FileEdit,
+  CircleHelp
 } from "lucide-react";
 
 interface FailedPayment {
@@ -166,6 +168,23 @@ export default function AdminFailedPayments() {
       breadcrumb={["Admin", "Payments"]}
       actions={
         <>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Verification legend">
+                <CircleHelp className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm" side="bottom" align="end">
+              <div className="space-y-1">
+                <p className="font-medium">Verification legend</p>
+                <p>Finalized: processor confirmed and finalized.</p>
+                <p>Needs Review: payment approved but requires manual review.</p>
+                <p>Pending: processing still in progress.</p>
+                <p>Failed: declined/canceled/failed outcome.</p>
+                <p>Commission row shows current commission state.</p>
+              </div>
+            </TooltipContent>
+          </Tooltip>
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh

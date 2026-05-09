@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentFailedPaymentsQuery, type FailedPayment } from "@/hooks/useAgentFailedPaymentsQuery";
 
 export default function AgentFailedPayments() {
@@ -115,10 +116,28 @@ export default function AgentFailedPayments() {
       title="Failed Payments"
       breadcrumb={["Agent"]}
       actions={
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="Verification legend">
+                <AlertCircle className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm" side="bottom" align="end">
+              <div className="space-y-1">
+                <p className="font-medium">Verification legend</p>
+                <p>Finalized: processor confirmed and finalized.</p>
+                <p>Needs Review: approved, but manual review needed.</p>
+                <p>Pending: still processing.</p>
+                <p>Failed: declined/canceled/failed.</p>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       }
     >
 
