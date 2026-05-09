@@ -217,7 +217,25 @@ app.use((req, res, next) => {
     
     if (fs.existsSync(clientDistPath)) {
       // Serve static assets (JS, CSS, images, etc.)
-      app.use(express.static(clientDistPath));
+      app.use(express.static(clientDistPath, {
+        etag: true,
+        setHeaders: (res, filePath) => {
+          const normalizedPath = filePath.replace(/\\/g, '/');
+
+          // Avoid stale index.html being cached and referencing removed hashed bundles.
+          if (normalizedPath.endsWith('/index.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            return;
+          }
+
+          // Fingerprinted assets are safe to cache aggressively.
+          if (/\/assets\/.*-[A-Za-z0-9_-]{6,}\.[a-z0-9]+$/i.test(normalizedPath)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      }));
       
       // For any non-API route, serve the index.html (SPA fallback)
       app.get('*', (req, res, next) => {
@@ -228,6 +246,9 @@ app.use((req, res, next) => {
         if (req.path.startsWith('/assets/') || /\.[a-z0-9]+$/i.test(req.path)) {
           return res.status(404).type('text/plain').send('Not found');
         }
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
         res.sendFile(path.join(clientDistPath, 'index.html'));
       });
     } else {
