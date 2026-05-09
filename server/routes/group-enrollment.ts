@@ -2991,6 +2991,115 @@ router.get('/api/groups', async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * ADMIN: Cleanup test groups by name with preview/apply safety gates.
+ * Intended for production cleanup of known non-production data (e.g., Acme, ABC Inc).
+ */
+router.post('/api/admin/groups/cleanup-test-groups', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !hasAtLeastRole(req.user.role, 'admin')) {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    if (!isFullAccessEmail(req.user.email || '')) {
+      return res.status(403).json({ message: 'Full-access admin email required for test group cleanup' });
+    }
+
+    const mode = String(req.body?.mode || 'preview').toLowerCase() === 'apply' ? 'apply' : 'preview';
+    const inputNames = Array.isArray(req.body?.groupNames) ? req.body.groupNames : [];
+    const groupNames = inputNames
+      .map((value: unknown) => String(value || '').trim())
+      .filter(Boolean);
+
+    if (groupNames.length === 0) {
+      return res.status(400).json({ message: 'groupNames is required and must include at least one name' });
+    }
+
+    const normalizedTargets = new Set(groupNames.map((name) => name.toLowerCase()));
+    const { groups } = await listGroups({ limit: 200, offset: 0 });
+
+    const candidates = groups.filter((group) => {
+      const name = String(group.name || '').trim().toLowerCase();
+      return normalizedTargets.has(name);
+    });
+
+    const candidateDetails = await Promise.all(
+      candidates.map(async (group) => {
+        const members = await listGroupMembers({ groupId: group.id });
+        return {
+          groupId: group.id,
+          name: group.name,
+          status: group.status,
+          memberCount: members.length,
+          memberIds: members.map((m) => m.id),
+        };
+      }),
+    );
+
+    if (mode === 'preview') {
+      return res.json({
+        success: true,
+        mode,
+        requestedNames: groupNames,
+        matchedGroups: candidateDetails,
+        matchedCount: candidateDetails.length,
+        message: 'Preview only. Re-submit with mode=apply and confirmPhrase to perform deletion.',
+      });
+    }
+
+    const confirmPhrase = String(req.body?.confirmPhrase || '');
+    if (confirmPhrase !== 'DELETE_TEST_GROUPS') {
+      return res.status(400).json({
+        success: false,
+        message: 'confirmPhrase must be DELETE_TEST_GROUPS for apply mode',
+      });
+    }
+
+    const deleted: Array<{ groupId: string; name: string; deletedMembers: number }> = [];
+    const failed: Array<{ groupId: string; name: string; error: string }> = [];
+
+    for (const group of candidates) {
+      try {
+        const members = await listGroupMembers({ groupId: group.id });
+        for (const member of members) {
+          await deleteGroupMember(member.id);
+        }
+
+        const { error: deleteGroupError } = await supabase
+          .from('groups')
+          .delete()
+          .eq('id', group.id);
+
+        if (deleteGroupError) {
+          throw new Error(deleteGroupError.message);
+        }
+
+        deleted.push({ groupId: group.id, name: group.name, deletedMembers: members.length });
+      } catch (error: any) {
+        failed.push({
+          groupId: group.id,
+          name: group.name,
+          error: error?.message || 'Unknown cleanup error',
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      mode,
+      requestedNames: groupNames,
+      deleted,
+      failed,
+      deletedCount: deleted.length,
+      failedCount: failed.length,
+    });
+  } catch (error) {
+    console.error('[Group Enrollment] Failed to cleanup test groups:', error);
+    const message = error instanceof Error ? error.message : 'Failed to cleanup test groups';
+    return res.status(500).json({ message });
+  }
+});
+
 router.post('/api/groups', async (req: AuthRequest, res: Response) => {
   try {
     const { name, payorType, groupType, discountCode, discountCodeId, metadata, groupProfile, assignedAgentId } = req.body || {};

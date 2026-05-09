@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
@@ -59,10 +60,13 @@ interface PaymentStats {
 export default function AdminRecentPayments() {
   const { user, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const isAdmin = hasAtLeastRole(user?.role, "admin");
   
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [limit, setLimit] = useState(50);
+  const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<'succeeded' | 'cancelled' | null>(null);
 
   // Redirect if not admin
   if (!authLoading && (!user || !isAdmin)) {
@@ -157,6 +161,54 @@ export default function AdminRecentPayments() {
     a.href = url;
     a.download = `payments-${format(new Date(), 'yyyy-MM-dd')}.csv`;
     a.click();
+  };
+
+  const canResolveManually = (payment: Payment) => {
+    const status = String(payment.status || '').toLowerCase();
+    return ['pending', 'processing', 'failed', 'declined'].includes(status);
+  };
+
+  const updatePaymentStatus = async (payment: Payment, status: 'succeeded' | 'cancelled') => {
+    const notePrompt = status === 'succeeded'
+      ? 'Enter note for manual completion (required):'
+      : 'Enter note for voided/cancelled update (required):';
+    const note = window.prompt(notePrompt, status === 'succeeded'
+      ? 'Processor confirmed successful capture. Manual completion by admin.'
+      : 'Voided at processor. Marking cancelled by admin.');
+
+    if (!note || !note.trim()) {
+      toast({
+        title: 'Note required',
+        description: 'Please provide an audit note before changing payment status.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setUpdatingPaymentId(payment.id);
+      setUpdatingStatus(status);
+
+      await apiRequest(`/api/admin/payments/${payment.id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status, note: note.trim() }),
+      });
+
+      toast({
+        title: 'Payment updated',
+        description: `Payment ${payment.id} marked ${status}.`,
+      });
+      await refetch();
+    } catch (error: any) {
+      toast({
+        title: 'Status update failed',
+        description: error?.message || 'Failed to update payment status.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingPaymentId(null);
+      setUpdatingStatus(null);
+    }
   };
 
   if (authLoading || statsLoading) {
@@ -355,16 +407,40 @@ export default function AdminRecentPayments() {
                           {payment.payment_method || 'N/A'}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="min-w-[118px] border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
-                            onClick={() => setLocation(`/admin/enrollment/${payment.member_id}`)}
-                            disabled={!payment.member_id}
-                          >
-                            <FileEdit className="h-4 w-4 mr-1" />
-                            View Member
-                          </Button>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="min-w-[118px] border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                              onClick={() => setLocation(`/admin/enrollment/${payment.member_id}`)}
+                              disabled={!payment.member_id}
+                            >
+                              <FileEdit className="h-4 w-4 mr-1" />
+                              View Member
+                            </Button>
+                            {canResolveManually(payment) && (
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => updatePaymentStatus(payment, 'succeeded')}
+                                  disabled={updatingPaymentId === payment.id}
+                                >
+                                  {updatingPaymentId === payment.id && updatingStatus === 'succeeded' ? 'Saving...' : 'Mark Completed'}
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => updatePaymentStatus(payment, 'cancelled')}
+                                  disabled={updatingPaymentId === payment.id}
+                                >
+                                  {updatingPaymentId === payment.id && updatingStatus === 'cancelled' ? 'Saving...' : 'Mark Voided'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
