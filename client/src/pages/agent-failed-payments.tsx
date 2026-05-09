@@ -86,6 +86,22 @@ export default function AgentFailedPayments() {
     return `${member.firstName} ${member.lastName}`.trim() || member.email;
   };
 
+  const getVerificationBadge = (payment: FailedPayment) => {
+    const finalizationState = payment.verification?.finalizationState || 'unknown';
+    switch (finalizationState) {
+      case 'finalized':
+        return <Badge className="bg-emerald-100 text-emerald-800 border-0">Finalized</Badge>;
+      case 'requires_review':
+        return <Badge className="bg-amber-100 text-amber-800 border-0">Needs Review</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800 border-0">Pending</Badge>;
+      case 'failed':
+        return <Badge className="bg-red-100 text-red-800 border-0">Failed</Badge>;
+      default:
+        return <Badge className="bg-gray-100 text-gray-700 border-0">Unknown</Badge>;
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -186,6 +202,7 @@ export default function AgentFailedPayments() {
                         </p>
                       </div>
                       {getStatusBadge(payment.status)}
+                      {getVerificationBadge(payment)}
                     </div>
 
                     {/* Payment Details */}

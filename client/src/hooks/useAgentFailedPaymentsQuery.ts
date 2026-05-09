@@ -27,6 +27,12 @@ export interface FailedPayment {
     amount: number | null;
     status: string;
   };
+  verification?: {
+    processorConfirmed?: boolean;
+    callbackApproved?: boolean;
+    finalizationState?: string;
+    commissionState?: string;
+  };
   canRetry: boolean;
   metadata: any;
 }

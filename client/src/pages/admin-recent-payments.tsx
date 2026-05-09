@@ -36,6 +36,12 @@ interface Payment {
   member_email?: string;
   member_customer_number?: string;
   epx_auth_guid?: string;
+  verification?: {
+    processorConfirmed?: boolean;
+    callbackApproved?: boolean;
+    finalizationState?: string;
+    commissionState?: string;
+  };
   metadata?: any;
 }
 
@@ -111,6 +117,22 @@ export default function AdminRecentPayments() {
   const formatAmount = (amount: number | string) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
     return isNaN(num) ? '$0.00' : `$${num.toFixed(2)}`;
+  };
+
+  const getVerificationBadge = (payment: Payment) => {
+    const finalizationState = payment.verification?.finalizationState || 'unknown';
+    switch (finalizationState) {
+      case 'finalized':
+        return <Badge className="bg-emerald-100 text-emerald-800">Finalized</Badge>;
+      case 'requires_review':
+        return <Badge className="bg-amber-100 text-amber-800">Needs Review</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case 'failed':
+        return <Badge className="bg-red-100 text-red-800">Failed</Badge>;
+      default:
+        return <Badge className="bg-gray-100 text-gray-700">Unknown</Badge>;
+    }
   };
 
   const exportPayments = () => {
@@ -261,6 +283,7 @@ export default function AdminRecentPayments() {
                       <TableHead>Member</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Verification</TableHead>
                       <TableHead>Transaction ID</TableHead>
                       <TableHead>Method</TableHead>
                       <TableHead>Actions</TableHead>
@@ -291,6 +314,14 @@ export default function AdminRecentPayments() {
                         </TableCell>
                         <TableCell>
                           {getStatusBadge(payment.status)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            {getVerificationBadge(payment)}
+                            <div className="text-[11px] text-gray-500">
+                              Commission: {payment.verification?.commissionState || 'unknown'}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell className="font-mono text-xs">
                           {payment.transaction_id ? (
