@@ -1646,6 +1646,9 @@ export default function GroupEnrollment() {
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [lastImportSourceFileName, setLastImportSourceFileName] = useState("");
   const [lastImportFailedRows, setLastImportFailedRows] = useState<BulkImportFailedRow[]>([]);
+  const [testGroupCleanupNames, setTestGroupCleanupNames] = useState("Acme, ABC Inc");
+  const [testGroupCleanupResult, setTestGroupCleanupResult] = useState<any | null>(null);
+  const [testGroupCleanupError, setTestGroupCleanupError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const newGroupCensusInputRef = useRef<HTMLInputElement | null>(null);
   const newGroupPaymentInputRef = useRef<HTMLInputElement | null>(null);
@@ -2866,6 +2869,67 @@ export default function GroupEnrollment() {
     },
   });
 
+  const cleanupTestGroupsMutation = useMutation({
+    mutationFn: async ({ mode }: { mode: "preview" | "apply" }) => {
+      const groupNames = testGroupCleanupNames
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      if (!groupNames.length) {
+        throw new Error("Enter at least one group name");
+      }
+
+      const payload: Record<string, any> = {
+        mode,
+        groupNames,
+      };
+
+      if (mode === "apply") {
+        const confirmed = window.confirm(
+          "This will permanently delete matched test groups and their members. Continue?",
+        );
+        if (!confirmed) {
+          throw new Error("Cleanup cancelled by user");
+        }
+        payload.confirmPhrase = "DELETE_TEST_GROUPS";
+      }
+
+      return apiRequest("/api/admin/groups/cleanup-test-groups", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    onMutate: ({ mode }) => {
+      setTestGroupCleanupError(null);
+      if (mode === "apply") {
+        setTestGroupCleanupResult(null);
+      }
+    },
+    onSuccess: (result, variables) => {
+      setTestGroupCleanupResult(result);
+      toast({
+        title: variables.mode === "apply" ? "Test groups cleanup completed" : "Cleanup preview ready",
+        description:
+          variables.mode === "apply"
+            ? `Deleted ${result?.deletedCount || 0} group(s), failed ${result?.failedCount || 0}.`
+            : `Matched ${result?.matchedCount || 0} group(s).`,
+      });
+      if (variables.mode === "apply") {
+        refreshGroups();
+      }
+    },
+    onError: (error: any) => {
+      const message = error?.message || "Failed to cleanup test groups";
+      setTestGroupCleanupError(message);
+      toast({
+        title: "Test group cleanup failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
     const handleValidateDiscount = async () => {
       const normalized = newGroupForm.discountCode.trim().toUpperCase();
       if (!normalized) {
@@ -3524,7 +3588,7 @@ export default function GroupEnrollment() {
         </section>
 
         {canAccessAdminViews && (
-          <section className="grid gap-4 md:grid-cols-2">
+          <section className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm text-gray-500 uppercase">Payor Mix</CardTitle>
@@ -3570,6 +3634,62 @@ export default function GroupEnrollment() {
                     Open Unassigned Queue
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm text-gray-500 uppercase">Test Group Cleanup</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-gray-700">
+                  Remove non-production groups from the live model.
+                </p>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase text-gray-500">Group names (comma-separated)</Label>
+                  <Input
+                    value={testGroupCleanupNames}
+                    onChange={(event) => setTestGroupCleanupNames(event.target.value)}
+                    placeholder="Acme, ABC Inc"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => cleanupTestGroupsMutation.mutate({ mode: "preview" })}
+                    disabled={cleanupTestGroupsMutation.isPending}
+                  >
+                    Preview
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => cleanupTestGroupsMutation.mutate({ mode: "apply" })}
+                    disabled={cleanupTestGroupsMutation.isPending}
+                  >
+                    Apply Cleanup
+                  </Button>
+                </div>
+                {cleanupTestGroupsMutation.isPending && (
+                  <p className="text-xs text-gray-500">Running cleanup request...</p>
+                )}
+                {testGroupCleanupError && (
+                  <p className="text-xs text-red-600">{testGroupCleanupError}</p>
+                )}
+                {testGroupCleanupResult && (
+                  <div className="rounded-md border bg-gray-50 p-2 text-xs text-gray-700 space-y-1">
+                    <p>Mode: {testGroupCleanupResult.mode || "preview"}</p>
+                    {typeof testGroupCleanupResult.matchedCount === "number" && (
+                      <p>Matched groups: {testGroupCleanupResult.matchedCount}</p>
+                    )}
+                    {typeof testGroupCleanupResult.deletedCount === "number" && (
+                      <p>Deleted groups: {testGroupCleanupResult.deletedCount}</p>
+                    )}
+                    {typeof testGroupCleanupResult.failedCount === "number" && (
+                      <p>Failed groups: {testGroupCleanupResult.failedCount}</p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </section>
