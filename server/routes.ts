@@ -4541,6 +4541,9 @@ router.get(
           "Row Type",
           "Member",
           "Member ID",
+          "Initial Added Date",
+          "Months On Books",
+          "Tenure Bucket",
           "Group",
           "Plan",
           "Business Segment",
@@ -4599,6 +4602,9 @@ router.get(
               "COMMISSION_DETAIL",
               String(commission?.memberName || ""),
               String(commission?.memberId || ""),
+              String(commission?.initialAddedDate || ""),
+              String(commission?.monthsOnBooks ?? ""),
+              String(commission?.tenureBucket || ""),
               String(commission?.groupName || ""),
               String(commission?.planName || ""),
               String(commission?.businessCategory || ""),
@@ -4751,7 +4757,7 @@ function generateCSV(reportType: string, data: any): Buffer {
   let csvContent = "";
 
   if (reportType === "members" && Array.isArray(data)) {
-    csvContent = addRow(["Name", "Email", "Phone", "Plan", "Business Segment", "Status", "Enrolled Date", "Total Paid", "Agent"]);
+    csvContent = addRow(["Name", "Email", "Phone", "Plan", "Business Segment", "Status", "Enrolled Date", "Initial Added Date", "Months On Books", "Tenure Bucket", "Total Paid", "Agent"]);
     data.forEach((member: any) => {
       csvContent += addRow([
         `${member.firstName || ""} ${member.lastName || ""}`.trim(),
@@ -4761,6 +4767,9 @@ function generateCSV(reportType: string, data: any): Buffer {
         member.businessCategory || member.source || "individual",
         member.status,
         member.enrolledDate,
+        member.initialAddedDate || "",
+        member.monthsOnBooks ?? "",
+        member.tenureBucket || "",
         member.totalPaid,
         member.agentName,
       ]);
@@ -4799,6 +4808,9 @@ function generateCSV(reportType: string, data: any): Buffer {
       "Agent",
       "Agent Number",
       "Member",
+      "Initial Added Date",
+      "Months On Books",
+      "Tenure Bucket",
       "Plan",
       "Business Segment",
       "Commission Amount",
@@ -4812,6 +4824,9 @@ function generateCSV(reportType: string, data: any): Buffer {
         commission.agentName,
         commission.agentNumber,
         commission.memberName,
+        commission.initialAddedDate || "",
+        commission.monthsOnBooks ?? "",
+        commission.tenureBucket || "",
         commission.planName,
         commission.businessCategory || "individual",
         commission.commissionAmount,

@@ -8083,6 +8083,41 @@ export const storage = {
         return Number.isFinite(amount) ? amount : 0;
       };
 
+      const toDateOrNull = (value: unknown): Date | null => {
+        if (!value) return null;
+        const parsed = new Date(String(value));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      };
+
+      const toIsoDateString = (date: Date | null): string | null => {
+        if (!date) return null;
+        return date.toISOString().slice(0, 10);
+      };
+
+      const getMonthsOnBooks = (initialDate: Date | null, endDate?: Date | null): number | null => {
+        if (!initialDate) return null;
+        const finalDate = endDate || new Date();
+        if (!finalDate || Number.isNaN(finalDate.getTime()) || finalDate < initialDate) {
+          return 0;
+        }
+
+        let months = (finalDate.getFullYear() - initialDate.getFullYear()) * 12;
+        months += finalDate.getMonth() - initialDate.getMonth();
+        if (finalDate.getDate() < initialDate.getDate()) {
+          months -= 1;
+        }
+        return Math.max(0, months);
+      };
+
+      const getTenureBucket = (monthsOnBooks: number | null): string | null => {
+        if (monthsOnBooks === null || monthsOnBooks < 0) return null;
+        if (monthsOnBooks <= 1) return '0-1 months';
+        if (monthsOnBooks <= 3) return '2-3 months';
+        if (monthsOnBooks <= 6) return '4-6 months';
+        if (monthsOnBooks <= 12) return '7-12 months';
+        return '12+ months';
+      };
+
       const isGroupMemberEligible = (groupMember: any): boolean => {
         if (groupMember?.status === 'terminated') {
           return false;
@@ -8524,6 +8559,9 @@ export const storage = {
       const memberReports = allMembers.map(member => {
         const plan = allPlans.find(p => p.id === member.plan_id);
         const agent = allAgents.find(a => a.id === member.enrolled_by_agent_id);
+        const initialAddedDate = toDateOrNull(member.created_at || member.enrollment_date || member.first_payment_date);
+        const closedDate = toDateOrNull(member.cancellation_date);
+        const monthsOnBooks = getMonthsOnBooks(initialAddedDate, closedDate || undefined);
 
         return {
           id: member.id,
@@ -8540,6 +8578,9 @@ export const storage = {
           planName: plan?.name || '',
           status: member.status || 'inactive',
           enrolledDate: member.created_at || '',
+          initialAddedDate: toIsoDateString(initialAddedDate),
+          monthsOnBooks,
+          tenureBucket: getTenureBucket(monthsOnBooks),
           lastPayment: member.updated_at || '',
           totalPaid: parseFloat(member.total_monthly_price || 0),
           agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Direct'
@@ -8551,6 +8592,8 @@ export const storage = {
         .map((member) => {
           const assignedAgentId = parseAssignedAgentId(member.group_metadata);
           const agent = allAgents.find((a) => a.id === assignedAgentId);
+          const initialAddedDate = toDateOrNull(member.registered_at || member.group_created_at || member.updated_at);
+          const monthsOnBooks = getMonthsOnBooks(initialAddedDate);
 
           return {
             id: `group-${member.group_id}-${member.id}`,
@@ -8567,6 +8610,9 @@ export const storage = {
             planName: member.group_name ? `${member.group_name} (Group)` : 'Group Enrollment',
             status: member.status || 'draft',
             enrolledDate: member.registered_at || member.updated_at || member.group_created_at || '',
+            initialAddedDate: toIsoDateString(initialAddedDate),
+            monthsOnBooks,
+            tenureBucket: getTenureBucket(monthsOnBooks),
             lastPayment: member.updated_at || '',
             totalPaid: parseAmount(member.total_amount),
             agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'In-house'
@@ -8613,6 +8659,13 @@ export const storage = {
         const memberName = groupMember
           ? `${groupMember.first_name || ''} ${groupMember.last_name || ''}`.trim()
           : (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown');
+        const initialAddedDate = groupMember
+          ? toDateOrNull(groupMember.registered_at || groupMember.group_created_at || groupMember.updated_at)
+          : toDateOrNull(member?.created_at || member?.enrollment_date || member?.first_payment_date);
+        const closedDate = groupMember
+          ? toDateOrNull(groupMember.terminated_at)
+          : toDateOrNull(member?.cancellation_date);
+        const monthsOnBooks = getMonthsOnBooks(initialAddedDate, closedDate || undefined);
 
         return {
           id: commission.id.toString(),
@@ -8633,6 +8686,9 @@ export const storage = {
           totalPlanCost: membershipFee,
           status: commission.status || 'pending',
           paymentStatus: commission.payment_status || 'pending',
+          initialAddedDate: toIsoDateString(initialAddedDate),
+          monthsOnBooks,
+          tenureBucket: getTenureBucket(monthsOnBooks),
           createdDate: commission.created_at || '',
           paymentDate: commission.paid_date || null
         };
