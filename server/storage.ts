@@ -5609,6 +5609,44 @@ export async function getSubscriptionsDueForBilling(
   const supportedPaymentMethodTypes = includeACH ? ['CreditCard', 'ACH'] : ['CreditCard'];
   const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
 
+  const paymentTokenColumnNames = ['bank_account_number', 'bank_account_holder_name'];
+  const paymentTokenColumnResult = await query(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'payment_tokens'
+        AND column_name = ANY($1::text[])
+    `,
+    [paymentTokenColumnNames],
+  );
+  const paymentTokenColumnSet = new Set(
+    (paymentTokenColumnResult.rows || []).map((row: any) => String(row.column_name || '').toLowerCase()),
+  );
+  const hasTokenBankAccountNumber = paymentTokenColumnSet.has('bank_account_number');
+  const hasTokenBankAccountHolderName = paymentTokenColumnSet.has('bank_account_holder_name');
+
+  const tokenBankAccountNumberSelect = hasTokenBankAccountNumber
+    ? 'COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,'
+    : 'NULL::text AS token_bank_account_number,';
+  const tokenBankAccountHolderNameSelect = hasTokenBankAccountHolderName
+    ? 'COALESCE(t_group.bank_account_holder_name, t_member.bank_account_holder_name) AS token_bank_account_holder_name,'
+    : 'NULL::text AS token_bank_account_holder_name,';
+
+  const memberTokenBankAccountNumberColumn = hasTokenBankAccountNumber
+    ? 'pt.bank_account_number,'
+    : 'NULL::text AS bank_account_number,';
+  const memberTokenBankAccountHolderNameColumn = hasTokenBankAccountHolderName
+    ? 'pt.bank_account_holder_name,'
+    : 'NULL::text AS bank_account_holder_name,';
+
+  const groupTokenBankAccountNumberColumn = hasTokenBankAccountNumber
+    ? 'pt.bank_account_number,'
+    : 'NULL::text AS bank_account_number,';
+  const groupTokenBankAccountHolderNameColumn = hasTokenBankAccountHolderName
+    ? 'pt.bank_account_holder_name,'
+    : 'NULL::text AS bank_account_holder_name,';
+
   const result = await query(
     `
       SELECT
@@ -5650,8 +5688,8 @@ export async function getSubscriptionsDueForBilling(
         COALESCE(t_group.card_last_four, t_member.card_last_four) AS card_last_four,
         COALESCE(t_group.card_type, t_member.card_type) AS card_type,
         COALESCE(t_group.bank_routing_number, t_member.bank_routing_number) AS token_bank_routing_number,
-        COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,
-        COALESCE(t_group.bank_account_holder_name, t_member.bank_account_holder_name) AS token_bank_account_holder_name,
+        ${tokenBankAccountNumberSelect}
+        ${tokenBankAccountHolderNameSelect}
         COALESCE(t_group.bank_account_type, t_member.bank_account_type) AS token_bank_account_type,
         COALESCE(t_group.bank_account_last_four, t_member.bank_account_last_four) AS token_bank_account_last_four,
         m.email,
@@ -5706,8 +5744,8 @@ export async function getSubscriptionsDueForBilling(
           pt.card_last_four,
           pt.card_type,
           pt.bank_routing_number,
-          pt.bank_account_number,
-          pt.bank_account_holder_name,
+          ${memberTokenBankAccountNumberColumn}
+          ${memberTokenBankAccountHolderNameColumn}
           pt.bank_account_type,
           pt.bank_account_last_four
         FROM payment_tokens pt
@@ -5727,8 +5765,8 @@ export async function getSubscriptionsDueForBilling(
           pt.card_last_four,
           pt.card_type,
           pt.bank_routing_number,
-          pt.bank_account_number,
-          pt.bank_account_holder_name,
+          ${groupTokenBankAccountNumberColumn}
+          ${groupTokenBankAccountHolderNameColumn}
           pt.bank_account_type,
           pt.bank_account_last_four
         FROM payment_tokens pt
