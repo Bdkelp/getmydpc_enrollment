@@ -29,12 +29,69 @@ import {
 } from "@/components/ui/select";
 import { useAdminAnalyticsQuery } from "@/hooks/useAdminAnalyticsQuery";
 
+interface CommissionRunSummaryRow {
+  monthKey: string;
+  monthLabel: string;
+  membershipsAdded: number;
+  membershipsAddedIndividualFamily: number;
+  membershipsAddedGroup: number;
+  commissionRecords: number;
+  commissionAmount: number;
+  commissionsPaidCount: number;
+  commissionsPaidAmount: number;
+}
+
+interface CommissionRunSummary {
+  generatedAt: string;
+  months: number;
+  since: string | null;
+  membership: {
+    totalRecords: number;
+    monthOverMonth: {
+      current: number;
+      previous: number;
+      delta: number;
+      deltaPct: number | null;
+    };
+    addedSince: number | null;
+  };
+  commissions: {
+    totalRecords: number;
+    monthOverMonthCount: {
+      current: number;
+      previous: number;
+      delta: number;
+      deltaPct: number | null;
+    };
+    monthOverMonthAmount: {
+      current: number;
+      previous: number;
+      delta: number;
+      deltaPct: number | null;
+    };
+    addedSinceCount: number | null;
+    addedSinceAmount: number | null;
+  };
+  payoutReadiness: {
+    nextPayoutDate: string | null;
+    totalPayableAmount: number;
+    totalAgents: number;
+    draftBatchCount: number;
+  };
+  monthlyRows: CommissionRunSummaryRow[];
+}
+
 export default function AdminAnalytics() {
   const { toast } = useToast();
   const [timeRange, setTimeRange] = useState("30");
   const [selectedReport, setSelectedReport] = useState("overview");
   const [exportFormat, setExportFormat] = useState("csv");
   const [emailAddress, setEmailAddress] = useState("");
+  const [commissionReportMonths, setCommissionReportMonths] = useState("6");
+  const [commissionReportSince, setCommissionReportSince] = useState("");
+  const [commissionRunSummary, setCommissionRunSummary] = useState<CommissionRunSummary | null>(null);
+  const [commissionRunSummaryLoading, setCommissionRunSummaryLoading] = useState(false);
+  const [commissionRunSummaryError, setCommissionRunSummaryError] = useState<string | null>(null);
 
   const {
     analytics,
@@ -164,6 +221,74 @@ export default function AdminAnalytics() {
         title: 'Refresh failed',
         description: 'Unable to refresh analytics right now.',
         variant: 'destructive',
+      });
+    }
+  };
+
+  const loadCommissionRunSummary = async () => {
+    try {
+      setCommissionRunSummaryLoading(true);
+      setCommissionRunSummaryError(null);
+
+      const params = new URLSearchParams({ months: commissionReportMonths || "6" });
+      if (commissionReportSince) {
+        params.set("since", commissionReportSince);
+      }
+
+      const result = await apiRequest(`/api/admin/reports/commission-run-summary?${params.toString()}`, {
+        method: "GET",
+      });
+
+      setCommissionRunSummary(result as CommissionRunSummary);
+      toast({
+        title: "Commission run report ready",
+        description: `Loaded ${result?.monthlyRows?.length || 0} month(s) of reporting data.`,
+      });
+    } catch (error: any) {
+      const message = error?.message || "Failed to load commission run report";
+      setCommissionRunSummaryError(message);
+      toast({ title: "Commission report failed", description: message, variant: "destructive" });
+    } finally {
+      setCommissionRunSummaryLoading(false);
+    }
+  };
+
+  const downloadCommissionRunSummaryCsv = async () => {
+    try {
+      const params = new URLSearchParams({ months: commissionReportMonths || "6", download: "csv" });
+      if (commissionReportSince) {
+        params.set("since", commissionReportSince);
+      }
+
+      const response = await fetch(`/api/admin/reports/commission-run-summary?${params.toString()}`, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to download commission run CSV");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `commission-run-summary-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Commission run CSV downloaded",
+        description: "The commission run summary file is ready.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Download failed",
+        description: error?.message || "Unable to download commission run summary CSV.",
+        variant: "destructive",
       });
     }
   };
@@ -311,6 +436,125 @@ export default function AdminAnalytics() {
                   <div>Revenue rows: <span className="font-semibold text-gray-900">{safeRevenueByMonth.length}</span></div>
                   <div>Window: <span className="font-semibold text-gray-900">{timeRange}d</span></div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mb-8">
+              <CardHeader>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <CardTitle>Commission Run Report</CardTitle>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Membership and commission month-over-month movement with payout readiness.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select value={commissionReportMonths} onValueChange={setCommissionReportMonths} name="commissionRunMonths">
+                      <SelectTrigger className="w-[120px] h-8 text-sm">
+                        <SelectValue placeholder="Months" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="3">3 months</SelectItem>
+                        <SelectItem value="6">6 months</SelectItem>
+                        <SelectItem value="12">12 months</SelectItem>
+                        <SelectItem value="18">18 months</SelectItem>
+                        <SelectItem value="24">24 months</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <input
+                      type="date"
+                      value={commissionReportSince}
+                      onChange={(event) => setCommissionReportSince(event.target.value)}
+                      className="h-8 rounded border px-2 text-sm"
+                    />
+                    <Button size="sm" variant="outline" onClick={loadCommissionRunSummary} disabled={commissionRunSummaryLoading}>
+                      {commissionRunSummaryLoading ? "Loading..." : "Load Report"}
+                    </Button>
+                    <Button size="sm" onClick={downloadCommissionRunSummaryCsv}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Download CSV
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {commissionRunSummaryError && (
+                  <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {commissionRunSummaryError}
+                  </div>
+                )}
+
+                {commissionRunSummary && (
+                  <>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Membership MoM</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{commissionRunSummary.membership.monthOverMonth.current}</div>
+                          <p className="text-xs text-gray-500">Delta: {commissionRunSummary.membership.monthOverMonth.delta}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Commission Records MoM</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{commissionRunSummary.commissions.monthOverMonthCount.current}</div>
+                          <p className="text-xs text-gray-500">Delta: {commissionRunSummary.commissions.monthOverMonthCount.delta}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Commission Amount MoM</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-2xl font-bold">{formatCurrency(commissionRunSummary.commissions.monthOverMonthAmount.current)}</div>
+                          <p className="text-xs text-gray-500">Delta: {formatCurrency(commissionRunSummary.commissions.monthOverMonthAmount.delta)}</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm">Next Payout Readiness</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-sm font-semibold">{formatDateSafe(commissionRunSummary.payoutReadiness.nextPayoutDate || null)}</div>
+                          <p className="text-xs text-gray-500">Payable: {formatCurrency(commissionRunSummary.payoutReadiness.totalPayableAmount)}</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Month</TableHead>
+                          <TableHead className="text-right">Memberships Added</TableHead>
+                          <TableHead className="text-right">I/F Added</TableHead>
+                          <TableHead className="text-right">Group Added</TableHead>
+                          <TableHead className="text-right">Commission Records</TableHead>
+                          <TableHead className="text-right">Commission Amount</TableHead>
+                          <TableHead className="text-right">Paid Count</TableHead>
+                          <TableHead className="text-right">Paid Amount</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(commissionRunSummary.monthlyRows || []).map((row) => (
+                          <TableRow key={row.monthKey}>
+                            <TableCell className="font-medium">{row.monthLabel}</TableCell>
+                            <TableCell className="text-right">{row.membershipsAdded}</TableCell>
+                            <TableCell className="text-right">{row.membershipsAddedIndividualFamily}</TableCell>
+                            <TableCell className="text-right">{row.membershipsAddedGroup}</TableCell>
+                            <TableCell className="text-right">{row.commissionRecords}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(row.commissionAmount)}</TableCell>
+                            <TableCell className="text-right">{row.commissionsPaidCount}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(row.commissionsPaidAmount)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </>
+                )}
               </CardContent>
             </Card>
 

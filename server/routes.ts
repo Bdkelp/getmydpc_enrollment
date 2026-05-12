@@ -4300,6 +4300,237 @@ router.get(
   },
 );
 
+router.get(
+  "/api/admin/reports/commission-run-summary",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const monthsRaw = Number(req.query.months || 6);
+      const months = Number.isFinite(monthsRaw)
+        ? Math.min(Math.max(Math.trunc(monthsRaw), 1), 24)
+        : 6;
+      const sinceRaw = typeof req.query.since === "string" ? req.query.since : undefined;
+      const sinceDate = parseDateInput(sinceRaw);
+      const download = String(req.query.download || "").toLowerCase() === "csv";
+
+      const analytics = await storage.getComprehensiveAnalytics(Math.max(months * 40, 365));
+      const payoutDashboard = await getPayoutDashboardData();
+
+      const members = Array.isArray(analytics?.memberReports) ? analytics.memberReports : [];
+      const commissions = Array.isArray(analytics?.commissionReports) ? analytics.commissionReports : [];
+
+      const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const monthLabel = (date: Date) => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+
+      const now = new Date();
+      const currentMonthStart = monthStart(now);
+      const targetStarts: Date[] = [];
+      for (let idx = months - 1; idx >= 0; idx -= 1) {
+        targetStarts.push(new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - idx, 1));
+      }
+      const targetMap = new Map(targetStarts.map((d) => [monthKey(d), d]));
+
+      const monthlyRows = targetStarts.map((start) => ({
+        monthKey: monthKey(start),
+        monthLabel: monthLabel(start),
+        membershipsAdded: 0,
+        membershipsAddedIndividualFamily: 0,
+        membershipsAddedGroup: 0,
+        commissionRecords: 0,
+        commissionAmount: 0,
+        commissionsPaidCount: 0,
+        commissionsPaidAmount: 0,
+      }));
+      const monthlyByKey = new Map(monthlyRows.map((row) => [row.monthKey, row]));
+
+      const toDateSafe = (value: any): Date | null => {
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      };
+
+      for (const member of members) {
+        const enrolledAt = toDateSafe(member?.enrolledDate);
+        if (!enrolledAt) continue;
+        const key = monthKey(monthStart(enrolledAt));
+        const row = monthlyByKey.get(key);
+        if (!row) continue;
+
+        row.membershipsAdded += 1;
+        if (String(member?.businessCategory || "").toLowerCase() === "group") {
+          row.membershipsAddedGroup += 1;
+        } else {
+          row.membershipsAddedIndividualFamily += 1;
+        }
+      }
+
+      for (const commission of commissions) {
+        const createdAt = toDateSafe(commission?.createdDate);
+        if (createdAt) {
+          const createdKey = monthKey(monthStart(createdAt));
+          const createdRow = monthlyByKey.get(createdKey);
+          if (createdRow) {
+            createdRow.commissionRecords += 1;
+            createdRow.commissionAmount += Number(commission?.commissionAmount || 0);
+          }
+        }
+
+        const paidAt = toDateSafe(commission?.paymentDate);
+        if (paidAt) {
+          const paidKey = monthKey(monthStart(paidAt));
+          const paidRow = monthlyByKey.get(paidKey);
+          if (paidRow) {
+            paidRow.commissionsPaidCount += 1;
+            paidRow.commissionsPaidAmount += Number(commission?.commissionAmount || 0);
+          }
+        }
+      }
+
+      const round2 = (value: number) => Number((value || 0).toFixed(2));
+      monthlyRows.forEach((row) => {
+        row.commissionAmount = round2(row.commissionAmount);
+        row.commissionsPaidAmount = round2(row.commissionsPaidAmount);
+      });
+
+      const currentKey = monthKey(currentMonthStart);
+      const previousStart = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - 1, 1);
+      const previousKey = monthKey(previousStart);
+      const currentRow = monthlyByKey.get(currentKey) || monthlyRows[monthlyRows.length - 1];
+      const previousRow = monthlyByKey.get(previousKey) || null;
+
+      const calcDelta = (current: number, previous: number) => ({
+        current,
+        previous,
+        delta: current - previous,
+        deltaPct: previous === 0 ? null : round2(((current - previous) / previous) * 100),
+      });
+
+      const sinceMemberships = sinceDate
+        ? members.filter((member: any) => {
+            const enrolledAt = toDateSafe(member?.enrolledDate);
+            return enrolledAt ? enrolledAt >= sinceDate : false;
+          }).length
+        : null;
+      const sinceCommissionsCreated = sinceDate
+        ? commissions.filter((commission: any) => {
+            const createdAt = toDateSafe(commission?.createdDate);
+            return createdAt ? createdAt >= sinceDate : false;
+          }).length
+        : null;
+      const sinceCommissionAmount = sinceDate
+        ? round2(
+            commissions.reduce((sum: number, commission: any) => {
+              const createdAt = toDateSafe(commission?.createdDate);
+              if (!createdAt || createdAt < sinceDate) return sum;
+              return sum + Number(commission?.commissionAmount || 0);
+            }, 0),
+          )
+        : null;
+
+      const responsePayload = {
+        generatedAt: new Date().toISOString(),
+        months,
+        since: sinceDate ? sinceDate.toISOString() : null,
+        membership: {
+          totalRecords: members.length,
+          monthOverMonth: calcDelta(
+            Number(currentRow?.membershipsAdded || 0),
+            Number(previousRow?.membershipsAdded || 0),
+          ),
+          addedSince: sinceMemberships,
+        },
+        commissions: {
+          totalRecords: commissions.length,
+          monthOverMonthCount: calcDelta(
+            Number(currentRow?.commissionRecords || 0),
+            Number(previousRow?.commissionRecords || 0),
+          ),
+          monthOverMonthAmount: calcDelta(
+            Number(currentRow?.commissionAmount || 0),
+            Number(previousRow?.commissionAmount || 0),
+          ),
+          addedSinceCount: sinceCommissionsCreated,
+          addedSinceAmount: sinceCommissionAmount,
+        },
+        payoutReadiness: {
+          nextPayoutDate: payoutDashboard?.nextPayoutDate || null,
+          totalPayableAmount: Number(payoutDashboard?.totalPayableAmount || 0),
+          totalAgents: Number(payoutDashboard?.totalAgents || 0),
+          draftBatchCount: Array.isArray(payoutDashboard?.draftBatches)
+            ? payoutDashboard.draftBatches.length
+            : 0,
+        },
+        monthlyRows,
+      };
+
+      if (!download) {
+        return res.json(responsePayload);
+      }
+
+      const csvEscape = (value: unknown): string => {
+        const text = value === null || value === undefined ? "" : String(value);
+        if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+          return `"${text.replace(/"/g, '""')}"`;
+        }
+        return text;
+      };
+
+      const rows: string[][] = [
+        [
+          "Month",
+          "Memberships Added",
+          "Memberships Added (Individual/Family)",
+          "Memberships Added (Group)",
+          "Commission Records",
+          "Commission Amount",
+          "Commissions Paid Count",
+          "Commissions Paid Amount",
+        ],
+      ];
+
+      monthlyRows.forEach((row) => {
+        rows.push([
+          row.monthLabel,
+          String(row.membershipsAdded),
+          String(row.membershipsAddedIndividualFamily),
+          String(row.membershipsAddedGroup),
+          String(row.commissionRecords),
+          String(row.commissionAmount),
+          String(row.commissionsPaidCount),
+          String(row.commissionsPaidAmount),
+        ]);
+      });
+
+      rows.push([]);
+      rows.push(["Generated At", responsePayload.generatedAt]);
+      rows.push(["Since", responsePayload.since || ""]);
+      rows.push(["MoM Membership Delta", String(responsePayload.membership.monthOverMonth.delta)]);
+      rows.push(["MoM Commission Count Delta", String(responsePayload.commissions.monthOverMonthCount.delta)]);
+      rows.push(["MoM Commission Amount Delta", String(responsePayload.commissions.monthOverMonthAmount.delta)]);
+      rows.push(["Added Since (Memberships)", String(responsePayload.membership.addedSince ?? "")]);
+      rows.push(["Added Since (Commissions Count)", String(responsePayload.commissions.addedSinceCount ?? "")]);
+      rows.push(["Added Since (Commissions Amount)", String(responsePayload.commissions.addedSinceAmount ?? "")]);
+      rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
+      rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
+      rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
+      rows.push(["Payout Draft Batches", String(responsePayload.payoutReadiness.draftBatchCount)]);
+
+      const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="commission-run-summary-${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.status(200).send(csv);
+    } catch (error: any) {
+      console.error("Error building commission run summary report:", error);
+      return res.status(500).json({ message: "Failed to build commission run summary report", error: error?.message || "unknown" });
+    }
+  },
+);
+
 router.post(
   "/api/admin/reports/export",
   authenticateToken,
