@@ -4316,6 +4316,8 @@ router.get(
       const sinceRaw = typeof req.query.since === "string" ? req.query.since : undefined;
       const sinceDate = parseDateInput(sinceRaw);
       const download = String(req.query.download || "").toLowerCase() === "csv";
+      const downloadFormatRaw = String(req.query.format || "summary-csv").toLowerCase();
+      const downloadFormat = downloadFormatRaw === "ops-csv" ? "ops-csv" : "summary-csv";
 
       const analytics = await storage.getComprehensiveAnalytics(Math.max(months * 40, 365));
       const payoutDashboard = await getPayoutDashboardData();
@@ -4480,8 +4482,148 @@ router.get(
         return text;
       };
 
-      const rows: string[][] = [
-        [
+      const rows: string[][] = [];
+
+      if (downloadFormat === "ops-csv") {
+        const rangeStart = targetStarts[0] || currentMonthStart;
+        const rangeEnd = now;
+        const filteredCommissions = commissions.filter((commission: any) => {
+          const createdAt = toDateSafe(commission?.createdDate);
+          if (!createdAt) return false;
+          if (createdAt < rangeStart || createdAt > rangeEnd) return false;
+          if (sinceDate && createdAt < sinceDate) return false;
+          return true;
+        });
+
+        const byAgent = new Map<string, {
+          agentName: string;
+          agentNumber: string;
+          rows: any[];
+          totalAmount: number;
+          unpaidAmount: number;
+          unpaidCount: number;
+          paidAmount: number;
+          paidCount: number;
+        }>();
+
+        for (const commission of filteredCommissions) {
+          const agentIdKey = String(commission?.agentNumber || commission?.agentName || commission?.id || "unknown-agent");
+          const existing = byAgent.get(agentIdKey) || {
+            agentName: String(commission?.agentName || "Unknown Agent"),
+            agentNumber: String(commission?.agentNumber || ""),
+            rows: [],
+            totalAmount: 0,
+            unpaidAmount: 0,
+            unpaidCount: 0,
+            paidAmount: 0,
+            paidCount: 0,
+          };
+
+          const amount = Number(commission?.commissionAmount || 0);
+          const paymentStatus = String(commission?.paymentStatus || "pending").toLowerCase();
+          existing.rows.push(commission);
+          existing.totalAmount += amount;
+          if (paymentStatus === "paid") {
+            existing.paidAmount += amount;
+            existing.paidCount += 1;
+          } else {
+            existing.unpaidAmount += amount;
+            existing.unpaidCount += 1;
+          }
+          byAgent.set(agentIdKey, existing);
+        }
+
+        const carryForwardThreshold = 25;
+
+        rows.push([
+          "Agent Name",
+          "Agent Number",
+          "Row Type",
+          "Member",
+          "Member ID",
+          "Group",
+          "Plan",
+          "Business Segment",
+          "Commission Status",
+          "Payment Status",
+          "Created Date",
+          "Paid Date",
+          "Commission Amount",
+          "Agent Unpaid Subtotal",
+          "Carry Forward Flag (<$25)",
+          "Notes",
+        ]);
+
+        const agentKeys = Array.from(byAgent.keys()).sort((a, b) => {
+          const left = byAgent.get(a);
+          const right = byAgent.get(b);
+          return String(left?.agentName || "").localeCompare(String(right?.agentName || ""));
+        });
+
+        for (const key of agentKeys) {
+          const agent = byAgent.get(key);
+          if (!agent) continue;
+
+          const sortedRows = [...agent.rows].sort((a, b) => {
+            const left = String(a?.createdDate || "");
+            const right = String(b?.createdDate || "");
+            return left.localeCompare(right);
+          });
+
+          const carryForwardFlag = agent.unpaidAmount > 0 && agent.unpaidAmount < carryForwardThreshold ? "Y" : "N";
+
+          rows.push([
+            agent.agentName,
+            agent.agentNumber,
+            "AGENT_SUMMARY",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            String(round2(agent.totalAmount)),
+            String(round2(agent.unpaidAmount)),
+            carryForwardFlag,
+            carryForwardFlag === "Y" ? `Unpaid subtotal below $${carryForwardThreshold}` : "",
+          ]);
+
+          for (const commission of sortedRows) {
+            const amount = Number(commission?.commissionAmount || 0);
+            rows.push([
+              agent.agentName,
+              agent.agentNumber,
+              "COMMISSION_DETAIL",
+              String(commission?.memberName || ""),
+              String(commission?.memberId || ""),
+              String(commission?.groupName || ""),
+              String(commission?.planName || ""),
+              String(commission?.businessCategory || ""),
+              String(commission?.status || ""),
+              String(commission?.paymentStatus || ""),
+              String(commission?.createdDate || ""),
+              String(commission?.paymentDate || ""),
+              String(round2(amount)),
+              String(round2(agent.unpaidAmount)),
+              carryForwardFlag,
+              "",
+            ]);
+          }
+
+          rows.push([]);
+        }
+
+        rows.push(["Generated At", responsePayload.generatedAt]);
+        rows.push(["Months", String(months)]);
+        rows.push(["Since", responsePayload.since || ""]);
+        rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
+        rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
+        rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
+      } else {
+        rows.push([
           "Month",
           "Memberships Added",
           "Memberships Added (Individual/Family)",
@@ -4490,39 +4632,40 @@ router.get(
           "Commission Amount",
           "Commissions Paid Count",
           "Commissions Paid Amount",
-        ],
-      ];
-
-      monthlyRows.forEach((row) => {
-        rows.push([
-          row.monthLabel,
-          String(row.membershipsAdded),
-          String(row.membershipsAddedIndividualFamily),
-          String(row.membershipsAddedGroup),
-          String(row.commissionRecords),
-          String(row.commissionAmount),
-          String(row.commissionsPaidCount),
-          String(row.commissionsPaidAmount),
         ]);
-      });
 
-      rows.push([]);
-      rows.push(["Generated At", responsePayload.generatedAt]);
-      rows.push(["Since", responsePayload.since || ""]);
-      rows.push(["MoM Membership Delta", String(responsePayload.membership.monthOverMonth.delta)]);
-      rows.push(["MoM Commission Count Delta", String(responsePayload.commissions.monthOverMonthCount.delta)]);
-      rows.push(["MoM Commission Amount Delta", String(responsePayload.commissions.monthOverMonthAmount.delta)]);
-      rows.push(["Added Since (Memberships)", String(responsePayload.membership.addedSince ?? "")]);
-      rows.push(["Added Since (Commissions Count)", String(responsePayload.commissions.addedSinceCount ?? "")]);
-      rows.push(["Added Since (Commissions Amount)", String(responsePayload.commissions.addedSinceAmount ?? "")]);
-      rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
-      rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
-      rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
-      rows.push(["Payout Draft Batches", String(responsePayload.payoutReadiness.draftBatchCount)]);
+        monthlyRows.forEach((row) => {
+          rows.push([
+            row.monthLabel,
+            String(row.membershipsAdded),
+            String(row.membershipsAddedIndividualFamily),
+            String(row.membershipsAddedGroup),
+            String(row.commissionRecords),
+            String(row.commissionAmount),
+            String(row.commissionsPaidCount),
+            String(row.commissionsPaidAmount),
+          ]);
+        });
+
+        rows.push([]);
+        rows.push(["Generated At", responsePayload.generatedAt]);
+        rows.push(["Since", responsePayload.since || ""]);
+        rows.push(["MoM Membership Delta", String(responsePayload.membership.monthOverMonth.delta)]);
+        rows.push(["MoM Commission Count Delta", String(responsePayload.commissions.monthOverMonthCount.delta)]);
+        rows.push(["MoM Commission Amount Delta", String(responsePayload.commissions.monthOverMonthAmount.delta)]);
+        rows.push(["Added Since (Memberships)", String(responsePayload.membership.addedSince ?? "")]);
+        rows.push(["Added Since (Commissions Count)", String(responsePayload.commissions.addedSinceCount ?? "")]);
+        rows.push(["Added Since (Commissions Amount)", String(responsePayload.commissions.addedSinceAmount ?? "")]);
+        rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
+        rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
+        rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
+        rows.push(["Payout Draft Batches", String(responsePayload.payoutReadiness.draftBatchCount)]);
+      }
 
       const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="commission-run-summary-${new Date().toISOString().slice(0, 10)}.csv"`);
+      const filenamePrefix = downloadFormat === "ops-csv" ? "commission-run-ops" : "commission-run-summary";
+      res.setHeader("Content-Disposition", `attachment; filename="${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv"`);
       return res.status(200).send(csv);
     } catch (error: any) {
       console.error("Error building commission run summary report:", error);

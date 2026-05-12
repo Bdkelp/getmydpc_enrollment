@@ -253,9 +253,13 @@ export default function AdminAnalytics() {
     }
   };
 
-  const downloadCommissionRunSummaryCsv = async () => {
+  const downloadCommissionRunSummaryCsv = async (formatType: "summary-csv" | "ops-csv" = "summary-csv") => {
     try {
-      const params = new URLSearchParams({ months: commissionReportMonths || "6", download: "csv" });
+      const params = new URLSearchParams({
+        months: commissionReportMonths || "6",
+        download: "csv",
+        format: formatType,
+      });
       if (commissionReportSince) {
         params.set("since", commissionReportSince);
       }
@@ -274,15 +278,19 @@ export default function AdminAnalytics() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `commission-run-summary-${new Date().toISOString().slice(0, 10)}.csv`;
+      const filenamePrefix = formatType === "ops-csv" ? "commission-run-ops" : "commission-run-summary";
+      link.download = `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
       toast({
-        title: "Commission run CSV downloaded",
-        description: "The commission run summary file is ready.",
+        title: formatType === "ops-csv" ? "Commission ops CSV downloaded" : "Commission run CSV downloaded",
+        description:
+          formatType === "ops-csv"
+            ? "Agent-grouped payout operations file is ready."
+            : "The commission run summary file is ready.",
       });
     } catch (error: any) {
       toast({
@@ -470,9 +478,13 @@ export default function AdminAnalytics() {
                     <Button size="sm" variant="outline" onClick={loadCommissionRunSummary} disabled={commissionRunSummaryLoading}>
                       {commissionRunSummaryLoading ? "Loading..." : "Load Report"}
                     </Button>
-                    <Button size="sm" onClick={downloadCommissionRunSummaryCsv}>
+                    <Button size="sm" variant="outline" onClick={() => downloadCommissionRunSummaryCsv("summary-csv")}>
                       <Download className="h-4 w-4 mr-1" />
-                      Download CSV
+                      Download Summary CSV
+                    </Button>
+                    <Button size="sm" onClick={() => downloadCommissionRunSummaryCsv("ops-csv")}>
+                      <Download className="h-4 w-4 mr-1" />
+                      Download Ops CSV
                     </Button>
                   </div>
                 </div>

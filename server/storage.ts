@@ -5609,7 +5609,7 @@ export async function getSubscriptionsDueForBilling(
   const supportedPaymentMethodTypes = includeACH ? ['CreditCard', 'ACH'] : ['CreditCard'];
   const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
 
-  const paymentTokenColumnNames = ['bank_account_number', 'bank_account_holder_name'];
+  const paymentTokenColumnNames = ['group_id', 'bank_account_number', 'bank_account_holder_name'];
   const paymentTokenColumnResult = await query(
     `
       SELECT column_name
@@ -5623,8 +5623,19 @@ export async function getSubscriptionsDueForBilling(
   const paymentTokenColumnSet = new Set(
     (paymentTokenColumnResult.rows || []).map((row: any) => String(row.column_name || '').toLowerCase()),
   );
+  const hasTokenGroupId = paymentTokenColumnSet.has('group_id');
   const hasTokenBankAccountNumber = paymentTokenColumnSet.has('bank_account_number');
   const hasTokenBankAccountHolderName = paymentTokenColumnSet.has('bank_account_holder_name');
+
+  const memberTokenGroupFilter = hasTokenGroupId ? 'AND pt.group_id IS NULL' : '';
+  const groupTokenWhereClause = hasTokenGroupId
+    ? `
+        WHERE gp.group_id IS NOT NULL
+          AND pt.group_id = gp.group_id
+          AND pt.is_active = true
+          AND pt.payment_method_type = ANY($2::text[])
+      `
+    : 'WHERE 1=0';
 
   const tokenBankAccountNumberSelect = hasTokenBankAccountNumber
     ? 'COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,'
@@ -5750,7 +5761,7 @@ export async function getSubscriptionsDueForBilling(
           pt.bank_account_last_four
         FROM payment_tokens pt
         WHERE pt.member_id = s.member_id
-          AND pt.group_id IS NULL
+          ${memberTokenGroupFilter}
           AND pt.is_active = true
           AND pt.payment_method_type = ANY($2::text[])
         ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
@@ -5770,10 +5781,7 @@ export async function getSubscriptionsDueForBilling(
           pt.bank_account_type,
           pt.bank_account_last_four
         FROM payment_tokens pt
-        WHERE gp.group_id IS NOT NULL
-          AND pt.group_id = gp.group_id
-          AND pt.is_active = true
-          AND pt.payment_method_type = ANY($2::text[])
+        ${groupTokenWhereClause}
         ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t_group ON true
