@@ -7600,6 +7600,7 @@ export async function completeGroupRegistration(
 }
 
 export const storage = {
+  query,
   // Core user functions that exist
   getUser,
   createUser,
