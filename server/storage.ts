@@ -8341,6 +8341,41 @@ export const storage = {
         return Number.isFinite(amount) ? amount : 0;
       };
 
+      const toDateOrNull = (value: unknown): Date | null => {
+        if (!value) return null;
+        const parsed = new Date(String(value));
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+      };
+
+      const toIsoDateString = (date: Date | null): string | null => {
+        if (!date) return null;
+        return date.toISOString().slice(0, 10);
+      };
+
+      const getMonthsOnBooks = (initialDate: Date | null, endDate?: Date | null): number | null => {
+        if (!initialDate) return null;
+        const finalDate = endDate || new Date();
+        if (!finalDate || Number.isNaN(finalDate.getTime()) || finalDate < initialDate) {
+          return 0;
+        }
+
+        let months = (finalDate.getFullYear() - initialDate.getFullYear()) * 12;
+        months += finalDate.getMonth() - initialDate.getMonth();
+        if (finalDate.getDate() < initialDate.getDate()) {
+          months -= 1;
+        }
+        return Math.max(0, months);
+      };
+
+      const getTenureBucket = (monthsOnBooks: number | null): string | null => {
+        if (monthsOnBooks === null || monthsOnBooks < 0) return null;
+        if (monthsOnBooks <= 1) return '0-1 months';
+        if (monthsOnBooks <= 3) return '2-3 months';
+        if (monthsOnBooks <= 6) return '4-6 months';
+        if (monthsOnBooks <= 12) return '7-12 months';
+        return '12+ months';
+      };
+
       const toObjectOrNull = (value: unknown): Record<string, any> | null => {
         if (!value) return null;
         if (typeof value === 'object') return value as Record<string, any>;
