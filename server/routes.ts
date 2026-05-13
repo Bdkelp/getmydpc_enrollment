@@ -3183,43 +3183,51 @@ router.get(
         ssn: safeDecodeSSN(fm.ssn),
       }));
 
-      const paymentHistoryResult = await storage.query(
-        `
-          SELECT
-            p.id,
-            p.member_id,
-            p.subscription_id,
-            p.amount,
-            p.status,
-            p.payment_method,
-            p.transaction_id,
-            p.commission_status,
-            p.epx_auth_guid,
-            p.metadata,
-            p.created_at,
-            p.updated_at
-          FROM payments p
-          WHERE p.member_id = $1
-          ORDER BY p.created_at DESC
-          LIMIT 250
-        `,
-        [enrollmentId],
-      );
+      let paymentHistory: any[] = [];
+      try {
+        const paymentHistoryResult = await storage.query(
+          `
+            SELECT
+              p.id,
+              p.member_id,
+              p.subscription_id,
+              p.amount,
+              p.status,
+              p.payment_method,
+              p.transaction_id,
+              p.commission_status,
+              p.epx_auth_guid,
+              p.metadata,
+              p.created_at,
+              p.updated_at
+            FROM payments p
+            WHERE p.member_id = $1
+            ORDER BY p.created_at DESC
+            LIMIT 250
+          `,
+          [enrollmentId],
+        );
 
-      const paymentHistory = (paymentHistoryResult.rows || []).map((payment: any) => ({
-        id: payment.id,
-        memberId: payment.member_id,
-        subscriptionId: payment.subscription_id,
-        amount: payment.amount,
-        status: payment.status,
-        paymentMethod: payment.payment_method,
-        transactionId: payment.transaction_id,
-        commissionStatus: payment.commission_status,
-        epxAuthGuid: payment.epx_auth_guid,
-        createdAt: payment.created_at,
-        updatedAt: payment.updated_at,
-        verification: buildPaymentVerificationSummary(payment),
-      }));
+        paymentHistory = (paymentHistoryResult.rows || []).map((payment: any) => ({
+          id: payment.id,
+          memberId: payment.member_id,
+          subscriptionId: payment.subscription_id,
+          amount: payment.amount,
+          status: payment.status,
+          paymentMethod: payment.payment_method,
+          transactionId: payment.transaction_id,
+          commissionStatus: payment.commission_status,
+          epxAuthGuid: payment.epx_auth_guid,
+          createdAt: payment.created_at,
+          updatedAt: payment.updated_at,
+          verification: buildPaymentVerificationSummary(payment),
+        }));
+      } catch (paymentHistoryError: any) {
+        console.warn('[Enrollment Details] Payment history enrichment failed, returning base enrollment only:', {
+          enrollmentId,
+          error: paymentHistoryError?.message || String(paymentHistoryError),
+        });
+      }
 
       const successfulPayments = paymentHistory.filter((payment: any) => payment.verification?.processorConfirmed === true);
       const failedPayments = paymentHistory.filter((payment: any) => {
