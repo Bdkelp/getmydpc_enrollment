@@ -125,6 +125,46 @@ function parseDateInput(value?: string): Date | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
+function parseFlexibleMemberDate(value: unknown): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return undefined;
+
+  if (/^\d{8}$/.test(raw)) {
+    const month = Number(raw.slice(0, 2)) - 1;
+    const day = Number(raw.slice(2, 4));
+    const year = Number(raw.slice(4));
+    const parsed = new Date(year, month, day);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function toIsoDateOrNull(value: unknown): string | null {
+  const parsed = parseFlexibleMemberDate(value);
+  return parsed ? parsed.toISOString() : null;
+}
+
+function calculateMonthsAsMember(anchorDate: Date, reference = new Date()): number {
+  let months = (reference.getFullYear() - anchorDate.getFullYear()) * 12;
+  months += reference.getMonth() - anchorDate.getMonth();
+  if (reference.getDate() < anchorDate.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, months);
+}
+
+function diffInDays(later: Date, earlier: Date): number {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((later.getTime() - earlier.getTime()) / msPerDay);
+}
+
 function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?: string) {
   const normalizedPeriod = typeof period === 'string' && PERIOD_FILTERS.has(period) ? period : undefined;
   const now = new Date();
@@ -3143,10 +3183,165 @@ router.get(
         ssn: safeDecodeSSN(fm.ssn),
       }));
 
+      const paymentHistoryResult = await storage.query(
+        `
+          SELECT
+            p.id,
+            p.member_id,
+            p.subscription_id,
+            p.amount,
+            p.status,
+            p.payment_method,
+            p.transaction_id,
+            p.commission_status,
+            p.epx_auth_guid,
+            p.metadata,
+            p.created_at,
+            p.updated_at
+          FROM payments p
+          WHERE p.member_id = $1
+          ORDER BY p.created_at DESC
+          LIMIT 250
+        `,
+        [enrollmentId],
+      );
+
+      const paymentHistory = (paymentHistoryResult.rows || []).map((payment: any) => ({
+        id: payment.id,
+        memberId: payment.member_id,
+        subscriptionId: payment.subscription_id,
+        amount: payment.amount,
+        status: payment.status,
+        paymentMethod: payment.payment_method,
+        transactionId: payment.transaction_id,
+        commissionStatus: payment.commission_status,
+        epxAuthGuid: payment.epx_auth_guid,
+        createdAt: payment.created_at,
+        updatedAt: payment.updated_at,
+        verification: buildPaymentVerificationSummary(payment),
+      }));
+
+      const successfulPayments = paymentHistory.filter((payment: any) => payment.verification?.processorConfirmed === true);
+      const failedPayments = paymentHistory.filter((payment: any) => {
+        const state = String(payment.verification?.finalizationState || '').toLowerCase();
+        return state === 'failed';
+      });
+      const pendingPayments = paymentHistory.filter((payment: any) => {
+        const state = String(payment.verification?.finalizationState || '').toLowerCase();
+        return state === 'pending' || state === 'requires_review';
+      });
+
+      const now = new Date();
+      const ninetyDaysAgo = new Date(now);
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+      const recentPayments = paymentHistory.filter((payment: any) => {
+        const createdAt = parseFlexibleMemberDate(payment.createdAt);
+        return Boolean(createdAt && createdAt.getTime() >= ninetyDaysAgo.getTime());
+      });
+
+      const lastAttemptDate = toIsoDateOrNull(paymentHistory[0]?.createdAt);
+      const lastSuccessfulDate = toIsoDateOrNull(successfulPayments[0]?.createdAt);
+
+      const memberSinceRaw = enrollment.enrollmentDate || enrollment.createdAt || enrollment.firstPaymentDate;
+      const memberSinceDateParsed = parseFlexibleMemberDate(memberSinceRaw);
+      const memberSinceDate = memberSinceDateParsed ? memberSinceDateParsed.toISOString() : null;
+      const membershipStartDate = toIsoDateOrNull(enrollment.membershipStartDate);
+      const nextPaymentRunDate = toIsoDateOrNull(enrollment.nextBillingDate);
+
+      const monthsAsMember = memberSinceDateParsed
+        ? calculateMonthsAsMember(memberSinceDateParsed, now)
+        : null;
+
+      const lastSuccessfulDateParsed = parseFlexibleMemberDate(lastSuccessfulDate);
+      const nextRunDateParsed = parseFlexibleMemberDate(nextPaymentRunDate);
+
+      const daysSinceLastSuccess = lastSuccessfulDateParsed
+        ? diffInDays(now, lastSuccessfulDateParsed)
+        : null;
+      const daysPastNextRun = nextRunDateParsed
+        ? diffInDays(now, nextRunDateParsed)
+        : null;
+
+      const memberStatus = String(enrollment.status || '').toLowerCase();
+      const subscriptionStatus = String(enrollment.subscriptionStatus || '').toLowerCase();
+      const memberIsActive = memberStatus === 'active';
+      const subscriptionIsActive = subscriptionStatus === 'active';
+
+      const hasBillingGap = Boolean(memberIsActive && daysPastNextRun !== null && daysPastNextRun > 3);
+      const hasMembershipGap = Boolean(
+        memberIsActive
+          && (
+            (daysSinceLastSuccess !== null && daysSinceLastSuccess > 45)
+            || (lastSuccessfulDateParsed === undefined && monthsAsMember !== null && monthsAsMember >= 1)
+          ),
+      );
+
+      const latestPaymentState = String(paymentHistory[0]?.verification?.finalizationState || '').toLowerCase();
+      const statusMismatch = (memberIsActive && !subscriptionIsActive) || (!memberIsActive && subscriptionIsActive);
+      const billingAtRisk = Boolean(
+        hasBillingGap
+          || hasMembershipGap
+          || !subscriptionIsActive
+          || latestPaymentState === 'failed'
+          || latestPaymentState === 'pending'
+          || latestPaymentState === 'requires_review',
+      );
+
+      const memberSinceDay = memberSinceDate ? memberSinceDate.slice(0, 10) : null;
+      const membershipStartDay = membershipStartDate ? membershipStartDate.slice(0, 10) : null;
+      const anchorVsEffectiveMismatch = Boolean(
+        memberSinceDay
+          && membershipStartDay
+          && memberSinceDay !== membershipStartDay,
+      );
+
+      const paymentHistorySummary = {
+        totalPayments: paymentHistory.length,
+        successfulPayments: successfulPayments.length,
+        failedPayments: failedPayments.length,
+        pendingPayments: pendingPayments.length,
+        last90DaysAttempts: recentPayments.length,
+        last90DaysSuccesses: recentPayments.filter((payment: any) => payment.verification?.processorConfirmed === true).length,
+      };
+
+      const lifecycleTimeline = {
+        memberSinceDate,
+        memberSinceSource: memberSinceDate ? 'enrollment_date' : 'unknown',
+        membershipStartDate,
+        effectiveDate: membershipStartDate,
+        monthsAsMember,
+        lastPaymentAttemptDate: lastAttemptDate,
+        lastPaymentRunDate: lastAttemptDate,
+        lastSuccessfulPaymentDate: lastSuccessfulDate,
+        nextPaymentRunDate,
+        paymentHistorySummary,
+        lifecycleFlags: {
+          gapDetected: hasMembershipGap || hasBillingGap,
+          hasMembershipGap,
+          hasBillingGap,
+          billingAtRisk,
+          statusMismatch,
+          anchorVsEffectiveMismatch,
+        },
+      };
+
       res.json({
         ...enrollment,
         ssn: decryptedSSN,
         familyMembers: familyWithMaskedSSN,
+        memberSinceDate: lifecycleTimeline.memberSinceDate,
+        membershipStartDate: lifecycleTimeline.membershipStartDate,
+        effectiveDate: lifecycleTimeline.effectiveDate,
+        monthsAsMember: lifecycleTimeline.monthsAsMember,
+        lastPaymentAttemptDate: lifecycleTimeline.lastPaymentAttemptDate,
+        lastPaymentRunDate: lifecycleTimeline.lastPaymentRunDate,
+        lastSuccessfulPaymentDate: lifecycleTimeline.lastSuccessfulPaymentDate,
+        nextPaymentRunDate: lifecycleTimeline.nextPaymentRunDate,
+        paymentHistorySummary,
+        lifecycleFlags: lifecycleTimeline.lifecycleFlags,
+        lifecycleTimeline,
+        paymentHistory,
       });
     } catch (error: any) {
       console.error("Error fetching enrollment details:", error);

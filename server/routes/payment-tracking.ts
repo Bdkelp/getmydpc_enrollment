@@ -85,6 +85,117 @@ const attachVerification = <T extends Record<string, any>>(payments: T[]): Array
   }));
 };
 
+const parseDateOrNull = (value: unknown): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toIsoDateOnly = (value: unknown): string | null => {
+  const parsed = parseDateOrNull(value);
+  return parsed ? parsed.toISOString().slice(0, 10) : null;
+};
+
+const monthsBetween = (anchor: Date, reference = new Date()): number => {
+  let months = (reference.getFullYear() - anchor.getFullYear()) * 12;
+  months += reference.getMonth() - anchor.getMonth();
+  if (reference.getDate() < anchor.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, months);
+};
+
+const daysBetween = (later: Date, earlier: Date): number => {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((later.getTime() - earlier.getTime()) / msPerDay);
+};
+
+const enrichEnrollmentLifecycle = (row: any) => {
+  const paymentStatus = normalizeStatus(row?.payment_status);
+  const paymentRiskStatus = ['failed', 'declined', 'canceled', 'cancelled'].includes(paymentStatus)
+    ? 'failed'
+    : paymentStatus === 'pending'
+      ? 'pending'
+      : paymentStatus === ''
+        ? 'unknown'
+        : 'ok';
+
+  const toPaidThroughDate = (nextBillingDate?: string | null): string | null => {
+    if (!nextBillingDate) return null;
+    const parsed = parseDateOrNull(nextBillingDate);
+    if (!parsed) return null;
+    parsed.setUTCDate(parsed.getUTCDate() - 1);
+    return parsed.toISOString().slice(0, 10);
+  };
+
+  const pendingAction = row?.subscriptionPendingReason || null;
+  const nextBillingDate = row?.nextBillingDate || null;
+  const accessThroughDate = row?.subscriptionEndDate || null;
+
+  const memberSinceParsed = parseDateOrNull(row?.membershipStartDate || row?.createdAt);
+  const nextRunParsed = parseDateOrNull(nextBillingDate);
+  const now = new Date();
+  const memberStatus = normalizeStatus(row?.status);
+  const subscriptionStatus = normalizeStatus(row?.subscriptionStatus);
+  const memberIsActive = memberStatus === 'active';
+  const subscriptionIsActive = subscriptionStatus === 'active';
+  const daysPastNextRun = nextRunParsed ? daysBetween(now, nextRunParsed) : null;
+
+  const hasBillingGap = Boolean(memberIsActive && daysPastNextRun !== null && daysPastNextRun > 3);
+  const statusMismatch = (memberIsActive && !subscriptionIsActive) || (!memberIsActive && subscriptionIsActive);
+  const billingAtRisk = paymentRiskStatus === 'failed'
+    || paymentRiskStatus === 'pending'
+    || hasBillingGap
+    || statusMismatch;
+
+  const lifecycleFlags = {
+    gapDetected: hasBillingGap,
+    hasMembershipGap: false,
+    hasBillingGap,
+    billingAtRisk,
+    statusMismatch,
+  };
+
+  const lifecycleTimeline = {
+    memberSinceDate: memberSinceParsed ? memberSinceParsed.toISOString() : null,
+    monthsAsMember: memberSinceParsed ? monthsBetween(memberSinceParsed, now) : null,
+    lastPaymentAttemptDate: toIsoDateOnly(row?.payment_date),
+    lastPaymentRunDate: toIsoDateOnly(row?.payment_date),
+    lastSuccessfulPaymentDate: paymentStatus === 'succeeded' ? toIsoDateOnly(row?.payment_date) : null,
+    nextPaymentRunDate: toIsoDateOnly(nextBillingDate),
+    lifecycleFlags,
+  };
+
+  return {
+    ...row,
+    memberSinceDate: lifecycleTimeline.memberSinceDate,
+    monthsAsMember: lifecycleTimeline.monthsAsMember,
+    lastPaymentAttemptDate: lifecycleTimeline.lastPaymentAttemptDate,
+    lastPaymentRunDate: lifecycleTimeline.lastPaymentRunDate,
+    lastSuccessfulPaymentDate: lifecycleTimeline.lastSuccessfulPaymentDate,
+    nextPaymentRunDate: lifecycleTimeline.nextPaymentRunDate,
+    lifecycleFlags,
+    lifecycleTimeline,
+    lifecycleSummary: {
+      subscriptionStatus: row?.subscriptionStatus || null,
+      pendingAction,
+      nextBillingDate,
+      accessThroughDate,
+      paidThroughDate: toPaidThroughDate(nextBillingDate),
+      paymentRiskStatus,
+      commissionStatus: null,
+    },
+  };
+};
+
+const csvEscape = (value: unknown): string => {
+  const text = value === null || value === undefined ? '' : String(value);
+  if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+};
+
 /**
  * Get recent payments with member details
  */
@@ -469,43 +580,7 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
       params
     );
 
-    const enrichLifecycleSummary = (row: any) => {
-      const paymentStatus = String(row?.payment_status || '').toLowerCase();
-      const paymentRiskStatus = ['failed', 'declined', 'canceled', 'cancelled'].includes(paymentStatus)
-        ? 'failed'
-        : paymentStatus === 'pending'
-          ? 'pending'
-          : paymentStatus === ''
-            ? 'unknown'
-            : 'ok';
-
-      const toPaidThroughDate = (nextBillingDate?: string | null): string | null => {
-        if (!nextBillingDate) return null;
-        const parsed = new Date(nextBillingDate);
-        if (Number.isNaN(parsed.getTime())) return null;
-        parsed.setUTCDate(parsed.getUTCDate() - 1);
-        return parsed.toISOString().slice(0, 10);
-      };
-
-      const pendingAction = row?.subscriptionPendingReason || null;
-      const nextBillingDate = row?.nextBillingDate || null;
-      const accessThroughDate = row?.subscriptionEndDate || null;
-
-      return {
-        ...row,
-        lifecycleSummary: {
-          subscriptionStatus: row?.subscriptionStatus || null,
-          pendingAction,
-          nextBillingDate,
-          accessThroughDate,
-          paidThroughDate: toPaidThroughDate(nextBillingDate),
-          paymentRiskStatus,
-          commissionStatus: null,
-        },
-      };
-    };
-
-    const enrollments = (result.rows || []).map(enrichLifecycleSummary);
+    const enrollments = (result.rows || []).map(enrichEnrollmentLifecycle);
 
     res.json({
       success: true,
@@ -517,6 +592,144 @@ router.get('/api/admin/enrollments-with-payments', authenticateToken, async (req
     res.status(500).json({ 
       error: 'Failed to fetch enrollments with payment data',
       message: error.message 
+    });
+  }
+});
+
+router.post('/api/admin/export-enrollments', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user || !isAtLeastAdmin(req.user.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    const agentId = String(req.query.agentId || '').trim();
+
+    const whereClauses: string[] = ['m.status != \'archived\''];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (startDate) {
+      whereClauses.push(`m.created_at >= $${paramIndex++}`);
+      params.push(startDate);
+    }
+
+    if (endDate) {
+      whereClauses.push(`m.created_at <= $${paramIndex++}`);
+      params.push(endDate);
+    }
+
+    if (agentId && agentId !== 'all') {
+      whereClauses.push(`m.enrolled_by_agent_id = $${paramIndex++}`);
+      params.push(agentId);
+    }
+
+    const result = await query(
+      `
+        SELECT
+          m.id,
+          m.first_name AS "firstName",
+          m.last_name AS "lastName",
+          m.email,
+          m.member_public_id AS "memberPublicId",
+          m.customer_number AS "customerNumber",
+          m.member_type AS "memberType",
+          m.total_monthly_price AS "totalMonthlyPrice",
+          m.enrolled_by_agent_id AS "enrolledByAgentId",
+          COALESCE(u.agent_number, '') || ' - ' || u.first_name || ' ' || u.last_name AS "enrolledBy",
+          m.status,
+          m.created_at AS "createdAt",
+          m.membership_start_date AS "membershipStartDate",
+          pl.name AS "planName",
+          p.status AS "payment_status",
+          p.created_at AS "payment_date",
+          s.status AS "subscriptionStatus",
+          s.next_billing_date AS "nextBillingDate",
+          s.end_date AS "subscriptionEndDate",
+          s.pending_reason AS "subscriptionPendingReason"
+        FROM members m
+        LEFT JOIN plans pl ON m.plan_id = pl.id
+        LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id
+        LEFT JOIN LATERAL (
+          SELECT * FROM payments
+          WHERE member_id = m.id
+          ORDER BY created_at DESC
+          LIMIT 1
+        ) p ON true
+        LEFT JOIN LATERAL (
+          SELECT * FROM subscriptions
+          WHERE member_id = m.id
+          ORDER BY
+            CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+            COALESCE(updated_at, created_at) DESC,
+            id DESC
+          LIMIT 1
+        ) s ON true
+        WHERE ${whereClauses.join(' AND ')}
+        ORDER BY m.created_at DESC
+        LIMIT 10000
+      `,
+      params,
+    );
+
+    const enrollments = (result.rows || []).map(enrichEnrollmentLifecycle);
+
+    const header = [
+      'member_id',
+      'member_public_id',
+      'customer_number',
+      'member_name',
+      'email',
+      'plan_name',
+      'coverage_type',
+      'monthly_price',
+      'member_status',
+      'subscription_status',
+      'member_since_date',
+      'months_as_member',
+      'next_payment_run_date',
+      'payment_risk',
+      'gap_detected',
+      'status_mismatch',
+      'enrolled_by',
+      'enrolled_by_agent_id',
+    ];
+
+    const rows = enrollments.map((enrollment: any) => [
+      enrollment.id,
+      enrollment.memberPublicId || '',
+      enrollment.customerNumber || '',
+      `${enrollment.firstName || ''} ${enrollment.lastName || ''}`.trim(),
+      enrollment.email || '',
+      enrollment.planName || '',
+      enrollment.memberType || '',
+      Number(enrollment.totalMonthlyPrice || 0).toFixed(2),
+      enrollment.status || '',
+      enrollment.subscriptionStatus || enrollment.lifecycleSummary?.subscriptionStatus || '',
+      toIsoDateOnly(enrollment.lifecycleTimeline?.memberSinceDate || enrollment.memberSinceDate || enrollment.createdAt) || '',
+      enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember ?? '',
+      toIsoDateOnly(enrollment.lifecycleTimeline?.nextPaymentRunDate || enrollment.nextPaymentRunDate || enrollment.lifecycleSummary?.nextBillingDate) || '',
+      enrollment.lifecycleSummary?.paymentRiskStatus || (enrollment.lifecycleFlags?.billingAtRisk ? 'at_risk' : 'unknown'),
+      enrollment.lifecycleFlags?.gapDetected ? 'yes' : 'no',
+      enrollment.lifecycleFlags?.statusMismatch ? 'yes' : 'no',
+      enrollment.enrolledBy || '',
+      enrollment.enrolledByAgentId || '',
+    ]);
+
+    const csv = [header, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
+
+    const suffixStart = startDate ? startDate.slice(0, 10) : 'all';
+    const suffixEnd = endDate ? endDate.slice(0, 10) : 'all';
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="all-enrollments-${suffixStart}-to-${suffixEnd}.csv"`);
+    return res.status(200).send(csv);
+  } catch (error: any) {
+    console.error('[Payment Tracking] Error exporting enrollments CSV:', error);
+    return res.status(500).json({
+      error: 'Failed to export enrollments',
+      message: error.message,
     });
   }
 });

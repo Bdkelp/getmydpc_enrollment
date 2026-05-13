@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
@@ -83,6 +83,29 @@ interface Enrollment {
   subscriptionEndDate?: string | null;
   subscriptionPendingReason?: string | null;
   subscriptionPendingDetails?: any;
+  enrollmentDate?: string | null;
+  memberSinceDate?: string | null;
+  monthsAsMember?: number | null;
+  nextPaymentRunDate?: string | null;
+  lifecycleFlags?: {
+    gapDetected?: boolean;
+    hasMembershipGap?: boolean;
+    hasBillingGap?: boolean;
+    billingAtRisk?: boolean;
+    statusMismatch?: boolean;
+  };
+  lifecycleTimeline?: {
+    memberSinceDate?: string | null;
+    monthsAsMember?: number | null;
+    nextPaymentRunDate?: string | null;
+    lifecycleFlags?: {
+      gapDetected?: boolean;
+      hasMembershipGap?: boolean;
+      hasBillingGap?: boolean;
+      billingAtRisk?: boolean;
+      statusMismatch?: boolean;
+    };
+  };
   lifecycleSummary?: {
     subscriptionStatus?: string | null;
     pendingAction?: string | null;
@@ -139,6 +162,32 @@ function toMoneyNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseFlexibleDate(value: unknown): Date | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  if (/^\d{8}$/.test(raw)) {
+    const month = Number(raw.slice(0, 2)) - 1;
+    const day = Number(raw.slice(2, 4));
+    const year = Number(raw.slice(4));
+    const parsed = new Date(year, month, day);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function calculateMonthsAsMember(anchor: Date, reference = new Date()): number {
+  let months = (reference.getFullYear() - anchor.getFullYear()) * 12;
+  months += reference.getMonth() - anchor.getMonth();
+  if (reference.getDate() < anchor.getDate()) {
+    months -= 1;
+  }
+  return Math.max(0, months);
+}
+
 function getLifecycleSummary(enrollment: Enrollment) {
   return enrollment.lifecycleSummary || {
     subscriptionStatus: enrollment.subscriptionStatus || null,
@@ -177,6 +226,8 @@ export default function AdminEnrollments() {
     filters.focusAlertType,
   );
   const formatters = useEnrollmentFormatters();
+  const [gapFilter, setGapFilter] = useState<string>("all");
+  const [statusMismatchFilter, setStatusMismatchFilter] = useState<string>("all");
 
   log("Component mounted", { user: user?.email, authLoading });
 
@@ -355,8 +406,32 @@ export default function AdminEnrollments() {
     (filters.pendingActionFilter !== "all" ? 1 : 0) +
     (filters.paymentRiskFilter !== "all" ? 1 : 0) +
     (filters.accessWindowFilter !== "all" ? 1 : 0) +
+    (gapFilter !== "all" ? 1 : 0) +
+    (statusMismatchFilter !== "all" ? 1 : 0) +
     (filters.focusMemberId ? 1 : 0) +
     (filters.focusAlertType ? 1 : 0);
+
+  const displayedEnrollments = useMemo(() => {
+    const base = Array.isArray(enrollmentData.filteredEnrollments)
+      ? enrollmentData.filteredEnrollments
+      : [];
+
+    return base.filter((enrollment) => {
+      const lifecycleFlags = enrollment.lifecycleTimeline?.lifecycleFlags || enrollment.lifecycleFlags;
+
+      const matchesGapFilter =
+        gapFilter === "all"
+        || (gapFilter === "gap_detected" && Boolean(lifecycleFlags?.gapDetected))
+        || (gapFilter === "no_gap" && !lifecycleFlags?.gapDetected);
+
+      const matchesStatusMismatchFilter =
+        statusMismatchFilter === "all"
+        || (statusMismatchFilter === "status_mismatch" && Boolean(lifecycleFlags?.statusMismatch))
+        || (statusMismatchFilter === "status_aligned" && !lifecycleFlags?.statusMismatch);
+
+      return matchesGapFilter && matchesStatusMismatchFilter;
+    });
+  }, [enrollmentData.filteredEnrollments, gapFilter, statusMismatchFilter]);
 
   return (
     <ErrorBoundary>
@@ -532,7 +607,7 @@ export default function AdminEnrollments() {
                 </div>
 
                 {/* Filter Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
                   {/* Date Range Filter */}
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-gray-700">Start Date</label>
@@ -662,6 +737,34 @@ export default function AdminEnrollments() {
                         <SelectItem value="missing_access_through">Missing Access Through</SelectItem>
                         <SelectItem value="access_ended">Access Ended</SelectItem>
                         <SelectItem value="access_active_or_future">Access Active/Future</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-700">Lifecycle Gap</label>
+                    <Select value={gapFilter} onValueChange={setGapFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="gap_detected">Gap Detected</SelectItem>
+                        <SelectItem value="no_gap">No Gap</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-700">Status Alignment</label>
+                    <Select value={statusMismatchFilter} onValueChange={setStatusMismatchFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="status_mismatch">Status Mismatch</SelectItem>
+                        <SelectItem value="status_aligned">Status Aligned</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -856,7 +959,7 @@ export default function AdminEnrollments() {
                   </p>
                 </CardContent>
               </Card>
-            ) : enrollmentData.filteredEnrollments.length === 0 ? (
+            ) : displayedEnrollments.length === 0 ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-gray-900">No Enrollments Found</CardTitle>
@@ -874,10 +977,10 @@ export default function AdminEnrollments() {
                 <CardHeader className="pb-4">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">
-                      Enrollments ({enrollmentData.filteredEnrollments.length})
+                      Enrollments ({displayedEnrollments.length})
                     </CardTitle>
                     <div className="text-sm text-gray-500">
-                      {enrollmentData.filteredEnrollments.length} of{" "}
+                      {displayedEnrollments.length} of{" "}
                       {queries.enrollments ? queries.enrollments.length : 0} records
                     </div>
                   </div>
@@ -897,9 +1000,31 @@ export default function AdminEnrollments() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {enrollmentData.filteredEnrollments.map((enrollment) => {
+                        {displayedEnrollments.map((enrollment) => {
                           const lifecycle = getLifecycleSummary(enrollment);
                           const monthlyPrice = toMoneyNumber(enrollment.totalMonthlyPrice);
+                          const lifecycleFlags = enrollment.lifecycleTimeline?.lifecycleFlags || enrollment.lifecycleFlags;
+                          const memberSinceDate = parseFlexibleDate(
+                            enrollment.lifecycleTimeline?.memberSinceDate
+                              || enrollment.memberSinceDate
+                              || enrollment.enrollmentDate
+                              || enrollment.createdAt,
+                          );
+                          const monthsAsMember = Number.isFinite(
+                            Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember),
+                          )
+                            ? Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember)
+                            : memberSinceDate
+                              ? calculateMonthsAsMember(memberSinceDate)
+                              : null;
+                          const nextPaymentRunDate = parseFlexibleDate(
+                            enrollment.lifecycleTimeline?.nextPaymentRunDate
+                              || enrollment.nextPaymentRunDate
+                              || lifecycle.nextBillingDate,
+                          );
+                          const lifecyclePaymentRisk =
+                            lifecycle.paymentRiskStatus
+                            || (lifecycleFlags?.billingAtRisk ? "at_risk" : "unknown");
                           return (
                             <TableRow
                               key={enrollment.id}
@@ -1003,6 +1128,32 @@ export default function AdminEnrollments() {
                                     >
                                       {getLifecyclePendingLabel(lifecycle.pendingAction)}
                                     </Badge>
+                                  )}
+                                  {memberSinceDate && (
+                                    <div className="text-gray-700">
+                                      Since: {format(memberSinceDate, "MMM d, yyyy")}
+                                    </div>
+                                  )}
+                                  {monthsAsMember !== null && (
+                                    <div className="text-gray-700">Tenure: {monthsAsMember} mo</div>
+                                  )}
+                                  {nextPaymentRunDate && (
+                                    <div className="text-gray-700">
+                                      Run: {format(nextPaymentRunDate, "MMM d")}
+                                    </div>
+                                  )}
+                                  <Badge
+                                    className={getLifecyclePaymentRiskBadgeClasses(
+                                      lifecyclePaymentRisk,
+                                    )}
+                                  >
+                                    {getLifecyclePaymentRiskLabel(lifecyclePaymentRisk)}
+                                  </Badge>
+                                  {lifecycleFlags?.gapDetected && (
+                                    <Badge className="bg-amber-100 text-amber-800">Gap</Badge>
+                                  )}
+                                  {lifecycleFlags?.statusMismatch && (
+                                    <Badge className="bg-orange-100 text-orange-800">Status Mismatch</Badge>
                                   )}
                                 </div>
                               </TableCell>

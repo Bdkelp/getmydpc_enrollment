@@ -113,6 +113,74 @@ interface EnrollmentDetails {
     paymentRiskStatus?: string;
     commissionStatus?: string | null;
   };
+  enrollmentDate?: string | null;
+  firstPaymentDate?: string | null;
+  membershipStartDate?: string | null;
+  memberSinceDate?: string | null;
+  effectiveDate?: string | null;
+  monthsAsMember?: number | null;
+  lastPaymentAttemptDate?: string | null;
+  lastPaymentRunDate?: string | null;
+  lastSuccessfulPaymentDate?: string | null;
+  nextPaymentRunDate?: string | null;
+  paymentHistorySummary?: {
+    totalPayments?: number;
+    successfulPayments?: number;
+    failedPayments?: number;
+    pendingPayments?: number;
+    last90DaysAttempts?: number;
+    last90DaysSuccesses?: number;
+  };
+  lifecycleFlags?: {
+    gapDetected?: boolean;
+    hasMembershipGap?: boolean;
+    hasBillingGap?: boolean;
+    billingAtRisk?: boolean;
+    statusMismatch?: boolean;
+    anchorVsEffectiveMismatch?: boolean;
+  };
+  lifecycleTimeline?: {
+    memberSinceDate?: string | null;
+    memberSinceSource?: string;
+    membershipStartDate?: string | null;
+    effectiveDate?: string | null;
+    monthsAsMember?: number | null;
+    lastPaymentAttemptDate?: string | null;
+    lastPaymentRunDate?: string | null;
+    lastSuccessfulPaymentDate?: string | null;
+    nextPaymentRunDate?: string | null;
+    paymentHistorySummary?: {
+      totalPayments?: number;
+      successfulPayments?: number;
+      failedPayments?: number;
+      pendingPayments?: number;
+      last90DaysAttempts?: number;
+      last90DaysSuccesses?: number;
+    };
+    lifecycleFlags?: {
+      gapDetected?: boolean;
+      hasMembershipGap?: boolean;
+      hasBillingGap?: boolean;
+      billingAtRisk?: boolean;
+      statusMismatch?: boolean;
+      anchorVsEffectiveMismatch?: boolean;
+    };
+  };
+  paymentHistory?: Array<{
+    id?: number;
+    amount?: number | string;
+    status?: string;
+    paymentMethod?: string | null;
+    payment_method?: string | null;
+    transactionId?: string | null;
+    transaction_id?: string | null;
+    createdAt?: string | null;
+    created_at?: string | null;
+    verification?: {
+      finalizationState?: string;
+      processorConfirmed?: boolean;
+    };
+  }>;
   // Family Members
   familyMembers?: FamilyMember[];
 }
@@ -761,6 +829,38 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
     "MMMM d, yyyy",
     "Not scheduled",
   );
+  const lifecycleMemberSinceLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.memberSinceDate || enrollment.memberSinceDate || enrollment.enrollmentDate || enrollment.createdAt || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleEffectiveLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.effectiveDate || enrollment.effectiveDate || enrollment.membershipStartDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleLastRunLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.lastPaymentRunDate || enrollment.lastPaymentRunDate || enrollment.lastPaymentAttemptDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleLastSuccessLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.lastSuccessfulPaymentDate || enrollment.lastSuccessfulPaymentDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleNextRunLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.nextPaymentRunDate || enrollment.nextPaymentRunDate || enrollment.nextBillingDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
+  const monthsAsMemberValue = Number.isFinite(Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember))
+    ? Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember)
+    : null;
+  const lifecycleHistorySummary = enrollment.lifecycleTimeline?.paymentHistorySummary || enrollment.paymentHistorySummary;
+  const lifecycleFlags = enrollment.lifecycleTimeline?.lifecycleFlags || enrollment.lifecycleFlags;
+  const profilePaymentHistory = Array.isArray(enrollment.paymentHistory) ? enrollment.paymentHistory : [];
+  const transactionHistoryRows = profilePaymentHistory.length > 0 ? profilePaymentHistory : (Array.isArray(paymentHistory) ? paymentHistory : []);
   const accessThroughDateLabel = formatDateDisplay(
     enrollment.lifecycleSummary?.accessThroughDate || enrollment.subscriptionEndDate || null,
     "MMMM d, yyyy",
@@ -964,6 +1064,70 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                             ? enrollment.subscriptionPendingDetails
                             : JSON.stringify(enrollment.subscriptionPendingDetails, null, 2)}
                         </pre>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border rounded-lg p-3 bg-blue-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-gray-600">Lifecycle Timeline</Label>
+                      <div className="flex flex-wrap gap-1">
+                        {lifecycleFlags?.billingAtRisk && (
+                          <Badge className="bg-red-100 text-red-800">Billing At Risk</Badge>
+                        )}
+                        {lifecycleFlags?.gapDetected && (
+                          <Badge className="bg-amber-100 text-amber-800">Gap Detected</Badge>
+                        )}
+                        {lifecycleFlags?.statusMismatch && (
+                          <Badge className="bg-orange-100 text-orange-800">Status Mismatch</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Member Since (Revenue/Commission)</Label>
+                      <p className="font-semibold">{lifecycleMemberSinceLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Effective Date</Label>
+                      <p className="font-semibold">{lifecycleEffectiveLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Months As Member</Label>
+                      <p className="font-semibold">{monthsAsMemberValue ?? 'Not available'}</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-gray-600">Last Payment Run</Label>
+                        <p className="font-semibold">{lifecycleLastRunLabel}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Last Successful Payment</Label>
+                        <p className="font-semibold">{lifecycleLastSuccessLabel}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Next Payment Run Date</Label>
+                      <p className="font-semibold">{lifecycleNextRunLabel}</p>
+                    </div>
+                    {lifecycleHistorySummary && (
+                      <div className="border rounded bg-white p-2 text-sm grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <div>
+                          <span className="text-gray-600">Total:</span> {lifecycleHistorySummary.totalPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Success:</span> {lifecycleHistorySummary.successfulPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Failed:</span> {lifecycleHistorySummary.failedPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Pending:</span> {lifecycleHistorySummary.pendingPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">90d Attempts:</span> {lifecycleHistorySummary.last90DaysAttempts ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">90d Success:</span> {lifecycleHistorySummary.last90DaysSuccesses ?? 0}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1838,7 +2002,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   <div className="flex items-center justify-center py-8">
                     <LoadingSpinner />
                   </div>
-                ) : paymentHistory && paymentHistory.length > 0 ? (
+                ) : transactionHistoryRows.length > 0 ? (
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
@@ -1852,29 +2016,39 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {paymentHistory.map((payment: any, idx: number) => (
+                        {transactionHistoryRows.map((payment: any, idx: number) => (
                           <TableRow key={payment.id || idx}>
                             <TableCell>
-                              {payment.created_at ? format(new Date(payment.created_at), 'MMM d, yyyy h:mm a') : 'N/A'}
+                              {payment.created_at || payment.createdAt
+                                ? format(new Date(payment.created_at || payment.createdAt), 'MMM d, yyyy h:mm a')
+                                : 'N/A'}
                             </TableCell>
                             <TableCell className="font-semibold">
                               ${typeof payment.amount === 'number' ? payment.amount.toFixed(2) : payment.amount || '0.00'}
                             </TableCell>
                             <TableCell>
+                              {(() => {
+                                const paymentStatus = String(payment.status || payment.verification?.finalizationState || 'unknown').toLowerCase();
+                                return (
                               <Badge className={
-                                payment.status === 'succeeded' ? 'bg-green-100 text-green-800' :
-                                payment.status === 'failed' ? 'bg-red-100 text-red-800' :
-                                payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-gray-100 text-gray-600'
+                                paymentStatus === 'succeeded' || paymentStatus === 'success' || paymentStatus === 'finalized'
+                                  ? 'bg-green-100 text-green-800'
+                                  : paymentStatus === 'failed'
+                                    ? 'bg-red-100 text-red-800'
+                                    : paymentStatus === 'pending' || paymentStatus === 'requires_review'
+                                      ? 'bg-yellow-100 text-yellow-800'
+                                      : 'bg-gray-100 text-gray-600'
                               }>
-                                {payment.status || 'unknown'}
+                                {payment.status || payment.verification?.finalizationState || 'unknown'}
                               </Badge>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell className="font-mono text-xs">
-                              {payment.transaction_id || 'N/A'}
+                              {payment.transaction_id || payment.transactionId || 'N/A'}
                             </TableCell>
                             <TableCell className="capitalize">
-                              {payment.payment_method || 'N/A'}
+                              {payment.payment_method || payment.paymentMethod || 'N/A'}
                             </TableCell>
                             <TableCell>
                               {payment.status === 'pending' && (
