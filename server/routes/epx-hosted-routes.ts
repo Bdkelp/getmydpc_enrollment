@@ -4318,7 +4318,15 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
     }
 
     const paymentId = parseInt(req.params.id, 10);
-    const { status, note } = req.body;
+    const {
+      status,
+      note,
+      processedExternally,
+      externalMethod,
+      externalReference,
+      externalProcessedAt,
+      recurringFollowUpRequested
+    } = req.body || {};
 
     if (!paymentId || isNaN(paymentId)) {
       return res.status(400).json({ success: false, error: 'Valid payment ID required' });
@@ -4329,6 +4337,34 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
       return res.status(400).json({ 
         success: false, 
         error: `Status must be one of: ${validStatuses.join(', ')}` 
+      });
+    }
+
+    const externalProcessing = processedExternally === true;
+    if (externalProcessing && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Only super admin can mark payment as externally processed'
+      });
+    }
+
+    const normalizedExternalMethod = typeof externalMethod === 'string'
+      ? externalMethod.trim().toLowerCase()
+      : '';
+    if (externalProcessing && !['card', 'ach'].includes(normalizedExternalMethod)) {
+      return res.status(400).json({
+        success: false,
+        error: 'External method must be card or ach'
+      });
+    }
+
+    const normalizedExternalReference = typeof externalReference === 'string'
+      ? externalReference.trim()
+      : '';
+    if (externalProcessing && !normalizedExternalReference) {
+      return res.status(400).json({
+        success: false,
+        error: 'External reference is required when processedExternally=true'
       });
     }
 
@@ -4362,9 +4398,22 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
       note: note || null
     };
 
+    if (externalProcessing) {
+      paymentMetadata.externalSettlement = {
+        source: 'merchant_portal',
+        method: normalizedExternalMethod,
+        reference: normalizedExternalReference,
+        processedAt: (typeof externalProcessedAt === 'string' && externalProcessedAt.trim())
+          ? externalProcessedAt.trim()
+          : new Date().toISOString(),
+        updatedBy: req.user.email,
+      };
+    }
+
     // Update payment status
     await storage.updatePayment(paymentId, {
       status,
+      ...(externalProcessing ? { paymentMethod: normalizedExternalMethod } : {}),
       metadata: paymentMetadata
     });
 
@@ -4478,6 +4527,32 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
       }
     }
 
+    if (status === 'succeeded' && externalProcessing && recurringFollowUpRequested === true) {
+      try {
+        await storage.createAdminNotification({
+          type: 'recurring_follow_up_required',
+          memberId: currentPayment.member_id ? Number(currentPayment.member_id) : null,
+          subscriptionId: currentPayment.subscription_id ? Number(currentPayment.subscription_id) : null,
+          errorMessage: 'External merchant payment recorded. Confirm recurring billing run setup for this member.',
+          metadata: {
+            paymentId,
+            externalMethod: normalizedExternalMethod,
+            externalReference: normalizedExternalReference,
+            suggestedRoute: '/admin/epx-certification',
+            suggestedEndpoint: '/api/admin/diagnostic/recurring-billing/operator-workflow',
+            initiatedBy: req.user.email,
+          }
+        });
+      } catch (notificationError: any) {
+        logEPX({
+          level: 'warn',
+          phase: 'admin-update',
+          message: 'Unable to create recurring follow-up notification',
+          data: { error: notificationError?.message, paymentId }
+        });
+      }
+    }
+
     res.json({
       success: true,
       message: 'Payment status updated successfully',
@@ -4485,7 +4560,13 @@ router.put('/api/admin/payments/:id/status', authenticateToken, async (req: Auth
         id: paymentId,
         previousStatus: currentPayment.status,
         newStatus: status
-      }
+      },
+      followUp: status === 'succeeded' && externalProcessing
+        ? {
+            recurringPromptCreated: recurringFollowUpRequested === true,
+            suggestedRoute: '/admin/epx-certification'
+          }
+        : null
     });
   } catch (error: any) {
     logEPX({

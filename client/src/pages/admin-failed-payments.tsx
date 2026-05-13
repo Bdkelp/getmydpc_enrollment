@@ -60,8 +60,9 @@ export default function AdminFailedPayments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isAdmin = hasAtLeastRole(user?.role, "admin");
+  const isSuperAdmin = user?.role === 'super_admin';
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState<'succeeded' | 'cancelled' | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<'succeeded' | 'cancelled' | 'external_succeeded' | null>(null);
 
   // Redirect if not admin
   if (!authLoading && (!user || !isAdmin)) {
@@ -163,7 +164,16 @@ export default function AdminFailedPayments() {
     return ['pending', 'processing', 'failed', 'declined'].includes(status);
   };
 
-  const updatePaymentStatus = async (payment: FailedPayment, status: 'succeeded' | 'cancelled') => {
+  const updatePaymentStatus = async (
+    payment: FailedPayment,
+    status: 'succeeded' | 'cancelled',
+    options?: {
+      processedExternally?: boolean;
+      externalMethod?: 'card' | 'ach';
+      externalReference?: string;
+      recurringFollowUpRequested?: boolean;
+    }
+  ) => {
     const notePrompt = status === 'succeeded'
       ? 'Enter note for manual completion (required):'
       : 'Enter note for voided/cancelled update (required):';
@@ -182,16 +192,22 @@ export default function AdminFailedPayments() {
 
     try {
       setUpdatingPaymentId(payment.id);
-      setUpdatingStatus(status);
+      setUpdatingStatus(options?.processedExternally ? 'external_succeeded' : status);
 
       await apiRequest(`/api/admin/payments/${payment.id}/status`, {
         method: 'PUT',
-        body: JSON.stringify({ status, note: note.trim() }),
+        body: JSON.stringify({
+          status,
+          note: note.trim(),
+          ...(options || {}),
+        }),
       });
 
       toast({
         title: 'Payment updated',
-        description: `Payment ${payment.id} marked ${status}.`,
+        description: options?.processedExternally
+          ? `Payment ${payment.id} marked succeeded from external merchant processing.`
+          : `Payment ${payment.id} marked ${status}.`,
       });
       await refetch();
     } catch (error: any) {
@@ -203,6 +219,66 @@ export default function AdminFailedPayments() {
     } finally {
       setUpdatingPaymentId(null);
       setUpdatingStatus(null);
+    }
+  };
+
+  const processPaymentExternally = async (payment: FailedPayment) => {
+    if (!isSuperAdmin) {
+      toast({
+        title: 'Super admin only',
+        description: 'External merchant settlement can only be recorded by super admin.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const methodInput = window.prompt(
+      'Payment method processed in merchant portal? (card or ach)',
+      String(payment.payment_method || 'card').toLowerCase().includes('ach') ? 'ach' : 'card'
+    );
+
+    const normalizedMethod = String(methodInput || '').trim().toLowerCase();
+    if (!['card', 'ach'].includes(normalizedMethod)) {
+      toast({
+        title: 'Invalid method',
+        description: 'Method must be card or ach.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const reference = window.prompt(
+      'Enter external merchant transaction reference (required):',
+      payment.transaction_id || ''
+    );
+
+    if (!reference || !reference.trim()) {
+      toast({
+        title: 'Reference required',
+        description: 'Please provide an external transaction reference.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const recurringFollowUpRequested = window.confirm(
+      'Is this an ongoing recurring process? Click OK to create a follow-up prompt for recurring run verification.'
+    );
+
+    await updatePaymentStatus(payment, 'succeeded', {
+      processedExternally: true,
+      externalMethod: normalizedMethod as 'card' | 'ach',
+      externalReference: reference.trim(),
+      recurringFollowUpRequested,
+    });
+
+    if (recurringFollowUpRequested) {
+      const goNow = window.confirm(
+        'Recurring follow-up prompt created. Open EPX certification tools now to run/verify recurring processing?'
+      );
+      if (goNow) {
+        setLocation('/admin/epx-certification');
+      }
     }
   };
 
@@ -428,6 +504,18 @@ export default function AdminFailedPayments() {
                                   disabled={updatingPaymentId === payment.id}
                                 >
                                   {updatingPaymentId === payment.id && updatingStatus === 'succeeded' ? 'Saving...' : 'Mark Completed'}
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => processPaymentExternally(payment)}
+                                  disabled={updatingPaymentId === payment.id || !isSuperAdmin}
+                                  title={isSuperAdmin ? 'Record payment as processed in external merchant portal' : 'Super admin only'}
+                                >
+                                  {updatingPaymentId === payment.id && updatingStatus === 'external_succeeded'
+                                    ? 'Saving...'
+                                    : 'External Success'}
                                 </Button>
                                 <Button
                                   variant="destructive"

@@ -70,6 +70,7 @@ export default function AdminNotifications() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const [filter, setFilter] = useState<'all' | 'unresolved' | 'resolved'>('unresolved');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'recurring_follow_up_required' | 'payment_failed' | 'epx_subscription_failed'>('all');
   const [lifecycleGroupId, setLifecycleGroupId] = useState('');
   const [lifecycleMemberId, setLifecycleMemberId] = useState('');
   const [lifecycleGroupMemberId, setLifecycleGroupMemberId] = useState('');
@@ -98,6 +99,12 @@ export default function AdminNotifications() {
   });
 
   const notifications = response?.notifications || [];
+  const filteredNotifications = notifications.filter((notification) => {
+    if (typeFilter === 'all') {
+      return true;
+    }
+    return notification.type === typeFilter;
+  });
 
   const { data: lifecycleResponse, isLoading: lifecycleLoading, refetch: refetchLifecycle } = useQuery<{ data: GroupLifecycleEvent[]; pagination?: { total?: number } }>({
     queryKey: ['/api/admin/group-member-lifecycle-events', lifecycleQueryString],
@@ -161,6 +168,8 @@ export default function AdminNotifications() {
         return 'EPX Subscription Failed';
       case 'payment_failed':
         return 'Payment Failed';
+      case 'recurring_follow_up_required':
+        return 'Recurring Follow-up Required';
       default:
         return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
@@ -172,6 +181,8 @@ export default function AdminNotifications() {
         return <Badge variant="destructive">EPX Error</Badge>;
       case 'payment_failed':
         return <Badge variant="destructive" className="bg-red-100 text-red-800"><CreditCard className="h-3 w-3 mr-1" />Payment Failed</Badge>;
+      case 'recurring_follow_up_required':
+        return <Badge className="bg-blue-100 text-blue-800">Recurring Follow-up</Badge>;
       default:
         return <Badge variant="secondary">{type}</Badge>;
     }
@@ -269,13 +280,43 @@ export default function AdminNotifications() {
               </Button>
             </div>
           </div>
+          <div className="flex flex-wrap gap-2 pt-3">
+            <Button
+              variant={typeFilter === 'all' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTypeFilter('all')}
+            >
+              All Types ({notifications.length})
+            </Button>
+            <Button
+              variant={typeFilter === 'recurring_follow_up_required' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTypeFilter('recurring_follow_up_required')}
+            >
+              Recurring Follow-up ({notifications.filter((n) => n.type === 'recurring_follow_up_required').length})
+            </Button>
+            <Button
+              variant={typeFilter === 'payment_failed' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTypeFilter('payment_failed')}
+            >
+              Payment Failed ({notifications.filter((n) => n.type === 'payment_failed').length})
+            </Button>
+            <Button
+              variant={typeFilter === 'epx_subscription_failed' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTypeFilter('epx_subscription_failed')}
+            >
+              EPX Failed ({notifications.filter((n) => n.type === 'epx_subscription_failed').length})
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex justify-center py-8">
               <LoadingSpinner />
             </div>
-          ) : notifications.length === 0 ? (
+          ) : filteredNotifications.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500" />
               <p>No {filter === 'unresolved' ? 'unresolved' : filter === 'resolved' ? 'resolved' : ''} notifications</p>
@@ -293,7 +334,7 @@ export default function AdminNotifications() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {notifications.map((notification) => {
+                {filteredNotifications.map((notification) => {
                   const memberId = notification.memberId || notification.member_id;
                   const memberEmail = notification.metadata?.memberEmail || notification.member_email;
                   const errorMessage = notification.errorMessage || notification.error_message;
@@ -359,6 +400,21 @@ export default function AdminNotifications() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
+                        {!notification.resolved && notification.type === 'recurring_follow_up_required' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const suggestedRoute = typeof notification.metadata?.suggestedRoute === 'string'
+                                ? notification.metadata.suggestedRoute
+                                : '/admin/epx-certification';
+                              setLocation(suggestedRoute);
+                            }}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            Open Recurring Tools
+                          </Button>
+                        )}
                         {!notification.resolved && notification.type === 'payment_failed' && memberId && (
                           <Button
                             size="sm"
