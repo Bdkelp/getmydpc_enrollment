@@ -395,33 +395,78 @@ export async function getEnrollmentDetails(enrollmentId: number) {
     return null;
   }
 
-  const memberResult = await query(
-    `SELECT
-      m.*,
-      p.name AS plan_name,
-      p.price AS plan_price,
-      sub.id AS subscription_id,
-      sub.status AS subscription_status,
-      sub.next_billing_date,
-      sub.end_date AS subscription_end_date,
-      sub.pending_reason AS subscription_pending_reason,
-      sub.pending_details AS subscription_pending_details
-     FROM members m
-     LEFT JOIN plans p ON p.id = m.plan_id
-     LEFT JOIN LATERAL (
-       SELECT s.id, s.status, s.next_billing_date, s.end_date, s.pending_reason, s.pending_details
-       FROM subscriptions s
-       WHERE s.member_id = m.id
-       ORDER BY
-         CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
-         COALESCE(s.updated_at, s.created_at) DESC,
-         s.id DESC
-       LIMIT 1
-     ) sub ON true
-     WHERE m.id = $1
-     LIMIT 1`,
-    [enrollmentId],
-  );
+  let memberResult;
+  try {
+    memberResult = await query(
+      `SELECT
+        m.*,
+        p.name AS plan_name,
+        p.price AS plan_price,
+        sub.id AS subscription_id,
+        sub.status AS subscription_status,
+        sub.next_billing_date,
+        sub.end_date AS subscription_end_date,
+        sub.pending_reason AS subscription_pending_reason,
+        sub.pending_details AS subscription_pending_details
+       FROM members m
+       LEFT JOIN plans p ON p.id = m.plan_id
+       LEFT JOIN LATERAL (
+         SELECT s.id, s.status, s.next_billing_date, s.end_date, s.pending_reason, s.pending_details
+         FROM subscriptions s
+         WHERE s.member_id = m.id
+         ORDER BY
+           CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+           COALESCE(s.updated_at, s.created_at) DESC,
+           s.id DESC
+         LIMIT 1
+       ) sub ON true
+       WHERE m.id = $1
+       LIMIT 1`,
+      [enrollmentId],
+    );
+  } catch (error: any) {
+    const message = String(error?.message || '');
+    const missingPendingColumns =
+      message.includes('pending_reason') ||
+      message.includes('pending_details');
+
+    if (!missingPendingColumns) {
+      throw error;
+    }
+
+    console.warn(
+      '[Storage] Falling back to legacy subscription schema in getEnrollmentDetails:',
+      message,
+    );
+
+    memberResult = await query(
+      `SELECT
+        m.*,
+        p.name AS plan_name,
+        p.price AS plan_price,
+        sub.id AS subscription_id,
+        sub.status AS subscription_status,
+        sub.next_billing_date,
+        sub.end_date AS subscription_end_date,
+        NULL::text AS subscription_pending_reason,
+        NULL::jsonb AS subscription_pending_details
+       FROM members m
+       LEFT JOIN plans p ON p.id = m.plan_id
+       LEFT JOIN LATERAL (
+         SELECT s.id, s.status, s.next_billing_date, s.end_date
+         FROM subscriptions s
+         WHERE s.member_id = m.id
+         ORDER BY
+           CASE WHEN s.status = 'active' THEN 0 ELSE 1 END,
+           COALESCE(s.updated_at, s.created_at) DESC,
+           s.id DESC
+         LIMIT 1
+       ) sub ON true
+       WHERE m.id = $1
+       LIMIT 1`,
+      [enrollmentId],
+    );
+  }
 
   if (!memberResult.rows?.length) {
     return null;
