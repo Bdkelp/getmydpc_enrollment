@@ -5843,11 +5843,10 @@ export async function getSubscriptionsDueForBilling(
         LIMIT 1
       ) p_auth ON true
       LEFT JOIN LATERAL (
-        SELECT rbl.next_retry_date
+        SELECT COALESCE(rbl.next_retry_date, rbl.created_at + INTERVAL '2 day') AS next_retry_date
         FROM recurring_billing_log rbl
         WHERE rbl.subscription_id = s.id
           AND rbl.status = 'failed'
-          AND rbl.next_retry_date IS NOT NULL
         ORDER BY rbl.created_at DESC, rbl.id DESC
         LIMIT 1
       ) retry_gate ON true
@@ -5861,7 +5860,10 @@ export async function getSubscriptionsDueForBilling(
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= $1::timestamptz
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
-        AND (retry_gate.next_retry_date IS NULL OR retry_gate.next_retry_date <= $1::timestamptz)
+        AND (
+          retry_gate.next_retry_date IS NULL
+          OR retry_gate.next_retry_date <= $1::timestamptz
+        )
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
     [now.toISOString(), supportedPaymentMethodTypes, billingReadyStatuses],
