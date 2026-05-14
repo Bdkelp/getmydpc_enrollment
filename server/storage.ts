@@ -6213,6 +6213,25 @@ export async function hasExistingBillingLogEntry(
   return { exists: false };
 }
 
+export async function getBillingLogAttemptCountForCycle(
+  subscriptionId: number,
+  billingDate: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from('recurring_billing_log')
+    .select('id', { count: 'exact', head: true })
+    .eq('subscription_id', subscriptionId)
+    .eq('billing_date', billingDate)
+    .in('status', ['failed', 'pending', 'success', 'ach_test_success']);
+
+  if (error) {
+    console.error('[Recurring Billing] Error counting attempts for cycle:', error);
+    throw new Error(`Failed to count billing attempts for cycle: ${error.message}`);
+  }
+
+  return Number(count) || 0;
+}
+
 export async function getStalePendingBillingLogs(
   staleThresholdMinutes: number
 ): Promise<Array<{ id: number; subscriptionId: number; billingDate: string }>> {

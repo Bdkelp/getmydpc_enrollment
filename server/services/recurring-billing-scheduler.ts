@@ -25,6 +25,7 @@ import {
   insertRecurringBillingLog,
   updateRecurringBillingLog,
   hasExistingBillingLogEntry,
+  getBillingLogAttemptCountForCycle,
   getStalePendingBillingLogs,
   getPaymentByTransactionId,
   type BillableSubscription,
@@ -41,6 +42,7 @@ const STALE_PENDING_THRESHOLD_MINUTES = 30;
 const DEFAULT_DECLINE_RETRY_DAYS = 2;
 const SOFT_DECLINE_RETRY_DAYS = 1;
 const DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES = 3;
+const DEFAULT_MAX_ATTEMPTS_PER_CYCLE = 3;
 
 type SchedulerMode = 'DRY RUN' | 'LIVE';
 type SchedulerCycleSource = 'automatic' | 'manual';
@@ -658,6 +660,17 @@ function getSuspendAfterConsecutiveFailures(): number {
   );
   if (!Number.isFinite(raw)) {
     return DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES;
+  }
+  return Math.max(1, raw);
+}
+
+function getMaxAttemptsPerCycle(): number {
+  const raw = Number.parseInt(
+    process.env.RECURRING_BILLING_MAX_ATTEMPTS_PER_CYCLE || String(DEFAULT_MAX_ATTEMPTS_PER_CYCLE),
+    10,
+  );
+  if (!Number.isFinite(raw)) {
+    return DEFAULT_MAX_ATTEMPTS_PER_CYCLE;
   }
   return Math.max(1, raw);
 }
@@ -1544,6 +1557,44 @@ async function processSubscription(
       billingEventId: null,
     });
     return { outcome: 'skipped', skipReason: 'already_processed_for_cycle' };
+  }
+
+  const existingAttemptCount = await getBillingLogAttemptCountForCycle(sub.subscriptionId, billingDate);
+  const maxAttemptsPerCycle = getMaxAttemptsPerCycle();
+  if (existingAttemptCount >= maxAttemptsPerCycle) {
+    const skipReason = `max_attempts_reached_${maxAttemptsPerCycle}`;
+    console.warn(
+      `${LOG_PREFIX} Subscription ${sub.subscriptionId} reached ${existingAttemptCount} attempt(s) for ${billingDate} ` +
+      `(max ${maxAttemptsPerCycle}) — skipping`,
+    );
+    appendDueDecision({
+      at: new Date().toISOString(),
+      source,
+      subscriptionId: sub.subscriptionId,
+      memberId: sub.memberId,
+      groupId: sub.groupId,
+      payerType: payerContext.payerType,
+      payerId: payerContext.payerAccountId,
+      payerDisplayName: payerContext.payerDisplayName,
+      amount: sub.amount,
+      nextBillingDate: sub.nextBillingDate,
+      paymentMethodType: methodType,
+      groupContactSource: payerContext.groupContactSource,
+      contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
+      selected: true,
+      skipped: true,
+      skipReason,
+    });
+    appendChargeAttempt({
+      ...buildAttemptDiagBase(),
+      paymentMethodType: methodType,
+      selected: true,
+      skipped: true,
+      skipReason,
+      chargeAttemptResult: 'skipped',
+      billingEventId: null,
+    });
+    return { outcome: 'skipped', skipReason };
   }
 
   // 6. Resolve card auth GUID (ACH does not require ORIG_AUTH_GUID for debit MIT)
