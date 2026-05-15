@@ -8586,27 +8586,98 @@ export const storage = {
         cancellations: cancellationsThisMonth
       });
 
-      // Plan breakdown
-      const planBreakdown = allPlans.map(plan => {
-        const planMembers = allMembers.filter(m => m.plan_id === plan.id && m.status === 'active');
-        const planRevenue = planMembers.reduce((total, m) => 
-          total + parseFloat(m.total_monthly_price || 0), 0
-        );
-        const estimatedMonthlyCommission = planMembers.reduce((total, member) => {
-          const memberType = toCommissionMemberType(member.coverage_type || member.member_type);
-          const commissionResult = calculateCommission(plan.name, memberType, false);
-          return total + (commissionResult?.commission || 0);
-        }, 0);
+      const resolveGroupPlanSelection = (
+        groupMember: any,
+      ): { planId: number | null; planName: string | null; memberType: string } => {
+        const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+        const memberMetadata = toObjectOrNull(groupMember.metadata);
+        const groupMetadata = toObjectOrNull(groupMember.group_metadata);
+
+        const numericPlanCandidates: unknown[] = [
+          registrationPayload?.planId,
+          registrationPayload?.selectedPlanId,
+          registrationPayload?.planSelection?.planId,
+          memberMetadata?.planId,
+          memberMetadata?.selectedPlanId,
+          memberMetadata?.planSelection?.planId,
+          groupMetadata?.planId,
+          groupMetadata?.selectedPlanId,
+          groupMetadata?.planSelection?.planId,
+          groupMetadata?.groupProfile?.planSelection?.planId,
+        ];
+
+        let resolvedPlanId: number | null = null;
+        for (const candidate of numericPlanCandidates) {
+          const parsed = Number(candidate);
+          if (Number.isInteger(parsed) && parsed > 0) {
+            resolvedPlanId = parsed;
+            break;
+          }
+        }
+
+        const textPlanCandidates: unknown[] = [
+          registrationPayload?.planName,
+          registrationPayload?.selectedPlanName,
+          registrationPayload?.planSelection?.planName,
+          memberMetadata?.planName,
+          memberMetadata?.selectedPlanName,
+          memberMetadata?.planSelection?.planName,
+          groupMetadata?.planName,
+          groupMetadata?.selectedPlanName,
+          groupMetadata?.planSelection?.planName,
+          groupMetadata?.groupProfile?.planSelection?.planName,
+        ];
+
+        let resolvedPlanName: string | null = null;
+        for (const candidate of textPlanCandidates) {
+          const value = String(candidate || '').trim();
+          if (value.length > 0) {
+            resolvedPlanName = value;
+            break;
+          }
+        }
+
+        if (resolvedPlanId === null && resolvedPlanName) {
+          const matchedPlan = allPlans.find(
+            (plan) => String(plan.name || '').toLowerCase() === resolvedPlanName!.toLowerCase(),
+          );
+          if (matchedPlan) {
+            resolvedPlanId = Number(matchedPlan.id);
+          }
+        }
+
+        if (!resolvedPlanName && resolvedPlanId !== null) {
+          const matchedPlan = allPlans.find((plan) => Number(plan.id) === resolvedPlanId);
+          resolvedPlanName = matchedPlan?.name || null;
+        }
+
+        const memberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
 
         return {
-          planId: plan.id,
-          planName: plan.name,
-          memberCount: planMembers.length,
-          monthlyRevenue: planRevenue,
-          percentage: monthlyRevenue > 0 ? (planRevenue / monthlyRevenue) * 100 : 0,
-          estimatedMonthlyCommission,
+          planId: resolvedPlanId,
+          planName: resolvedPlanName,
+          memberType,
         };
-      });
+      };
+
+      // Plan breakdown
+      const planAccumulator = new Map<number, {
+        planId: number;
+        planName: string;
+        memberCount: number;
+        monthlyRevenue: number;
+        estimatedMonthlyCommission: number;
+      }>();
+
+      for (const plan of allPlans) {
+        planAccumulator.set(Number(plan.id), {
+          planId: Number(plan.id),
+          planName: plan.name,
+          memberCount: 0,
+          monthlyRevenue: 0,
+          estimatedMonthlyCommission: 0,
+        });
+      }
 
       const PBM_PRODUCT_PLAN_ID = -1000;
       const PBM_PRODUCT_PLAN_NAME = 'BestChoice Rx Pro Premium-5 (PBM Add-on)';
@@ -8649,6 +8720,64 @@ export const storage = {
 
       const pbmMemberCount = individualPbmMembers.length + groupPbmSummary.memberCount;
       const pbmMonthlyRevenue = individualPbmRevenue + groupPbmSummary.monthlyRevenue;
+
+      for (const member of activeMembers) {
+        const planId = Number(member.plan_id);
+        if (!planAccumulator.has(planId)) {
+          continue;
+        }
+
+        const planRow = planAccumulator.get(planId)!;
+        const totalAmount = parseAmount(member.total_monthly_price);
+        const coverageType = String(member.coverage_type || '').toLowerCase();
+        const pbmAmount = member.add_rx_valet
+          ? (coverageType.includes('family') ? 21 : 19)
+          : 0;
+
+        planRow.memberCount += 1;
+        planRow.monthlyRevenue += Math.max(0, totalAmount - pbmAmount);
+
+        const memberType = toCommissionMemberType(member.coverage_type || member.member_type);
+        const commissionResult = calculateCommission(planRow.planName, memberType, false);
+        planRow.estimatedMonthlyCommission += commissionResult?.commission || 0;
+      }
+
+      for (const groupMember of activeGroupMembers) {
+        const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+        const memberMetadata = toObjectOrNull(groupMember.metadata);
+        const groupMetadata = toObjectOrNull(groupMember.group_metadata);
+        const selection = resolveGroupPlanSelection(groupMember);
+        if (selection.planId === null || !planAccumulator.has(selection.planId)) {
+          continue;
+        }
+
+        const planRow = planAccumulator.get(selection.planId)!;
+        const pbmEnabled = resolvePbmFromNotesAndSources(
+          null,
+          registrationPayload,
+          memberMetadata,
+          groupMetadata,
+        );
+        const pbmAmount = pbmEnabled
+          ? resolveGroupPbmAmount(registrationPayload, memberMetadata, groupMetadata)
+          : 0;
+        const totalAmount = parseAmount(groupMember.total_amount);
+
+        planRow.memberCount += 1;
+        planRow.monthlyRevenue += Math.max(0, totalAmount - pbmAmount);
+
+        const commissionResult = calculateCommission(planRow.planName, selection.memberType, false);
+        planRow.estimatedMonthlyCommission += commissionResult?.commission || 0;
+      }
+
+      const planBreakdown = Array.from(planAccumulator.values()).map((row) => ({
+        planId: row.planId,
+        planName: row.planName,
+        memberCount: row.memberCount,
+        monthlyRevenue: row.monthlyRevenue,
+        percentage: monthlyRevenue > 0 ? (row.monthlyRevenue / monthlyRevenue) * 100 : 0,
+        estimatedMonthlyCommission: row.estimatedMonthlyCommission,
+      }));
 
       planBreakdown.push({
         planId: PBM_PRODUCT_PLAN_ID,
