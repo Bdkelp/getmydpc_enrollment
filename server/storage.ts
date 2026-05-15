@@ -1,7 +1,7 @@
 import { supabaseAdmin as supabase, getSupabaseClientDiagnostics } from './lib/supabaseClient'; // Use dedicated admin client for storage
 import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
 import { normalizeRole } from './auth/roles';
-import { calculateCommission } from './commissionCalculator';
+import { calculateCommission, RX_VALET_COMMISSION } from './commissionCalculator';
 import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
 import { encryptSSN, decryptSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
 import crypto from 'crypto';
@@ -8467,6 +8467,48 @@ export const storage = {
         return typeof assigned === 'string' && assigned.trim().length > 0 ? assigned.trim() : null;
       };
 
+      const parsePbmAmountCandidate = (value: unknown): number | null => {
+        if (value === null || value === undefined || value === '') {
+          return null;
+        }
+
+        const parsed = parseAmount(value);
+        return parsed > 0 ? parsed : null;
+      };
+
+      const resolveGroupPbmAmount = (
+        memberPayload: Record<string, any> | null,
+        memberMetadata: Record<string, any> | null,
+        groupMetadata: Record<string, any> | null,
+      ): number => {
+        const amountCandidates: unknown[] = [
+          memberPayload?.pbmAmount,
+          memberPayload?.rxValetAmount,
+          memberPayload?.planSelection?.pbmAmount,
+          memberPayload?.planSelection?.rxValetAmount,
+          memberMetadata?.pbmAmount,
+          memberMetadata?.rxValetAmount,
+          memberMetadata?.planSelection?.pbmAmount,
+          memberMetadata?.planSelection?.rxValetAmount,
+          groupMetadata?.pbmAmount,
+          groupMetadata?.rxValetAmount,
+          groupMetadata?.planSelection?.pbmAmount,
+          groupMetadata?.planSelection?.rxValetAmount,
+          groupMetadata?.groupProfile?.planSelection?.pbmAmount,
+          groupMetadata?.groupProfile?.planSelection?.rxValetAmount,
+        ];
+
+        for (const candidate of amountCandidates) {
+          const parsed = parsePbmAmountCandidate(candidate);
+          if (parsed !== null) {
+            return parsed;
+          }
+        }
+
+        // Fallback default used in enrollment flows when explicit PBM amount is absent.
+        return 21;
+      };
+
       const isGroupMemberEligible = (groupMember: any): boolean => {
         if (groupMember?.status === 'terminated') {
           return false;
@@ -8550,14 +8592,72 @@ export const storage = {
         const planRevenue = planMembers.reduce((total, m) => 
           total + parseFloat(m.total_monthly_price || 0), 0
         );
+        const estimatedMonthlyCommission = planMembers.reduce((total, member) => {
+          const memberType = toCommissionMemberType(member.coverage_type || member.member_type);
+          const commissionResult = calculateCommission(plan.name, memberType, false);
+          return total + (commissionResult?.commission || 0);
+        }, 0);
 
         return {
           planId: plan.id,
           planName: plan.name,
           memberCount: planMembers.length,
           monthlyRevenue: planRevenue,
-          percentage: monthlyRevenue > 0 ? (planRevenue / monthlyRevenue) * 100 : 0
+          percentage: monthlyRevenue > 0 ? (planRevenue / monthlyRevenue) * 100 : 0,
+          estimatedMonthlyCommission,
         };
+      });
+
+      const PBM_PRODUCT_PLAN_ID = -1000;
+      const PBM_PRODUCT_PLAN_NAME = 'BestChoice Rx Pro Premium-5 (PBM Add-on)';
+
+      const individualPbmMembers = activeMembers.filter((member) => Boolean(member.add_rx_valet));
+      const individualPbmRevenue = individualPbmMembers.reduce((total, member) => {
+        const coverageType = String(member.coverage_type || '').toLowerCase();
+        const addOnAmount = coverageType.includes('family') ? 21 : 19;
+        return total + addOnAmount;
+      }, 0);
+
+      const groupPbmSummary = activeGroupMembers.reduce(
+        (summary, groupMember) => {
+          const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+          const memberMetadata = toObjectOrNull(groupMember.metadata);
+          const groupMetadata = toObjectOrNull(groupMember.group_metadata);
+          const pbmEnabled = resolvePbmFromNotesAndSources(
+            null,
+            registrationPayload,
+            memberMetadata,
+            groupMetadata,
+          );
+
+          if (!pbmEnabled) {
+            return summary;
+          }
+
+          const pbmAmount = resolveGroupPbmAmount(
+            registrationPayload,
+            memberMetadata,
+            groupMetadata,
+          );
+
+          summary.memberCount += 1;
+          summary.monthlyRevenue += pbmAmount;
+          return summary;
+        },
+        { memberCount: 0, monthlyRevenue: 0 },
+      );
+
+      const pbmMemberCount = individualPbmMembers.length + groupPbmSummary.memberCount;
+      const pbmMonthlyRevenue = individualPbmRevenue + groupPbmSummary.monthlyRevenue;
+
+      planBreakdown.push({
+        planId: PBM_PRODUCT_PLAN_ID,
+        planName: PBM_PRODUCT_PLAN_NAME,
+        memberCount: pbmMemberCount,
+        monthlyRevenue: pbmMonthlyRevenue,
+        percentage: monthlyRevenue > 0 ? (pbmMonthlyRevenue / monthlyRevenue) * 100 : 0,
+        // Optional field for downstream consumers that need PBM-only commission visibility.
+        estimatedMonthlyCommission: pbmMemberCount * RX_VALET_COMMISSION,
       });
 
       // Recent enrollments

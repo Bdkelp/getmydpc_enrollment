@@ -613,17 +613,19 @@ export default function AdminAnalytics() {
                       <TableHead>Plan Name</TableHead>
                       <TableHead className="text-right">Members</TableHead>
                       <TableHead className="text-right">Monthly Revenue</TableHead>
+                      <TableHead className="text-right">Est. Monthly Commission</TableHead>
                       <TableHead className="text-right">% of Total</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {safePlanBreakdown.length === 0
-                      ? renderEmptyRow(4, 'No plan distribution data available for this period.')
+                      ? renderEmptyRow(5, 'No plan distribution data available for this period.')
                       : safePlanBreakdown.map((plan) => (
                           <TableRow key={plan.planId}>
                             <TableCell className="font-medium">{plan.planName}</TableCell>
                             <TableCell className="text-right">{plan.memberCount}</TableCell>
                             <TableCell className="text-right">{formatCurrency(plan.monthlyRevenue)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(plan.estimatedMonthlyCommission ?? 0)}</TableCell>
                             <TableCell className="text-right">{plan.percentage.toFixed(1)}%</TableCell>
                           </TableRow>
                         ))}

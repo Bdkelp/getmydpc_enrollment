@@ -30,6 +30,7 @@ export interface AnalyticsData {
     memberCount: number;
     monthlyRevenue: number;
     percentage: number;
+    estimatedMonthlyCommission?: number;
   }>;
   recentEnrollments: Array<{
     id: string;
