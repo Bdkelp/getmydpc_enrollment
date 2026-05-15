@@ -1105,7 +1105,14 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
     throw new Error(`Failed to load payout batch before paid transition: ${batchError.message}`);
   }
 
-  if (!['draft', 'ready', 'exported'].includes(String(batch?.status || ''))) {
+  const batchStatus = String(batch?.status || '');
+
+  if (batchStatus === 'paid') {
+    // Idempotent success for repeat mark-paid requests.
+    return;
+  }
+
+  if (!['draft', 'ready', 'exported'].includes(batchStatus)) {
     throw new Error(`Invalid batch state for paid transition: ${batch?.status || 'unknown'}. Batch must be draft, ready, or exported.`);
   }
 
@@ -1146,7 +1153,23 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
 
   const payableRows = (rows || []).filter((row: any) => row.status === 'queued');
   if (payableRows.length === 0) {
-    throw new Error('No queued ledger rows found for this batch');
+    // If nothing remains queued (for example all rows were detached as non-payable),
+    // treat this as a no-op paid transition to avoid hard-failing the admin workflow.
+    const { error: batchUpdateError } = await supabase
+      .from('commission_payout_batches')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+      })
+      .eq('id', batchId)
+      .neq('status', 'paid');
+
+    if (batchUpdateError) {
+      throw new Error(`Failed to mark payout batch as paid: ${batchUpdateError.message}`);
+    }
+
+    await recalculateBatchTotals(batchId);
+    return;
   }
 
   const payableIds = payableRows.map((row: any) => row.id);

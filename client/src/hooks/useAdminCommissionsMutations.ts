@@ -9,6 +9,15 @@ interface DateFilter {
   endDate: string;
 }
 
+interface BatchDetailRow {
+  id: string;
+  status: string;
+}
+
+interface BatchDetailResponse {
+  rows?: BatchDetailRow[];
+}
+
 interface UseAdminCommissionsMutationsParams {
   dateFilter: DateFilter;
   selectedBatchId: string | null;
@@ -73,6 +82,16 @@ export function useAdminCommissionsMutations({
 
   const markBatchPaidMutation = useMutation({
     mutationFn: async (batchId: string) => {
+      let detail = queryClient.getQueryData(["/api/admin/commissions/payout-batches", batchId]) as BatchDetailResponse | undefined;
+      if (!detail) {
+        detail = await apiRequest(`/api/admin/commissions/payout-batches/${batchId}`, { method: "GET" });
+      }
+
+      const queuedCount = (detail?.rows || []).filter((row) => String(row?.status || '').toLowerCase() === 'queued').length;
+      if (queuedCount === 0) {
+        throw new Error("This batch has no queued ledger rows to mark as paid.");
+      }
+
       return await apiRequest(`/api/admin/commissions/payout-batches/${batchId}/mark-paid`, {
         method: "POST",
       });

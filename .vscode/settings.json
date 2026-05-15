@@ -3,7 +3,8 @@
     "mssql.intelliSense.enableErrorChecking": false,
     "mssql.autoDisableNonTSqlLanguageService": true,
     "files.associations": {
-        "migrations/*.sql": "postgres"
+        "migrations/*.sql": "postgres",
+        "**/migrations/*.sql": "postgres"
     },
     "chat.tools.terminal.autoApprove": {
         "npm --prefix client": true

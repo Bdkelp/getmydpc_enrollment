@@ -579,7 +579,8 @@ export default function AdminCommissions() {
                           <Button
                             size="sm"
                             onClick={() => markBatchPaidMutation.mutate(batch.id)}
-                            disabled={markBatchPaidMutation.isPending || batch.status === 'paid'}
+                            disabled={markBatchPaidMutation.isPending || batch.status === 'paid' || Number(batch.total_records || 0) === 0}
+                            title={Number(batch.total_records || 0) === 0 ? 'No payable ledger rows in this batch.' : undefined}
                           >
                             Mark Paid
                           </Button>
