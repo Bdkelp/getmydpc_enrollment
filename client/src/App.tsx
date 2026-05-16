@@ -130,12 +130,9 @@ function Router() {
               <Route path="/agent/failed-payments" component={AgentFailedPayments} />
               <Route path="/agent/groups" component={GroupEnrollment} />
               <Route path="/profile" component={Profile} />
-              <Route path="/registration" component={Registration} />
               <Route path="/payment" component={Payment} />
               <Route path="/payment/:planId/:userId" component={Payment} />
               <Route path="/family-enrollment/:userId" component={FamilyEnrollment} />
-              <Route path="/confirmation" component={Confirmation} />
-              <Route path="/confirmation/:userId" component={Confirmation} />
               <Route path="/payments/checkout" component={AdminPaymentCheckout} />
               <Route path="/payments/update" component={PaymentUpdate} />
               <Route path="/payments/group-checkout" component={GroupPaymentCheckout} />

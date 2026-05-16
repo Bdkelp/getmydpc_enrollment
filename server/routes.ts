@@ -451,10 +451,6 @@ async function canManageMemberForUser(
 }
 
 // Public routes (no authentication required)
-router.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
 // Temporary endpoint to check DigitalOcean's outbound IP for EPX ACL whitelist
 router.get("/api/check-ip", async (req, res) => {
   try {
