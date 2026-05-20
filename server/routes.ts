@@ -32,6 +32,7 @@ import supabaseAuthRoutes from "./routes/supabase-auth";
 import adminHierarchyRoutes from "./routes/admin-hierarchy";
 import adminLoginSessionsRoutes from "./routes/admin-login-sessions";
 import adminUsersRoutes from "./routes/admin-users";
+import { requireDevelopmentMode } from "./middleware/debug-route-guard";
 import { 
   calculateMembershipStartDate, 
   calculateNextBillingDate,
@@ -471,7 +472,7 @@ router.get("/api/check-ip", async (req, res) => {
 });
 
 // Diagnostic endpoint for CORS testing
-router.get("/api/test-cors", (req, res) => {
+router.get("/api/test-cors", requireDevelopmentMode, (req, res) => {
   const origin = req.headers.origin;
   console.log('[CORS Test] Request from origin:', origin);
 
@@ -501,7 +502,7 @@ router.get("/api/test-cors", (req, res) => {
 });
 
 // DIAGNOSTIC: Direct database query to check users (NO AUTH - for debugging)
-router.get("/api/debug/users-count", async (req, res) => {
+router.get("/api/debug/users-count", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[DEBUG] Direct database query for users...");
     const result = await storage.getAllUsers();
@@ -526,7 +527,7 @@ router.get("/api/debug/users-count", async (req, res) => {
 });
 
 // DIAGNOSTIC: Check Supabase connection details (NO AUTH - for debugging)
-router.get("/api/debug/supabase-config", async (req, res) => {
+router.get("/api/debug/supabase-config", requireDevelopmentMode, async (req, res) => {
   try {
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
     res.json({
@@ -560,7 +561,7 @@ router.get("/api/health/supabase-auth-context", authenticateToken, async (req: A
 });
 
 // Public test endpoint (NO AUTH - for debugging only)
-router.get("/api/public/test-leads-noauth", async (req, res) => {
+router.get("/api/public/test-leads-noauth", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[Public Test] Fetching leads WITHOUT authentication...");
     const leads = await storage.getAllLeads();
@@ -579,7 +580,7 @@ router.get("/api/public/test-leads-noauth", async (req, res) => {
 });
 
 // TEST ENDPOINTS for new commission system
-router.post("/api/test-commission", async (req, res) => {
+router.post("/api/test-commission", requireDevelopmentMode, async (req, res) => {
   try {
     console.log('[Test Commission] Creating test commission directly in Supabase...');
     
@@ -622,7 +623,7 @@ router.post("/api/test-commission", async (req, res) => {
   }
 });
 
-router.get("/api/test-commission-count", async (req, res) => {
+router.get("/api/test-commission-count", requireDevelopmentMode, async (req, res) => {
   try {
     const { data, error, count } = await supabase
       .from('agent_commissions')
@@ -644,7 +645,7 @@ router.get("/api/test-commission-count", async (req, res) => {
 });
 
 // 🔍 DEBUG: Test commission calculation endpoint
-router.get("/api/test-commission-calc", async (req, res) => {
+router.get("/api/test-commission-calc", requireDevelopmentMode, async (req, res) => {
   try {
     const { calculateCommission } = await import('./commissionCalculator');
     
@@ -682,7 +683,7 @@ router.get("/api/test-commission-calc", async (req, res) => {
 });
 
 // Test endpoint for leads system
-router.get("/api/test-leads", async (req, res) => {
+router.get("/api/test-leads", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[Test Leads] Testing leads system...");
 
@@ -742,7 +743,7 @@ router.get("/api/test-leads", async (req, res) => {
 });
 
 // 🔍 DIAGNOSTIC: Check all plans in database with exact names
-router.get("/api/debug/plans-diagnostic", async (req, res) => {
+router.get("/api/debug/plans-diagnostic", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[Plans Diagnostic] Fetching ALL plans from database...");
     
@@ -797,7 +798,7 @@ router.get("/api/debug/plans-diagnostic", async (req, res) => {
 });
 
 // 🔍 DIAGNOSTIC: Test commission calculation with various inputs
-router.get("/api/debug/commission-diagnostic", async (req, res) => {
+router.get("/api/debug/commission-diagnostic", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[Commission Diagnostic] Testing commission calculations...");
     
@@ -873,7 +874,7 @@ router.get("/api/debug/commission-diagnostic", async (req, res) => {
 });
 
 // 🔍 DIAGNOSTIC: Check recent commissions for labeling issues
-router.get("/api/debug/recent-commissions", async (req, res) => {
+router.get("/api/debug/recent-commissions", requireDevelopmentMode, async (req, res) => {
   try {
     console.log("[Recent Commissions] Fetching last 20 commissions...");
     

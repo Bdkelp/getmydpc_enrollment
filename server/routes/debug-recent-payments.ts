@@ -1,8 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
+import { requireDevelopmentMode } from '../middleware/debug-route-guard';
 
 const router = Router();
+
+router.use('/api/debug', requireDevelopmentMode);
 
 /**
  * Debug endpoint to check recent payments for specific users

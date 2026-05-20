@@ -6564,7 +6564,7 @@ export async function getLatestPaymentWithAuthGuid(memberId: number): Promise<Pa
 
 export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
   try {
-    // Map camelCase to snake_case for database columns
+    // Strict allowlist for columns that may be updated through this helper.
     const fieldMapping: Record<string, string> = {
       userId: 'user_id',
       memberId: 'member_id',
@@ -6573,26 +6573,36 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
       transactionId: 'transaction_id',
       authorizationCode: 'authorization_code',
       epxAuthGuid: 'epx_auth_guid',
+      status: 'status',
+      amount: 'amount',
+      currency: 'currency',
+      metadata: 'metadata',
       createdAt: 'created_at',
       updatedAt: 'updated_at'
     };
 
-    // Build UPDATE query dynamically for Neon
-    const fields = Object.keys(updates);
-    const values = Object.values(updates);
+    const incomingFields = Object.keys(updates || {});
+    const unknownFields = incomingFields.filter((field) => !(field in fieldMapping));
+    if (unknownFields.length > 0) {
+      throw new Error(`Invalid payment update fields: ${unknownFields.join(', ')}`);
+    }
+
+    const fields = incomingFields.filter((field) => (updates as any)[field] !== undefined);
+    if (fields.length === 0) {
+      throw new Error('No valid payment update fields provided');
+    }
+
     const setClause = fields.map((field, index) => {
-      // Convert camelCase to snake_case
-      const dbField = fieldMapping[field] || field;
-      // Special handling for metadata - convert to JSON
+      const dbField = fieldMapping[field];
       if (field === 'metadata') {
         return `${dbField} = $${index + 2}::jsonb`;
       }
       return `${dbField} = $${index + 2}`;
     }).join(', ');
 
-    // Convert metadata to JSON string if present
-    const processedValues = values.map((value, index) => {
-      if (fields[index] === 'metadata' && typeof value === 'object') {
+    const processedValues = fields.map((field) => {
+      const value = (updates as any)[field];
+      if (field === 'metadata' && typeof value === 'object' && value !== null) {
         return JSON.stringify(value);
       }
       return value;
@@ -9528,9 +9538,56 @@ export const storage = {
       } as Record<string, any>;
 
       const columnMapping: Record<string, string> = {
+        first_name: 'first_name',
+        last_name: 'last_name',
+        middle_name: 'middle_name',
+        email: 'email',
+        phone: 'phone',
+        date_of_birth: 'date_of_birth',
+        gender: 'gender',
+        ssn: 'ssn',
+        address: 'address',
+        address2: 'address2',
+        city: 'city',
+        state: 'state',
+        zip_code: 'zip_code',
+        employer_name: 'employer_name',
+        division_name: 'division_name',
+        date_of_hire: 'date_of_hire',
+        emergency_contact_name: 'emergency_contact_name',
+        emergency_contact_phone: 'emergency_contact_phone',
+        plan_id: 'plan_id',
+        member_type: 'member_type',
+        coverage_type: 'coverage_type',
+        total_monthly_price: 'total_monthly_price',
+        add_rx_valet: 'add_rx_valet',
+        status: 'status',
+        agent_number: 'agent_number',
+        enrolled_by_agent_id: 'enrolled_by_agent_id',
+        customer_number: 'customer_number',
+        member_public_id: 'member_public_id',
+        payment_token: 'payment_token',
+        payment_method_type: 'payment_method_type',
+        bank_routing_number: 'bank_routing_number',
+        bank_account_number: 'bank_account_number',
+        bank_account_type: 'bank_account_type',
+        bank_account_holder_name: 'bank_account_holder_name',
+        bank_account_last_four: 'bank_account_last_four',
+        first_payment_date: 'first_payment_date',
+        membership_start_date: 'membership_start_date',
+        enrollment_date: 'enrollment_date',
+        is_active: 'is_active',
+        is_test_member: 'is_test_member',
         firstName: 'first_name',
         lastName: 'last_name',
         middleName: 'middle_name',
+        email: 'email',
+        phone: 'phone',
+        ssn: 'ssn',
+        address: 'address',
+        address2: 'address2',
+        city: 'city',
+        state: 'state',
         emergencyContactName: 'emergency_contact_name',
         emergencyContactPhone: 'emergency_contact_phone',
         employerName: 'employer_name',
@@ -9558,8 +9615,18 @@ export const storage = {
         membershipStartDate: 'membership_start_date',
         enrollmentDate: 'enrollment_date',
         zipCode: 'zip_code',
-        isActive: 'is_active'
+        isActive: 'is_active',
+        isTestMember: 'is_test_member'
       };
+
+      const nonPersistedAllowedKeys = new Set(['updatedAt', 'createdAt']);
+      const incomingUpdateKeys = Object.keys(data || {});
+      const unknownUpdateKeys = incomingUpdateKeys.filter(
+        (key) => !(key in columnMapping) && !nonPersistedAllowedKeys.has(key),
+      );
+      if (unknownUpdateKeys.length > 0) {
+        throw new Error(`Invalid member update fields: ${unknownUpdateKeys.join(', ')}`);
+      }
 
       // Build dynamic UPDATE query
       const updates: string[] = [];
@@ -9568,7 +9635,10 @@ export const storage = {
 
       Object.entries(formattedData).forEach(([key, value]) => {
         if (value !== undefined) {
-          const dbField = columnMapping[key] || key;
+          const dbField = columnMapping[key];
+          if (!dbField) {
+            return;
+          }
           updates.push(`${dbField} = $${paramIndex}`);
           values.push(value);
           paramIndex++;

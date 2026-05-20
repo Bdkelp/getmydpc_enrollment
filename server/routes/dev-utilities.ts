@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../lib/supabaseClient';
 import { storage } from '../storage';
 import bcrypt from 'bcryptjs';
+import { requireDevelopmentMode } from '../middleware/debug-route-guard';
 
 const router = Router();
 
@@ -22,21 +23,6 @@ router.get('/api/check-outbound-ip', async (req, res) => {
     });
   }
 });
-
-// Middleware to check if we're in development mode
-const requireDevelopmentMode = (req: any, res: any, next: any) => {
-  // Allow in development or if explicitly enabled
-  const isDev = process.env.NODE_ENV === 'development' || 
-                process.env.ALLOW_DEV_UTILITIES === 'true' ||
-                process.env.REPL_SLUG === 'enrollment-getmydpc-com';
-  
-  if (!isDev) {
-    return res.status(403).json({ 
-      message: 'This endpoint is only available in development mode' 
-    });
-  }
-  next();
-};
 
 // Create test accounts endpoint
 router.post('/api/dev/create-test-accounts', requireDevelopmentMode, async (req, res) => {

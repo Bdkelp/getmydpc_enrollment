@@ -22,6 +22,7 @@ import { sendEnrollmentNotification, sendPaymentNotification } from '../utils/no
 import { calculateCommission, RX_VALET_COMMISSION } from '../commissionCalculator';
 import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
 import { calculateNextBillingDate } from '../utils/membership-dates';
+import { requireDevelopmentMode } from '../middleware/debug-route-guard';
 
 const router = Router();
 const certificationLoggingEnabled = process.env.ENABLE_CERTIFICATION_LOGGING !== 'false';
@@ -4134,7 +4135,7 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
 });
 
 // Recent logs endpoint for certification samples
-router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
+router.get('/api/epx/logs/recent', requireDevelopmentMode, (req: Request, res: Response) => {
   const limit = parseInt((req.query.limit as string) || '50', 10);
   const logs = getRecentEPXLogs(isNaN(limit) ? 50 : limit);
   res.json({ success: true, logs });
@@ -4145,7 +4146,7 @@ router.get('/api/epx/logs/recent', (req: Request, res: Response) => {
  * Submits a Manual/Recurring MIT transaction via Server Post (despite the legacy route name)
  * Use this to generate certification samples for EPX
  */
-router.post('/api/epx/test-recurring', authenticateToken, async (req: AuthRequest, res: Response) => {
+router.post('/api/epx/test-recurring', requireDevelopmentMode, authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
     return res.status(410).json({
       success: false,

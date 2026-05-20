@@ -4,8 +4,11 @@ import { Router, Request, Response } from 'express';
 import { storage } from '../storage';
 import { supabase } from '../lib/supabaseClient';
 import { paymentEnvironment } from '../services/payment-environment-service';
+import { requireDevelopmentMode } from '../middleware/debug-route-guard';
 
 const router = Router();
+
+router.use('/api/debug', requireDevelopmentMode);
 
 /**
  * Simple test endpoint to verify debug routing is working
