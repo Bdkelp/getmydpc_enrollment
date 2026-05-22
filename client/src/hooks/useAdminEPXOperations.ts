@@ -31,6 +31,8 @@ type ManualTransactionForm = {
   memberId: string;
   transactionId: string;
   authGuid: string;
+  testCustomerEmail: string;
+  testCustomerName: string;
   amount: string;
   description: string;
   tranType: string;
@@ -56,6 +58,8 @@ export function useAdminEPXOperations(
     memberId: "",
     transactionId: "",
     authGuid: "",
+    testCustomerEmail: "",
+    testCustomerName: "",
     amount: "",
     description: "Manual EPX action from dashboard",
     tranType: MANUAL_TRANSACTION_TYPES[0].value,
@@ -79,8 +83,11 @@ export function useAdminEPXOperations(
     transactionId?: string;
   } | null>(null);
   const [hostedConfirmPayload, setHostedConfirmPayload] = useState<{
-    memberId: number;
+    mode: "member" | "adhoc";
     amount: number;
+    memberId?: number;
+    customerEmail?: string;
+    customerName?: string;
     description?: string;
     transactionId?: string;
   } | null>(null);
@@ -190,14 +197,38 @@ export function useAdminEPXOperations(
     }
   };
 
-  const buildAdminCheckoutUrl = (params: { memberId: number; amount: number; description?: string; transactionId?: string }) => {
-    const search = new URLSearchParams({ memberId: String(params.memberId), amount: params.amount.toFixed(2), autoLaunch: "1" });
+  const buildAdminCheckoutUrl = (params: {
+    mode: "member" | "adhoc";
+    amount: number;
+    memberId?: number;
+    customerEmail?: string;
+    customerName?: string;
+    description?: string;
+    transactionId?: string;
+  }) => {
+    const search = new URLSearchParams({ amount: params.amount.toFixed(2), autoLaunch: "1" });
+    if (params.mode === "member" && typeof params.memberId === "number") {
+      search.set("memberId", String(params.memberId));
+    }
+    if (params.mode === "adhoc") {
+      search.set("mode", "adhoc");
+      if (params.customerEmail) search.set("customerEmail", params.customerEmail);
+      if (params.customerName) search.set("customerName", params.customerName);
+    }
     if (params.description) search.set("description", params.description);
     if (params.transactionId) search.set("transactionId", params.transactionId);
     return `/admin/payments/checkout?${search.toString()}`;
   };
 
-  const launchAdminHostedCheckout = (params: { memberId: number; amount: number; description?: string; transactionId?: string }) => {
+  const launchAdminHostedCheckout = (params: {
+    mode: "member" | "adhoc";
+    amount: number;
+    memberId?: number;
+    customerEmail?: string;
+    customerName?: string;
+    description?: string;
+    transactionId?: string;
+  }) => {
     openHostedCheckoutTab(buildAdminCheckoutUrl(params));
   };
 
@@ -245,7 +276,16 @@ export function useAdminEPXOperations(
   };
 
   const resetManualTransactionForm = () => {
-    setManualTransactionForm({ memberId: "", transactionId: "", authGuid: "", amount: "", description: "Manual EPX action from dashboard", tranType: MANUAL_TRANSACTION_TYPES[0].value });
+    setManualTransactionForm({
+      memberId: "",
+      transactionId: "",
+      authGuid: "",
+      testCustomerEmail: "",
+      testCustomerName: "",
+      amount: "",
+      description: "Manual EPX action from dashboard",
+      tranType: MANUAL_TRANSACTION_TYPES[0].value,
+    });
     setManualTransactionResult(null);
   };
 
@@ -295,19 +335,77 @@ export function useAdminEPXOperations(
   const handleHostedCheckoutRequest = () => {
     if (!ensureSuperAdmin("Hosted checkout launcher")) return;
     const memberIdRaw = manualTransactionForm.memberId.trim();
-    if (!memberIdRaw) { toast({ title: "Member required", description: "Enter the member ID to launch hosted checkout.", variant: "destructive" }); return; }
-    const memberIdNumber = Number(memberIdRaw);
-    if (!Number.isFinite(memberIdNumber)) { toast({ title: "Invalid member ID", description: "Member ID must be numeric before opening hosted checkout.", variant: "destructive" }); return; }
     const parsedAmount = parseFloat(manualTransactionForm.amount || "0");
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) { toast({ title: "Invalid amount", description: "Hosted checkout requires a positive USD amount.", variant: "destructive" }); return; }
     if (manualTransactionForm.tranType !== "CCE1") { toast({ title: "Hosted checkout is for initial captures only", description: "Switch the transaction type to CCE1 to collect a new payment.", variant: "destructive" }); return; }
-    setHostedConfirmPayload({ memberId: memberIdNumber, amount: parsedAmount, description: manualTransactionForm.description.trim() || undefined, transactionId: manualTransactionForm.transactionId.trim() || undefined });
+    if (!memberIdRaw) {
+      toast({ title: "Member required", description: "Enter the member ID to launch member hosted checkout.", variant: "destructive" });
+      return;
+    }
+
+    const memberIdNumber = Number(memberIdRaw);
+    if (!Number.isFinite(memberIdNumber)) {
+      toast({ title: "Invalid member ID", description: "Member ID must be numeric before opening hosted checkout.", variant: "destructive" });
+      return;
+    }
+
+    setHostedConfirmPayload({
+      mode: "member",
+      memberId: memberIdNumber,
+      amount: parsedAmount,
+      description: manualTransactionForm.description.trim() || undefined,
+      transactionId: manualTransactionForm.transactionId.trim() || undefined,
+    });
+  };
+
+  const handleAdHocHostedCheckoutRequest = () => {
+    if (!ensureSuperAdmin("Ad-hoc hosted checkout launcher")) return;
+
+    const parsedAmount = parseFloat(manualTransactionForm.amount || "0");
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({ title: "Invalid amount", description: "Hosted checkout requires a positive USD amount.", variant: "destructive" });
+      return;
+    }
+
+    if (manualTransactionForm.tranType !== "CCE1") {
+      toast({ title: "Hosted checkout is for initial captures only", description: "Switch the transaction type to CCE1 to collect a new payment.", variant: "destructive" });
+      return;
+    }
+
+    const testCustomerEmail = manualTransactionForm.testCustomerEmail.trim();
+    const testCustomerName = manualTransactionForm.testCustomerName.trim();
+
+    if (!testCustomerEmail || !testCustomerEmail.includes("@")) {
+      toast({
+        title: "Test customer email required",
+        description: "Provide a valid test customer email to run ad-hoc hosted checkout without a member ID.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setHostedConfirmPayload({
+      mode: "adhoc",
+      amount: parsedAmount,
+      customerEmail: testCustomerEmail,
+      customerName: testCustomerName || undefined,
+      description: manualTransactionForm.description.trim() || undefined,
+      transactionId: manualTransactionForm.transactionId.trim() || undefined,
+    });
   };
 
   const finalizeHostedCheckoutLaunch = () => {
     if (!hostedConfirmPayload) return;
     if (!ensureSuperAdmin("Hosted checkout launcher")) { setHostedConfirmPayload(null); return; }
-    launchAdminHostedCheckout({ memberId: hostedConfirmPayload.memberId, amount: hostedConfirmPayload.amount, description: hostedConfirmPayload.description, transactionId: hostedConfirmPayload.transactionId });
+    launchAdminHostedCheckout({
+      mode: hostedConfirmPayload.mode,
+      amount: hostedConfirmPayload.amount,
+      memberId: hostedConfirmPayload.memberId,
+      customerEmail: hostedConfirmPayload.customerEmail,
+      customerName: hostedConfirmPayload.customerName,
+      description: hostedConfirmPayload.description,
+      transactionId: hostedConfirmPayload.transactionId,
+    });
     setHostedConfirmPayload(null);
   };
 
@@ -355,6 +453,7 @@ export function useAdminEPXOperations(
     executeManualTransaction,
     executeCancelSubscription,
     handleHostedCheckoutRequest,
+    handleAdHocHostedCheckoutRequest,
     finalizeHostedCheckoutLaunch,
   };
 }

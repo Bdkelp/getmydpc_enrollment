@@ -112,6 +112,7 @@ export default function Admin() {
     executeManualTransaction,
     executeCancelSubscription,
     handleHostedCheckoutRequest,
+    handleAdHocHostedCheckoutRequest,
     finalizeHostedCheckoutLaunch,
   } = useAdminEPXOperations(isSuperAdmin, isAuthenticated, isAdminUser);
 
@@ -260,6 +261,7 @@ export default function Admin() {
           handleManualFieldChange={handleManualFieldChange}
           handleManualTranTypeChange={handleManualTranTypeChange}
           handleHostedCheckoutRequest={handleHostedCheckoutRequest}
+          handleAdHocHostedCheckoutRequest={handleAdHocHostedCheckoutRequest}
         />
 
         <SubscriptionCancellationCard

@@ -102,6 +102,10 @@ export default function AdminPaymentCheckoutPage() {
 
   const memberIdParam = searchParams.get("memberId");
   const amountParam = searchParams.get("amount");
+  const modeParam = (searchParams.get("mode") || "").trim().toLowerCase();
+  const isAdHocMode = modeParam === "adhoc";
+  const adHocCustomerEmailParam = searchParams.get("customerEmail") || user?.email || "";
+  const adHocCustomerNameParam = searchParams.get("customerName") || "";
   const descriptionParam = searchParams.get("description") || undefined;
   const transactionIdParam = searchParams.get("transactionId") || searchParams.get("orderId") || undefined;
   const retryPaymentIdParam = searchParams.get("retryPaymentId") || undefined;
@@ -113,17 +117,25 @@ export default function AdminPaymentCheckoutPage() {
   const amount = amountParam ? Number(amountParam) : NaN;
 
   const validationError = (() => {
-    if (!memberIdParam) {
-      return "Member ID missing from checkout link.";
-    }
-    if (!Number.isFinite(memberId)) {
-      return "Member ID must be numeric.";
-    }
     if (!amountParam) {
       return "Amount missing from checkout link.";
     }
     if (!Number.isFinite(amount) || amount <= 0) {
       return "Amount must be a positive number.";
+    }
+
+    if (isAdHocMode) {
+      if (!adHocCustomerEmailParam || !adHocCustomerEmailParam.includes("@")) {
+        return "Ad-hoc checkout requires a valid customer email.";
+      }
+      return null;
+    }
+
+    if (!memberIdParam) {
+      return "Member ID missing from checkout link.";
+    }
+    if (!Number.isFinite(memberId)) {
+      return "Member ID must be numeric.";
     }
     return null;
   })();
@@ -140,7 +152,7 @@ export default function AdminPaymentCheckoutPage() {
 
   const memberQuery = useQuery<MemberLookupResponse, Error>({
     queryKey: ["/api/admin/members", memberId],
-    enabled: isAuthenticated && isAgentOrAbove && Number.isFinite(memberId) && !validationError,
+    enabled: isAuthenticated && isAgentOrAbove && !isAdHocMode && Number.isFinite(memberId) && !validationError,
     queryFn: async () => {
       if (isAdminUser) {
         const response = await apiRequest(`/api/admin/enrollment/${memberId}`) as EnrollmentDetailsResponse;
@@ -208,14 +220,14 @@ export default function AdminPaymentCheckoutPage() {
   });
 
   useEffect(() => {
-    if (!autoLaunchConsumed && !hasLaunchedPayment && memberQuery.data?.member) {
+    if (!autoLaunchConsumed && !hasLaunchedPayment && (isAdHocMode || memberQuery.data?.member)) {
       setHasLaunchedPayment(true);
       setAutoLaunchConsumed(true);
     }
-  }, [autoLaunchConsumed, hasLaunchedPayment, memberQuery.data]);
+  }, [autoLaunchConsumed, hasLaunchedPayment, isAdHocMode, memberQuery.data]);
 
   const handleLaunch = () => {
-    if (!memberQuery.data?.member) {
+    if (!isAdHocMode && !memberQuery.data?.member) {
       toast({
         title: "Member not loaded",
         description: "Wait for the member record before launching hosted checkout.",
@@ -255,8 +267,24 @@ export default function AdminPaymentCheckoutPage() {
   const customerName = member && memberDisplayName
     ? (memberDisplayName === `Member #${member.id}` ? member.email : memberDisplayName)
     : member?.email || "Member";
+  const adHocCustomerName = adHocCustomerNameParam.trim() || "Ad-hoc Test Customer";
+  const adHocCustomerId = user?.id || `admin-${Date.now()}`;
 
   const handleCheckoutSuccess = (transactionId?: string | null, paidAmount?: number | null) => {
+    if (isAdHocMode) {
+      const finalAmount = typeof paidAmount === 'number' && Number.isFinite(paidAmount)
+        ? paidAmount
+        : amount;
+      setHasLaunchedPayment(false);
+      toast({
+        title: 'Ad-hoc payment complete',
+        description: transactionId
+          ? `Transaction ${transactionId} accepted for ${formatCurrency(finalAmount)}.`
+          : `Payment accepted for ${formatCurrency(finalAmount)}.`,
+      });
+      return;
+    }
+
     if (!member) {
       setHasLaunchedPayment(false);
       return;
@@ -337,7 +365,7 @@ export default function AdminPaymentCheckoutPage() {
     }
   };
 
-  if (isLoading || (isAuthenticated && isAgentOrAbove && memberQuery.isLoading)) {
+  if (isLoading || (isAuthenticated && isAgentOrAbove && !isAdHocMode && memberQuery.isLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <LoadingSpinner />
@@ -355,9 +383,13 @@ export default function AdminPaymentCheckoutPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-medical-blue-600 uppercase tracking-wide">Staff Hosted Checkout</p>
-            <h1 className="text-3xl font-bold text-gray-900 mt-1">Collect Payment for Member #{memberIdParam}</h1>
+            <h1 className="text-3xl font-bold text-gray-900 mt-1">
+              {isAdHocMode ? "Collect Ad-hoc Test Payment" : `Collect Payment for Member #${memberIdParam}`}
+            </h1>
             <p className="text-gray-600 mt-1">
-              This flow is isolated from registration and intended for one-off captures or troubleshooting existing memberships.
+              {isAdHocMode
+                ? "This flow is isolated from enrollment and is intended for controlled live production verification transactions."
+                : "This flow is isolated from registration and intended for one-off captures or troubleshooting existing memberships."}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -372,7 +404,7 @@ export default function AdminPaymentCheckoutPage() {
           </Alert>
         )}
 
-        {memberQuery.error && !validationError && (
+        {!isAdHocMode && memberQuery.error && !validationError && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Member lookup failed</AlertTitle>
@@ -380,7 +412,7 @@ export default function AdminPaymentCheckoutPage() {
           </Alert>
         )}
 
-        {!validationError && member && (
+        {!validationError && (isAdHocMode || member) && (
           <Card className="border border-cyan-100 shadow-sm">
             <CardContent className="p-6 space-y-6">
               <div className="flex flex-col gap-1">
@@ -395,12 +427,12 @@ export default function AdminPaymentCheckoutPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-lg border border-gray-200 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase text-gray-500">Member</p>
+                  <p className="text-xs font-semibold uppercase text-gray-500">{isAdHocMode ? "Customer" : "Member"}</p>
                   <p className="text-lg font-bold text-gray-900">
-                    {memberDisplayName}
+                    {isAdHocMode ? adHocCustomerName : memberDisplayName}
                   </p>
-                  <p className="text-sm text-gray-600">{member?.email}</p>
-                  {member?.phone && (
+                  <p className="text-sm text-gray-600">{isAdHocMode ? adHocCustomerEmailParam : member?.email}</p>
+                  {!isAdHocMode && member?.phone && (
                     <p className="text-sm text-gray-600">{member.phone}</p>
                   )}
                 </div>
@@ -422,7 +454,7 @@ export default function AdminPaymentCheckoutPage() {
                 </div>
               )}
 
-              {subscription?.planName && (
+              {!isAdHocMode && subscription?.planName && (
                 <div className="text-sm text-gray-600">
                   Active Plan: <span className="font-semibold text-gray-900">{subscription.planName}</span>
                 </div>
@@ -440,10 +472,13 @@ export default function AdminPaymentCheckoutPage() {
                 <div className="flex flex-col gap-1">
                   <p className="text-xs font-semibold uppercase text-gray-500">Payment Method</p>
                   <p className="text-sm text-gray-600">
-                    Choose how you want to collect this payment.
+                    {isAdHocMode
+                      ? "Ad-hoc mode uses card hosted checkout only."
+                      : "Choose how you want to collect this payment."}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                {!isAdHocMode && (
+                  <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant={paymentMethod === 'card' ? 'default' : 'outline'}
@@ -458,8 +493,9 @@ export default function AdminPaymentCheckoutPage() {
                   >
                     ACH / Bank Account
                   </Button>
-                </div>
-                {hasLaunchedPayment && (
+                  </div>
+                )}
+                {!isAdHocMode && hasLaunchedPayment && (
                   <p className="text-xs text-gray-500">
                     Switching methods closes the current checkout so you can relaunch the selected method.
                   </p>
@@ -481,7 +517,7 @@ export default function AdminPaymentCheckoutPage() {
 
               {hasLaunchedPayment && (
                 <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                  {paymentMethod === 'ach' ? (
+                  {!isAdHocMode && paymentMethod === 'ach' ? (
                     <BankAccountForm
                       amount={amount}
                       customerId={String(member.id)}
@@ -506,18 +542,18 @@ export default function AdminPaymentCheckoutPage() {
                   ) : (
                     <EPXHostedPayment
                       amount={amount}
-                      customerId={String(member.id)}
-                      customerEmail={member.email}
-                      customerName={customerName}
-                      planId={member.planId ? String(member.planId) : undefined}
-                      retryPaymentId={retryPaymentIdParam}
-                      retryMemberId={retryMemberIdParam || String(member.id)}
-                      description={descriptionParam || `Manual admin checkout for member #${member.id}`}
+                      customerId={isAdHocMode ? adHocCustomerId : String(member.id)}
+                      customerEmail={isAdHocMode ? adHocCustomerEmailParam : member.email}
+                      customerName={isAdHocMode ? adHocCustomerName : customerName}
+                      planId={!isAdHocMode && member.planId ? String(member.planId) : undefined}
+                      retryPaymentId={!isAdHocMode ? retryPaymentIdParam : undefined}
+                      retryMemberId={!isAdHocMode ? (retryMemberIdParam || String(member.id)) : undefined}
+                      description={descriptionParam || (isAdHocMode ? 'Ad-hoc admin live verification charge' : `Manual admin checkout for member #${member.id}`)}
                       billingAddress={{
-                        streetAddress: member.address || undefined,
-                        city: member.city || undefined,
-                        state: member.state || undefined,
-                        postalCode: member.zipCode || undefined,
+                        streetAddress: !isAdHocMode ? member.address || undefined : undefined,
+                        city: !isAdHocMode ? member.city || undefined : undefined,
+                        state: !isAdHocMode ? member.state || undefined : undefined,
+                        postalCode: !isAdHocMode ? member.zipCode || undefined : undefined,
                       }}
                       redirectOnSuccess={false}
                       onSuccess={(transactionId, paidAmount) => {

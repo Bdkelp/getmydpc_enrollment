@@ -23,6 +23,8 @@ interface ManualTransactionForm {
   memberId: string;
   transactionId: string;
   authGuid: string;
+  testCustomerEmail: string;
+  testCustomerName: string;
   amount: string;
   description: string;
   tranType: string;
@@ -52,6 +54,7 @@ interface ManualEPXTransactionCardProps {
   handleManualFieldChange: (field: keyof ManualTransactionForm) => (e: React.ChangeEvent<HTMLInputElement>) => void;
   handleManualTranTypeChange: (value: string) => void;
   handleHostedCheckoutRequest: () => void;
+  handleAdHocHostedCheckoutRequest: () => void;
 }
 
 export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> = ({
@@ -78,6 +81,7 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
   handleManualFieldChange,
   handleManualTranTypeChange,
   handleHostedCheckoutRequest,
+  handleAdHocHostedCheckoutRequest,
 }) => {
   return (
     <Card className="mb-8 border border-navy-200 bg-white shadow-soft">
@@ -239,7 +243,7 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
 
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <p className="text-sm text-gray-600">
-                Provide at least one identifier (member ID, transaction ID, or AUTH GUID). Amount is required for every transaction type.
+                For Run Transaction: provide at least one identifier (member ID, transaction ID, or AUTH GUID). For Launch Hosted Checkout: member ID is required.
               </p>
               <div className="flex flex-col gap-2 w-full md:w-auto md:flex-row">
                 <Button type="submit" className="w-full md:w-auto" disabled={manualTransactionPending}>
@@ -258,6 +262,50 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
             </div>
           </fieldset>
         </form>
+
+        {isSuperAdmin && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-900">Ad-hoc Live Test Charge (Super Admin)</h3>
+              <p className="text-xs text-emerald-800 mt-1">
+                Use this only for controlled production verification not tied to enrollment. Transaction type must stay on CCE1 and amount comes from the same amount field above.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="manual-test-customer-email">Test Customer Email</Label>
+                <Input
+                  id="manual-test-customer-email"
+                  type="email"
+                  placeholder="billing-test@example.com"
+                  value={manualTransactionForm.testCustomerEmail}
+                  onChange={handleManualFieldChange("testCustomerEmail")}
+                />
+              </div>
+              <div>
+                <Label htmlFor="manual-test-customer-name">Test Customer Name (Optional)</Label>
+                <Input
+                  id="manual-test-customer-name"
+                  placeholder="Live Verification"
+                  value={manualTransactionForm.testCustomerName}
+                  onChange={handleManualFieldChange("testCustomerName")}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="default"
+                onClick={handleAdHocHostedCheckoutRequest}
+                disabled={manualTransactionPending}
+              >
+                Launch Ad-hoc Hosted Checkout
+              </Button>
+            </div>
+          </div>
+        )}
 
         {manualTransactionResult && (
           <div className="grid gap-4 md:grid-cols-2">

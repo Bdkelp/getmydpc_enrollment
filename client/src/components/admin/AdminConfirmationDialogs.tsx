@@ -19,7 +19,13 @@ interface AdminConfirmationDialogsProps {
   setCancelConfirmPayload: (value: any) => void;
   cancelSubscriptionPending: boolean;
   executeCancelSubscription: () => void;
-  hostedConfirmPayload: { memberId: number; amount: number } | null;
+  hostedConfirmPayload: {
+    mode: "member" | "adhoc";
+    amount: number;
+    memberId?: number;
+    customerEmail?: string;
+    customerName?: string;
+  } | null;
   setHostedConfirmPayload: (value: any) => void;
   finalizeHostedCheckoutLaunch: () => void;
 }
@@ -107,8 +113,11 @@ export const AdminConfirmationDialogs: React.FC<AdminConfirmationDialogsProps> =
             <AlertDialogTitle>Launch hosted checkout?</AlertDialogTitle>
             <AlertDialogDescription>
               We&apos;ll open a secure EPX window to collect{" "}
-              <span className="font-semibold">${hostedConfirmPayload?.amount?.toFixed(2) ?? "0.00"}</span> from
-              member #{hostedConfirmPayload?.memberId}. Continue only if the member is ready to provide card details.
+              <span className="font-semibold">${hostedConfirmPayload?.amount?.toFixed(2) ?? "0.00"}</span>{" "}
+              {hostedConfirmPayload?.mode === "adhoc"
+                ? `from ad-hoc customer ${hostedConfirmPayload?.customerName || hostedConfirmPayload?.customerEmail || "(email required)"}.`
+                : `from member #${hostedConfirmPayload?.memberId}.`}{" "}
+              Continue only when you are ready to run this live hosted checkout.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

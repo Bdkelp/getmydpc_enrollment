@@ -3102,6 +3102,44 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     let maskedAuthGuid: string | null = null;
 
     if (result.isApproved) {
+      let existingPaymentRecord: PaymentRecord | undefined;
+      if (epxTransactionId) {
+        existingPaymentRecord = await storage.getPaymentByTransactionId(epxTransactionId);
+      }
+      if (!existingPaymentRecord && fallbackOrderNumber) {
+        existingPaymentRecord = await storage.getPaymentByTransactionId(fallbackOrderNumber);
+      }
+
+      const existingHostedCallbackMetadata = existingPaymentRecord
+        ? parsePaymentMetadata(existingPaymentRecord.metadata)?.hostedCallback
+        : null;
+      const callbackAlreadyProcessed = Boolean(
+        existingPaymentRecord
+          && String(existingPaymentRecord.status || '').toLowerCase() === 'succeeded'
+          && existingHostedCallbackMetadata?.updatedAt
+      );
+
+      if (callbackAlreadyProcessed) {
+        logEPX({
+          level: 'info',
+          phase: 'callback',
+          message: 'Duplicate hosted callback received; returning idempotent no-op',
+          data: {
+            paymentId: existingPaymentRecord?.id,
+            transactionId: epxTransactionId || fallbackOrderNumber || result.transactionId || null,
+            memberId: existingPaymentRecord?.member_id || null,
+          }
+        });
+
+        return res.json({
+          success: true,
+          noOp: true,
+          message: 'Callback already processed',
+          transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const persistResult = await persistHostedPaymentUpdate({
         epxTransactionId,
         fallbackOrderNumber,
@@ -3125,36 +3163,6 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
         : {};
       const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
       const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
-
-      const existingHostedCallbackMetadata = paymentRecordForLogging
-        ? parsePaymentMetadata(paymentRecordForLogging.metadata)?.hostedCallback
-        : null;
-      const callbackAlreadyProcessed = Boolean(
-        paymentRecordForLogging
-          && String(paymentRecordForLogging.status || '').toLowerCase() === 'succeeded'
-          && existingHostedCallbackMetadata?.updatedAt
-      );
-
-      if (callbackAlreadyProcessed) {
-        logEPX({
-          level: 'info',
-          phase: 'callback',
-          message: 'Duplicate hosted callback received; returning idempotent no-op',
-          data: {
-            paymentId: paymentRecordForLogging?.id,
-            transactionId: epxTransactionId || fallbackOrderNumber || result.transactionId || null,
-            memberId: paymentRecordForLogging?.member_id || null,
-          }
-        });
-
-        return res.json({
-          success: true,
-          noOp: true,
-          message: 'Callback already processed',
-          transactionId: result.transactionId || epxTransactionId || fallbackOrderNumber,
-          timestamp: new Date().toISOString(),
-        });
-      }
 
       if (!groupPaymentContext) {
         const validationErrors: string[] = [];
@@ -4122,8 +4130,8 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
       success: true,
       status: payment.status,
       amount: payment.amount,
-      transactionId: payment.transactionId,
-      authorizationCode: payment.authorizationCode
+      transactionId: payment.transaction_id || payment.transactionId || null,
+      authorizationCode: payment.authorization_code || payment.authorizationCode || null
     });
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'status', message: 'Status check error', data: { error: error?.message } });
