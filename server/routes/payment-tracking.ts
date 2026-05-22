@@ -32,11 +32,52 @@ const deriveDeclineDetails = (payment: any): { failureReason: string | null; dec
     ? metadata.hostedCallback
     : null;
 
+  const persistedFailureReason =
+    (typeof payment?.failure_reason === 'string' && payment.failure_reason.trim())
+    || (typeof payment?.failureReason === 'string' && payment.failureReason.trim())
+    || '';
+
+  let normalizedFailureReason: string | null = persistedFailureReason || null;
+  let normalizedDeclineCode: string | null = null;
+  let normalizedRawStatusMessage: string | null = null;
+
+  if (persistedFailureReason.startsWith('{') && persistedFailureReason.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(persistedFailureReason);
+      const rawStatusMessage =
+        (typeof parsed?.StatusMessage === 'string' && parsed.StatusMessage.trim())
+        || (typeof parsed?.statusMessage === 'string' && parsed.statusMessage.trim())
+        || null;
+      normalizedRawStatusMessage = rawStatusMessage;
+
+      const parsedCode =
+        (typeof parsed?.StatusCode === 'string' && parsed.StatusCode.trim())
+        || (typeof parsed?.statusCode === 'string' && parsed.statusCode.trim())
+        || null;
+      const codeFromMessage = rawStatusMessage?.match(/\b(\d{2,3})\b/)?.[1] || null;
+      normalizedDeclineCode = parsedCode || codeFromMessage || null;
+
+      if (rawStatusMessage) {
+        const upper = rawStatusMessage.toUpperCase();
+        if (upper.includes('INSUFF') || upper.includes('INSUFFICIENT') || upper.includes('NSF') || normalizedDeclineCode === '51') {
+          normalizedFailureReason = 'Insufficient funds';
+        } else if (upper.includes('DECLINED') || upper.includes('DO NOT HONOR') || normalizedDeclineCode === '05') {
+          normalizedFailureReason = 'Card declined by issuer';
+        } else if (upper.includes('INVALID') || upper.includes('EXPIRED') || normalizedDeclineCode === '14' || normalizedDeclineCode === '54') {
+          normalizedFailureReason = 'Card information invalid or expired';
+        } else {
+          normalizedFailureReason = rawStatusMessage;
+        }
+      }
+    } catch {
+      // Keep persisted failure reason when parsing fails.
+    }
+  }
+
   const failureReason =
-    payment?.failure_reason
-    || payment?.failureReason
-    || hostedMeta?.declineReason
+    hostedMeta?.declineReason
     || hostedMeta?.message
+    || normalizedFailureReason
     || metadata?.StatusMessage
     || metadata?.statusMessage
     || null;
@@ -46,10 +87,12 @@ const deriveDeclineDetails = (payment: any): { failureReason: string | null; dec
     || metadata?.StatusCode
     || metadata?.statusCode
     || metadata?.AUTH_RESP_CODE
+    || normalizedDeclineCode
     || null;
 
   const rawStatusMessage =
     hostedMeta?.rawStatusMessage
+    || normalizedRawStatusMessage
     || metadata?.StatusMessage
     || metadata?.statusMessage
     || null;

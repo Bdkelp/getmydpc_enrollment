@@ -579,6 +579,39 @@ const extractHostedDeclineDetails = (payload: Record<string, any>, fallbackError
   };
 };
 
+const parseLegacyFailureReasonBlob = (value: unknown): { failureReason: string | null; declineCode: string | null; rawStatusMessage: string | null } => {
+  if (typeof value !== 'string') {
+    return { failureReason: null, declineCode: null, rawStatusMessage: null };
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return { failureReason: trimmed || null, declineCode: null, rawStatusMessage: null };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const rawStatusMessage = firstNonEmptyString(
+      parsed?.StatusMessage,
+      parsed?.statusMessage,
+      parsed?.AUTH_RESP,
+      parsed?.status,
+    );
+    const explicitCode = normalizeDeclineCode(firstNonEmptyString(
+      parsed?.StatusCode,
+      parsed?.statusCode,
+      parsed?.AUTH_RESP_CODE,
+      parsed?.status,
+    ));
+    const declineCode = explicitCode || deriveDeclineCodeFromMessage(rawStatusMessage);
+    const failureReason = classifyHostedFailureReason(rawStatusMessage, declineCode);
+
+    return { failureReason, declineCode, rawStatusMessage };
+  } catch {
+    return { failureReason: trimmed || null, declineCode: null, rawStatusMessage: null };
+  }
+};
+
 const sanitizeAlphaNumericToken = (value: string, maxLength: number): string => {
   return value
     .toUpperCase()
@@ -4309,20 +4342,25 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
       ? paymentMetadata.hostedCallback
       : null;
 
+    const legacyFailureBlob = parseLegacyFailureReasonBlob(payment.failure_reason || payment.failureReason);
+
     const failureReason =
-      payment.failure_reason
-      || payment.failureReason
-      || hostedMeta?.declineReason
+      hostedMeta?.declineReason
       || hostedMeta?.message
+      || legacyFailureBlob.failureReason
       || null;
 
     const declineCode =
       hostedMeta?.declineCode
       || paymentMetadata?.StatusCode
       || paymentMetadata?.statusCode
+      || legacyFailureBlob.declineCode
       || null;
 
-    const rawStatusMessage = hostedMeta?.rawStatusMessage || null;
+    const rawStatusMessage =
+      hostedMeta?.rawStatusMessage
+      || legacyFailureBlob.rawStatusMessage
+      || null;
 
     res.json({
       success: true,
