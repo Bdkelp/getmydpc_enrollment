@@ -2845,7 +2845,12 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
 
     if (!numericMemberId) {
-      if (!groupPaymentContext && !groupInvoiceContext) {
+      const isAdHocAdminCompletion = Boolean(paymentRecord?.user_id)
+        && !paymentRecord?.member_id
+        && !groupPaymentContext
+        && !groupInvoiceContext;
+
+      if (!groupPaymentContext && !groupInvoiceContext && !isAdHocAdminCompletion) {
         return res.status(400).json({
           success: false,
           error: 'Unable to determine member for this payment'
@@ -2992,11 +2997,36 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
         }
       }
 
+      if (isAdHocAdminCompletion && persistResult.paymentRecord?.id) {
+        try {
+          await storage.updatePayment(persistResult.paymentRecord.id, {
+            metadata: {
+              ...nextMetadata,
+              adHocCompletion: {
+                completedAt: new Date().toISOString(),
+                source: 'hosted-complete',
+              },
+            },
+          });
+        } catch (adHocMetadataError: any) {
+          logEPX({
+            level: 'warn',
+            phase: 'hosted-complete',
+            message: 'Unable to persist ad-hoc completion metadata',
+            data: {
+              paymentId: persistResult.paymentRecord.id,
+              error: adHocMetadataError?.message,
+            }
+          });
+        }
+      }
+
       return res.json({
         success: true,
         member: null,
         paymentId: persistResult.paymentRecord?.id || null,
-        groupPayment: true,
+        groupPayment: Boolean(groupPaymentContext || groupInvoiceContext),
+        adHocPayment: isAdHocAdminCompletion,
       });
     }
 

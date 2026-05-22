@@ -572,6 +572,29 @@ export default function EPXHostedPayment({
         }
       } catch (completionError: any) {
         console.error('[EPX Hosted] Failed to finalize enrollment after payment', completionError);
+        const apiErrorPayload = parseApiErrorPayload(completionError);
+        const apiErrorMessage =
+          (typeof apiErrorPayload?.error === 'string' && apiErrorPayload.error.trim())
+          || (typeof apiErrorPayload?.message === 'string' && apiErrorPayload.message.trim())
+          || null;
+        const isHardReconciliationError = Boolean(apiErrorPayload && !completionError?.message?.includes('Network error'));
+
+        if (isHardReconciliationError) {
+          const hardErrorMessage = apiErrorMessage || 'Payment could not be finalized. Please contact support.';
+          setError(hardErrorMessage);
+          toast({
+            title: 'Payment Reconciliation Failed',
+            description: hardErrorMessage,
+            variant: 'destructive',
+          });
+
+          if (onError) {
+            onError(hardErrorMessage);
+          }
+
+          return;
+        }
+
         const message = completionError?.message || 'Payment was received. Finalization may still complete via callback reconciliation.';
         setError('Payment was received. We are reconciling enrollment details now.');
         toast({
