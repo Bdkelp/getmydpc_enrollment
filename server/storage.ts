@@ -6199,7 +6199,7 @@ export async function hasExistingBillingLogEntry(
     .select('id, status')
     .eq('subscription_id', subscriptionId)
     .eq('billing_date', billingDate)
-    .in('status', ['success', 'pending'])
+    .in('status', ['success', 'pending', 'failed', 'ach_test_success'])
     .limit(1);
 
   if (error) {

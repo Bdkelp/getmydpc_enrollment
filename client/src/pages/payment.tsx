@@ -232,6 +232,51 @@ export default function Payment() {
     }, 1200);
   };
 
+  const handleEPXPaymentProcessing = (transactionId?: string | null, amountOverride?: number | null) => {
+    toast({
+      title: "Payment processing",
+      description: "Your payment was received and is being finalized.",
+    });
+
+    if (transactionId) {
+      sessionStorage.setItem("lastTransactionId", transactionId);
+    }
+
+    if (typeof amountOverride === "number" && Number.isFinite(amountOverride)) {
+      sessionStorage.setItem("lastPaymentAmount", amountOverride.toFixed(2));
+    }
+
+    setShowEPXPayment(false);
+    setPaymentError(null);
+    setEpxRetryKey((prev) => prev + 1);
+
+    const params = new URLSearchParams();
+    if (transactionId) {
+      params.set("transaction", transactionId);
+    }
+
+    const normalizedAmount = typeof amountOverride === "number" && Number.isFinite(amountOverride)
+      ? amountOverride
+      : Number.isFinite(epxPaymentAmount)
+        ? epxPaymentAmount
+        : undefined;
+
+    if (typeof normalizedAmount === "number") {
+      params.set("amount", normalizedAmount.toFixed(2));
+    }
+
+    if (selectedPlanId) {
+      params.set("planId", selectedPlanId.toString());
+    }
+
+    params.set("reconciliation", "pending");
+
+    setTimeout(() => {
+      const query = params.toString();
+      setLocation(`/confirmation${query ? `?${query}` : ""}`);
+    }, 1000);
+  };
+
   const handleEPXPaymentError = (error: string) => {
     console.error("EPX Payment error:", error);
     setPaymentError(error || "There was an error processing your payment.");
@@ -713,6 +758,7 @@ export default function Payment() {
                   }}
                   redirectOnSuccess={false}
                   onSuccess={handleEPXPaymentSuccess}
+                  onProcessing={handleEPXPaymentProcessing}
                   onError={handleEPXPaymentError}
                 />
               );

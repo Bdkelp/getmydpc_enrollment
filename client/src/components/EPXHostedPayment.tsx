@@ -54,6 +54,7 @@ interface EPXHostedPaymentProps {
     postalCode?: string;
   };
   onSuccess?: (transactionId?: string | null, amount?: number) => void;
+  onProcessing?: (transactionId?: string | null, amount?: number) => void;
   onError?: (error: string) => void;
   redirectOnSuccess?: boolean;
 }
@@ -88,6 +89,7 @@ export default function EPXHostedPayment({
   storedCardProfile,
   billingAddress = {},
   onSuccess,
+  onProcessing,
   onError,
   redirectOnSuccess = true
 }: EPXHostedPaymentProps) {
@@ -499,21 +501,51 @@ export default function EPXHostedPayment({
           amount: parsedMessage.amount || overrideAmountValue || amount
         });
 
+        const isCallbackPending = Boolean(completionResponse?.callbackPending);
+        const isNoOp = Boolean(completionResponse?.noOp);
+
         if (completionResponse?.requiresReview) {
           toast({
             title: 'Payment Successful',
             description: completionResponse?.message || 'Payment was approved and queued for internal review.'
           });
-        } else if (completionResponse?.callbackPending || completionResponse?.noOp) {
+        } else if (isCallbackPending) {
           toast({
-            title: 'Payment Received',
-            description: completionResponse?.message || 'Payment was received and is being finalized in the background.'
+            title: 'Payment Processing',
+            description: completionResponse?.message || 'Payment was received and is being finalized.'
+          });
+        } else if (isNoOp) {
+          toast({
+            title: 'Payment Already Recorded',
+            description: completionResponse?.message || 'This payment was already finalized.'
           });
         } else {
           toast({
             title: 'Payment Successful',
             description: 'Enrollment finalized successfully.'
           });
+        }
+
+        if (isCallbackPending) {
+          if (onProcessing) {
+            onProcessing(transactionFromPayload || sessionData?.transactionId, normalizedAmount);
+          }
+
+          if (redirectOnSuccess !== false) {
+            setTimeout(() => {
+              const transactionId = transactionFromPayload || sessionData?.transactionId || 'unknown';
+              const params = new URLSearchParams({ transaction: transactionId, reconciliation: 'pending' });
+              if (typeof normalizedAmount === 'number' && Number.isFinite(normalizedAmount)) {
+                params.append('amount', normalizedAmount.toFixed(2));
+              }
+              if (planId) {
+                params.append('planId', planId);
+              }
+              window.location.href = `/confirmation?${params.toString()}`;
+            }, 1200);
+          }
+
+          return;
         }
 
         if (onSuccess) {
@@ -547,8 +579,8 @@ export default function EPXHostedPayment({
           description: message,
         });
 
-        if (onSuccess) {
-          onSuccess(transactionFromPayload || sessionData?.transactionId || 'unknown', normalizedAmount);
+        if (onProcessing) {
+          onProcessing(transactionFromPayload || sessionData?.transactionId || 'unknown', normalizedAmount);
         }
 
         if (redirectOnSuccess !== false) {

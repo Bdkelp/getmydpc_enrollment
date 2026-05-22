@@ -654,6 +654,15 @@ export default function GroupPaymentCheckoutPage() {
                     });
                     setHasLaunchedPayment(false);
                   }}
+                  onProcessing={(transactionId) => {
+                    toast({
+                      title: "Payment processing",
+                      description: transactionId
+                        ? `Transaction ${transactionId} is pending callback reconciliation.`
+                        : "Payment is pending callback reconciliation.",
+                    });
+                    setHasLaunchedPayment(false);
+                  }}
                   onError={(message) => {
                     toast({
                       title: "Hosted checkout error",

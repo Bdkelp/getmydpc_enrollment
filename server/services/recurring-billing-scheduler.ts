@@ -1223,13 +1223,13 @@ async function runBillingCycle(options?: {
         });
         console.log(`${LOG_PREFIX} Stale pending log ${stale.id} (sub ${stale.subscriptionId}) verified as success`);
       } else {
-        // No evidence of success — mark failed so it can be retried
+        // No evidence of success — mark failed as terminal for this billing cycle
         await updateRecurringBillingLog(stale.id, {
           status: 'failed',
           failureReason: 'Stale pending entry — no matching payment or date advancement found',
           processedAt: new Date().toISOString(),
         });
-        console.warn(`${LOG_PREFIX} Marked stale pending log ${stale.id} (sub ${stale.subscriptionId}) as failed`);
+        console.warn(`${LOG_PREFIX} Marked stale pending log ${stale.id} (sub ${stale.subscriptionId}) as failed (terminal for cycle)`);
       }
     }
 

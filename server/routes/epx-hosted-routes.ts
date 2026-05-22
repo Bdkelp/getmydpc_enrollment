@@ -142,6 +142,8 @@ type PaymentRecord = {
   member_id?: number | string | null;
   subscription_id?: number | string | null;
   transaction_id?: string | null;
+  created_at?: string | Date | null;
+  updated_at?: string | Date | null;
   metadata?: Record<string, any> | null;
   amount?: number | string | null;
   status?: string | null;
@@ -186,6 +188,55 @@ type HostedDeclineDetails = {
   declineCode: string | null;
   rawStatusMessage: string | null;
 };
+
+const HOSTED_PENDING_ACTIVE_WINDOW_MINUTES = 20;
+
+function isHostedPendingStatus(status: unknown): boolean {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'pending' || normalized === 'processing';
+}
+
+async function expireHostedPendingPayment(
+  paymentRecord: PaymentRecord,
+  reason: string,
+  source: string,
+): Promise<PaymentRecord | null> {
+  const metadataBase = parsePaymentMetadata(paymentRecord.metadata);
+  const updatedMetadata: Record<string, any> = {
+    ...metadataBase,
+    pendingResolution: {
+      ...(metadataBase.pendingResolution && typeof metadataBase.pendingResolution === 'object'
+        ? metadataBase.pendingResolution
+        : {}),
+      source,
+      reason,
+      resolvedAt: new Date().toISOString(),
+      previousStatus: paymentRecord.status || null,
+    },
+  };
+
+  try {
+    const updated = await storage.updatePayment(paymentRecord.id, {
+      status: 'failed',
+      metadata: updatedMetadata,
+    });
+
+    return updated as PaymentRecord;
+  } catch (error: any) {
+    logEPX({
+      level: 'error',
+      phase: source,
+      message: 'Failed to expire stale hosted pending payment',
+      data: {
+        paymentId: paymentRecord.id,
+        transactionId: paymentRecord.transaction_id || null,
+        reason,
+        error: error?.message,
+      }
+    });
+    return null;
+  }
+}
 
 async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   const {
@@ -314,6 +365,7 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
         transactionId: normalizedTransactionId
       }
     });
+    throw new Error(`Hosted payment persistence failed for payment ${paymentRecord.id}: ${error?.message || 'unknown error'}`);
   }
 
   return { paymentRecord, maskedAuthGuid };
@@ -2273,7 +2325,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
             ? new Date(latestEnrollmentPayment.created_at as unknown as string).getTime()
             : NaN;
           const withinIntentWindow = Number.isFinite(createdAtMs)
-            ? (Date.now() - createdAtMs) < (20 * 60 * 1000)
+            ? (Date.now() - createdAtMs) < (HOSTED_PENDING_ACTIVE_WINDOW_MINUTES * 60 * 1000)
             : true;
 
           const resumeSamePendingIntent = isRetryRequest
@@ -2301,6 +2353,7 @@ router.post('/api/epx/hosted/create-payment', async (req: Request, res: Response
               }
             });
           }
+
         }
       }
     }
@@ -2743,6 +2796,8 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         callbackPending: true,
+        processing: true,
+        terminal: false,
         message: 'Completion acknowledged. Awaiting callback reconciliation.',
       });
     }
@@ -4327,7 +4382,7 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
   try {
     const { transactionId } = req.params;
     
-    const payment = await storage.getPaymentByTransactionId(transactionId);
+    let payment = await storage.getPaymentByTransactionId(transactionId);
     
     if (!payment) {
       logEPX({ level: 'warn', phase: 'status', message: 'Status check - payment not found', data: { transactionId } });
@@ -4362,9 +4417,13 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
       || legacyFailureBlob.rawStatusMessage
       || null;
 
+    const isProcessing = isHostedPendingStatus(payment.status);
+
     res.json({
       success: true,
       status: payment.status,
+      processing: isProcessing,
+      terminal: !isProcessing,
       amount: payment.amount,
       transactionId: payment.transaction_id || payment.transactionId || null,
       authorizationCode: payment.authorization_code || payment.authorizationCode || null,

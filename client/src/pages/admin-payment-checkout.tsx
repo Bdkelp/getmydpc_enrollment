@@ -562,6 +562,18 @@ export default function AdminPaymentCheckoutPage() {
                         }
                         handleCheckoutSuccess(transactionId, paidAmount);
                       }}
+                      onProcessing={(transactionId, paidAmount) => {
+                        if (paidAmount) {
+                          console.info("Hosted checkout processing amount", paidAmount);
+                        }
+                        toast({
+                          title: "Payment processing",
+                          description: transactionId
+                            ? `Transaction ${transactionId} is awaiting callback reconciliation.`
+                            : "Payment is awaiting callback reconciliation.",
+                        });
+                        setHasLaunchedPayment(false);
+                      }}
                       onError={(message) => {
                         toast({
                           title: "Hosted checkout error",
