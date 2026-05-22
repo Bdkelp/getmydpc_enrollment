@@ -14,7 +14,7 @@ import logoPng from "@assets/My Premier Plans Logo-01.png";
 import { hasAtLeastRole } from "@/lib/roles";
 import { Helmet } from "react-helmet-async";
 
-const CTA_BUTTON_CLASS = "bg-medical-blue-600 text-white hover:bg-medical-blue-700 shadow-md";
+const CTA_BUTTON_CLASS = "border-0 bg-gradient-to-r from-deep-twilight-600 via-french-blue-500 to-bright-teal-blue-500 text-sky-aqua-50 shadow-colored transition-all duration-300 hover:scale-[1.01] hover:from-deep-twilight-500 hover:to-turquoise-surf-500";
 
 const ContactFormModal = lazy(() =>
   import("@/components/contact-form-modal").then((module) => ({
@@ -375,7 +375,8 @@ export default function Landing() {
       </nav>
 
       {/* Hero Section */}
-      <div className="relative bg-gradient-to-br from-medical-blue-50 via-white to-medical-blue-50/20 overflow-hidden hero-shell">
+      <div className="relative overflow-hidden bg-gradient-to-br from-sky-aqua-50 via-white to-french-blue-50 hero-shell">
+        <div className="pointer-events-none absolute inset-0 opacity-70" style={{ backgroundImage: "radial-gradient(circle at 15% 18%, rgba(8,12,247,0.08) 0%, transparent 46%), radial-gradient(circle at 82% 78%, rgba(0,212,255,0.14) 0%, transparent 40%)" }} />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div
@@ -389,12 +390,12 @@ export default function Landing() {
                 style={{ transitionDelay: "0ms" }}
               >
                 <LogoImage className="h-32 sm:h-40 md:h-56 lg:h-64 w-auto drop-shadow-2xl" />
-                <span className="text-xs tracking-[0.4em] uppercase text-medical-blue-500 font-semibold hidden md:block">
+                <span className="hidden text-xs font-semibold uppercase tracking-[0.4em] text-french-blue-700 md:block">
                   Membership Made Local. Nationwide Care.
                 </span>
               </div>
               <h1
-                className={`text-4xl lg:text-6xl font-bold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
+                className={`text-4xl lg:text-6xl font-bold leading-tight text-deep-twilight-900 transform transition-all duration-700 ease-out ${
                   heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
                 }`}
                 style={{ transitionDelay: "0ms" }}
@@ -402,7 +403,7 @@ export default function Landing() {
                 Real Doctors
               </h1>
               <h2
-                className={`text-4xl lg:text-5xl font-semibold text-gray-900 leading-tight transform transition-all duration-700 ease-out ${
+                className={`text-4xl lg:text-5xl font-semibold leading-tight text-deep-twilight-800 transform transition-all duration-700 ease-out ${
                   heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
                 }`}
                 style={{ transitionDelay: "120ms" }}
@@ -410,7 +411,7 @@ export default function Landing() {
                 Real Access
               </h2>
               <h2
-                className={`text-3xl lg:text-4xl font-semibold text-gray-800 leading-tight transform transition-all duration-700 ease-out ${
+                className={`text-3xl lg:text-4xl font-semibold leading-tight text-french-blue-700 transform transition-all duration-700 ease-out ${
                   heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
                 }`}
                 style={{ transitionDelay: "240ms" }}
@@ -418,7 +419,7 @@ export default function Landing() {
                 Real Simple
               </h2>
               <h3
-                className={`text-2xl text-gray-700 font-medium mb-6 transform transition-all duration-700 ease-out ${
+                className={`text-2xl font-medium mb-6 text-french-blue-800/90 transform transition-all duration-700 ease-out ${
                   heroVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-10"
                 }`}
                 style={{ transitionDelay: "360ms" }}
@@ -436,14 +437,14 @@ export default function Landing() {
                       </Link>
                       {isAdminUser && (
                         <Link href="/admin">
-                          <Button size="lg" variant="outline" className="px-8 py-4">
+                          <Button size="lg" variant="outline" className="px-8 py-4 border-french-blue-300 text-french-blue-700 hover:bg-french-blue-50 hover:text-french-blue-800">
                             Admin Dashboard
                           </Button>
                         </Link>
                       )}
                       {isAgentOrAbove && (
                         <Link href="/agent">
-                          <Button size="lg" variant="outline" className="px-8 py-4">
+                          <Button size="lg" variant="outline" className="px-8 py-4 border-french-blue-300 text-french-blue-700 hover:bg-french-blue-50 hover:text-french-blue-800">
                             Agent Dashboard
                           </Button>
                         </Link>
@@ -470,7 +471,7 @@ export default function Landing() {
                   </div>
                 )}
                 <a href="https://www.mypremierplans.com" target="_blank" rel="noopener noreferrer">
-                  <Button variant="outline" size="lg" className="px-8 py-4">
+                  <Button variant="outline" size="lg" className="px-8 py-4 border-french-blue-300 text-french-blue-700 hover:bg-french-blue-50 hover:text-french-blue-800">
                     Learn More
                   </Button>
                 </a>
@@ -478,7 +479,7 @@ export default function Landing() {
             </div>
             <div className="lg:pl-8 animate-[scale-in_1s_ease-out]">
               <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-medical-blue-500/10 to-medical-blue-600/10 rounded-2xl blur-3xl" />
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-deep-twilight-500/10 via-french-blue-500/10 to-turquoise-surf-500/20 blur-3xl" />
                 <picture>
                   {heroSources.map((source) => (
                     <source

@@ -27,26 +27,26 @@ export const WelcomeCard: React.FC<WelcomeCardProps> = ({ user }) => {
   };
 
   return (
-    <Card className="mb-8 bg-gradient-to-r from-navy-500 to-blue-500 text-white shadow-colored">
+    <Card className="mb-8 border-0 bg-gradient-to-r from-deep-twilight-700 via-french-blue-600 to-bright-teal-blue-600 text-sky-aqua-50 shadow-colored">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold mb-1">
-              {getTimeOfDayGreeting()}, {getUserName()}! 👋
+              {getTimeOfDayGreeting()}, {getUserName()}.
             </h2>
-            <p className="text-blue-100">
+            <p className="text-sky-aqua-100">
               Welcome to your admin dashboard. You have full system access to manage the platform.
             </p>
             <div className="mt-4 flex items-center space-x-6">
               <div>
-                <p className="text-sm text-blue-100 font-medium">Platform Status</p>
+                <p className="text-sm font-medium text-sky-aqua-100">Platform Status</p>
                 <p className="text-lg font-semibold flex items-center">
                   <CheckCircle className="h-5 w-5 mr-1" />
                   All Systems Operational
                 </p>
               </div>
-              <div className="border-l border-blue-300 pl-6">
-                <p className="text-sm text-blue-100 font-medium">Last Login</p>
+              <div className="border-l border-sky-aqua-200/60 pl-6">
+                <p className="text-sm font-medium text-sky-aqua-100">Last Login</p>
                 <p className="text-lg font-semibold">
                   {user?.lastLoginAt ? format(new Date(user.lastLoginAt), "MMM d, h:mm a") : "First login"}
                 </p>
@@ -54,7 +54,7 @@ export const WelcomeCard: React.FC<WelcomeCardProps> = ({ user }) => {
             </div>
           </div>
           <div className="hidden md:block">
-            <Shield className="h-24 w-24 text-blue-200 opacity-50" />
+            <Shield className="h-24 w-24 text-sky-aqua-200 opacity-60" />
           </div>
         </div>
       </CardContent>

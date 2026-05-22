@@ -314,13 +314,13 @@ export default function Payment() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-gradient-to-b from-sky-aqua-50 via-white to-french-blue-50 py-12">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <Card className="p-8">
+        <Card className="border-french-blue-100 bg-white/95 p-8 shadow-xl backdrop-blur-sm">
           <CardContent className="p-0">
             <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Payment Details</h1>
-              <p className="text-gray-600">Complete your enrollment</p>
+              <h1 className="mb-2 text-3xl font-bold text-deep-twilight-900">Payment Details</h1>
+              <p className="text-french-blue-800">Complete your enrollment</p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -329,27 +329,27 @@ export default function Payment() {
               <div>
                 <div className="space-y-6">
                   {/* Selected Plan Display */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-4">Your Selected Healthcare Membership</h3>
+                  <div className="mb-6 rounded-lg border border-french-blue-200 bg-french-blue-50 p-6">
+                    <h3 className="mb-4 font-semibold text-deep-twilight-900">Your Selected Healthcare Membership</h3>
                     {selectedPlan ? (
                       <div>
                         <div className="flex justify-between items-start mb-4">
                           <div>
-                            <h4 className="text-xl font-bold text-gray-900">{selectedPlan.name}</h4>
+                            <h4 className="text-xl font-bold text-deep-twilight-900">{selectedPlan.name}</h4>
                             {selectedPlan.description && (
-                              <p className="text-gray-600 mt-1">{selectedPlan.description}</p>
+                              <p className="mt-1 text-french-blue-800">{selectedPlan.description}</p>
                             )}
                           </div>
                           <div className="text-right">
-                            <div className="text-2xl font-bold text-medical-blue-600">
+                            <div className="text-2xl font-bold text-deep-twilight-700">
                               ${sessionStorage.getItem("totalMonthlyPrice") || selectedPlan.price}
                             </div>
-                            <div className="text-sm text-gray-600">per month</div>
+                            <div className="text-sm text-french-blue-700">per month</div>
                           </div>
                         </div>
                         
                         {/* Price Breakdown */}
-                        <div className="border-t border-blue-200 pt-4 space-y-2">
+                        <div className="space-y-2 border-t border-french-blue-200 pt-4">
                           <div className="flex justify-between text-sm">
                             <span>Base Membership</span>
                             <span>${selectedPlan.price}</span>
@@ -378,7 +378,7 @@ export default function Payment() {
                         
                         <button
                           type="button"
-                          className="mt-4 text-sm text-medical-blue-600 hover:text-medical-blue-700 underline"
+                          className="mt-4 text-sm text-french-blue-700 underline hover:text-deep-twilight-700"
                           onClick={() => setLocation("/registration")}
                         >
                           Change plan selection
@@ -391,17 +391,17 @@ export default function Payment() {
                   
                   {/* Hosted Checkout Prompt */}
                   {selectedPlan && (
-                    <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-5">
+                    <div className="space-y-5 rounded-lg border border-french-blue-100 bg-white p-6 shadow-sm">
                       <div className="flex items-center gap-2">
-                        <CreditCard className="h-5 w-5 text-medical-blue-600" />
-                        <h3 className="text-lg font-semibold text-gray-900">Complete Payment</h3>
+                        <CreditCard className="h-5 w-5 text-french-blue-600" />
+                        <h3 className="text-lg font-semibold text-deep-twilight-900">Complete Payment</h3>
                       </div>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm text-french-blue-800">
                         We use EPX Hosted Checkout for all payments. Click the button below to launch the secure window and
                         finish enrollment. MyPremierPlans never collects or stores your card number on this page.
                       </p>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                        <p className="font-semibold text-slate-900 mb-2">What to expect:</p>
+                      <div className="rounded-lg border border-bright-teal-blue-200 bg-sky-aqua-50 p-4 text-sm text-french-blue-900">
+                        <p className="mb-2 font-semibold text-deep-twilight-900">What to expect:</p>
                         <ul className="list-disc space-y-1 pl-5">
                           <li>A secure EPX modal opens after you click <span className="font-semibold">Pay with Card</span>.</li>
                           <li>Enter your card details there and submit; we’ll redirect you to confirmation automatically.</li>
@@ -452,7 +452,7 @@ export default function Payment() {
                       )}
                       <Button
                         type="button"
-                        className="w-full medical-blue-600 hover:medical-blue-700 text-white py-3"
+                        className="w-full border-0 bg-gradient-to-r from-deep-twilight-600 via-french-blue-500 to-bright-teal-blue-500 py-3 text-sky-aqua-50 shadow-colored transition-all duration-300 hover:from-deep-twilight-500 hover:to-turquoise-surf-500"
                         onClick={() => {
                           if (!user?.id || !user?.email) {
                             toast({
@@ -499,12 +499,12 @@ export default function Payment() {
                       </Button>
                       
                       {/* Quiet ACH option - not prominently displayed */}
-                      <div className="text-center text-xs text-gray-500 mt-2">
+                      <div className="mt-2 text-center text-xs text-french-blue-800">
                         {paymentMethod === 'card' && canUseACH ? (
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('ach')}
-                            className="underline hover:text-gray-700"
+                            className="underline hover:text-deep-twilight-700"
                           >
                             Don't have a card? Pay with bank account
                           </button>
@@ -512,14 +512,14 @@ export default function Payment() {
                           <button
                             type="button"
                             onClick={() => setPaymentMethod('card')}
-                            className="underline hover:text-gray-700"
+                            className="underline hover:text-deep-twilight-700"
                           >
                             Use credit/debit card instead
                           </button>
                         ) : null}
                       </div>
                       
-                      <p className="text-xs text-gray-500 text-center">
+                      <p className="text-center text-xs text-french-blue-800">
                         <Shield className="inline-block mr-1 h-3 w-3" />
                         Payments are processed securely via EPX hosted checkout. Card details never touch MyPremierPlans servers.
                       </p>
@@ -530,48 +530,48 @@ export default function Payment() {
 
               {/* Order Summary */}
               <div>
-                <div className="bg-gray-50 rounded-lg p-6 sticky top-8">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-6">Order Summary</h3>
+                <div className="sticky top-8 rounded-lg border border-french-blue-100 bg-white/90 p-6 shadow-sm backdrop-blur-sm">
+                  <h3 className="mb-6 text-lg font-semibold text-deep-twilight-900">Order Summary</h3>
                   
                   <div className="space-y-4">
                     <div className="flex justify-between">
-                      <span className="text-gray-700">{selectedPlan?.name || "Plan"}</span>
-                      <span className="text-gray-900">${selectedPlan?.price || "0.00"}</span>
+                        <span className="text-french-blue-900">{selectedPlan?.name || "Plan"}</span>
+                      <span className="text-deep-twilight-900">${selectedPlan?.price || "0.00"}</span>
                     </div>
                     
                   {sessionStorage.getItem("rxValet") === "yes" && (
                     <div className="flex justify-between">
-                      <span className="text-gray-700">RxValet Add-on</span>
-                      <span className="text-gray-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
+                      <span className="text-french-blue-900">RxValet Add-on</span>
+                      <span className="text-deep-twilight-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
                     </div>
                   )}
                   
-                  <div className="flex justify-between text-sm text-gray-600">
+                  <div className="flex justify-between text-sm text-french-blue-800">
                     <span>Administration Fee (4%)</span>
-                    <span className="text-gray-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
+                    <span className="text-deep-twilight-900">${sessionStorage.getItem("processingFee") || "0.00"}</span>
                   </div>
                   
-                  <div className="flex justify-between text-sm text-gray-600">
+                  <div className="flex justify-between text-sm text-french-blue-800">
                     <span>Setup Fee</span>
-                    <span className="text-green-600">Free</span>
-                  </div>                    <div className="border-t border-gray-200 pt-4">
+                    <span className="text-sky-aqua-700">Free</span>
+                  </div>                    <div className="border-t border-french-blue-100 pt-4">
                       <div className="flex justify-between text-lg font-bold">
                         <span>Total Due Today</span>
-                        <span className="text-medical-blue-600">${sessionStorage.getItem("totalMonthlyPrice") || "0"}</span>
+                        <span className="text-deep-twilight-700">${sessionStorage.getItem("totalMonthlyPrice") || "0"}</span>
                       </div>
-                      <p className="text-sm text-gray-600 mt-2">
+                      <p className="mt-2 text-sm text-french-blue-800">
                         Recurring monthly charge: ${sessionStorage.getItem("totalMonthlyPrice") || "0"}
                       </p>
                     </div>
                   </div>
 
                   {/* Security Notice */}
-                  <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
+                  <div className="mt-6 rounded-lg border border-sky-aqua-200 bg-sky-aqua-50 p-4">
                     <div className="flex items-start">
-                      <Shield className="text-green-600 h-5 w-5 mr-3 mt-1" />
+                      <Shield className="mr-3 mt-1 h-5 w-5 text-sky-aqua-700" />
                       <div>
-                        <p className="text-sm font-medium text-green-800">Secure Payment</p>
-                        <p className="text-xs text-green-700 mt-1">
+                        <p className="text-sm font-medium text-deep-twilight-900">Secure Payment</p>
+                        <p className="mt-1 text-xs text-french-blue-800">
                           Your payment information is encrypted and secure. PCI-DSS compliant.
                         </p>
                       </div>
@@ -579,22 +579,22 @@ export default function Payment() {
                   </div>
 
                   {/* Billing Information */}
-                  <div className="mt-6 text-sm text-gray-600">
+                  <div className="mt-6 text-sm text-french-blue-800">
                     <ul className="space-y-1">
                       <li className="flex items-center">
-                        <Check className="h-4 w-4 text-green-500 mr-2" />
+                        <Check className="mr-2 h-4 w-4 text-french-blue-600" />
                         Cancel anytime with 14 days written notice
                       </li>
                       <li className="flex items-center">
-                        <Check className="h-4 w-4 text-green-500 mr-2" />
+                        <Check className="mr-2 h-4 w-4 text-french-blue-600" />
                         No long-term contracts required
                       </li>
                       <li className="flex items-center">
-                        <Check className="h-4 w-4 text-green-500 mr-2" />
+                        <Check className="mr-2 h-4 w-4 text-french-blue-600" />
                         Billing date: 1st of each month
                       </li>
                       <li className="flex items-center">
-                        <Check className="h-4 w-4 text-green-500 mr-2" />
+                        <Check className="mr-2 h-4 w-4 text-french-blue-600" />
                         Automatic renewal unless cancelled
                       </li>
                     </ul>
@@ -629,9 +629,9 @@ export default function Payment() {
                   </div>
                   
                   {/* Company Contact Information */}
-                  <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <h4 className="text-sm font-semibold text-blue-900 mb-3">Contact Us</h4>
-                    <div className="space-y-2 text-xs text-blue-800">
+                  <div className="mt-6 rounded-lg border border-french-blue-200 bg-french-blue-50 p-4">
+                    <h4 className="mb-3 text-sm font-semibold text-deep-twilight-900">Contact Us</h4>
+                    <div className="space-y-2 text-xs text-french-blue-900">
                       <div className="flex items-start">
                         <MapPin className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
                         <div>
@@ -644,8 +644,8 @@ export default function Payment() {
                         <Phone className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0" />
                         <div>
                           <p className="font-medium">Customer Service</p>
-                          <p>Toll-Free: <a href="tel:+18883469372" className="text-blue-700 hover:underline">+1 (888) 346-9372</a></p>
-                          <p>Local: <a href="tel:+12106249149" className="text-blue-700 hover:underline">+1 (210) 624-9149</a></p>
+                          <p>Toll-Free: <a href="tel:+18883469372" className="text-deep-twilight-700 hover:underline">+1 (888) 346-9372</a></p>
+                          <p>Local: <a href="tel:+12106249149" className="text-deep-twilight-700 hover:underline">+1 (210) 624-9149</a></p>
                           <p className="text-xs mt-1">Monday - Friday: 8:00 AM - 6:00 PM CST</p>
                         </div>
                       </div>
@@ -656,7 +656,7 @@ export default function Payment() {
             </div>
 
             {/* Form Actions */}
-            <div className="flex flex-col sm:flex-row gap-4 pt-8 border-t border-gray-200 mt-8">
+            <div className="mt-8 flex flex-col gap-4 border-t border-french-blue-100 pt-8 sm:flex-row">
               <Button 
                 type="button" 
                 variant="outline"
@@ -679,12 +679,12 @@ export default function Payment() {
       
       {/* EPX Payment Modal */}
       {showEPXPayment && selectedPlan && user?.id && user?.email && memberId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-deep-twilight-950/70 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-french-blue-100 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Complete Payment</h2>
-                <p className="text-sm text-gray-500">Secure EPX hosted checkout</p>
+                <h2 className="text-xl font-semibold text-deep-twilight-900">Complete Payment</h2>
+                <p className="text-sm text-french-blue-700">Secure EPX hosted checkout</p>
               </div>
               <button
                 type="button"

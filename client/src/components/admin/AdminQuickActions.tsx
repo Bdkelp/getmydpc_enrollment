@@ -24,7 +24,7 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
   lastRecurringMode,
 }) => {
   return (
-    <div className="bg-white shadow-sm border-b border-gray-200">
+    <div className="border-b border-french-blue-100 bg-gradient-to-r from-white via-sky-aqua-50/40 to-french-blue-50/40 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex flex-col gap-4">
           <div>
@@ -33,21 +33,21 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
           </div>
 
           <div className="space-y-5">
-            <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4">
+            <div className="rounded-xl border border-french-blue-200 bg-french-blue-50/60 p-4">
               <div className="mb-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-blue-700">Enrollment Operations</h2>
-                <p className="text-xs text-blue-700/80">Core enrollment and queue management workflows.</p>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-french-blue-700">Enrollment Operations</h2>
+                <p className="text-xs text-french-blue-700/80">Core enrollment and queue management workflows.</p>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Link href="/registration">
-                  <Button className="w-full bg-white hover:bg-gray-100 text-black border border-gray-300 h-20 flex flex-col items-center justify-center">
+                  <Button className="h-20 w-full flex-col items-center justify-center border-0 bg-gradient-to-r from-deep-twilight-600 via-french-blue-500 to-bright-teal-blue-500 text-sky-aqua-50 shadow-colored transition-all duration-300 hover:scale-[1.01] hover:from-deep-twilight-500 hover:to-turquoise-surf-500">
                     <UserPlus className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">New Person Enrollment</span>
                   </Button>
                 </Link>
                 <Button
                   variant="outline"
-                  className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
+                  className="h-20 w-full flex-col items-center justify-center border-french-blue-400 text-french-blue-700 hover:bg-french-blue-50"
                   onClick={() => onNavigate(enrollmentRecordsRoute)}
                 >
                   <Users className="h-5 w-5 mb-1" />
@@ -55,7 +55,7 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full border-orange-500 text-orange-600 hover:bg-orange-50 h-20 flex flex-col items-center justify-center"
+                  className="h-20 w-full flex-col items-center justify-center border-turquoise-surf-500 text-turquoise-surf-700 hover:bg-turquoise-surf-50"
                   onClick={() => onNavigate("/admin/leads")}
                 >
                   <Users className="h-5 w-5 mb-1" />
@@ -63,7 +63,7 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center"
+                  className="h-20 w-full flex-col items-center justify-center border-deep-twilight-500 text-deep-twilight-700 hover:bg-deep-twilight-50"
                   onClick={() => onNavigate("/admin/notifications")}
                 >
                   <Bell className="h-5 w-5 mb-1" />
@@ -72,48 +72,48 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
               </div>
             </div>
 
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+            <div className="rounded-xl border border-sky-aqua-200 bg-sky-aqua-50/60 p-4">
               <div className="mb-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Revenue and Performance</h2>
-                <p className="text-xs text-emerald-700/80">Payments, commissions, analytics, and goals.</p>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-sky-aqua-700">Revenue and Performance</h2>
+                <p className="text-xs text-sky-aqua-700/80">Payments, commissions, analytics, and goals.</p>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                 <Link href="/admin/commissions">
-                  <Button variant="outline" className="w-full border-emerald-500 text-emerald-600 hover:bg-emerald-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-sky-aqua-500 text-sky-aqua-700 hover:bg-sky-aqua-50">
                     <DollarSign className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Commissions</span>
                   </Button>
                 </Link>
                 <Link href="/admin/payments/recent">
-                  <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-french-blue-500 text-french-blue-700 hover:bg-french-blue-50">
                     <DollarSign className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Recent Payments</span>
                   </Button>
                 </Link>
                 <Link href="/admin/payments/failed">
-                  <Button variant="outline" className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-red-400 text-red-700 hover:bg-red-50">
                     <AlertTriangle className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Failed Payments</span>
                   </Button>
                 </Link>
                 <Link href="/admin/analytics">
-                  <Button variant="outline" className="w-full border-green-500 text-green-600 hover:bg-green-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-bright-teal-blue-500 text-bright-teal-blue-700 hover:bg-bright-teal-blue-50">
                     <BarChart className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Analytics</span>
                   </Button>
                 </Link>
                 <Link href="/admin/performance-goals">
-                  <Button variant="outline" className="w-full border-fuchsia-500 text-fuchsia-600 hover:bg-fuchsia-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-deep-twilight-500 text-deep-twilight-700 hover:bg-deep-twilight-50">
                     <Target className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Performance Goals</span>
                   </Button>
                 </Link>
               </div>
 
-              <div className="mt-4 rounded-xl border border-indigo-200 bg-white p-4">
+              <div className="mt-4 rounded-xl border border-deep-twilight-200 bg-white p-4">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-indigo-700">Recurring Billing Controls</h3>
+                    <h3 className="text-sm font-semibold uppercase tracking-wide text-deep-twilight-700">Recurring Billing Controls</h3>
                     <p className="text-xs text-gray-600">Run a safe preview or confirmed live recurring billing + commission workflow.</p>
                   </div>
                   <div className="mt-1 flex w-full flex-col gap-3 sm:mt-0 sm:w-auto sm:flex-row sm:items-center">
@@ -123,7 +123,7 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
                       variant="outline"
                       onClick={onPreviewRecurringBilling}
                       disabled={recurringPending}
-                      className="w-full sm:w-auto"
+                      className="w-full border-french-blue-300 text-french-blue-700 hover:bg-french-blue-50 sm:w-auto"
                     >
                       {recurringPending ? "Running preview..." : "Preview Recurring Billing"}
                     </Button>
@@ -132,13 +132,13 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
                       size="sm"
                       onClick={onOpenLiveRecurringConfirmation}
                       disabled={recurringPending || superAdminRestricted}
-                      className="w-full bg-indigo-600 text-white hover:bg-indigo-700 sm:w-auto"
+                      className="w-full border-0 bg-gradient-to-r from-deep-twilight-600 via-french-blue-600 to-bright-teal-blue-600 text-sky-aqua-50 hover:from-deep-twilight-500 hover:to-turquoise-surf-500 sm:w-auto"
                     >
                       {recurringPending ? "Running live workflow..." : "Run Recurring Billing + Commission Update"}
                     </Button>
                   </div>
                 </div>
-                <p className="mt-3 text-xs text-indigo-900">
+                <p className="mt-3 text-xs text-deep-twilight-800">
                   Safety note: the system auto-selects currently due records; manual member/account selection is disabled in this workflow.
                 </p>
                 {lastRecurringMode && (
@@ -149,15 +149,15 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-xl border border-french-blue-100 bg-french-blue-50/30 p-4">
               <div className="mb-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Platform Admin</h2>
-                <p className="text-xs text-slate-600">User management, hierarchy, and platform configuration.</p>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-deep-twilight-700">Platform Admin</h2>
+                <p className="text-xs text-french-blue-800">User management, hierarchy, and platform configuration.</p>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <Button
                   variant="outline"
-                  className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 h-20 flex flex-col items-center justify-center"
+                  className="h-20 w-full flex-col items-center justify-center border-french-blue-500 text-french-blue-700 hover:bg-french-blue-50"
                   onClick={onCreateUser}
                 >
                   <UserPlus className="h-5 w-5 mb-1" />
@@ -165,20 +165,20 @@ export const AdminQuickActions: React.FC<AdminQuickActionsProps> = ({
                 </Button>
                 <Button
                   variant="outline"
-                  className="w-full border-red-500 text-red-600 hover:bg-red-50 h-20 flex flex-col items-center justify-center"
+                  className="h-20 w-full flex-col items-center justify-center border-deep-twilight-500 text-deep-twilight-700 hover:bg-deep-twilight-50"
                   onClick={() => onNavigate("/admin/users")}
                 >
                   <Shield className="h-5 w-5 mb-1" />
                   <span className="text-sm font-medium">Users</span>
                 </Button>
                 <Link href="/admin/discount-codes">
-                  <Button variant="outline" className="w-full border-purple-500 text-purple-600 hover:bg-purple-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-bright-teal-blue-500 text-bright-teal-blue-700 hover:bg-bright-teal-blue-50">
                     <FileText className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Discount Codes</span>
                   </Button>
                 </Link>
                 <Link href="/admin/agent-hierarchy">
-                  <Button variant="outline" className="w-full border-indigo-500 text-indigo-600 hover:bg-indigo-50 h-20 flex flex-col items-center justify-center">
+                  <Button variant="outline" className="h-20 w-full flex-col items-center justify-center border-deep-twilight-400 text-deep-twilight-700 hover:bg-deep-twilight-50">
                     <Users className="h-5 w-5 mb-1" />
                     <span className="text-sm font-medium">Agent Hierarchy</span>
                   </Button>
