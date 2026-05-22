@@ -1,113 +1,248 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  /* New Color Palette - https://coolors.co/0a2463-fb3640-605f5e-247ba0-e2e2e2-c6ccb2 */
-  --background: hsl(0, 0%, 100%);
-  --foreground: hsl(223, 82%, 21%); /* Dark Navy */
-  --muted: hsl(0, 0%, 89%); /* Light Gray */
-  --muted-foreground: hsl(5, 1%, 38%); /* Dark Gray */
-  --popover: hsl(0, 0%, 100%);
-  --popover-foreground: hsl(223, 82%, 21%);
-  --card: hsl(0, 0%, 100%);
-  --card-foreground: hsl(223, 82%, 21%);
-  --border: hsl(0, 0%, 89%);
-  --input: hsl(0, 0%, 89%);
-  --primary: hsl(223, 82%, 21%); /* Dark Navy - Primary brand color */
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(199, 62%, 39%); /* Medium Blue */
-  --secondary-foreground: hsl(0, 0%, 100%);
-  --accent: hsl(357, 96%, 61%); /* Coral - High-priority CTAs */
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(357, 96%, 61%); /* Coral for destructive actions */
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --ring: hsl(199, 62%, 39%); /* Medium Blue for focus rings */
+  /* Professional tech palette based on Deep Twilight + French Blue + Aqua family */
+  --background: #f5fcff;
+  --foreground: #020231;
+  --muted: #e6f1ff;
+  --muted-foreground: #024397;
+  --popover: #ffffff;
+  --popover-foreground: #020231;
+  --card: #ffffff;
+  --card-foreground: #020231;
+  --border: #cde2fe;
+  --input: #d3f2f8;
+  --primary: #080cf7;
+  --primary-foreground: #e9f9fc;
+  --secondary: #046ffb;
+  --secondary-foreground: #e9f9fc;
+  --accent: #00d4ff;
+  --accent-foreground: #020231;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --ring: #00a6ff;
   --radius: 0.875rem;
-  --success: hsl(72, 23%, 75%); /* Sage for success states */
-  --warning: hsl(38, 92%, 50%);
-  --info: hsl(199, 62%, 39%); /* Medium Blue for info */
+  --success: #21bede;
+  --warning: #f59e0b;
+  --info: #1fc0e0;
 
-  /* New Palette - Navy Blue Scale (Primary) */
-  --navy-50: hsl(223, 82%, 95%);
-  --navy-100: hsl(223, 82%, 90%);
-  --navy-200: hsl(223, 82%, 80%);
-  --navy-300: hsl(223, 82%, 65%);
-  --navy-400: hsl(223, 82%, 45%);
-  --navy-500: hsl(223, 82%, 21%); /* Base: #0a2463 */
-  --navy-600: hsl(223, 82%, 17%);
-  --navy-700: hsl(223, 82%, 14%);
-  --navy-800: hsl(223, 82%, 10%);
-  --navy-900: hsl(223, 82%, 7%);
+  /* Deep Twilight */
+  --deep-twilight-50: #e6e7fe;
+  --deep-twilight-100: #cecefd;
+  --deep-twilight-200: #9c9efc;
+  --deep-twilight-300: #6b6dfa;
+  --deep-twilight-400: #393cf9;
+  --deep-twilight-500: #080cf7;
+  --deep-twilight-600: #0609c6;
+  --deep-twilight-700: #050794;
+  --deep-twilight-800: #030563;
+  --deep-twilight-900: #020231;
+  --deep-twilight-950: #010223;
 
-  /* New Palette - Medium Blue Scale (Secondary) */
-  --blue-50: hsl(199, 62%, 95%);
-  --blue-100: hsl(199, 62%, 88%);
-  --blue-200: hsl(199, 62%, 75%);
-  --blue-300: hsl(199, 62%, 60%);
-  --blue-400: hsl(199, 62%, 50%);
-  --blue-500: hsl(199, 62%, 39%); /* Base: #247ba0 */
-  --blue-600: hsl(199, 62%, 32%);
-  --blue-700: hsl(199, 62%, 26%);
-  --blue-800: hsl(199, 62%, 20%);
-  --blue-900: hsl(199, 62%, 15%);
+  /* French Blue */
+  --french-blue-50: #e6f1ff;
+  --french-blue-100: #cde2fe;
+  --french-blue-200: #9bc5fd;
+  --french-blue-300: #68a9fd;
+  --french-blue-400: #368cfc;
+  --french-blue-500: #046ffb;
+  --french-blue-600: #0359c9;
+  --french-blue-700: #024397;
+  --french-blue-800: #022c64;
+  --french-blue-900: #011632;
+  --french-blue-950: #011023;
 
-  /* New Palette - Coral Scale (CTA/Accent) */
-  --coral-50: hsl(357, 96%, 97%);
-  --coral-100: hsl(357, 96%, 92%);
-  --coral-200: hsl(357, 96%, 82%);
-  --coral-300: hsl(357, 96%, 72%);
-  --coral-400: hsl(357, 96%, 67%);
-  --coral-500: hsl(357, 96%, 61%); /* Base: #fb3640 */
-  --coral-600: hsl(357, 96%, 52%);
-  --coral-700: hsl(357, 96%, 43%);
-  --coral-800: hsl(357, 96%, 35%);
-  --coral-900: hsl(357, 96%, 27%);
+  /* Bright Teal Blue */
+  --bright-teal-blue-50: #e5f6ff;
+  --bright-teal-blue-100: #ccedff;
+  --bright-teal-blue-200: #99dbff;
+  --bright-teal-blue-300: #66c9ff;
+  --bright-teal-blue-400: #33b8ff;
+  --bright-teal-blue-500: #00a6ff;
+  --bright-teal-blue-600: #0085cc;
+  --bright-teal-blue-700: #006399;
+  --bright-teal-blue-800: #004266;
+  --bright-teal-blue-900: #002133;
+  --bright-teal-blue-950: #001724;
 
-  /* New Palette - Sage Scale (Success) */
-  --sage-50: hsl(72, 23%, 95%);
-  --sage-100: hsl(72, 23%, 88%);
-  --sage-200: hsl(72, 23%, 82%);
-  --sage-300: hsl(72, 23%, 78%);
-  --sage-400: hsl(72, 23%, 75%);
-  --sage-500: hsl(72, 23%, 70%); /* Base: #c6ccb2 */
-  --sage-600: hsl(72, 23%, 60%);
-  --sage-700: hsl(72, 23%, 50%);
-  --sage-800: hsl(72, 23%, 40%);
-  --sage-900: hsl(72, 23%, 30%);
+  /* Blue Green */
+  --blue-green-50: #e5f9ff;
+  --blue-green-100: #ccf2ff;
+  --blue-green-200: #99e6ff;
+  --blue-green-300: #66d9ff;
+  --blue-green-400: #33ccff;
+  --blue-green-500: #00bfff;
+  --blue-green-600: #0099cc;
+  --blue-green-700: #007399;
+  --blue-green-800: #004d66;
+  --blue-green-900: #002633;
+  --blue-green-950: #001b24;
+
+  /* Turquoise Surf */
+  --turquoise-surf-50: #e5fbff;
+  --turquoise-surf-100: #ccf6ff;
+  --turquoise-surf-200: #99eeff;
+  --turquoise-surf-300: #66e5ff;
+  --turquoise-surf-400: #33ddff;
+  --turquoise-surf-500: #00d4ff;
+  --turquoise-surf-600: #00aacc;
+  --turquoise-surf-700: #007f99;
+  --turquoise-surf-800: #005566;
+  --turquoise-surf-900: #002a33;
+  --turquoise-surf-950: #001e24;
+
+  /* Sky Aqua */
+  --sky-aqua-50: #e9f9fc;
+  --sky-aqua-100: #d3f2f8;
+  --sky-aqua-200: #a6e5f2;
+  --sky-aqua-300: #7ad8eb;
+  --sky-aqua-400: #4ecbe4;
+  --sky-aqua-500: #21bede;
+  --sky-aqua-600: #1b98b1;
+  --sky-aqua-700: #147285;
+  --sky-aqua-800: #0d4c59;
+  --sky-aqua-900: #07262c;
+  --sky-aqua-950: #051b1f;
+
+  /* Frosted Blue */
+  --frosted-blue-50: #e9f9fc;
+  --frosted-blue-100: #d2f2f9;
+  --frosted-blue-200: #a5e6f3;
+  --frosted-blue-300: #78d9ed;
+  --frosted-blue-400: #4bcde7;
+  --frosted-blue-500: #1fc0e0;
+  --frosted-blue-600: #189ab4;
+  --frosted-blue-700: #127387;
+  --frosted-blue-800: #0c4d5a;
+  --frosted-blue-900: #06262d;
+  --frosted-blue-950: #041b1f;
+
+  /* Light Cyan */
+  --light-cyan-50: #e8f9fc;
+  --light-cyan-100: #d2f3f9;
+  --light-cyan-200: #a5e6f3;
+  --light-cyan-300: #78daed;
+  --light-cyan-400: #4acde8;
+  --light-cyan-500: #1dc1e2;
+  --light-cyan-600: #179ab5;
+  --light-cyan-700: #127487;
+  --light-cyan-800: #0c4d5a;
+  --light-cyan-900: #06272d;
+  --light-cyan-950: #041b20;
+
+  /* Compatibility aliases for existing classes */
+  --navy-50: var(--deep-twilight-50);
+  --navy-100: var(--deep-twilight-100);
+  --navy-200: var(--deep-twilight-200);
+  --navy-300: var(--deep-twilight-300);
+  --navy-400: var(--deep-twilight-400);
+  --navy-500: var(--deep-twilight-500);
+  --navy-600: var(--deep-twilight-600);
+  --navy-700: var(--deep-twilight-700);
+  --navy-800: var(--deep-twilight-800);
+  --navy-900: var(--deep-twilight-900);
+
+  --blue-50: var(--french-blue-50);
+  --blue-100: var(--french-blue-100);
+  --blue-200: var(--french-blue-200);
+  --blue-300: var(--french-blue-300);
+  --blue-400: var(--french-blue-400);
+  --blue-500: var(--french-blue-500);
+  --blue-600: var(--french-blue-600);
+  --blue-700: var(--french-blue-700);
+  --blue-800: var(--french-blue-800);
+  --blue-900: var(--french-blue-900);
+
+  --coral-50: #fee2e2;
+  --coral-100: #fecaca;
+  --coral-200: #fca5a5;
+  --coral-300: #f87171;
+  --coral-400: #ef4444;
+  --coral-500: #dc2626;
+  --coral-600: #b91c1c;
+  --coral-700: #991b1b;
+  --coral-800: #7f1d1d;
+  --coral-900: #450a0a;
+
+  --sage-50: var(--sky-aqua-50);
+  --sage-100: var(--sky-aqua-100);
+  --sage-200: var(--sky-aqua-200);
+  --sage-300: var(--sky-aqua-300);
+  --sage-400: var(--sky-aqua-400);
+  --sage-500: var(--sky-aqua-500);
+  --sage-600: var(--sky-aqua-600);
+  --sage-700: var(--sky-aqua-700);
+  --sage-800: var(--sky-aqua-800);
+  --sage-900: var(--sky-aqua-900);
 
   /* Legacy Medical Colors - keeping for backward compatibility */
-  --medical-blue-50: hsl(199, 62%, 95%);
-  --medical-blue-100: hsl(199, 62%, 88%);
-  --medical-blue-200: hsl(199, 62%, 75%);
-  --medical-blue-300: hsl(199, 62%, 60%);
-  --medical-blue-400: hsl(199, 62%, 50%);
-  --medical-blue-500: hsl(199, 62%, 39%);
-  --medical-blue-600: hsl(199, 62%, 32%);
-  --medical-blue-700: hsl(199, 62%, 26%);
-  --medical-blue-800: hsl(199, 62%, 20%);
-  --medical-blue-900: hsl(199, 62%, 15%);
-  --medical-green-50: hsl(72, 23%, 95%);
-  --medical-green-100: hsl(72, 23%, 88%);
-  --medical-green-500: hsl(72, 23%, 70%);
-  --medical-green-600: hsl(72, 23%, 60%);
+  --medical-blue-50: var(--french-blue-50);
+  --medical-blue-100: var(--french-blue-100);
+  --medical-blue-200: var(--french-blue-200);
+  --medical-blue-300: var(--french-blue-300);
+  --medical-blue-400: var(--french-blue-400);
+  --medical-blue-500: var(--french-blue-500);
+  --medical-blue-600: var(--french-blue-600);
+  --medical-blue-700: var(--french-blue-700);
+  --medical-blue-800: var(--french-blue-800);
+  --medical-blue-900: var(--french-blue-900);
+  --medical-green-50: var(--sky-aqua-50);
+  --medical-green-100: var(--sky-aqua-100);
+  --medical-green-500: var(--sky-aqua-500);
+  --medical-green-600: var(--sky-aqua-600);
 
   /* Updated Gradients with New Palette */
-  --gradient-primary: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(199, 62%, 39%) 100%); /* Navy to Blue */
-  --gradient-secondary: linear-gradient(135deg, hsl(0, 0%, 89%) 0%, hsl(72, 23%, 75%) 100%); /* Light Gray to Sage */
-  --gradient-hero: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(199, 62%, 39%) 100%); /* Navy to Blue */
-  --gradient-card: linear-gradient(145deg, hsl(0, 0%, 100%) 0%, hsl(0, 0%, 98%) 100%);
-  --gradient-vibrant: linear-gradient(135deg, hsl(199, 62%, 39%) 0%, hsl(357, 96%, 61%) 100%); /* Blue to Coral */
-  --gradient-soft: linear-gradient(135deg, hsl(0, 0%, 89%) 0%, hsl(0, 0%, 100%) 100%);
-  --gradient-accent: linear-gradient(135deg, hsl(223, 82%, 21%) 0%, hsl(357, 96%, 61%) 100%); /* Navy to Coral */
+  --gradient-primary: linear-gradient(
+    135deg,
+    var(--deep-twilight-600) 0%,
+    var(--french-blue-500) 55%,
+    var(--bright-teal-blue-500) 100%
+  );
+  --gradient-secondary: linear-gradient(
+    135deg,
+    var(--sky-aqua-50) 0%,
+    var(--french-blue-50) 100%
+  );
+  --gradient-hero: linear-gradient(
+    128deg,
+    var(--deep-twilight-900) 0%,
+    var(--deep-twilight-700) 42%,
+    var(--french-blue-700) 74%,
+    var(--turquoise-surf-600) 100%
+  );
+  --gradient-card: linear-gradient(145deg, #ffffff 0%, var(--sky-aqua-50) 100%);
+  --gradient-vibrant: linear-gradient(
+    135deg,
+    var(--french-blue-500) 0%,
+    var(--turquoise-surf-500) 100%
+  );
+  --gradient-soft: linear-gradient(
+    135deg,
+    var(--french-blue-50) 0%,
+    #ffffff 100%
+  );
+  --gradient-accent: linear-gradient(
+    135deg,
+    var(--deep-twilight-500) 0%,
+    var(--turquoise-surf-500) 100%
+  );
 
   /* Enhanced Shadows with better depth */
   --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
-  --shadow-xl: 0 20px 35px -5px rgba(0, 0, 0, 0.08), 0 10px 15px -5px rgba(0, 0, 0, 0.04);
+  --shadow-md:
+    0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg:
+    0 10px 25px -3px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+  --shadow-xl:
+    0 20px 35px -5px rgba(0, 0, 0, 0.08), 0 10px 15px -5px rgba(0, 0, 0, 0.04);
   --shadow-2xl: 0 25px 60px -15px rgba(0, 0, 0, 0.15);
-  --shadow-colored: 0 10px 25px -3px rgba(10, 36, 99, 0.15), 0 4px 10px -2px rgba(10, 36, 99, 0.08); /* Navy shadow */
+  --shadow-colored:
+    0 10px 25px -3px rgba(8, 12, 247, 0.25),
+    0 4px 10px -2px rgba(0, 106, 255, 0.2);
   --shadow-inset: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
 
   /* Transition timings */
@@ -118,40 +253,61 @@
 }
 
 .dark {
-  --background: hsl(223, 82%, 7%); /* Dark Navy tone */
-  --foreground: hsl(0, 0%, 95%);
-  --muted: hsl(223, 82%, 14%);
-  --muted-foreground: hsl(0, 0%, 70%);
-  --popover: hsl(223, 82%, 10%);
-  --popover-foreground: hsl(0, 0%, 95%);
-  --card: hsl(223, 82%, 10%);
-  --card-foreground: hsl(0, 0%, 95%);
-  --border: hsl(223, 82%, 17%);
-  --input: hsl(223, 82%, 17%);
-  --primary: hsl(199, 62%, 50%); /* Lighter Medium Blue for dark mode */
-  --primary-foreground: hsl(0, 0%, 100%);
-  --secondary: hsl(223, 82%, 21%); /* Navy for secondary in dark */
-  --secondary-foreground: hsl(0, 0%, 100%);
-  --accent: hsl(357, 96%, 67%); /* Lighter Coral for dark mode */
-  --accent-foreground: hsl(0, 0%, 100%);
-  --destructive: hsl(357, 96%, 67%);
-  --destructive-foreground: hsl(0, 0%, 100%);
-  --ring: hsl(199, 62%, 50%);
+  --background: #010223;
+  --foreground: #e9f9fc;
+  --muted: #011632;
+  --muted-foreground: #68a9fd;
+  --popover: #020231;
+  --popover-foreground: #e9f9fc;
+  --card: #020231;
+  --card-foreground: #e9f9fc;
+  --border: #022c64;
+  --input: #022c64;
+  --primary: #33b8ff;
+  --primary-foreground: #011023;
+  --secondary: #006399;
+  --secondary-foreground: #e5f9ff;
+  --accent: #33ddff;
+  --accent-foreground: #001e24;
+  --destructive: #f87171;
+  --destructive-foreground: #450a0a;
+  --ring: #33ccff;
   --radius: 0.75rem;
 
   /* Dark mode gradients */
-  --gradient-primary: linear-gradient(135deg, hsl(223, 82%, 17%) 0%, hsl(199, 62%, 39%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(223, 82%, 14%) 0%, hsl(223, 82%, 17%) 100%);
-  --gradient-hero: linear-gradient(135deg, hsl(223, 82%, 10%) 0%, hsl(223, 82%, 14%) 50%, hsl(199, 62%, 26%) 100%);
-  --gradient-card: linear-gradient(135deg, hsl(223, 82%, 10%) 0%, hsl(223, 82%, 14%) 100%);
+  --gradient-primary: linear-gradient(
+    135deg,
+    var(--deep-twilight-900) 0%,
+    var(--french-blue-700) 60%,
+    var(--bright-teal-blue-700) 100%
+  );
+  --gradient-secondary: linear-gradient(
+    135deg,
+    var(--deep-twilight-950) 0%,
+    var(--deep-twilight-900) 100%
+  );
+  --gradient-hero: linear-gradient(
+    125deg,
+    var(--deep-twilight-950) 0%,
+    var(--deep-twilight-900) 45%,
+    var(--french-blue-900) 72%,
+    var(--bright-teal-blue-800) 100%
+  );
+  --gradient-card: linear-gradient(
+    135deg,
+    var(--deep-twilight-900) 0%,
+    var(--french-blue-950) 100%
+  );
 
   /* Dark mode shadows */
-  --shadow-colored: 0 10px 15px -3px rgba(36, 123, 160, 0.3), 0 4px 6px -2px rgba(36, 123, 160, 0.15);
+  --shadow-colored:
+    0 10px 15px -3px rgba(4, 111, 251, 0.35),
+    0 4px 6px -2px rgba(0, 212, 255, 0.2);
 }
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
   }
 
   html {
@@ -160,9 +316,15 @@
 
   body {
     @apply font-sans antialiased;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    background: hsl(0, 0%, 100%);
-    color: hsl(var(--foreground));
+    font-family:
+      "IBM Plex Sans",
+      "Space Grotesk",
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    background: var(--background);
+    color: var(--foreground);
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -206,26 +368,25 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
+    background: var(--border);
     border-radius: 20px;
     border: 2px solid transparent;
     background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--muted-foreground));
+    background: var(--muted-foreground);
     background-clip: padding-box;
   }
 
   /* Selection styles */
   ::selection {
-    background-color: hsl(var(--primary) / 0.2);
-    color: hsl(var(--primary-foreground));
+    background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+    color: var(--primary-foreground);
   }
 }
 
 @layer utilities {
-
   /* Medical Blue Colors */
   .medical-blue-50 {
     background-color: var(--medical-blue-50);
@@ -429,7 +590,6 @@
   }
 
   @keyframes bounce-subtle {
-
     0%,
     20%,
     53%,
@@ -488,7 +648,11 @@
 
   /* Medical Theme Specific */
   .medical-pattern {
-    background-image: radial-gradient(circle at 1px 1px, rgba(59, 130, 246, 0.1) 1px, transparent 0);
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      rgba(59, 130, 246, 0.1) 1px,
+      transparent 0
+    );
     background-size: 20px 20px;
   }
 
