@@ -31,6 +31,9 @@ interface FailedPayment {
   created_at: string;
   amount: number | string;
   status: string;
+  failureReason?: string | null;
+  declineCode?: string | null;
+  rawStatusMessage?: string | null;
   transaction_id?: string;
   payment_method?: string;
   member_id?: number;
@@ -131,7 +134,7 @@ export default function AdminFailedPayments() {
 
   const exportFailedPayments = () => {
     const csv = [
-      ['Date', 'Member', 'Email', 'Phone', 'Amount', 'Status', 'Agent', 'Plan'],
+      ['Date', 'Member', 'Email', 'Phone', 'Amount', 'Status', 'Failure Reason', 'Decline Code', 'Agent', 'Plan'],
       ...payments.map(p => [
         format(new Date(p.created_at), 'yyyy-MM-dd HH:mm:ss'),
         `${p.member_first_name || ''} ${p.member_last_name || ''}`.trim() || 'N/A',
@@ -139,6 +142,8 @@ export default function AdminFailedPayments() {
         p.member_phone || 'N/A',
         formatAmount(p.amount),
         p.status,
+        p.failureReason || p.rawStatusMessage || 'N/A',
+        p.declineCode || 'N/A',
         `${p.agent_first_name || ''} ${p.agent_last_name || ''}`.trim() || 'N/A',
         p.plan_name || 'N/A'
       ])
@@ -461,7 +466,15 @@ export default function AdminFailedPayments() {
                           {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell>
-                          {getStatusBadge(payment.status)}
+                          <div className="space-y-1">
+                            {getStatusBadge(payment.status)}
+                            {(payment.failureReason || payment.declineCode) && (
+                              <div className="text-[11px] text-gray-600">
+                                {payment.failureReason || 'Payment declined'}
+                                {payment.declineCode ? ` (code ${payment.declineCode})` : ''}
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">

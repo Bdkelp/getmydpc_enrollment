@@ -31,6 +31,9 @@ interface Payment {
   created_at: string;
   amount: number | string;
   status: string;
+  failureReason?: string | null;
+  declineCode?: string | null;
+  rawStatusMessage?: string | null;
   transaction_id?: string;
   payment_method?: string;
   member_id?: number;
@@ -384,7 +387,15 @@ export default function AdminRecentPayments() {
                           {formatAmount(payment.amount)}
                         </TableCell>
                         <TableCell>
-                          {getStatusBadge(payment.status)}
+                          <div className="space-y-1">
+                            {getStatusBadge(payment.status)}
+                            {(payment.failureReason || payment.declineCode) && (
+                              <div className="text-[11px] text-gray-600">
+                                {payment.failureReason || payment.rawStatusMessage || 'Payment declined'}
+                                {payment.declineCode ? ` (code ${payment.declineCode})` : ''}
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1">

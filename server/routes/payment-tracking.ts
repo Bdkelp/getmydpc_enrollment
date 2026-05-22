@@ -26,6 +26,37 @@ const normalizePositiveNumber = (value: unknown, fallback: number, min = 1, max 
 
 const normalizeStatus = (value: unknown): string => String(value || '').trim().toLowerCase();
 
+const deriveDeclineDetails = (payment: any): { failureReason: string | null; declineCode: string | null; rawStatusMessage: string | null } => {
+  const metadata = (payment?.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+  const hostedMeta = (metadata.hostedCallback && typeof metadata.hostedCallback === 'object')
+    ? metadata.hostedCallback
+    : null;
+
+  const failureReason =
+    payment?.failure_reason
+    || payment?.failureReason
+    || hostedMeta?.declineReason
+    || hostedMeta?.message
+    || metadata?.StatusMessage
+    || metadata?.statusMessage
+    || null;
+
+  const declineCode =
+    hostedMeta?.declineCode
+    || metadata?.StatusCode
+    || metadata?.statusCode
+    || metadata?.AUTH_RESP_CODE
+    || null;
+
+  const rawStatusMessage =
+    hostedMeta?.rawStatusMessage
+    || metadata?.StatusMessage
+    || metadata?.statusMessage
+    || null;
+
+  return { failureReason, declineCode, rawStatusMessage };
+};
+
 const buildPaymentVerification = (payment: any) => {
   const metadata = (payment?.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
   const status = normalizeStatus(payment?.status);
@@ -81,6 +112,7 @@ const buildPaymentVerification = (payment: any) => {
 const attachVerification = <T extends Record<string, any>>(payments: T[]): Array<T & { verification: ReturnType<typeof buildPaymentVerification> }> => {
   return payments.map((payment) => ({
     ...payment,
+    ...deriveDeclineDetails(payment),
     verification: buildPaymentVerification(payment),
   }));
 };

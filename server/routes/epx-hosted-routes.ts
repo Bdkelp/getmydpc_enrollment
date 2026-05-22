@@ -151,6 +151,9 @@ type HostedCallbackMetadata = {
   status?: string | null;
   amount?: string | number | null;
   message?: string | null;
+  rawStatusMessage?: string | null;
+  declineReason?: string | null;
+  declineCode?: string | null;
   authGuidMasked?: string | null;
   authGuidSource?: string | null;
   updatedAt?: string;
@@ -168,12 +171,21 @@ type HostedPaymentUpdateOptions = {
   amount?: number | string | null;
   callbackStatus?: string | null;
   callbackMessage?: string | null;
+  rawStatusMessage?: string | null;
+  declineReason?: string | null;
+  declineCode?: string | null;
   memberId?: number | null;
   bricTokenPresent?: boolean;
   paymentStatus?: string;
   tranType?: string | null;
   paymentMethodType?: string | null;
 }
+
+type HostedDeclineDetails = {
+  failureReason: string;
+  declineCode: string | null;
+  rawStatusMessage: string | null;
+};
 
 async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   const {
@@ -185,6 +197,9 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     amount,
     callbackStatus,
     callbackMessage,
+    rawStatusMessage,
+    declineReason,
+    declineCode,
     memberId,
     bricTokenPresent,
     paymentStatus = 'succeeded',
@@ -228,6 +243,9 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     status: callbackStatus ?? existingHostedMeta.status ?? null,
     amount: amount ?? existingHostedMeta.amount ?? null,
     message: callbackMessage ?? existingHostedMeta.message ?? null,
+    rawStatusMessage: rawStatusMessage ?? existingHostedMeta.rawStatusMessage ?? null,
+    declineReason: declineReason ?? existingHostedMeta.declineReason ?? null,
+    declineCode: declineCode ?? existingHostedMeta.declineCode ?? null,
     authGuidMasked: maskedAuthGuid,
     authGuidSource: authGuidSource ?? existingHostedMeta.authGuidSource ?? null,
     updatedAt: new Date().toISOString(),
@@ -457,6 +475,108 @@ const resolveCallbackAuthGuid = (
   }
 
   return { value: null, source: null };
+};
+
+const firstNonEmptyString = (...values: unknown[]): string | null => {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  return null;
+};
+
+const normalizeDeclineCode = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+  return normalized.length > 0 ? normalized.slice(0, 32) : null;
+};
+
+const deriveDeclineCodeFromMessage = (message: string | null): string | null => {
+  if (!message) {
+    return null;
+  }
+
+  const codeMatch = message.match(/\b(\d{2,3})\b/);
+  if (!codeMatch) {
+    return null;
+  }
+
+  return normalizeDeclineCode(codeMatch[1]);
+};
+
+const classifyHostedFailureReason = (rawStatusMessage: string | null, declineCode: string | null): string => {
+  const upperMessage = String(rawStatusMessage || '').toUpperCase();
+  const upperCode = String(declineCode || '').toUpperCase();
+
+  if (
+    upperMessage.includes('INSUFF')
+    || upperMessage.includes('INSUFFICIENT')
+    || upperMessage.includes('NSF')
+    || upperCode === '51'
+  ) {
+    return 'Insufficient funds';
+  }
+
+  if (
+    upperMessage.includes('DECLINED')
+    || upperMessage.includes('DO NOT HONOR')
+    || upperCode === '05'
+  ) {
+    return 'Card declined by issuer';
+  }
+
+  if (
+    upperMessage.includes('INVALID')
+    || upperMessage.includes('EXPIRED')
+    || upperCode === '14'
+    || upperCode === '54'
+  ) {
+    return 'Card information invalid or expired';
+  }
+
+  return 'Payment declined';
+};
+
+const extractHostedDeclineDetails = (payload: Record<string, any>, fallbackError?: string | null): HostedDeclineDetails => {
+  const rawStatusMessage = firstNonEmptyString(
+    payload?.StatusMessage,
+    payload?.statusMessage,
+    payload?.status,
+    payload?.AUTH_RESP,
+    payload?.authResp,
+    payload?.result?.StatusMessage,
+    payload?.result?.status,
+    fallbackError,
+  );
+
+  const explicitCode = normalizeDeclineCode(firstNonEmptyString(
+    payload?.StatusCode,
+    payload?.statusCode,
+    payload?.status,
+    payload?.AUTH_RESP_CODE,
+    payload?.authRespCode,
+    payload?.responseCode,
+    payload?.RespCode,
+    payload?.result?.StatusCode,
+    payload?.result?.AUTH_RESP_CODE,
+  ));
+
+  const declineCode = explicitCode || deriveDeclineCodeFromMessage(rawStatusMessage);
+  const failureReason = classifyHostedFailureReason(rawStatusMessage, declineCode);
+
+  return {
+    failureReason,
+    declineCode,
+    rawStatusMessage,
+  };
 };
 
 const sanitizeAlphaNumericToken = (value: string, maxLength: number): string => {
@@ -2543,7 +2663,19 @@ router.post('/api/epx/hosted/complete', async (req: Request, res: Response) => {
     });
 
     // Look up payment record to find the member
-    const fallbackTransactionRefs = [orderNumber, invoiceNumber]
+    const fallbackTransactionRefs = [
+      orderNumber,
+      invoiceNumber,
+      req.body?.TRAN_NBR,
+      req.body?.tranNbr,
+      req.body?.ORDER_NUMBER,
+      req.body?.INVOICE_NUMBER,
+      req.body?.result?.TRAN_NBR,
+      req.body?.result?.orderNumber,
+      req.body?.result?.ORDER_NUMBER,
+      req.body?.result?.invoiceNumber,
+      req.body?.result?.INVOICE_NUMBER,
+    ]
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .map((value) => value.trim());
 
@@ -2909,23 +3041,20 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
       ? 'ACH'
       : 'CreditCard';
 
-    // Parse user-friendly error message
-    let failureReason = statusMessage || status || 'Payment declined';
-    if (typeof statusMessage === 'string') {
-      if (statusMessage.includes('INSUFF') || statusMessage.includes('51')) {
-        failureReason = 'Insufficient funds';
-      } else if (statusMessage.includes('DECLINED') || statusMessage.includes('05')) {
-        failureReason = 'Card declined by issuer';
-      } else if (statusMessage.includes('INVALID') || statusMessage.includes('EXPIRED')) {
-        failureReason = 'Card information invalid or expired';
-      }
-    }
+    const declineDetails = extractHostedDeclineDetails(req.body || {});
+    const failureReason = declineDetails.failureReason || statusMessage || status || 'Payment declined';
 
     logEPX({
       level: 'info',
       phase: 'record-failure',
       message: 'Recording client-side payment failure',
-      data: { transactionId, memberId, failureReason, rawMessage: statusMessage }
+      data: {
+        transactionId,
+        memberId,
+        failureReason,
+        rawMessage: declineDetails.rawStatusMessage || statusMessage || null,
+        declineCode: declineDetails.declineCode,
+      }
     });
 
     // Update payment record if exists
@@ -2938,7 +3067,10 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
           authCode: null,
           amount: amount || null,
           callbackStatus: status || 'Failure',
-          callbackMessage: statusMessage || failureReason,
+          callbackMessage: declineDetails.rawStatusMessage || statusMessage || failureReason,
+          rawStatusMessage: declineDetails.rawStatusMessage || statusMessage || null,
+          declineReason: failureReason,
+          declineCode: declineDetails.declineCode,
           memberId: memberId || null,
           bricTokenPresent: false,
           paymentStatus: 'failed',
@@ -2971,7 +3103,8 @@ router.post('/api/epx/hosted/record-failure', async (req: Request, res: Response
             memberEmail: memberRecord?.email,
             memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
             failureReason,
-            rawMessage: statusMessage,
+            rawMessage: declineDetails.rawStatusMessage || statusMessage || null,
+            declineCode: declineDetails.declineCode,
             enrollingAgentId: memberRecord?.enrolledByAgentId || memberRecord?.enrolled_by_agent_id || null,
             timestamp: new Date().toISOString()
           }
@@ -3090,8 +3223,32 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
     );
     const authGuid = resolvedCallbackAuthGuid.value;
     const authGuidSource = resolvedCallbackAuthGuid.source;
-    const epxTransactionId = result.transactionId || req.body?.transactionId || req.body?.TRANSACTION_ID;
-    const fallbackOrderNumber = req.body?.orderNumber || req.body?.ORDER_NUMBER || req.body?.invoiceNumber || req.body?.INVOICE_NUMBER;
+    // Prefer app-side checkout references (TRAN_NBR/order/invoice) so we can reliably
+    // resolve the pending payment row even when EPX also returns a processor transaction ID.
+    const callbackTransactionReference =
+      req.body?.TRAN_NBR
+      || req.body?.tranNbr
+      || req.body?.orderNumber
+      || req.body?.ORDER_NUMBER
+      || req.body?.invoiceNumber
+      || req.body?.INVOICE_NUMBER
+      || req.body?.result?.TRAN_NBR
+      || req.body?.result?.orderNumber
+      || req.body?.result?.ORDER_NUMBER
+      || req.body?.result?.invoiceNumber
+      || req.body?.result?.INVOICE_NUMBER
+      || result.transactionId
+      || req.body?.transactionId
+      || req.body?.TRANSACTION_ID;
+
+    const epxTransactionId = callbackTransactionReference;
+    const fallbackOrderNumber =
+      req.body?.orderNumber
+      || req.body?.ORDER_NUMBER
+      || req.body?.TRAN_NBR
+      || req.body?.tranNbr
+      || req.body?.invoiceNumber
+      || req.body?.INVOICE_NUMBER;
     const callbackTranTypeRaw = String(req.body?.tranType || req.body?.TRAN_TYPE || '').trim().toUpperCase();
     const callbackPaymentMethodType = normalizeHostedPaymentMethodType(
       req.body?.paymentMethodType || req.body?.PaymentMethodType || req.body?.PAYMENT_METHOD_TYPE,
@@ -3957,7 +4114,20 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
 
     // === PAYMENT DECLINED ===
     if (!result.isApproved) {
-      logEPX({ level: 'warn', phase: 'callback', message: 'Payment declined', data: { error: result.error, transactionId: result.transactionId } });
+      const declineDetails = extractHostedDeclineDetails(req.body || {}, result.error || null);
+
+      logEPX({
+        level: 'warn',
+        phase: 'callback',
+        message: 'Payment declined',
+        data: {
+          error: result.error,
+          transactionId: result.transactionId,
+          failureReason: declineDetails.failureReason,
+          declineCode: declineDetails.declineCode,
+          rawStatusMessage: declineDetails.rawStatusMessage,
+        }
+      });
       
       // Persist the failed payment status
       try {
@@ -3968,7 +4138,10 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
           authCode: null,
           amount: result.amount,
           callbackStatus: req.body?.status || 'Failure',
-          callbackMessage: req.body?.StatusMessage || result.error || 'Payment declined',
+          callbackMessage: declineDetails.rawStatusMessage || result.error || declineDetails.failureReason,
+          rawStatusMessage: declineDetails.rawStatusMessage,
+          declineReason: declineDetails.failureReason,
+          declineCode: declineDetails.declineCode,
           bricTokenPresent: false,
           paymentStatus: 'failed',
           tranType: callbackResolvedTranType,
@@ -3987,14 +4160,16 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
               type: 'payment_failed',
               memberId,
               subscriptionId: null,
-              errorMessage: req.body?.StatusMessage || result.error || 'Payment declined by processor',
+              errorMessage: declineDetails.failureReason,
               metadata: {
                 transactionId: result.transactionId,
                 amount: result.amount,
                 paymentId: paymentRecordForLogging.id,
                 memberEmail: memberRecord?.email,
                 memberName: memberRecord ? `${memberRecord.firstName || ''} ${memberRecord.lastName || ''}`.trim() : null,
-                failureReason: req.body?.StatusMessage || result.error,
+                failureReason: declineDetails.failureReason,
+                rawStatusMessage: declineDetails.rawStatusMessage,
+                declineCode: declineDetails.declineCode,
                 planId: paymentRecordForLogging.metadata?.planId || null,
                 enrollingAgentId: memberRecord?.enrollingAgentId || memberRecord?.enrolled_by_agent_id || null,
                 timestamp: new Date().toISOString()
@@ -4034,7 +4209,10 @@ router.post('/api/epx/hosted/callback', async (req: Request, res: Response) => {
       
       const declinePayload = {
         success: false,
-        error: result.error,
+        error: declineDetails.failureReason,
+        rawError: result.error || null,
+        declineCode: declineDetails.declineCode,
+        rawStatusMessage: declineDetails.rawStatusMessage,
         transactionId: result.transactionId,
         paymentId: paymentRecordForLogging?.id || null,
         memberId: paymentRecordForLogging?.member_id || null
@@ -4126,12 +4304,35 @@ router.get('/api/epx/hosted/status/:transactionId', async (req: Request, res: Re
       });
     }
 
+    const paymentMetadata = parsePaymentMetadata(payment.metadata);
+    const hostedMeta = paymentMetadata?.hostedCallback && typeof paymentMetadata.hostedCallback === 'object'
+      ? paymentMetadata.hostedCallback
+      : null;
+
+    const failureReason =
+      payment.failure_reason
+      || payment.failureReason
+      || hostedMeta?.declineReason
+      || hostedMeta?.message
+      || null;
+
+    const declineCode =
+      hostedMeta?.declineCode
+      || paymentMetadata?.StatusCode
+      || paymentMetadata?.statusCode
+      || null;
+
+    const rawStatusMessage = hostedMeta?.rawStatusMessage || null;
+
     res.json({
       success: true,
       status: payment.status,
       amount: payment.amount,
       transactionId: payment.transaction_id || payment.transactionId || null,
-      authorizationCode: payment.authorization_code || payment.authorizationCode || null
+      authorizationCode: payment.authorization_code || payment.authorizationCode || null,
+      failureReason,
+      declineCode,
+      rawStatusMessage,
     });
   } catch (error: any) {
     logEPX({ level: 'error', phase: 'status', message: 'Status check error', data: { error: error?.message } });

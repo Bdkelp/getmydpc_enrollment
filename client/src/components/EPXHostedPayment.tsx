@@ -1138,9 +1138,6 @@ function extractAuthGuid(payload: Record<string, any>): string | undefined {
 function extractTransactionReference(payload: Record<string, any>): string | undefined {
   return (
     extractCandidate(payload, [
-      'transactionId',
-      'TRANSACTION_ID',
-      'transaction_id',
       'TRAN_NBR',
       'tranNbr',
       'orderNumber',
@@ -1149,6 +1146,9 @@ function extractTransactionReference(payload: Record<string, any>): string | und
       'invoiceNumber',
       'InvoiceNumber',
       'INVOICE_NUMBER',
+      'transactionId',
+      'TRANSACTION_ID',
+      'transaction_id',
     ])
   );
 }
