@@ -116,6 +116,9 @@ const buildPaymentVerification = (payment: any) => {
     || ['approved', 'success', 'succeeded', 'completed'].includes(callbackStatus)
     || ['00', '0'].includes(authResp);
 
+  const callbackDeclined = ['failure', 'failed', 'declined', 'cancelled', 'canceled'].includes(callbackStatus)
+    || ['05', '14', '34', '41', '43', '51', '54', '57', '62', '65'].includes(authResp);
+
   const processorConfirmed = ['succeeded', 'success', 'completed'].includes(status)
     || callbackApproved
     || metadata.processorApproved === true;
@@ -127,6 +130,8 @@ const buildPaymentVerification = (payment: any) => {
     finalizationState = 'requires_review';
   } else if (processorConfirmed) {
     finalizationState = 'finalized';
+  } else if (callbackDeclined) {
+    finalizationState = 'failed';
   } else if (['pending', 'processing', 'authorized'].includes(status)) {
     finalizationState = 'pending';
   } else if (['failed', 'declined', 'canceled', 'cancelled'].includes(status)) {
@@ -158,6 +163,71 @@ const attachVerification = <T extends Record<string, any>>(payments: T[]): Array
     ...deriveDeclineDetails(payment),
     verification: buildPaymentVerification(payment),
   }));
+};
+
+const reconcileRecentPendingPayments = async <T extends Record<string, any>>(payments: T[]): Promise<void> => {
+  for (const payment of payments) {
+    const currentStatus = normalizeStatus(payment?.status);
+    if (!['pending', 'processing'].includes(currentStatus)) {
+      continue;
+    }
+
+    const verification = buildPaymentVerification(payment);
+    const declineDetails = deriveDeclineDetails(payment);
+
+    let targetStatus: 'succeeded' | 'failed' | null = null;
+    if (verification.finalizationState === 'finalized') {
+      targetStatus = 'succeeded';
+    } else if (verification.finalizationState === 'failed') {
+      targetStatus = 'failed';
+    }
+
+    if (!targetStatus) {
+      continue;
+    }
+
+    const paymentId = Number(payment?.id);
+    if (!Number.isFinite(paymentId) || paymentId <= 0) {
+      continue;
+    }
+
+    const metadata = (payment?.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+    const reconciledMetadata = {
+      ...metadata,
+      autoReconciliation: {
+        source: 'admin-recent-payments',
+        resolvedAt: new Date().toISOString(),
+        previousStatus: currentStatus,
+        targetStatus,
+      },
+    };
+
+    const updatePayload: Record<string, any> = {
+      status: targetStatus,
+      metadata: reconciledMetadata,
+    };
+
+    if (targetStatus === 'failed') {
+      const failureReason = declineDetails.failureReason || declineDetails.rawStatusMessage || 'Processor declined payment';
+      updatePayload.failureReason = failureReason;
+    }
+
+    try {
+      await storage.updatePayment(paymentId, updatePayload as any);
+      (payment as any).status = targetStatus;
+      (payment as any).metadata = reconciledMetadata;
+      if (targetStatus === 'failed') {
+        (payment as any).failure_reason = updatePayload.failureReason;
+      }
+    } catch (error: any) {
+      console.warn('[Payment Tracking] Auto-reconciliation update failed', {
+        paymentId,
+        transactionId: payment?.transaction_id || payment?.transactionId || null,
+        targetStatus,
+        error: error?.message,
+      });
+    }
+  }
 };
 
 const parseDateOrNull = (value: unknown): Date | null => {
@@ -285,6 +355,7 @@ router.get('/api/admin/payments/recent', authenticateToken, async (req: AuthRequ
     const includeArchived = normalizeBooleanQuery(req.query.includeArchived);
 
     const payments = await storage.getRecentPaymentsDetailed({ limit, status, includeArchived });
+    await reconcileRecentPendingPayments(payments as any[]);
     const enrichedPayments = attachVerification(payments);
 
     res.json({
