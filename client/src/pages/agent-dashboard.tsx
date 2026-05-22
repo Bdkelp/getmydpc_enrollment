@@ -291,7 +291,7 @@ export default function AgentDashboard() {
   // Show error state if data failed to load
   if (statsError || enrollmentsError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-sky-aqua-50 via-white to-french-blue-50">
         <Card className="max-w-md">
           <CardHeader>
             <CardTitle className="text-red-600 flex items-center gap-2">
@@ -357,7 +357,7 @@ export default function AgentDashboard() {
           )}
           <Button
             onClick={handleNewEnrollment}
-            className="bg-coral-500 hover:bg-coral-600 text-white"
+            className="border-0 bg-gradient-to-r from-deep-twilight-600 via-french-blue-500 to-bright-teal-blue-500 text-sky-aqua-50 shadow-colored hover:from-deep-twilight-500 hover:to-turquoise-surf-500"
           >
             <UserPlus className="mr-2 h-4 w-4" />
             New Enrollment
@@ -368,19 +368,19 @@ export default function AgentDashboard() {
 
         {/* Agent Selector for Admin/Super_Admin */}
         {isAdminUser && (
-          <Card className="mb-6 bg-blue-50 border-blue-200">
+          <Card className="mb-6 border-french-blue-200 bg-french-blue-50/70">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
-                <Shield className="h-5 w-5 text-blue-600" />
+                <Shield className="h-5 w-5 text-french-blue-600" />
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-blue-900 mb-2 block">
+                  <label className="mb-2 block text-sm font-medium text-deep-twilight-900">
                     {user?.role === 'super_admin' ? '🎸 Backstage Pass:' : '👔 Admin View:'} View Any Agent's Dashboard
                   </label>
                   <Select
                     value={selectedAgentId || user?.id || ''}
                     onValueChange={(value) => setSelectedAgentId(value === user?.id ? null : value)}
                   >
-                    <SelectTrigger className="w-full md:w-96 bg-white">
+                    <SelectTrigger className="w-full bg-white md:w-96 border-french-blue-200 focus:ring-bright-teal-blue-500">
                       <SelectValue placeholder="Select an agent to view" />
                     </SelectTrigger>
                     <SelectContent>
@@ -426,64 +426,64 @@ export default function AgentDashboard() {
         )}
 
         {/* Personalized Welcome Message */}
-        <Card className="mb-8 bg-gradient-to-r from-blue-500 to-navy-500 text-white shadow-glow">
+        <Card className="mb-8 border-0 bg-gradient-to-r from-deep-twilight-700 via-french-blue-600 to-bright-teal-blue-600 text-sky-aqua-50 shadow-colored">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold mb-1">
-                  {getTimeOfDayGreeting()}, {getUserName(user)}! 🎯
+                  {getTimeOfDayGreeting()}, {getUserName(user)}.
                 </h2>
-                <p className="text-blue-100">
+                <p className="text-sky-aqua-100">
                   Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
                 </p>
                 <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-blue-100">Monthly Enrollment Goal</p>
+                    <p className="text-sm text-sky-aqua-100">Monthly Enrollment Goal</p>
                     <p className="text-lg font-semibold">{currentMonthlyEnrollments} / {monthlyGoalEnrollments || "—"}</p>
-                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-deep-twilight-900/35">
                       <div className="h-full bg-white rounded-full transition-all" style={{ width: `${enrollmentProgress}%` }} />
                     </div>
-                    <p className="text-xs text-blue-100 mt-1">{goalSourceLabel}</p>
+                    <p className="mt-1 text-xs text-sky-aqua-100">{goalSourceLabel}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-blue-100">Monthly Revenue</p>
+                    <p className="text-sm text-sky-aqua-100">Monthly Revenue</p>
                     <p className="text-lg font-semibold">{formatCurrency(currentMonthlyRevenue)}</p>
-                    <p className="text-xs text-blue-100">Goal: {monthlyGoalRevenue ? formatCurrency(monthlyGoalRevenue) : "No goal"} ({revenueProgress}%)</p>
-                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
+                    <p className="text-xs text-sky-aqua-100">Goal: {monthlyGoalRevenue ? formatCurrency(monthlyGoalRevenue) : "No goal"} ({revenueProgress}%)</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-deep-twilight-900/35">
                       <div className="h-full bg-white rounded-full transition-all" style={{ width: `${revenueProgress}%` }} />
                     </div>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-blue-100">Monthly Commission</p>
+                    <p className="text-sm text-sky-aqua-100">Monthly Commission</p>
                     <p className="text-lg font-semibold">{formatCurrency(currentMonthlyCommission)}</p>
-                    <p className="text-xs text-blue-100">Goal: {monthlyGoalCommissions ? formatCurrency(monthlyGoalCommissions) : "No goal"} ({commissionProgress}%)</p>
-                    <div className="mt-2 h-2 bg-navy-600/40 rounded-full overflow-hidden">
+                    <p className="text-xs text-sky-aqua-100">Goal: {monthlyGoalCommissions ? formatCurrency(monthlyGoalCommissions) : "No goal"} ({commissionProgress}%)</p>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-deep-twilight-900/35">
                       <div className="h-full bg-white rounded-full transition-all" style={{ width: `${revenueProgress}%` }} />
                     </div>
                   </div>
                   <div className="bg-white/10 rounded-lg p-4">
-                    <p className="text-sm text-blue-100">Leads to Follow Up</p>
+                    <p className="text-sm text-sky-aqua-100">Leads to Follow Up</p>
                     <p className="text-lg font-semibold flex items-center">
                       <Phone className="h-5 w-5 mr-2" />
                       {stats?.activeLeads || 0}
                     </p>
-                    <p className="text-xs text-blue-100 mt-1">Conversion Rate: {(stats?.conversionRate || 0).toFixed(1)}%</p>
+                    <p className="mt-1 text-xs text-sky-aqua-100">Conversion Rate: {(stats?.conversionRate || 0).toFixed(1)}%</p>
                   </div>
                 </div>
               </div>
               <div className="hidden md:block">
-                <TrendingUp className="h-24 w-24 text-blue-200 opacity-50" />
+                <TrendingUp className="h-24 w-24 text-sky-aqua-200 opacity-60" />
               </div>
             </div>
           </CardContent>
         </Card>
 
         {!!lifecycleAlerts && (
-          <Card className="mb-8 border-orange-200 bg-orange-50/40">
+          <Card className="mb-8 border-bright-teal-blue-200 bg-sky-aqua-50/60">
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-deep-twilight-800">
                     <AlertCircle className="h-4 w-4" />
                     Recurring Lifecycle Alerts (Next {lifecycleAlerts.horizonDays} Days)
                   </p>
@@ -528,7 +528,7 @@ export default function AgentDashboard() {
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="rounded-lg border border-orange-100 bg-white p-3">
+                <div className="rounded-lg border border-french-blue-100 bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Billing Alerts</p>
                   {(lifecycleAlerts.billingItems || []).slice(0, 4).length > 0 ? (
                     <div className="space-y-2">
@@ -537,7 +537,7 @@ export default function AgentDashboard() {
                           key={`${item.kind}-${item.memberId}-${idx}`}
                           type="button"
                           onClick={() => setLocation(`/agent?memberId=${item.memberId}&alertType=${item.kind}`)}
-                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-orange-50"
+                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-french-blue-50"
                         >
                           <div className="min-w-0">
                             <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
@@ -557,7 +557,7 @@ export default function AgentDashboard() {
                     <p className="text-sm text-gray-500">No billing alerts in the selected horizon.</p>
                   )}
                 </div>
-                <div className="rounded-lg border border-orange-100 bg-white p-3">
+                <div className="rounded-lg border border-french-blue-100 bg-white p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Commission Alerts</p>
                   {(lifecycleAlerts.commissionItems || []).slice(0, 4).length > 0 ? (
                     <div className="space-y-2">
@@ -566,7 +566,7 @@ export default function AgentDashboard() {
                           key={`${item.kind}-${item.commissionId}-${idx}`}
                           type="button"
                           onClick={() => setLocation(`/agent/commissions?memberId=${item.memberId}&commissionId=${item.commissionId}&alertType=${item.kind}`)}
-                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-orange-50"
+                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-french-blue-50"
                         >
                           <div className="min-w-0">
                             <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
@@ -593,12 +593,12 @@ export default function AgentDashboard() {
         )}
         
         {performanceGoals && (
-          <Card className="mb-8 border border-blue-200 bg-white shadow-soft">
+          <Card className="mb-8 border border-french-blue-200 bg-white shadow-soft">
             <CardHeader className="pb-4">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <p className="text-sm text-navy-600 uppercase tracking-wide font-semibold">Performance Goals</p>
-                  <h3 className="text-2xl font-semibold text-navy-500 mt-1">
+                  <p className="text-sm text-french-blue-700 uppercase tracking-wide font-semibold">Performance Goals</p>
+                  <h3 className="text-2xl font-semibold text-deep-twilight-800 mt-1">
                     {stats?.performanceGoalsMeta?.hasOverride ? 'Custom targets for your desk' : 'Platform targets applied to you'}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
@@ -606,7 +606,7 @@ export default function AgentDashboard() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                  <Badge variant="outline" className="border-french-blue-200 bg-french-blue-50 text-french-blue-700">
                     {stats?.performanceGoalsMeta?.hasOverride ? 'Agent Override Active' : 'Default Platform Goal'}
                   </Badge>
                   {isAdminUser && (
@@ -624,13 +624,13 @@ export default function AgentDashboard() {
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-3">
                 {goalPeriodSummaries.map(({ key, label, helper }) => (
-                  <div key={key} className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                  <div key={key} className="space-y-3 rounded-xl border border-french-blue-100 bg-french-blue-50/60 p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs uppercase text-blue-600 tracking-wide">{helper}</p>
-                        <p className="text-lg font-semibold text-navy-500">{label}</p>
+                        <p className="text-xs uppercase text-french-blue-700 tracking-wide">{helper}</p>
+                        <p className="text-lg font-semibold text-deep-twilight-800">{label}</p>
                       </div>
-                      <Target className="h-4 w-4 text-blue-500" />
+                      <Target className="h-4 w-4 text-french-blue-600" />
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
@@ -656,8 +656,8 @@ export default function AgentDashboard() {
 
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-blue-600" />
-                  <p className="text-sm font-semibold text-navy-500">Plan Enrollment Targets</p>
+                  <Target className="h-4 w-4 text-french-blue-600" />
+                  <p className="text-sm font-semibold text-deep-twilight-800">Plan Enrollment Targets</p>
                 </div>
                 {performanceGoals.productGoals?.length ? (
                   <div className="overflow-x-auto">

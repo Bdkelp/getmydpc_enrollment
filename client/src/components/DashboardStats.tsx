@@ -150,9 +150,9 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
           {formatter(current)} / {goal ? formatter(goal) : '—'}
         </span>
       </div>
-      <div className="h-2 bg-white rounded-full overflow-hidden">
+      <div className="h-2 overflow-hidden rounded-full bg-french-blue-100">
         <div
-          className="h-full bg-green-500"
+          className="h-full bg-gradient-to-r from-french-blue-500 to-bright-teal-blue-500"
           style={{ width: `${computeProgress(current, goal)}%` }}
         />
       </div>
@@ -221,7 +221,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
   return (
     <div className="space-y-6">
       {/* Filter Controls */}
-      <Card>
+      <Card className="border-french-blue-100 bg-white/95">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-semibold">
@@ -232,6 +232,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                 variant="outline"
                 size="sm"
                 onClick={() => setShowFilters(!showFilters)}
+                className="border-french-blue-200 text-french-blue-700 hover:bg-french-blue-50"
               >
                 <Filter className="h-4 w-4 mr-2" />
                 Filters
@@ -240,6 +241,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                 variant="outline"
                 size="sm"
                 onClick={handleRefresh}
+                className="border-french-blue-200 text-french-blue-700 hover:bg-french-blue-50"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -297,7 +299,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         )}
 
         {resolvedPeriodRange && (
-          <CardContent className="pt-0 text-sm text-gray-600">
+          <CardContent className="pt-0 text-sm text-french-blue-800">
             Showing <span className="font-medium">{resolvedPeriodLabel}</span>
             <span className="text-gray-500"> ({resolvedPeriodRange})</span>
           </CardContent>
@@ -305,18 +307,18 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
       </Card>
 
       {performanceGoals && (
-        <Card className="border border-green-200 bg-green-50/70">
+        <Card className="border border-french-blue-200 bg-french-blue-50/60">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-green-900">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-deep-twilight-900">
               <Target className="h-4 w-4" />
               Goal Progress
               {performanceGoalsMeta?.hasOverride && (
-                <Badge variant="outline" className="text-green-800 border-green-400 bg-white/70">
+                <Badge variant="outline" className="border-french-blue-300 bg-white/90 text-french-blue-700">
                   Agent Override
                 </Badge>
               )}
             </CardTitle>
-            <p className="text-xs text-green-700">
+            <p className="text-xs text-french-blue-700">
               Tracking current month against target metrics
             </p>
           </CardHeader>
@@ -346,7 +348,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
       {/* Color-Coded Metric Cards - Matching NexaVerse Design */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Current MRR - Coral/Red Background */}
-        <Card className="bg-coral-500 border-coral-500 text-white shadow-coral overflow-hidden">
+        <Card className="overflow-hidden border-0 bg-gradient-to-br from-deep-twilight-700 via-french-blue-600 to-bright-teal-blue-600 text-sky-aqua-50 shadow-colored">
           <CardContent className="pt-6">
             <div className="flex items-start justify-between mb-2">
               <div>
@@ -369,7 +371,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         </Card>
 
         {/* Current Customers - Gray Background */}
-        <Card className="bg-gray-600 border-gray-600 text-white shadow-medium overflow-hidden">
+        <Card className="overflow-hidden border-deep-twilight-600 bg-deep-twilight-700 text-sky-aqua-50 shadow-medium">
           <CardContent className="pt-6">
             <div className="flex items-start justify-between mb-2">
               <div>
@@ -387,7 +389,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         </Card>
 
         {/* Active Customers - Blue Background */}
-        <Card className="bg-blue-500 border-blue-500 text-white shadow-glow overflow-hidden">
+        <Card className="overflow-hidden border-french-blue-500 bg-french-blue-600 text-sky-aqua-50 shadow-glow">
           <CardContent className="pt-6">
             <div className="flex items-start justify-between mb-2">
               <div>
@@ -407,20 +409,20 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         </Card>
 
         {/* Churn Rate - Light Gray Background */}
-        <Card className="bg-gray-200 border-gray-300 text-gray-900 shadow-medium overflow-hidden">
+        <Card className="overflow-hidden border-french-blue-200 bg-french-blue-50 text-deep-twilight-900 shadow-medium">
           <CardContent className="pt-6">
             <div className="flex items-start justify-between mb-2">
               <div>
-                <p className="text-sm font-medium text-gray-700">Churn Rate</p>
+                <p className="text-sm font-medium text-french-blue-800">Churn Rate</p>
                 <h3 className="text-3xl font-bold mt-2">
                   {stats?.pendingEnrollments 
                     ? `${Math.min(5, Math.round((stats.pendingEnrollments / (stats.totalMembers || 1)) * 100))}%`
                     : '2%'}
                 </h3>
               </div>
-              <Calendar className="h-8 w-8 text-gray-600" />
+              <Calendar className="h-8 w-8 text-french-blue-700" />
             </div>
-            <p className="text-xs text-gray-600 mt-2">
+            <p className="text-xs text-french-blue-800 mt-2">
               {formatNumber(stats?.pendingEnrollments || 0)} pending enrollments
             </p>
           </CardContent>
@@ -430,21 +432,21 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Trend Chart */}
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Trend</CardTitle>
               <div className="flex items-center gap-2 text-xs">
                 <span className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-navy-500 rounded"></div>
+                  <div className="w-3 h-3 bg-deep-twilight-600 rounded"></div>
                   <span>MTD</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                  <div className="w-3 h-3 bg-french-blue-500 rounded"></div>
                   <span>MONTHLY</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-coral-500 rounded"></div>
+                  <div className="w-3 h-3 bg-bright-teal-blue-500 rounded"></div>
                   <span>CHURN</span>
                 </span>
               </div>
@@ -459,15 +461,15 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                   <div key={i} className="flex-1 flex flex-col items-center gap-1">
                     <div className="w-full flex flex-col gap-0.5">
                       <div 
-                        className="w-full bg-navy-500 rounded-t" 
+                        className="w-full bg-deep-twilight-600 rounded-t" 
                         style={{ height: `${height * 0.7}px` }}
                       ></div>
                       <div 
-                        className="w-full bg-blue-500" 
+                        className="w-full bg-french-blue-500" 
                         style={{ height: `${height * 1.2}px` }}
                       ></div>
                       <div 
-                        className="w-full bg-coral-500 rounded-b" 
+                        className="w-full bg-bright-teal-blue-500 rounded-b" 
                         style={{ height: `${height * 0.4}px` }}
                       ></div>
                     </div>
@@ -482,7 +484,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
         </Card>
 
         {/* Sales Donut Chart */}
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Sales by Plan</CardTitle>
           </CardHeader>
@@ -503,7 +505,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                   }
                   
                   // Plan colors
-                  const colors = ['#0a2463', '#fb3640', '#247ba0', '#605f5e'];
+                  const colors = ['#0609c6', '#046ffb', '#00a6ff', '#21bede'];
                   let currentOffset = 0;
                   const circumference = 2 * Math.PI * 40;
                   
@@ -516,7 +518,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                           cy="50"
                           r="40"
                           fill="none"
-                          stroke="#e2e2e2"
+                          stroke="#d3f2f8"
                           strokeWidth="20"
                         />
                         {/* Plan segments */}
@@ -541,7 +543,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                         })}
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-3xl font-bold text-navy-500">
+                        <span className="text-3xl font-bold text-deep-twilight-700">
                           {formatNumber(total)}
                         </span>
                         <span className="text-xs text-gray-500">TOTAL</span>
@@ -556,7 +558,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
                 {(() => {
                   const distribution = stats?.planDistribution || [];
                   const total = distribution.reduce((sum, item) => sum + Number(item.member_count || 0), 0);
-                  const colors = ['#0a2463', '#fb3640', '#247ba0', '#605f5e'];
+                  const colors = ['#0609c6', '#046ffb', '#00a6ff', '#21bede'];
                   
                   if (total === 0) {
                     return (
@@ -590,7 +592,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
 
       {/* Period Breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Monthly Performance</CardTitle>
           </CardHeader>
@@ -610,7 +612,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Yearly Performance</CardTitle>
           </CardHeader>
@@ -630,7 +632,7 @@ export default function DashboardStats({ userRole, agentId }: DashboardStatsProp
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
           </CardHeader>
