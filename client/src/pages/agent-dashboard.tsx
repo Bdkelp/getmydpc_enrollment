@@ -700,12 +700,12 @@ export default function AgentDashboard() {
         <DashboardStats userRole="agent" agentId={viewingAgentId} />
 
         {/* Recent Enrollments */}
-        <Card>
+        <Card className="border-french-blue-100">
           <CardHeader>
             <div className="flex justify-between items-center">
-              <CardTitle>Recent Enrollments</CardTitle>
+              <CardTitle className="text-deep-twilight-900">Recent Enrollments</CardTitle>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1 rounded-md border bg-white p-1">
+                <div className="flex items-center gap-1 rounded-md border border-french-blue-100 bg-white p-1">
                   <Button
                     variant={businessFilter === 'all' ? 'default' : 'ghost'}
                     size="sm"
@@ -737,7 +737,7 @@ export default function AgentDashboard() {
                     autoComplete="off"
                     value={dateFilter.startDate}
                     onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
-                    className="px-3 py-1 border rounded"
+                    className="rounded border border-french-blue-200 px-3 py-1"
                   />
                   <label htmlFor="dashboardEndDate" className="text-sm text-gray-600">To:</label>
                   <input
@@ -747,13 +747,13 @@ export default function AgentDashboard() {
                     autoComplete="off"
                     value={dateFilter.endDate}
                     onChange={(e) => setDateFilter({ ...dateFilter, endDate: e.target.value })}
-                    className="px-3 py-1 border rounded"
+                    className="rounded border border-french-blue-200 px-3 py-1"
                   />
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-gray-600">Pending:</label>
                   <Select value={pendingActionFilter} onValueChange={setPendingActionFilter}>
-                    <SelectTrigger className="w-[180px] h-9">
+                    <SelectTrigger className="h-9 w-[180px] border-french-blue-200">
                       <SelectValue placeholder="All pending" />
                     </SelectTrigger>
                     <SelectContent>
@@ -768,7 +768,7 @@ export default function AgentDashboard() {
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-gray-600">Risk:</label>
                   <Select value={paymentRiskFilter} onValueChange={setPaymentRiskFilter}>
-                    <SelectTrigger className="w-[140px] h-9">
+                    <SelectTrigger className="h-9 w-[140px] border-french-blue-200">
                       <SelectValue placeholder="All risk" />
                     </SelectTrigger>
                     <SelectContent>
@@ -783,7 +783,7 @@ export default function AgentDashboard() {
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-gray-600">Access:</label>
                   <Select value={accessWindowFilter} onValueChange={setAccessWindowFilter}>
-                    <SelectTrigger className="w-[200px] h-9">
+                    <SelectTrigger className="h-9 w-[200px] border-french-blue-200">
                       <SelectValue placeholder="All access windows" />
                     </SelectTrigger>
                     <SelectContent>
@@ -809,8 +809,8 @@ export default function AgentDashboard() {
           </CardHeader>
           <CardContent>
             {focusMemberId && (
-              <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/60 p-3 flex items-center justify-between gap-3">
-                <p className="text-sm text-blue-900">Focused member view: #{focusMemberId}</p>
+              <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-french-blue-200 bg-french-blue-50/60 p-3">
+                <p className="text-sm text-deep-twilight-900">Focused member view: #{focusMemberId}</p>
                 <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
                   Clear Focus
                 </Button>
@@ -838,7 +838,7 @@ export default function AgentDashboard() {
                   {filteredEnrollments.map((enrollment: any) => (
                     <tr 
                       key={enrollment.id} 
-                      className={`border-b hover:bg-gray-50 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
+                      className={`border-b border-french-blue-100 hover:bg-french-blue-50/40 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
                       onClick={() => enrollment.status === 'pending' && handlePendingClick(enrollment)}
                     >
                       <td className="py-2">{format(new Date(enrollment.createdAt), "MM/dd/yyyy")}</td>
@@ -870,10 +870,10 @@ export default function AgentDashboard() {
                         )}
                       </td>
                       <td className="py-2">
-                        <span className={`px-2 py-1 rounded-full text-xs ${
+                        <span className={`rounded-full px-2 py-1 text-xs ${
                           enrollment.status === 'active' 
                             ? 'bg-green-100 text-green-800' 
-                            : 'bg-yellow-100 text-yellow-800'
+                            : 'bg-bright-teal-blue-100 text-bright-teal-blue-800'
                         }`}>
                           {enrollment.status}
                           {enrollment.status === 'pending' && (
@@ -980,9 +980,9 @@ export default function AgentDashboard() {
         </Card>
 
         {/* Leads to Follow Up */}
-        <Card className="mt-6">
+        <Card className="mt-6 border-french-blue-100">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Leads to Follow Up</CardTitle>
+            <CardTitle className="text-deep-twilight-900">Leads to Follow Up</CardTitle>
             <Button
               variant="outline"
               size="sm"
@@ -996,7 +996,7 @@ export default function AgentDashboard() {
               {Array.isArray(stats?.leads) && stats.leads.map((lead: any) => (
                 <div 
                   key={lead.id} 
-                  className="flex justify-between items-center p-3 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer transition-colors"
+                  className="flex cursor-pointer items-center justify-between rounded border border-french-blue-100 bg-french-blue-50/50 p-3 transition-colors hover:bg-french-blue-100/60"
                   onClick={() => handleLeadClick(lead.id)}
                 >
                   <div>
@@ -1028,7 +1028,7 @@ export default function AgentDashboard() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-yellow-600" />
+              <AlertCircle className="h-5 w-5 text-french-blue-600" />
               Pending Enrollment Details
             </DialogTitle>
             <DialogDescription>
@@ -1038,7 +1038,7 @@ export default function AgentDashboard() {
           
           {selectedEnrollment && (
             <div className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="rounded-lg border border-french-blue-100 bg-french-blue-50/50 p-4">
                 <h4 className="font-semibold mb-2">Member Information</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><span className="font-medium">Name:</span> {selectedEnrollment.firstName} {selectedEnrollment.lastName}</div>
@@ -1058,8 +1058,8 @@ export default function AgentDashboard() {
                 </div>
               </div>
 
-              <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg">
-                <h4 className="font-semibold mb-2 text-yellow-800">Pending Reason</h4>
+              <div className="rounded-lg border border-bright-teal-blue-200 bg-sky-aqua-50 p-4">
+                <h4 className="mb-2 font-semibold text-deep-twilight-800">Pending Reason</h4>
                 <p className="text-sm">
                   <span className="font-medium">Status:</span> {selectedEnrollment.pendingReason || "Payment Required"}
                 </p>
@@ -1101,9 +1101,9 @@ export default function AgentDashboard() {
                   />
                 </div>
 
-                <div className="bg-blue-50 p-3 rounded text-sm">
-                  <p className="font-medium text-blue-800">Important:</p>
-                  <p className="text-blue-700">Once submitted, enrollment modifications cannot be altered without new member consent.</p>
+                <div className="rounded border border-french-blue-200 bg-french-blue-50 p-3 text-sm">
+                  <p className="font-medium text-deep-twilight-800">Important:</p>
+                  <p className="text-french-blue-800">Once submitted, enrollment modifications cannot be altered without new member consent.</p>
                 </div>
               </div>
             </div>

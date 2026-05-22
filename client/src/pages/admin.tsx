@@ -172,7 +172,7 @@ export default function Admin() {
 
   if (!isAuthenticated || !user || !isAdminUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-sky-aqua-50 via-white to-french-blue-50">
         <Card className="w-full max-w-md mx-4">
           <CardContent className="pt-6">
             <div className="text-center">
@@ -203,7 +203,7 @@ export default function Admin() {
         lastRecurringMode={recurringWorkflowResult?.mode}
       />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {/* Personalized Welcome Message */}
         <WelcomeCard user={user} />
@@ -223,9 +223,9 @@ export default function Admin() {
         />
 
         {superAdminRestricted && (
-          <Alert className="mb-8 border-amber-300 bg-amber-50 text-amber-900">
+          <Alert className="border-bright-teal-blue-200 bg-sky-aqua-50/80 text-deep-twilight-900">
             <div className="flex gap-3">
-              <Shield className="h-5 w-5" />
+              <Shield className="h-5 w-5 text-french-blue-700" />
               <div>
                 <AlertTitle>Limited control mode</AlertTitle>
                 <AlertDescription>

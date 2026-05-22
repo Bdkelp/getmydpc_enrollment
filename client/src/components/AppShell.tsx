@@ -79,7 +79,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
   const navItems = getNavItems(user?.role);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-sky-aqua-50 via-white to-french-blue-50">
       {mobileNavOpen && (
         <button
           type="button"
@@ -90,13 +90,13 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-slate-200 bg-white flex flex-col transition-transform duration-300 md:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 border-r border-french-blue-100 bg-white flex flex-col transition-transform duration-300 md:hidden ${
           mobileNavOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div className="p-4 border-b border-french-blue-100 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-deep-twilight-700 text-sky-aqua-50">
               <Shield className="h-5 w-5" />
             </div>
             <div>
@@ -121,11 +121,11 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
                   onClick={() => setMobileNavOpen(false)}
                   className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                     isActive
-                      ? "bg-blue-50 text-blue-700"
+                      ? "bg-french-blue-50 text-french-blue-700"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                   }`}
                 >
-                  <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-blue-700" : ""}`} />
+                  <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-french-blue-700" : ""}`} />
                   <span>{item.label}</span>
                 </button>
               </Link>
@@ -137,7 +137,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
           <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 transition-colors">
             <Avatar className="h-8 w-8 flex-shrink-0">
               <AvatarImage src={getDefaultAvatar(user?.email || "")} />
-              <AvatarFallback className="bg-blue-700 text-white text-xs">
+              <AvatarFallback className="bg-deep-twilight-700 text-sky-aqua-50 text-xs">
                 {getUserInitials(user?.firstName, user?.lastName)}
               </AvatarFallback>
             </Avatar>
@@ -166,10 +166,10 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
         )}
       >
         {/* Sidebar */}
-        <aside className="hidden border-r border-slate-200 bg-white md:flex md:flex-col">
+        <aside className="hidden border-r border-french-blue-100 bg-white md:flex md:flex-col">
           {/* Brand */}
-          <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
+          <div className="p-4 border-b border-french-blue-100 flex items-center gap-3">
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-deep-twilight-700 text-sky-aqua-50">
               <Shield className="h-5 w-5" />
             </div>
             {sidebarOpen && (
@@ -192,11 +192,11 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
                   <button
                     className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                       isActive
-                        ? "bg-blue-50 text-blue-700"
+                        ? "bg-french-blue-50 text-french-blue-700"
                         : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-blue-700" : ""}`} />
+                      <Icon className={`h-4 w-4 flex-shrink-0 ${isActive ? "text-french-blue-700" : ""}`} />
                     {sidebarOpen && <span>{item.label}</span>}
                   </button>
                 </Link>
@@ -205,14 +205,14 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
           </nav>
 
           {/* User + Logout */}
-          <div className="p-3 border-t border-slate-100">
+          <div className="p-3 border-t border-french-blue-100">
             {sidebarOpen ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 transition-colors">
                     <Avatar className="h-8 w-8 flex-shrink-0">
                       <AvatarImage src={getDefaultAvatar(user?.email || "")} />
-                      <AvatarFallback className="bg-blue-700 text-white text-xs">
+                      <AvatarFallback className="bg-deep-twilight-700 text-sky-aqua-50 text-xs">
                         {getUserInitials(user?.firstName, user?.lastName)}
                       </AvatarFallback>
                     </Avatar>
@@ -255,7 +255,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
         {/* Main area */}
         <div className="flex flex-col min-h-screen overflow-hidden">
           {/* Top bar */}
-          <header className="border-b border-slate-200 bg-white px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0">
+          <header className="border-b border-french-blue-100 bg-white/95 px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0 backdrop-blur-sm">
             <div className="flex items-center gap-3 min-w-0">
               <Button
                 variant="ghost"
@@ -275,7 +275,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
               </Button>
               <div className="min-w-0">
                 {breadcrumb && breadcrumb.length > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-slate-400 mb-0.5">
+                  <div className="mb-0.5 flex items-center gap-1 text-xs text-french-blue-500">
                     {breadcrumb.map((crumb, i) => (
                       <span key={i} className="flex items-center gap-1">
                         {i > 0 && <ChevronRight className="h-3 w-3" />}
@@ -284,20 +284,20 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
                     ))}
                   </div>
                 )}
-                <h1 className="text-lg font-semibold text-slate-900 truncate">{title}</h1>
+                <h1 className="truncate text-lg font-semibold text-deep-twilight-900">{title}</h1>
               </div>
             </div>
 
             <div className="flex items-center gap-2 flex-shrink-0">
               {actions}
-              <Button variant="ghost" size="icon" className="h-8 w-8 relative text-slate-500">
+              <Button variant="ghost" size="icon" className="relative h-8 w-8 text-french-blue-600 hover:text-french-blue-700">
                 <Bell className="h-4 w-4" />
               </Button>
             </div>
           </header>
 
           {/* Page content */}
-          <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-5">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-5 md:p-6 lg:p-8">
             {children}
           </main>
         </div>
