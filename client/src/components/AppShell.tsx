@@ -77,6 +77,11 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navItems = getNavItems(user?.role);
+  const userFullName = `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
+  const sidebarAvatarSrc =
+    user?.profileImageUrl ||
+    getDefaultAvatar(user?.id || user?.email || "user", userFullName || user?.email);
+  const sidebarAvatarInitials = getUserInitials(userFullName || user?.email || "User");
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-aqua-50 via-white to-french-blue-50">
@@ -136,9 +141,9 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
         <div className="p-3 border-t border-slate-100">
           <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 transition-colors">
             <Avatar className="h-8 w-8 flex-shrink-0">
-              <AvatarImage src={getDefaultAvatar(user?.email || "")} />
+              <AvatarImage src={sidebarAvatarSrc} />
               <AvatarFallback className="bg-deep-twilight-700 text-sky-aqua-50 text-xs">
-                {getUserInitials(user?.firstName, user?.lastName)}
+                {sidebarAvatarInitials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
@@ -211,9 +216,9 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
                 <DropdownMenuTrigger asChild>
                   <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-100 transition-colors">
                     <Avatar className="h-8 w-8 flex-shrink-0">
-                      <AvatarImage src={getDefaultAvatar(user?.email || "")} />
+                      <AvatarImage src={sidebarAvatarSrc} />
                       <AvatarFallback className="bg-deep-twilight-700 text-sky-aqua-50 text-xs">
-                        {getUserInitials(user?.firstName, user?.lastName)}
+                        {sidebarAvatarInitials}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
