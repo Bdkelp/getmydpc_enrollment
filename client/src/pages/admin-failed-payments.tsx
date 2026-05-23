@@ -331,6 +331,7 @@ export default function AdminFailedPayments() {
         </>
       }
     >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {/* Alert Summary */}
         {payments.length > 0 && (
@@ -500,7 +501,7 @@ export default function AdminFailedPayments() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="min-w-[118px] border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                              className="min-w-[118px] border-bright-teal-blue-200 text-deep-twilight-900 hover:bg-sky-aqua-50"
                               onClick={() => setLocation(`/admin/enrollment/${payment.member_id}`)}
                               disabled={!payment.member_id}
                             >
@@ -551,6 +552,7 @@ export default function AdminFailedPayments() {
             )}
           </CardContent>
         </Card>
+      </div>
     </AppShell>
   );
 }

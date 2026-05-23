@@ -92,14 +92,15 @@ export default function AgentLeads() {
       actions={
         <Button
           onClick={() => setShowAddLeadDialog(true)}
-          className="bg-medical-blue-600 hover:bg-medical-blue-700 text-white"
+          className="bg-french-blue-700 hover:bg-french-blue-800 text-white"
         >
           <Plus className="h-4 w-4 mr-2" />
           Add Lead
         </Button>
       }
     >
-      <div className="mb-4">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-1 sm:px-2 md:px-0">
+      <div className="mb-2">
         <Select value={statusFilter} onValueChange={setStatusFilter} name="statusFilter">
           <SelectTrigger id="statusFilter" className="w-[180px]">
             <SelectValue placeholder="Filter by status" />
@@ -117,7 +118,7 @@ export default function AgentLeads() {
 
       <div className="grid gap-4">
         {filteredLeads?.map((lead) => (
-          <Card key={lead.id} className="hover:shadow-lg transition-shadow">
+          <Card key={lead.id} className="border-bright-teal-blue-100/80 hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
@@ -133,20 +134,20 @@ export default function AgentLeads() {
                   <div className="grid grid-cols-2 gap-4 text-sm text-gray-600 mb-3">
                     <div className="flex items-center gap-2">
                       <Mail className="h-4 w-4" />
-                      <a href={`mailto:${lead.email}`} className="hover:text-medical-blue-600">
+                      <a href={`mailto:${lead.email}`} className="hover:text-french-blue-700">
                         {lead.email}
                       </a>
                     </div>
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4" />
-                      <a href={`tel:${lead.phone}`} className="hover:text-medical-blue-600">
+                      <a href={`tel:${lead.phone}`} className="hover:text-french-blue-700">
                         {lead.phone}
                       </a>
                     </div>
                   </div>
 
                   {lead.message && (
-                    <div className="bg-gray-50 p-3 rounded mb-3">
+                    <div className="bg-sky-aqua-50/70 p-3 rounded mb-3 border border-bright-teal-blue-100/70">
                       <p className="text-sm text-gray-700">{lead.message}</p>
                     </div>
                   )}
@@ -192,7 +193,7 @@ export default function AgentLeads() {
                     <Button
                       size="sm"
                       onClick={() => setLocation("/registration")}
-                      className="bg-green-600 hover:bg-green-700"
+                      className="bg-french-blue-700 hover:bg-french-blue-800"
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
                       Start Enrollment
@@ -212,6 +213,7 @@ export default function AgentLeads() {
           </CardContent>
         </Card>
       )}
+      </div>
 
       {/* Add Lead Dialog */}
       <Dialog open={showAddLeadDialog} onOpenChange={setShowAddLeadDialog}>

@@ -71,8 +71,8 @@ export default function AgentFailedPayments() {
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       failed: { color: "bg-red-100 text-red-800", label: "Failed" },
-      declined: { color: "bg-orange-100 text-orange-800", label: "Declined" },
-      canceled: { color: "bg-gray-100 text-gray-800", label: "Canceled" },
+      declined: { color: "bg-amber-100 text-amber-800", label: "Declined" },
+      canceled: { color: "bg-slate-100 text-slate-700", label: "Canceled" },
     };
 
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.failed;
@@ -140,6 +140,7 @@ export default function AgentFailedPayments() {
         </div>
       }
     >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
       {/* Summary Card */}
       <Card className="mb-6">
@@ -299,6 +300,7 @@ export default function AgentFailedPayments() {
           ))}
         </div>
       )}
+      </div>
 
       {/* Retry Confirmation Dialog */}
       <Dialog open={showRetryDialog} onOpenChange={setShowRetryDialog}>

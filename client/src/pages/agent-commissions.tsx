@@ -141,11 +141,12 @@ export default function AgentCommissions() {
         </Button>
       }
     >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {(focusMemberId || focusCommissionId) && (
-          <Card className="mb-6 border-blue-200 bg-blue-50/50">
+          <Card className="mb-6 border-bright-teal-blue-200 bg-sky-aqua-50/70">
             <CardContent className="p-4 flex items-center justify-between gap-3">
-              <p className="text-sm text-blue-900">
+              <p className="text-sm text-deep-twilight-900">
                 Focused view{focusMemberId ? ` for member #${focusMemberId}` : ''}{focusCommissionId ? ` and commission ${focusCommissionId}` : ''}.
               </p>
               <Button size="sm" variant="outline" onClick={() => setLocation('/agent/commissions')}>
@@ -613,6 +614,7 @@ export default function AgentCommissions() {
             )}
           </CardContent>
         </Card>
+      </div>
     </AppShell>
   );
 }
