@@ -171,6 +171,7 @@ export default function AdminAgentHierarchy() {
 
   return (
     <AppShell title="Agent Hierarchy" breadcrumb={["Admin", "Users"]}>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -248,7 +249,7 @@ export default function AdminAgentHierarchy() {
                       </TableHeader>
                       <TableBody>
                         {agentsByLevel[level].map((agent) => (
-                          <TableRow key={agent.id} className={agent.overrideSuppressed ? 'bg-orange-50' : level > 0 ? 'bg-blue-50' : ''}>
+                          <TableRow key={agent.id} className={agent.overrideSuppressed ? 'bg-amber-50' : level > 0 ? 'bg-sky-aqua-50/70' : ''}>
                             <TableCell className="font-medium">
                               <div className="flex items-center gap-2">
                                 {agent.firstName} {agent.lastName}
@@ -278,7 +279,7 @@ export default function AdminAgentHierarchy() {
                             </TableCell>
                             <TableCell>
                               {agent.canReceiveOverrides && (
-                                <Badge className="bg-purple-100 text-purple-800">
+                                <Badge className="bg-bright-teal-blue-100/70 text-french-blue-800">
                                   {agent.downlineCount || 0} downline{agent.downlineCount !== 1 ? 's' : ''}
                                 </Badge>
                               )}
@@ -305,6 +306,7 @@ export default function AdminAgentHierarchy() {
             )}
           </CardContent>
         </Card>
+      </div>
 
       {/* Edit Hierarchy Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

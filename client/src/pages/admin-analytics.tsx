@@ -350,6 +350,7 @@ export default function AdminAnalytics() {
         </>
       }
     >
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {isLoading ? (
           <div className="text-center py-8">Loading analytics...</div>
@@ -991,6 +992,7 @@ export default function AdminAnalytics() {
             No analytics data available
           </div>
         )}
+      </div>
     </AppShell>
   );
 }

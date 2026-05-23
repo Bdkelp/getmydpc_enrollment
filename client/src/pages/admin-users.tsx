@@ -198,8 +198,8 @@ export default function AdminUsers() {
               <TableRow key={user.id}>
                 <TableCell>
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-medical-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-medical-blue-600 font-semibold text-sm">
+                    <div className="w-10 h-10 bg-sky-aqua-50 rounded-full flex items-center justify-center">
+                      <span className="text-french-blue-700 font-semibold text-sm">
                         {user.firstName?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}
                         {user.lastName?.[0]?.toUpperCase() || user.email?.[1]?.toUpperCase() || 'U'}
                       </span>
@@ -486,6 +486,7 @@ export default function AdminUsers() {
 
   return (
     <AppShell title="User Management" breadcrumb={["Admin"]}>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -685,6 +686,7 @@ export default function AdminUsers() {
             )}
           </DialogContent>
         </Dialog>
+      </div>
     </AppShell>
   );
 }
