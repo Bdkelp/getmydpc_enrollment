@@ -7,6 +7,7 @@ import { hasAtLeastRole } from "@/lib/roles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -64,11 +65,14 @@ export default function AdminRecentPayments() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const isAdmin = hasAtLeastRole(user?.role, "admin");
+  const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
   
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchTerm, setSearchTerm] = useState<string>("");
   const [limit, setLimit] = useState(50);
   const [updatingPaymentId, setUpdatingPaymentId] = useState<number | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState<'succeeded' | 'cancelled' | null>(null);
+  const [refundingPaymentId, setRefundingPaymentId] = useState<number | null>(null);
 
   // Redirect if not admin
   if (!authLoading && (!user || !isAdmin)) {
@@ -104,6 +108,22 @@ export default function AdminRecentPayments() {
   });
 
   const payments: Payment[] = paymentsData?.payments || [];
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const filteredPayments = normalizedSearchTerm
+    ? payments.filter((payment) => {
+        const fullName = `${payment.member_first_name || ""} ${payment.member_last_name || ""}`.trim().toLowerCase();
+        const email = (payment.member_email || "").toLowerCase();
+        const customerNumber = String(payment.member_customer_number || "").toLowerCase();
+        const transactionId = String(payment.transaction_id || "").toLowerCase();
+        const memberId = payment.member_id ? String(payment.member_id) : "";
+
+        return fullName.includes(normalizedSearchTerm)
+          || email.includes(normalizedSearchTerm)
+          || customerNumber.includes(normalizedSearchTerm)
+          || transactionId.includes(normalizedSearchTerm)
+          || memberId.includes(normalizedSearchTerm);
+      })
+    : payments;
 
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
@@ -168,6 +188,77 @@ export default function AdminRecentPayments() {
   const canResolveManually = (payment: Payment) => {
     const status = String(payment.status || '').toLowerCase();
     return ['pending', 'processing', 'failed', 'declined'].includes(status);
+  };
+
+  const canIssueRefund = (payment: Payment) => {
+    const status = String(payment.status || '').toLowerCase();
+    const hasReference = Boolean(payment.transaction_id || payment.epx_auth_guid);
+    const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount;
+    const hasAmount = Number.isFinite(amount) && amount > 0;
+    return isSuperAdmin
+      && hasReference
+      && hasAmount
+      && ['succeeded', 'success', 'completed'].includes(status);
+  };
+
+  const issueRefund = async (payment: Payment) => {
+    if (!canIssueRefund(payment)) {
+      toast({
+        title: 'Refund unavailable',
+        description: 'Refunds require a successful payment with transaction reference and amount.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const amount = typeof payment.amount === 'string' ? parseFloat(payment.amount) : payment.amount;
+    const reason = window.prompt(
+      'Enter refund reason (required):',
+      `Manual refund for payment ${payment.id}`
+    );
+
+    if (!reason || !reason.trim()) {
+      toast({
+        title: 'Refund reason required',
+        description: 'Please provide an audit note before issuing a refund.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Issue a $${amount.toFixed(2)} refund for ${payment.member_first_name || ''} ${payment.member_last_name || ''}? This sends a live/sandbox CCE9 request based on active environment.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setRefundingPaymentId(payment.id);
+      await apiRequest('/api/admin/payments/manual-transaction', {
+        method: 'POST',
+        body: JSON.stringify({
+          tranType: 'CCE9',
+          amount,
+          memberId: payment.member_id,
+          transactionId: payment.transaction_id,
+          authGuid: payment.epx_auth_guid,
+          description: `Admin refund via payments page: ${reason.trim()}`,
+        }),
+      });
+
+      toast({
+        title: 'Refund request submitted',
+        description: 'EPX refund request was sent successfully. Refresh to review status changes.',
+      });
+      await refetch();
+    } catch (error: any) {
+      toast({
+        title: 'Refund failed',
+        description: error?.message || 'Unable to issue refund.',
+        variant: 'destructive',
+      });
+    } finally {
+      setRefundingPaymentId(null);
+    }
   };
 
   const updatePaymentStatus = async (payment: Payment, status: 'succeeded' | 'cancelled') => {
@@ -346,10 +437,21 @@ export default function AdminRecentPayments() {
               <div className="flex items-center justify-center py-12">
                 <LoadingSpinner />
               </div>
-            ) : payments.length === 0 ? (
+            ) : filteredPayments.length === 0 ? (
               <p className="text-center text-gray-500 py-12">No payment transactions found</p>
             ) : (
               <div className="overflow-x-auto">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <Input
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search member, email, transaction, or member ID (try Bell)"
+                    className="md:max-w-md"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Showing {filteredPayments.length} of {payments.length} loaded payments
+                  </p>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -364,7 +466,7 @@ export default function AdminRecentPayments() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments.map((payment) => (
+                    {filteredPayments.map((payment) => (
                       <TableRow key={payment.id}>
                         <TableCell className="text-sm">
                           {format(new Date(payment.created_at), 'MMM d, yyyy')}
@@ -451,6 +553,16 @@ export default function AdminRecentPayments() {
                                 </Button>
                               </div>
                             )}
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="min-w-[118px]"
+                              onClick={() => issueRefund(payment)}
+                              disabled={!canIssueRefund(payment) || refundingPaymentId === payment.id}
+                              title={isSuperAdmin ? 'Issue CCE9 refund using this payment context' : 'Super admin access required for refunds'}
+                            >
+                              {refundingPaymentId === payment.id ? 'Refunding...' : 'Issue Refund'}
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
