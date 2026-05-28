@@ -236,6 +236,7 @@ export default function AdminRecentPayments() {
       await apiRequest('/api/admin/payments/manual-transaction', {
         method: 'POST',
         body: JSON.stringify({
+          paymentId: payment.id,
           tranType: 'CCE9',
           amount,
           memberId: payment.member_id,

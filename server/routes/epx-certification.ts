@@ -315,6 +315,7 @@ const buildPlainTextCertificationSamples = (entries: any[]): string => {
 type ServerPostPayload = {
   tranType?: string;
   transactionId?: string;
+  paymentId?: number | string;
   memberId?: number | string;
   amount?: number | string;
   description?: string;
@@ -334,6 +335,7 @@ const executeServerPostAction = async (
     const {
       tranType = 'CCE1',
       transactionId,
+      paymentId,
       memberId,
       amount,
       description,
@@ -360,11 +362,39 @@ const executeServerPostAction = async (
     }
 
     let paymentRecord;
-    if (paymentTransactionId || transactionId) {
+    let parsedPaymentId: number | null = null;
+    if (typeof paymentId === 'number' && Number.isFinite(paymentId)) {
+      parsedPaymentId = paymentId;
+    } else if (typeof paymentId === 'string' && paymentId.trim()) {
+      const parsed = Number(paymentId.trim());
+      parsedPaymentId = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    if (parsedPaymentId) {
+      paymentRecord = await storage.getPaymentById(parsedPaymentId);
+    }
+
+    if (!paymentRecord && (paymentTransactionId || transactionId)) {
       paymentRecord = await storage.getPaymentByTransactionId(paymentTransactionId || transactionId);
     }
 
-    const resolvedAuthGuid = authGuid || paymentRecord?.epx_auth_guid;
+    let resolvedMemberId: number | null = null;
+    if (typeof memberId === 'number' && Number.isFinite(memberId)) {
+      resolvedMemberId = memberId;
+    } else if (typeof memberId === 'string' && memberId.trim()) {
+      const parsedMemberId = Number(memberId);
+      resolvedMemberId = Number.isFinite(parsedMemberId) ? parsedMemberId : null;
+    } else if (paymentRecord?.member_id) {
+      const parsedMemberId = Number(paymentRecord.member_id);
+      resolvedMemberId = Number.isFinite(parsedMemberId) ? parsedMemberId : null;
+    }
+
+    let fallbackAuthGuidPayment;
+    if (!authGuid && !paymentRecord?.epx_auth_guid && resolvedMemberId) {
+      fallbackAuthGuidPayment = await storage.getLatestPaymentWithAuthGuid(resolvedMemberId);
+    }
+
+    const resolvedAuthGuid = authGuid || paymentRecord?.epx_auth_guid || fallbackAuthGuidPayment?.epx_auth_guid;
     if (!resolvedAuthGuid) {
       return {
         status: 400,
@@ -373,15 +403,6 @@ const executeServerPostAction = async (
           error: 'An EPX AUTH_GUID is required (provide authGuid or reference a payment with one).'
         }
       };
-    }
-
-    let resolvedMemberId: number | null = null;
-    if (typeof memberId === 'number') {
-      resolvedMemberId = memberId;
-    } else if (typeof memberId === 'string' && memberId.trim()) {
-      resolvedMemberId = Number(memberId);
-    } else if (paymentRecord?.member_id) {
-      resolvedMemberId = Number(paymentRecord.member_id);
     }
 
     const member = resolvedMemberId ? await storage.getMember(resolvedMemberId) : null;
