@@ -19,6 +19,7 @@ import {
   type PlanStartDateOption,
 } from "@/lib/planStartDates";
 import { isPlanStartDateAllowed } from "@shared/planStartDates";
+import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
 
 const familyMemberSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -98,7 +99,7 @@ export default function FamilyEnrollment() {
       // Update pricing information in session storage
       const basePlanPrice = parseFloat(sessionStorage.getItem("basePlanPrice") || "0");
       const hasRxValet = sessionStorage.getItem("rxValet") === "yes";
-      const rxValetPrice = coverageType === "Family" ? 21 : 19;
+      const rxValetPrice = RX_ADDON_MONTHLY_PRICE;
       const subtotal = basePlanPrice + (hasRxValet ? rxValetPrice : 0);
       const processingFee = (subtotal * 0.04).toFixed(2);
       const totalWithFees = (subtotal * 1.04).toFixed(2);

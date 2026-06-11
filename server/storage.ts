@@ -701,6 +701,7 @@ import {
   PERFORMANCE_GOALS_SETTING_KEY,
 } from "@shared/performanceGoals";
 import type { PerformanceGoals } from "@shared/performanceGoals";
+import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
 
 type UserLookupOptions = {
   fallbackEmail?: string | null;
@@ -8516,7 +8517,7 @@ export const storage = {
         }
 
         // Fallback default used in enrollment flows when explicit PBM amount is absent.
-        return 21;
+        return RX_ADDON_MONTHLY_PRICE;
       };
 
       const isGroupMemberEligible = (groupMember: any): boolean => {
@@ -8694,8 +8695,7 @@ export const storage = {
 
       const individualPbmMembers = activeMembers.filter((member) => Boolean(member.add_rx_valet));
       const individualPbmRevenue = individualPbmMembers.reduce((total, member) => {
-        const coverageType = String(member.coverage_type || '').toLowerCase();
-        const addOnAmount = coverageType.includes('family') ? 21 : 19;
+        const addOnAmount = RX_ADDON_MONTHLY_PRICE;
         return total + addOnAmount;
       }, 0);
 
@@ -8739,9 +8739,8 @@ export const storage = {
 
         const planRow = planAccumulator.get(planId)!;
         const totalAmount = parseAmount(member.total_monthly_price);
-        const coverageType = String(member.coverage_type || '').toLowerCase();
         const pbmAmount = member.add_rx_valet
-          ? (coverageType.includes('family') ? 21 : 19)
+          ? RX_ADDON_MONTHLY_PRICE
           : 0;
 
         planRow.memberCount += 1;

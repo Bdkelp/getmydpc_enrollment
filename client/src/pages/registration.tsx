@@ -28,6 +28,7 @@ import {
 } from "@/lib/planStartDates";
 import { displaySSN } from "@shared/display-ssn";
 import { isPlanStartDateAllowed } from "@shared/planStartDates";
+import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
 
 const PROGRESS_STEP_TITLES: Record<number, string> = {
   1: "Personal Info",
@@ -231,8 +232,7 @@ export default function Registration() {
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
-      const isFamilyCoverage = coverageType === "Family";
-      const rxValetPrice = isFamilyCoverage ? 21 : 19;
+      const rxValetPrice = RX_ADDON_MONTHLY_PRICE;
       const planPrice = selectedPlan ? parseFloat(selectedPlan.price) : 0;
       const subtotal = planPrice + (addRxValet ? rxValetPrice : 0);
       const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
@@ -1577,7 +1577,7 @@ export default function Registration() {
                                 </div>
                                 <div className="text-right">
                                   <div className="text-xl font-bold text-green-600">
-                                    +${coverageType === "Family" ? "21" : "19"}/mo
+                                    +${RX_ADDON_MONTHLY_PRICE}/mo
                                   </div>
                                   {addRxValet && (
                                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 mt-2">
@@ -1672,10 +1672,10 @@ export default function Registration() {
                           <div className="mt-2 space-y-1">
                             <div className="text-sm">
                               Plan: ${selectedPlan?.price}
-                              {addRxValet && <span> + RxValet: ${coverageType === "Family" ? "21" : "19"}</span>}
+                              {addRxValet && <span> + RxValet: ${RX_ADDON_MONTHLY_PRICE}</span>}
                             </div>
                             <div className="text-sm">
-                              Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0)).toFixed(2)}
+                              Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? RX_ADDON_MONTHLY_PRICE : 0)).toFixed(2)}
                             </div>
                             {discountValidation?.isValid && (
                               <div className="text-sm text-green-600 font-medium">
@@ -1684,7 +1684,7 @@ export default function Registration() {
                             )}
                             <div className="text-sm">
                               Administration Fee (4%): ${(() => {
-                                const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0);
+                                const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? RX_ADDON_MONTHLY_PRICE : 0);
                                 const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
                                 const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
                                 return (subtotalAfterDiscount * 0.04).toFixed(2);
@@ -1693,7 +1693,7 @@ export default function Registration() {
                             <div className="text-lg font-semibold border-t pt-1">
                               Total Monthly: <span className="text-green-600">
                                 ${(() => {
-                                  const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? (coverageType === "Family" ? 21 : 19) : 0);
+                                  const subtotal = parseFloat(selectedPlan?.price || "0") + (addRxValet ? RX_ADDON_MONTHLY_PRICE : 0);
                                   const discountAmount = discountValidation?.isValid ? discountValidation.discountAmount : 0;
                                   const subtotalAfterDiscount = Math.max(0, subtotal - discountAmount);
                                   return (subtotalAfterDiscount * 1.04).toFixed(2);

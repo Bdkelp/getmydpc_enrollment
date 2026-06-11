@@ -18,6 +18,7 @@ import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
 import BankAccountForm from "@/components/BankAccountForm"; // ACH payment option
 import { isAdminOrAbove } from "@/lib/roles";
+import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
 
 export default function Payment() {
   const [, setLocation] = useLocation();
@@ -57,6 +58,7 @@ export default function Payment() {
   });
   const canOverrideAmount = isAdminOrAbove(user?.role);
   const canUseACH = true;
+  const rxAddOnDisplay = RX_ADDON_MONTHLY_PRICE.toFixed(2);
 
   // Load stored plan ID and member data from registration
   useEffect(() => {
@@ -363,7 +365,7 @@ export default function Payment() {
                           {sessionStorage.getItem("rxValet") === "yes" && (
                             <div className="flex justify-between text-sm">
                               <span>RxValet Add-on</span>
-                            <span>${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
+                              <span>${rxAddOnDisplay}</span>
                           </div>
                         )}
                         <div className="flex justify-between text-sm">
@@ -542,7 +544,7 @@ export default function Payment() {
                   {sessionStorage.getItem("rxValet") === "yes" && (
                     <div className="flex justify-between">
                       <span className="text-french-blue-900">RxValet Add-on</span>
-                      <span className="text-deep-twilight-900">${sessionStorage.getItem("coverageType") === "Member only" ? "19.00" : "21.00"}</span>
+                        <span className="text-deep-twilight-900">${rxAddOnDisplay}</span>
                     </div>
                   )}
                   
