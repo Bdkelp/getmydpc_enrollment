@@ -275,6 +275,34 @@ function sumCommissionAmounts(records: any[] = []) {
   }, 0);
 }
 
+async function getOptionalAuthenticatedUser(req: any): Promise<any | null> {
+  try {
+    const authHeader = req.headers?.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return null;
+    }
+
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      return null;
+    }
+
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
+
+    if (error || !user?.id) {
+      return null;
+    }
+
+    const dbUser = await storage.getUser(user.id);
+    return dbUser || null;
+  } catch {
+    return null;
+  }
+}
+
 // Helper functions leverage centralized role hierarchy
 const isAdmin = (role: string | undefined): boolean => {
   return hasAtLeastRole(role, "admin");
@@ -6202,9 +6230,46 @@ export async function registerRoutes(app: any) {
         smsConsent,
         communicationsConsent,
         faqDownloaded,
-        enrolledByAgentId,
+        enrolledByAgentId: requestedEnrolledByAgentId,
         overrideEnrollmentDate  // Admin-only: backdate enrollment (e.g., March 4 → March 1)
       } = req.body;
+
+      const authenticatedUser = await getOptionalAuthenticatedUser(req);
+      const normalizedRequestedEnrolledByAgentId =
+        typeof requestedEnrolledByAgentId === 'string' && requestedEnrolledByAgentId.trim().length > 0
+          ? requestedEnrolledByAgentId.trim()
+          : null;
+
+      if (normalizedRequestedEnrolledByAgentId) {
+        if (!authenticatedUser?.id) {
+          return res.status(401).json({
+            error: "Authentication required when assigning an enrolling agent",
+          });
+        }
+
+        const requesterIsAdmin = isAdmin(authenticatedUser.role);
+        if (!requesterIsAdmin && authenticatedUser.id !== normalizedRequestedEnrolledByAgentId) {
+          return res.status(403).json({
+            error: "Only admins can assign enrollment to another agent",
+          });
+        }
+      }
+
+      if (overrideEnrollmentDate) {
+        if (!authenticatedUser?.id) {
+          return res.status(401).json({
+            error: "Authentication required for enrollment date override",
+          });
+        }
+
+        if (!isAdmin(authenticatedUser.role)) {
+          return res.status(403).json({
+            error: "Only admins can override enrollment date",
+          });
+        }
+      }
+
+      const enrolledByAgentId = normalizedRequestedEnrolledByAgentId;
 
       const rawSSN = (ssn ?? req.body?.socialSecurityNumber ?? req.body?.social_security_number ?? '').toString();
       const normalizedSSN = rawSSN.replace(/\D/g, '');
@@ -6217,6 +6282,18 @@ export async function registerRoutes(app: any) {
         try {
           agentUser = await storage.getUser(enrolledByAgentId);
           if (agentUser) {
+            if (!agentUser.isActive) {
+              return res.status(400).json({
+                error: "Assigned enrolling agent is inactive",
+              });
+            }
+
+            if (!hasAgentOrAdminAccess(agentUser.role)) {
+              return res.status(400).json({
+                error: "Assigned enrolling user must be an agent or admin",
+              });
+            }
+
             agentNumber = agentUser.agentNumber || agentUser.agent_number || null;
             console.log(`[Registration] ✅ Agent lookup: ${agentUser.email} → Agent #${agentNumber || 'NONE'}`);
             
@@ -6300,8 +6377,8 @@ export async function registerRoutes(app: any) {
       let enrollmentDate = new Date();
       
       if (overrideEnrollmentDate) {
-        // Validate that only admin/super_admin can use override
-        if (agentUser && (agentUser.role === 'admin' || agentUser.role === 'super_admin')) {
+        // Validate that only admin/super_admin can use override (by requester identity)
+        if (authenticatedUser && isAdmin(authenticatedUser.role)) {
           const overrideDate = new Date(overrideEnrollmentDate);
           const now = new Date();
           
@@ -6322,9 +6399,9 @@ export async function registerRoutes(app: any) {
           
           // Use override date
           enrollmentDate = overrideDate;
-          console.log(`[Registration] ✅ ADMIN OVERRIDE: Enrollment date set to ${enrollmentDate.toISOString()} (by ${agentUser.email})`);
+          console.log(`[Registration] ✅ ADMIN OVERRIDE: Enrollment date set to ${enrollmentDate.toISOString()} (by ${authenticatedUser.email})`);
         } else {
-          console.warn(`[Registration] ⚠️  Ignoring overrideEnrollmentDate - user is not admin/super_admin`);
+          console.warn(`[Registration] ⚠️  Ignoring overrideEnrollmentDate - requester is not admin/super_admin`);
         }
       }
       
@@ -7406,16 +7483,21 @@ export async function registerRoutes(app: any) {
         return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, agentId } = req.query as {
+        startDate?: string;
+        endDate?: string;
+        agentId?: string;
+      };
+      const scopedAgentId = isAdmin(userRole) && agentId ? agentId : req.user.id;
       
       // USE NEW AGENT_COMMISSIONS TABLE (Supabase)
       const commissions = await storage.getAgentCommissionsNew(
-        req.user.id,
+        scopedAgentId,
         startDate as string,
         endDate as string
       );
 
-      console.log("✅ Got", commissions?.length || 0, "commissions for agent:", req.user?.email);
+      console.log("✅ Got", commissions?.length || 0, "commissions for agent:", scopedAgentId);
       
       // Return the commissions array directly (already formatted by storage function)
       res.json(commissions || []);
@@ -7435,8 +7517,9 @@ export async function registerRoutes(app: any) {
         return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
       }
 
-      const agentId = req.user.id;
-      const totals = await storage.getCommissionTotals(agentId);
+      const requestedAgentId = typeof req.query?.agentId === 'string' ? req.query.agentId.trim() : '';
+      const scopedAgentId = isAdmin(userRole) && requestedAgentId ? requestedAgentId : req.user.id;
+      const totals = await storage.getCommissionTotals(scopedAgentId);
       
       res.json(totals);
     } catch (error: any) {

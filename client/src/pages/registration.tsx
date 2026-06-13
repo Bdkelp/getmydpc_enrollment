@@ -157,6 +157,21 @@ export default function Registration() {
   const isAdminUser = hasAtLeastRole(currentUser?.role, 'admin');
   const isAgentOrAbove = hasAtLeastRole(currentUser?.role, 'agent');
 
+  const { data: enrollingAgents = [] } = useQuery<Array<{
+    id: string;
+    firstName?: string;
+    lastName?: string;
+    role?: string;
+    agentNumber?: string | null;
+    email?: string | null;
+    isActive?: boolean;
+  }>>({
+    queryKey: ['/api/agents', 'registration-enrolling-agent-options'],
+    queryFn: () => apiRequest('/api/agents'),
+    enabled: isAuthenticated && isAdminUser,
+    staleTime: 60_000,
+  });
+
   // Check for recommended tier from quiz
   useEffect(() => {
     const tierFromQuiz = sessionStorage.getItem('recommendedTier');
@@ -826,6 +841,41 @@ export default function Registration() {
                         )}
                       />
                     </div>
+
+                    {isAdminUser ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <FormField
+                          control={form.control}
+                          name="enrollingAgentId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Enroll On Behalf Of *</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select agent or admin" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {enrollingAgents.map((agent) => (
+                                    <SelectItem key={agent.id} value={agent.id}>
+                                      {agent.agentNumber ? `${agent.agentNumber} - ` : ''}
+                                      {`${agent.firstName || ''} ${agent.lastName || ''}`.trim() || agent.email || agent.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500">Commission ownership will be assigned to this user after payment callback.</p>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                        Enrollment attribution: <span className="font-medium">{`${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`.trim() || currentUser?.email || 'Current user'}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 

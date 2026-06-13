@@ -20,6 +20,8 @@
     "test": "npm run test:scheduler",
     "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
     "test:lifecycle-summary-api": "node scripts/test-lifecycle-summary-api-contract.mjs",
+    "test:group-assignment-hardening": "tsx scripts/test-group-assignment-hardening.ts",
+    "test:registration-assignment-hardening": "tsx scripts/test-registration-assignment-hardening.ts",
     "test:commission-payout-hardening": "tsx scripts/test-commission-payout-hardening.ts",
     "audit:commission-unit-duplicates": "node scripts/audit-commission-unit-rule-duplicates.mjs",
     "audit:ach-go-live": "node scripts/audit-ach-go-live.mjs",

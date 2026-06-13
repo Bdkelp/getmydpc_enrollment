@@ -152,6 +152,21 @@ export default function AgentDashboard() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const viewingAgentId = selectedAgentId || user?.id;
   const isAdminViewing = isAdminUser && selectedAgentId;
+  const scopedCommissionsPath = isAdminViewing && viewingAgentId
+    ? `/agent/commissions?agentId=${encodeURIComponent(viewingAgentId)}`
+    : '/agent/commissions';
+
+  const buildScopedCommissionAlertPath = (memberId: number, commissionId: string, alertType: string) => {
+    const params = new URLSearchParams({
+      memberId: String(memberId),
+      commissionId: String(commissionId),
+      alertType: String(alertType),
+    });
+    if (isAdminViewing && viewingAgentId) {
+      params.set('agentId', viewingAgentId);
+    }
+    return `/agent/commissions?${params.toString()}`;
+  };
 
   const [dateFilter, setDateFilter] = useState({
     startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
@@ -521,7 +536,7 @@ export default function AgentDashboard() {
                     <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
                       Review Billing
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setLocation('/agent/commissions')}>
+                    <Button size="sm" variant="outline" onClick={() => setLocation(scopedCommissionsPath)}>
                       Review Commissions
                     </Button>
                   </div>
@@ -565,7 +580,7 @@ export default function AgentDashboard() {
                         <button
                           key={`${item.kind}-${item.commissionId}-${idx}`}
                           type="button"
-                          onClick={() => setLocation(`/agent/commissions?memberId=${item.memberId}&commissionId=${item.commissionId}&alertType=${item.kind}`)}
+                          onClick={() => setLocation(buildScopedCommissionAlertPath(item.memberId, item.commissionId, item.kind))}
                           className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-french-blue-50"
                         >
                           <div className="min-w-0">

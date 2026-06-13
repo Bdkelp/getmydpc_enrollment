@@ -42,6 +42,21 @@ const ensureGroupEnrollmentAccess = (req: AuthRequest, res: Response, next: Next
   return next();
 };
 
+const ensureAssignableAgent = async (agentId: string): Promise<void> => {
+  const candidate = await storage.getUser(agentId);
+  if (!candidate) {
+    throw new Error('Selected assignment target does not exist');
+  }
+
+  if (!candidate.isActive) {
+    throw new Error('Selected assignment target is inactive');
+  }
+
+  if (!hasAtLeastRole(candidate.role, 'agent')) {
+    throw new Error('Selected assignment target must be an agent or admin');
+  }
+};
+
 const resolveGroupById = async (groupId: string) => {
   const normalizedGroupId = String(groupId || '').trim();
   if (!normalizedGroupId) {
@@ -3166,6 +3181,9 @@ router.post('/api/groups', async (req: AuthRequest, res: Response) => {
     let currentAssignedAgentId: string | null = null;
 
     if (isAdminOrHigher) {
+      if (selectedAssignedAgentId) {
+        await ensureAssignableAgent(selectedAssignedAgentId);
+      }
       currentAssignedAgentId = selectedAssignedAgentId ?? null;
     } else if (req.user?.id) {
       currentAssignedAgentId = req.user.id;
@@ -3542,6 +3560,9 @@ router.patch('/api/groups/:groupId', async (req: AuthRequest, res: Response) => 
     let nextCurrentAssignedAgentId = existingAssignmentState.currentAssignedAgentId;
 
     if (selectedAssignedAgentId !== undefined && isAdminOrHigher) {
+      if (selectedAssignedAgentId) {
+        await ensureAssignableAgent(selectedAssignedAgentId);
+      }
       nextCurrentAssignedAgentId = selectedAssignedAgentId ?? null;
     }
 
@@ -3620,6 +3641,16 @@ router.post('/api/groups/:groupId/reassign', async (req: AuthRequest, res: Respo
     const normalizedNewAgentId = normalizeAssignedAgentId(req.body?.newAgentId);
     if (!normalizedNewAgentId) {
       return res.status(400).json({ message: 'A new agent is required for reassignment' });
+    }
+
+    try {
+      await ensureAssignableAgent(normalizedNewAgentId);
+    } catch (validationError) {
+      const rawMessage = validationError instanceof Error ? validationError.message : 'Invalid reassignment target';
+      const message = rawMessage.startsWith('Selected assignment target')
+        ? rawMessage.replace('assignment', 'reassignment')
+        : rawMessage;
+      return res.status(400).json({ message });
     }
 
     if (oldAgentId && normalizedNewAgentId === oldAgentId) {

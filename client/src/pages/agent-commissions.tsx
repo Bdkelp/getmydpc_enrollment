@@ -70,6 +70,7 @@ export default function AgentCommissions() {
     resetLedgerFilters,
     focusMemberId,
     focusCommissionId,
+    scopedAgentId,
   } = useAgentCommissionsFilters();
 
   const {
@@ -88,7 +89,24 @@ export default function AgentCommissions() {
     ledgerStatusFilter,
     ledgerPayoutPeriodFilter,
     ledgerMemberNameFilter,
+    scopedAgentId,
   });
+
+  const commissionsRootPath = scopedAgentId
+    ? `/agent/commissions?agentId=${encodeURIComponent(scopedAgentId)}`
+    : '/agent/commissions';
+
+  const buildCommissionFocusPath = (memberId: number, commissionId: string, alertType: string) => {
+    const params = new URLSearchParams({
+      memberId: String(memberId),
+      commissionId: String(commissionId),
+      alertType: String(alertType),
+    });
+    if (scopedAgentId) {
+      params.set('agentId', scopedAgentId);
+    }
+    return `/agent/commissions?${params.toString()}`;
+  };
 
   const { safeCommissions, safeStats, businessMix, nextScheduledPayout, handleExport } =
     useAgentCommissionsDerived({
@@ -149,7 +167,7 @@ export default function AgentCommissions() {
               <p className="text-sm text-deep-twilight-900">
                 Focused view{focusMemberId ? ` for member #${focusMemberId}` : ''}{focusCommissionId ? ` and commission ${focusCommissionId}` : ''}.
               </p>
-              <Button size="sm" variant="outline" onClick={() => setLocation('/agent/commissions')}>
+              <Button size="sm" variant="outline" onClick={() => setLocation(commissionsRootPath)}>
                 Clear Focus
               </Button>
             </CardContent>
@@ -315,7 +333,7 @@ export default function AgentCommissions() {
                         <button
                           key={`${item.kind}-${item.commissionId}-${idx}`}
                           type="button"
-                          onClick={() => setLocation(`/agent/commissions?memberId=${item.memberId}&commissionId=${item.commissionId}&alertType=${item.kind}`)}
+                          onClick={() => setLocation(buildCommissionFocusPath(item.memberId, item.commissionId, item.kind))}
                           className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-orange-50"
                         >
                           <div className="min-w-0">

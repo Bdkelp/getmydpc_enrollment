@@ -27,6 +27,7 @@ export function useAgentCommissionsFilters() {
 
   const focusMemberId = searchParams.get('memberId');
   const focusCommissionId = searchParams.get('commissionId');
+  const scopedAgentId = searchParams.get('agentId');
 
   useEffect(() => {
     if (hasExpandedFocusRange || (!focusMemberId && !focusCommissionId)) return;
@@ -55,5 +56,6 @@ export function useAgentCommissionsFilters() {
     resetLedgerFilters,
     focusMemberId,
     focusCommissionId,
+    scopedAgentId,
   };
 }

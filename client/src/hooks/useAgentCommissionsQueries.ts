@@ -101,6 +101,7 @@ interface UseAgentCommissionsQueriesParams {
   ledgerStatusFilter: string;
   ledgerPayoutPeriodFilter: string;
   ledgerMemberNameFilter: string;
+  scopedAgentId?: string | null;
 }
 
 export function useAgentCommissionsQueries({
@@ -108,20 +109,32 @@ export function useAgentCommissionsQueries({
   ledgerStatusFilter,
   ledgerPayoutPeriodFilter,
   ledgerMemberNameFilter,
+  scopedAgentId,
 }: UseAgentCommissionsQueriesParams) {
   const { user } = useAuth();
 
+  const hasScopedAgentId = Boolean(scopedAgentId && scopedAgentId.trim());
+  const scopedAgentParam = hasScopedAgentId
+    ? `agentId=${encodeURIComponent(String(scopedAgentId).trim())}`
+    : '';
+
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<CommissionStats>({
-    queryKey: ["/api/agent/commission-totals"],
-    queryFn: () => apiRequest("/api/agent/commission-totals", { method: "GET" }),
+    queryKey: ["/api/agent/commission-totals", scopedAgentId],
+    queryFn: () => {
+      const suffix = scopedAgentParam ? `?${scopedAgentParam}` : '';
+      return apiRequest(`/api/agent/commission-totals${suffix}`, { method: "GET" });
+    },
     enabled: !!user,
     retry: 1,
   });
 
   const { data: commissions, isLoading: commissionsLoading, error: commissionsError } = useQuery<Commission[]>({
-    queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate],
+    queryKey: ["/api/agent/commissions", dateFilter.startDate, dateFilter.endDate, scopedAgentId],
     queryFn: () => {
       const params = new URLSearchParams({ startDate: dateFilter.startDate, endDate: dateFilter.endDate });
+      if (hasScopedAgentId) {
+        params.set('agentId', String(scopedAgentId).trim());
+      }
       return apiRequest(`/api/agent/commissions?${params}`, { method: "GET" });
     },
     enabled: !!user && !!dateFilter.startDate && !!dateFilter.endDate,
@@ -129,8 +142,14 @@ export function useAgentCommissionsQueries({
   });
 
   const { data: lifecycleAlerts } = useQuery<LifecycleAlertSummary>({
-    queryKey: ["/api/agent/lifecycle-alerts"],
-    queryFn: () => apiRequest('/api/agent/lifecycle-alerts?days=7', { method: 'GET' }),
+    queryKey: ["/api/agent/lifecycle-alerts", scopedAgentId],
+    queryFn: () => {
+      const params = new URLSearchParams({ days: '7' });
+      if (hasScopedAgentId) {
+        params.set('agentId', String(scopedAgentId).trim());
+      }
+      return apiRequest(`/api/agent/lifecycle-alerts?${params.toString()}`, { method: 'GET' });
+    },
     enabled: !!user,
     retry: 1,
     refetchInterval: 60_000,
@@ -152,6 +171,9 @@ export function useAgentCommissionsQueries({
         status: ledgerStatusFilter,
         payoutPeriod: ledgerPayoutPeriodFilter,
       });
+      if (hasScopedAgentId) {
+        params.set('agentId', String(scopedAgentId).trim());
+      }
       if (ledgerMemberNameFilter.trim()) {
         params.set('memberName', ledgerMemberNameFilter.trim());
       }
