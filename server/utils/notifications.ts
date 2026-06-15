@@ -1,11 +1,13 @@
-import sgMail from '@sendgrid/mail';
+import sgMail from "@sendgrid/mail";
 
 // Initialize SendGrid if API key is available
 if (process.env.SENDGRID_API_KEY) {
   sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  console.log('[Notifications] SendGrid initialized');
+  console.log("[Notifications] SendGrid initialized");
 } else {
-  console.log('[Notifications] SendGrid API key not configured - email notifications disabled');
+  console.log(
+    "[Notifications] SendGrid API key not configured - email notifications disabled",
+  );
 }
 
 const parseEmailList = (value?: string, fallback: string[] = []): string[] => {
@@ -13,25 +15,41 @@ const parseEmailList = (value?: string, fallback: string[] = []): string[] => {
     return fallback;
   }
   const parsed = value
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
   return parsed.length > 0 ? parsed : fallback;
 };
 
 const DEFAULT_ADMIN_EMAILS = [
-  'michael@mypremierplans.com',
-  'travis@mypremierplans.com',
-  'info@mypremierplans.com'
+  "michael@mypremierplans.com",
+  "travis@mypremierplans.com",
+  "info@mypremierplans.com",
 ];
 
-const SUPPORT_EMAIL = (process.env.SUPPORT_EMAIL || process.env.SENDGRID_FROM_EMAIL || 'support@mypremierplans.com').trim();
+const SUPPORT_EMAIL = (
+  process.env.SUPPORT_EMAIL ||
+  process.env.SENDGRID_FROM_EMAIL ||
+  "support@mypremierplans.com"
+).trim();
 const COMPANY_EMAIL = (process.env.COMPANY_EMAIL || SUPPORT_EMAIL).trim();
-const DEFAULT_FROM_EMAIL = (process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL).trim();
-const ADMIN_NOTIFICATION_EMAILS = parseEmailList(process.env.ADMIN_NOTIFICATION_EMAILS, DEFAULT_ADMIN_EMAILS);
-const LEAD_NOTIFICATION_EMAILS = parseEmailList(process.env.LEAD_NOTIFICATION_EMAILS, ADMIN_NOTIFICATION_EMAILS.length ? ADMIN_NOTIFICATION_EMAILS : [COMPANY_EMAIL]);
+const DEFAULT_FROM_EMAIL = (
+  process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL
+).trim();
+const ADMIN_NOTIFICATION_EMAILS = parseEmailList(
+  process.env.ADMIN_NOTIFICATION_EMAILS,
+  DEFAULT_ADMIN_EMAILS,
+);
+const LEAD_NOTIFICATION_EMAILS = parseEmailList(
+  process.env.LEAD_NOTIFICATION_EMAILS,
+  ADMIN_NOTIFICATION_EMAILS.length
+    ? ADMIN_NOTIFICATION_EMAILS
+    : [COMPANY_EMAIL],
+);
 const SALES_EMAIL = (process.env.SALES_EMAIL || COMPANY_EMAIL).trim();
-const PARTNER_TEAM_EMAIL = (process.env.PARTNER_TEAM_EMAIL || 'info@mypremierplans.com').trim();
+const PARTNER_TEAM_EMAIL = (
+  process.env.PARTNER_TEAM_EMAIL || "info@mypremierplans.com"
+).trim();
 
 interface EnrollmentNotification {
   memberName: string;
@@ -50,20 +68,22 @@ interface EnrollmentNotification {
 /**
  * Send enrollment notification to member, agent, and admins
  */
-export async function sendEnrollmentNotification(data: EnrollmentNotification): Promise<void> {
+export async function sendEnrollmentNotification(
+  data: EnrollmentNotification,
+): Promise<void> {
   // If SendGrid is not configured, log the notification instead
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] New enrollment (email disabled):', data);
+    console.log("[Notification] New enrollment (email disabled):", data);
     return;
   }
 
-  const formattedDate = data.enrollmentDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+  const formattedDate = data.enrollmentDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
   const htmlContent = `
@@ -97,27 +117,39 @@ export async function sendEnrollmentNotification(data: EnrollmentNotification): 
           </tr>
         </table>
 
-        ${data.agentName ? `
+        ${
+          data.agentName
+            ? `
         <h2 style="color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; margin-top: 30px;">Agent Information</h2>
         <table style="width: 100%; margin: 15px 0;">
           <tr>
             <td style="padding: 8px 0; color: #666;"><strong>Agent:</strong></td>
             <td style="padding: 8px 0;">${data.agentName}</td>
           </tr>
-          ${data.agentNumber ? `
+          ${
+            data.agentNumber
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #666;"><strong>Agent Number:</strong></td>
             <td style="padding: 8px 0;">${data.agentNumber}</td>
           </tr>
-          ` : ''}
-          ${data.commission ? `
+          `
+              : ""
+          }
+          ${
+            data.commission
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #666;"><strong>Commission:</strong></td>
             <td style="padding: 8px 0; color: #28a745;"><strong>$${data.commission.toFixed(2)}</strong></td>
           </tr>
-          ` : ''}
+          `
+              : ""
+          }
         </table>
-        ` : ''}
+        `
+            : ""
+        }
 
         <div style="background: #e8f4fd; padding: 15px; border-radius: 5px; margin-top: 20px;">
           <p style="margin: 0; color: #666;"><strong>Enrollment Date:</strong> ${formattedDate}</p>
@@ -140,11 +172,15 @@ Member Information:
 - Coverage Type: ${data.memberType}
 - Monthly Amount: $${data.amount.toFixed(2)}
 
-${data.agentName ? `Agent Information:
+${
+  data.agentName
+    ? `Agent Information:
 - Agent: ${data.agentName}
-${data.agentNumber ? `- Agent Number: ${data.agentNumber}` : ''}
-${data.commission ? `- Commission: $${data.commission.toFixed(2)}` : ''}
-` : ''}
+${data.agentNumber ? `- Agent Number: ${data.agentNumber}` : ""}
+${data.commission ? `- Commission: $${data.commission.toFixed(2)}` : ""}
+`
+    : ""
+}
 
 Enrollment Date: ${formattedDate}
   `;
@@ -156,7 +192,7 @@ Enrollment Date: ${formattedDate}
       from: DEFAULT_FROM_EMAIL,
       subject: `New Enrollment: ${data.memberName} - ${data.planName}`,
       text: textContent,
-      html: htmlContent
+      html: htmlContent,
     });
 
     // Send welcome email to member
@@ -167,9 +203,9 @@ Enrollment Date: ${formattedDate}
       await sendAgentEnrollmentNotification(data);
     }
 
-    console.log('[Notification] Enrollment notifications sent to all parties');
+    console.log("[Notification] Enrollment notifications sent to all parties");
   } catch (error) {
-    console.error('[Notification] Failed to send enrollment emails:', error);
+    console.error("[Notification] Failed to send enrollment emails:", error);
   }
 }
 
@@ -178,7 +214,7 @@ interface PaymentNotification {
   memberEmail: string;
   amount: number;
   paymentMethod: string;
-  paymentStatus: 'succeeded' | 'failed' | 'pending';
+  paymentStatus: "succeeded" | "failed" | "pending";
   transactionId?: string;
   paymentDate: Date;
 }
@@ -186,25 +222,32 @@ interface PaymentNotification {
 /**
  * Send payment notification to admins
  */
-export async function sendPaymentNotification(data: PaymentNotification): Promise<void> {
+export async function sendPaymentNotification(
+  data: PaymentNotification,
+): Promise<void> {
   // If SendGrid is not configured, log the notification instead
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Payment processed (email disabled):', data);
+    console.log("[Notification] Payment processed (email disabled):", data);
     return;
   }
 
-  const formattedDate = data.paymentDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+  const formattedDate = data.paymentDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 
-  const statusColor = data.paymentStatus === 'succeeded' ? '#28a745' : 
-                      data.paymentStatus === 'failed' ? '#dc3545' : '#ffc107';
-  const statusText = data.paymentStatus.charAt(0).toUpperCase() + data.paymentStatus.slice(1);
+  const statusColor =
+    data.paymentStatus === "succeeded"
+      ? "#28a745"
+      : data.paymentStatus === "failed"
+        ? "#dc3545"
+        : "#ffc107";
+  const statusText =
+    data.paymentStatus.charAt(0).toUpperCase() + data.paymentStatus.slice(1);
 
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -235,12 +278,16 @@ export async function sendPaymentNotification(data: PaymentNotification): Promis
             <td style="padding: 8px 0; color: #666;"><strong>Status:</strong></td>
             <td style="padding: 8px 0;"><span style="color: ${statusColor}; font-weight: bold;">${statusText}</span></td>
           </tr>
-          ${data.transactionId ? `
+          ${
+            data.transactionId
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #666;"><strong>Transaction ID:</strong></td>
             <td style="padding: 8px 0; font-family: monospace;">${data.transactionId}</td>
           </tr>
-          ` : ''}
+          `
+              : ""
+          }
         </table>
 
         <div style="background: #e8f4fd; padding: 15px; border-radius: 5px; margin-top: 20px;">
@@ -263,7 +310,7 @@ Payment Details:
 - Amount: $${data.amount.toFixed(2)}
 - Payment Method: ${data.paymentMethod}
 - Status: ${statusText}
-${data.transactionId ? `- Transaction ID: ${data.transactionId}` : ''}
+${data.transactionId ? `- Transaction ID: ${data.transactionId}` : ""}
 
 Payment Date: ${formattedDate}
   `;
@@ -274,11 +321,11 @@ Payment Date: ${formattedDate}
       from: DEFAULT_FROM_EMAIL,
       subject: `Payment ${statusText}: ${data.memberName} - $${data.amount.toFixed(2)}`,
       text: textContent,
-      html: htmlContent
+      html: htmlContent,
     });
-    console.log('[Notification] Payment notification sent to admins');
+    console.log("[Notification] Payment notification sent to admins");
   } catch (error) {
-    console.error('[Notification] Failed to send payment email:', error);
+    console.error("[Notification] Failed to send payment email:", error);
   }
 }
 
@@ -294,17 +341,22 @@ export interface ManualConfirmationEmailPayload {
 /**
  * Send an on-demand confirmation email from the dashboard actions.
  */
-export async function sendManualConfirmationEmail(data: ManualConfirmationEmailPayload): Promise<void> {
+export async function sendManualConfirmationEmail(
+  data: ManualConfirmationEmailPayload,
+): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Manual confirmation email skipped - SendGrid not configured');
+    console.log(
+      "[Notification] Manual confirmation email skipped - SendGrid not configured",
+    );
     return;
   }
 
-  const memberName = data.memberName?.trim() || 'My Premier Plans Member';
-  const planName = data.planName?.trim() || 'My Premier Plans Membership';
-  const amountDisplay = typeof data.amount === 'number' && Number.isFinite(data.amount)
-    ? `$${data.amount.toFixed(2)}`
-    : 'Pending';
+  const memberName = data.memberName?.trim() || "My Premier Plans Member";
+  const planName = data.planName?.trim() || "My Premier Plans Membership";
+  const amountDisplay =
+    typeof data.amount === "number" && Number.isFinite(data.amount)
+      ? `$${data.amount.toFixed(2)}`
+      : "Pending";
 
   const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -314,14 +366,18 @@ export async function sendManualConfirmationEmail(data: ManualConfirmationEmailP
       <div style="background: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; border-top: none;">
         <p style="color: #374151; line-height: 1.6;">Hi ${memberName},</p>
         <p style="color: #374151; line-height: 1.6;">
-          Here is a copy of your enrollment confirmation${planName ? ` for <strong>${planName}</strong>` : ''}.
+          Here is a copy of your enrollment confirmation${planName ? ` for <strong>${planName}</strong>` : ""}.
         </p>
         <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-          ${data.customerNumber ? `
+          ${
+            data.customerNumber
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280; width: 40%;"><strong>Customer Number</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.customerNumber}</td>
-          </tr>` : ''}
+          </tr>`
+              : ""
+          }
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>Plan</strong></td>
             <td style="padding: 8px 0; color: #111827;">${planName}</td>
@@ -330,11 +386,15 @@ export async function sendManualConfirmationEmail(data: ManualConfirmationEmailP
             <td style="padding: 8px 0; color: #6b7280;"><strong>Monthly Amount</strong></td>
             <td style="padding: 8px 0; color: #111827;">${amountDisplay}</td>
           </tr>
-          ${data.transactionId ? `
+          ${
+            data.transactionId
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>Transaction ID</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.transactionId}</td>
-          </tr>` : ''}
+          </tr>`
+              : ""
+          }
         </table>
         <p style="color: #374151; line-height: 1.6;">
           Save this email for your records. If you need help or have questions about your membership, reply to this email or contact us at ${SUPPORT_EMAIL}.
@@ -355,9 +415,17 @@ Here is your My Premier Plans enrollment confirmation.
 
 Plan: ${planName}
 Monthly Amount: ${amountDisplay}
-${data.customerNumber ? `Customer Number: ${data.customerNumber}
-` : ''}${data.transactionId ? `Transaction ID: ${data.transactionId}
-` : ''}
+${
+  data.customerNumber
+    ? `Customer Number: ${data.customerNumber}
+`
+    : ""
+}${
+    data.transactionId
+      ? `Transaction ID: ${data.transactionId}
+`
+      : ""
+  }
 Save this email for your records. For help, contact ${SUPPORT_EMAIL}.
 `;
 
@@ -366,13 +434,19 @@ Save this email for your records. For help, contact ${SUPPORT_EMAIL}.
       to: data.recipientEmail,
       from: SUPPORT_EMAIL,
       replyTo: SUPPORT_EMAIL,
-      subject: 'Your My Premier Plans enrollment confirmation',
+      subject: "Your My Premier Plans enrollment confirmation",
       text: textContent,
-      html: htmlContent
+      html: htmlContent,
     });
-    console.log('[Notification] Manual confirmation email sent to', data.recipientEmail);
+    console.log(
+      "[Notification] Manual confirmation email sent to",
+      data.recipientEmail,
+    );
   } catch (error) {
-    console.error('[Notification] Failed to send manual confirmation email:', error);
+    console.error(
+      "[Notification] Failed to send manual confirmation email:",
+      error,
+    );
     throw error;
   }
 }
@@ -380,17 +454,21 @@ Save this email for your records. For help, contact ${SUPPORT_EMAIL}.
 /**
  * Send welcome email to new member
  */
-async function sendMemberWelcomeEmail(data: EnrollmentNotification): Promise<void> {
+async function sendMemberWelcomeEmail(
+  data: EnrollmentNotification,
+): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Member welcome email disabled - SendGrid not configured');
+    console.log(
+      "[Notification] Member welcome email disabled - SendGrid not configured",
+    );
     return;
   }
 
-  const formattedDate = data.enrollmentDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
+  const formattedDate = data.enrollmentDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 
   const htmlContent = `
@@ -484,18 +562,23 @@ For questions or support, contact us at ${COMPANY_EMAIL}
       from: SUPPORT_EMAIL,
       subject: `Welcome to My Premier Plans - Your ${data.planName} Enrollment Confirmed`,
       text: textContent,
-      html: htmlContent
+      html: htmlContent,
     });
-    console.log('[Notification] Welcome email sent to member:', data.memberEmail);
+    console.log(
+      "[Notification] Welcome email sent to member:",
+      data.memberEmail,
+    );
   } catch (error) {
-    console.error('[Notification] Failed to send member welcome email:', error);
+    console.error("[Notification] Failed to send member welcome email:", error);
   }
 }
 
 /**
  * Send enrollment notification to agent
  */
-async function sendAgentEnrollmentNotification(data: EnrollmentNotification): Promise<void> {
+async function sendAgentEnrollmentNotification(
+  data: EnrollmentNotification,
+): Promise<void> {
   if (!process.env.SENDGRID_API_KEY || !data.agentName) {
     return;
   }
@@ -527,12 +610,16 @@ async function sendAgentEnrollmentNotification(data: EnrollmentNotification): Pr
               <td style="padding: 5px 0; color: #155724;"><strong>Monthly Amount:</strong></td>
               <td style="padding: 5px 0; color: #28a745;"><strong>$${data.amount.toFixed(2)}</strong></td>
             </tr>
-            ${data.commission ? `
+            ${
+              data.commission
+                ? `
             <tr>
               <td style="padding: 5px 0; color: #155724;"><strong>Your Commission:</strong></td>
               <td style="padding: 5px 0; color: #28a745;"><strong>$${data.commission.toFixed(2)}</strong></td>
             </tr>
-            ` : ''}
+            `
+                : ""
+            }
           </table>
         </div>
 
@@ -556,13 +643,16 @@ async function sendAgentEnrollmentNotification(data: EnrollmentNotification): Pr
     await sgMail.send({
       to: agentRecipients,
       from: DEFAULT_FROM_EMAIL,
-      subject: `New Enrollment${data.agentName ? ` for ${data.agentName}` : ''}: ${data.memberName}`,
+      subject: `New Enrollment${data.agentName ? ` for ${data.agentName}` : ""}: ${data.memberName}`,
       html: htmlContent,
-      bcc: data.agentEmail ? ADMIN_NOTIFICATION_EMAILS : undefined
+      bcc: data.agentEmail ? ADMIN_NOTIFICATION_EMAILS : undefined,
     });
-    console.log('[Notification] Agent enrollment notification sent');
+    console.log("[Notification] Agent enrollment notification sent");
   } catch (error) {
-    console.error('[Notification] Failed to send agent enrollment email:', error);
+    console.error(
+      "[Notification] Failed to send agent enrollment email:",
+      error,
+    );
   }
 }
 
@@ -570,6 +660,19 @@ interface WeeklyRecapData {
   weekOf: string;
   totalEnrollments: number;
   totalRevenue: number;
+  businessSnapshot: {
+    activeIndividualMemberships: number;
+    activeFamilyMemberships: number;
+    activeGroupMemberships: number;
+    totalActiveMemberships: number;
+    combinedMonthlyRevenue: number;
+    cancellationsThisWeek: number;
+    failedPaymentsThisWeek: number;
+    newUserLoginsThisWeek: number;
+    usersNeverLoggedIn: number;
+    newMembershipsThisWeek: number;
+    recurringMembershipsThisWeek: number;
+  };
   newMembers: Array<{
     name: string;
     plan: string;
@@ -599,8 +702,8 @@ export interface LeadSubmissionDetails {
 }
 
 function formatLeadSource(source?: string) {
-  if (!source) return 'contact_form';
-  return source.replace(/_/g, ' ');
+  if (!source) return "contact_form";
+  return source.replace(/_/g, " ");
 }
 
 function buildLeadAdminHtml(data: LeadSubmissionDetails) {
@@ -628,14 +731,18 @@ function buildLeadAdminHtml(data: LeadSubmissionDetails) {
             <td style="padding: 8px 0; color: #111827;">${formatLeadSource(data.source)}</td>
           </tr>
         </table>
-        ${data.message ? `
+        ${
+          data.message
+            ? `
           <div style="margin-top: 20px;">
             <p style="color: #6b7280; margin: 0 0 6px 0;"><strong>Message</strong></p>
             <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; color: #111827;">
               ${data.message}
             </div>
           </div>
-        ` : ''}
+        `
+            : ""
+        }
       </div>
       <div style="background: #111827; color: #e5e7eb; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
         Lead submitted on ${new Date().toLocaleString()}
@@ -714,39 +821,59 @@ function buildPartnerAdminHtml(data: PartnerLeadSubmissionDetails) {
             <td style="padding: 8px 0; color: #6b7280;"><strong>Agency</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.agencyName}</td>
           </tr>
-          ${data.agencyWebsite ? `
+          ${
+            data.agencyWebsite
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>Website</strong></td>
             <td style="padding: 8px 0; color: #2563eb;"><a href="${data.agencyWebsite}" target="_blank" rel="noopener" style="color: #2563eb; text-decoration: none;">${data.agencyWebsite}</a></td>
           </tr>
-          ` : ''}
-          ${data.statesServed ? `
+          `
+              : ""
+          }
+          ${
+            data.statesServed
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>States</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.statesServed}</td>
           </tr>
-          ` : ''}
-          ${data.experienceLevel ? `
+          `
+              : ""
+          }
+          ${
+            data.experienceLevel
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>Experience</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.experienceLevel}</td>
           </tr>
-          ` : ''}
-          ${data.volumeEstimate ? `
+          `
+              : ""
+          }
+          ${
+            data.volumeEstimate
+              ? `
           <tr>
             <td style="padding: 8px 0; color: #6b7280;"><strong>Member Volume</strong></td>
             <td style="padding: 8px 0; color: #111827;">${data.volumeEstimate}</td>
           </tr>
-          ` : ''}
+          `
+              : ""
+          }
         </table>
-        ${data.message ? `
+        ${
+          data.message
+            ? `
           <div style="margin-top: 20px;">
             <p style="color: #6b7280; margin: 0 0 6px 0;"><strong>Notes</strong></p>
             <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; color: #111827; line-height: 1.5;">
               ${data.message}
             </div>
           </div>
-        ` : ''}
+        `
+            : ""
+        }
       </div>
       <div style="background: #0f172a; color: #e2e8f0; text-align: center; padding: 12px; border-radius: 0 0 10px 10px; font-size: 12px;">
         Submitted on ${new Date().toLocaleString()}
@@ -787,14 +914,18 @@ function buildPartnerFollowUpHtml(data: PartnerLeadSubmissionDetails) {
   `;
 }
 
-export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Promise<void> {
+export async function sendLeadSubmissionEmails(
+  data: LeadSubmissionDetails,
+): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Lead submission emails disabled - SendGrid not configured');
+    console.log(
+      "[Notification] Lead submission emails disabled - SendGrid not configured",
+    );
     return;
   }
 
   const adminHtml = buildLeadAdminHtml(data);
-  const adminText = `New lead submission\nName: ${data.firstName} ${data.lastName}\nEmail: ${data.email}\nPhone: ${data.phone}\nSource: ${formatLeadSource(data.source)}\n${data.message ? `Message: ${data.message}` : ''}`;
+  const adminText = `New lead submission\nName: ${data.firstName} ${data.lastName}\nEmail: ${data.email}\nPhone: ${data.phone}\nSource: ${formatLeadSource(data.source)}\n${data.message ? `Message: ${data.message}` : ""}`;
 
   try {
     await sgMail.sendMultiple({
@@ -802,11 +933,14 @@ export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Pro
       from: SALES_EMAIL,
       subject: `New Lead: ${data.firstName} ${data.lastName}`,
       text: adminText,
-      html: adminHtml
+      html: adminHtml,
     });
-    console.log('[Notification] Lead admin notification sent');
+    console.log("[Notification] Lead admin notification sent");
   } catch (error) {
-    console.error('[Notification] Failed to send lead admin notification:', error);
+    console.error(
+      "[Notification] Failed to send lead admin notification:",
+      error,
+    );
   }
 
   try {
@@ -814,12 +948,12 @@ export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Pro
       to: data.email,
       from: SUPPORT_EMAIL,
       replyTo: SUPPORT_EMAIL,
-      subject: 'We received your My Premier Plans inquiry',
-      html: buildLeadFollowUpHtml(data)
+      subject: "We received your My Premier Plans inquiry",
+      html: buildLeadFollowUpHtml(data),
     });
-    console.log('[Notification] Lead follow-up email sent to prospect');
+    console.log("[Notification] Lead follow-up email sent to prospect");
   } catch (error) {
-    console.error('[Notification] Failed to send lead follow-up email:', error);
+    console.error("[Notification] Failed to send lead follow-up email:", error);
   }
 }
 
@@ -828,7 +962,9 @@ export async function sendLeadSubmissionEmails(data: LeadSubmissionDetails): Pro
  */
 export async function sendWeeklyRecap(data: WeeklyRecapData): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Weekly recap disabled - SendGrid not configured');
+    console.log(
+      "[Notification] Weekly recap disabled - SendGrid not configured",
+    );
     return;
   }
 
@@ -851,7 +987,72 @@ export async function sendWeeklyRecap(data: WeeklyRecapData): Promise<void> {
           </div>
         </div>
 
-        ${data.newMembers.length > 0 ? `
+        <div style="margin-bottom: 30px;">
+          <h2 style="color: #333; border-bottom: 2px solid #5a2d91; padding-bottom: 10px;">Business Snapshot</h2>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px;">
+            <div style="background: #fff; border-radius: 8px; padding: 16px; border-left: 4px solid #0066cc;">
+              <p style="margin: 0; color: #666; font-size: 12px; text-transform: uppercase;">Active Individual Memberships</p>
+              <p style="margin: 8px 0 0 0; font-size: 24px; color: #0066cc; font-weight: 700;">${data.businessSnapshot.activeIndividualMemberships}</p>
+            </div>
+            <div style="background: #fff; border-radius: 8px; padding: 16px; border-left: 4px solid #17a2b8;">
+              <p style="margin: 0; color: #666; font-size: 12px; text-transform: uppercase;">Active Family Memberships</p>
+              <p style="margin: 8px 0 0 0; font-size: 24px; color: #17a2b8; font-weight: 700;">${data.businessSnapshot.activeFamilyMemberships}</p>
+            </div>
+            <div style="background: #fff; border-radius: 8px; padding: 16px; border-left: 4px solid #fd7e14;">
+              <p style="margin: 0; color: #666; font-size: 12px; text-transform: uppercase;">Active Group Memberships</p>
+              <p style="margin: 8px 0 0 0; font-size: 24px; color: #fd7e14; font-weight: 700;">${data.businessSnapshot.activeGroupMemberships}</p>
+            </div>
+            <div style="background: #fff; border-radius: 8px; padding: 16px; border-left: 4px solid #28a745;">
+              <p style="margin: 0; color: #666; font-size: 12px; text-transform: uppercase;">Combined Monthly Revenue</p>
+              <p style="margin: 8px 0 0 0; font-size: 24px; color: #28a745; font-weight: 700;">$${data.businessSnapshot.combinedMonthlyRevenue.toFixed(2)}</p>
+            </div>
+          </div>
+
+          <div style="background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f8f9fa;">
+                  <th style="padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6;">Metric</th>
+                  <th style="padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6;">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">Total Active Memberships</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.totalActiveMemberships}</td>
+                </tr>
+                <tr style="background: #f8f9fa;">
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">New Memberships This Week</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.newMembershipsThisWeek}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">Recurring Membership Payments This Week</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.recurringMembershipsThisWeek}</td>
+                </tr>
+                <tr style="background: #f8f9fa;">
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">Cancellations This Week</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.cancellationsThisWeek}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">Failed Payments This Week</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.failedPaymentsThisWeek}</td>
+                </tr>
+                <tr style="background: #f8f9fa;">
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">Users Logged In This Week</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6; font-weight: 600;">${data.businessSnapshot.newUserLoginsThisWeek}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 12px;">Active Users Never Logged In</td>
+                  <td style="padding: 12px; font-weight: 600;">${data.businessSnapshot.usersNeverLoggedIn}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        ${
+          data.newMembers.length > 0
+            ? `
         <div style="margin-bottom: 30px;">
           <h2 style="color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px;">New Members This Week</h2>
           <div style="background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -866,22 +1067,30 @@ export async function sendWeeklyRecap(data: WeeklyRecapData): Promise<void> {
                 </tr>
               </thead>
               <tbody>
-                ${data.newMembers.map((member, index) => `
-                <tr style="background: ${index % 2 === 0 ? '#fff' : '#f8f9fa'};">
+                ${data.newMembers
+                  .map(
+                    (member, index) => `
+                <tr style="background: ${index % 2 === 0 ? "#fff" : "#f8f9fa"};">
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${member.name}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${member.plan}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6; color: #28a745; font-weight: bold;">$${member.amount.toFixed(2)}</td>
-                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${member.agentName || 'Direct'}</td>
+                  <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${member.agentName || "Direct"}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${member.enrollmentDate}</td>
                 </tr>
-                `).join('')}
+                `,
+                  )
+                  .join("")}
               </tbody>
             </table>
           </div>
         </div>
-        ` : ''}
+        `
+            : ""
+        }
 
-        ${data.agentPerformance.length > 0 ? `
+        ${
+          data.agentPerformance.length > 0
+            ? `
         <div style="margin-bottom: 30px;">
           <h2 style="color: #333; border-bottom: 2px solid #28a745; padding-bottom: 10px;">Agent Performance</h2>
           <div style="background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
@@ -894,18 +1103,24 @@ export async function sendWeeklyRecap(data: WeeklyRecapData): Promise<void> {
                 </tr>
               </thead>
               <tbody>
-                ${data.agentPerformance.map((agent, index) => `
-                <tr style="background: ${index % 2 === 0 ? '#fff' : '#f8f9fa'};">
+                ${data.agentPerformance
+                  .map(
+                    (agent, index) => `
+                <tr style="background: ${index % 2 === 0 ? "#fff" : "#f8f9fa"};">
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${agent.agentName}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6;">${agent.enrollments}</td>
                   <td style="padding: 12px; border-bottom: 1px solid #dee2e6; color: #28a745; font-weight: bold;">$${agent.totalCommissions.toFixed(2)}</td>
                 </tr>
-                `).join('')}
+                `,
+                  )
+                  .join("")}
               </tbody>
             </table>
           </div>
         </div>
-        ` : ''}
+        `
+            : ""
+        }
 
         <div style="text-align: center; margin-top: 30px; padding: 20px; background: #e8f4fd; border-radius: 8px;">
           <p style="color: #666; margin: 0;">
@@ -927,19 +1142,46 @@ Summary:
 - New Enrollments: ${data.totalEnrollments}
 - Weekly Revenue: $${data.totalRevenue.toFixed(2)}
 
-${data.newMembers.length > 0 ? `
-New Members:
-${data.newMembers.map(member => 
-  `- ${member.name} (${member.plan}) - $${member.amount.toFixed(2)} - ${member.agentName || 'Direct'} - ${member.enrollmentDate}`
-).join('\n')}
-` : ''}
+Business Snapshot:
+- Active Individual Memberships: ${data.businessSnapshot.activeIndividualMemberships}
+- Active Family Memberships: ${data.businessSnapshot.activeFamilyMemberships}
+- Active Group Memberships: ${data.businessSnapshot.activeGroupMemberships}
+- Total Active Memberships: ${data.businessSnapshot.totalActiveMemberships}
+- Combined Monthly Revenue: $${data.businessSnapshot.combinedMonthlyRevenue.toFixed(2)}
+- New Memberships This Week: ${data.businessSnapshot.newMembershipsThisWeek}
+- Recurring Membership Payments This Week: ${data.businessSnapshot.recurringMembershipsThisWeek}
+- Cancellations This Week: ${data.businessSnapshot.cancellationsThisWeek}
+- Failed Payments This Week: ${data.businessSnapshot.failedPaymentsThisWeek}
+- Users Logged In This Week: ${data.businessSnapshot.newUserLoginsThisWeek}
+- Active Users Never Logged In: ${data.businessSnapshot.usersNeverLoggedIn}
 
-${data.agentPerformance.length > 0 ? `
+${
+  data.newMembers.length > 0
+    ? `
+New Members:
+${data.newMembers
+  .map(
+    (member) =>
+      `- ${member.name} (${member.plan}) - $${member.amount.toFixed(2)} - ${member.agentName || "Direct"} - ${member.enrollmentDate}`,
+  )
+  .join("\n")}
+`
+    : ""
+}
+
+${
+  data.agentPerformance.length > 0
+    ? `
 Agent Performance:
-${data.agentPerformance.map(agent => 
-  `- ${agent.agentName}: ${agent.enrollments} enrollments, $${agent.totalCommissions.toFixed(2)} commissions`
-).join('\n')}
-` : ''}
+${data.agentPerformance
+  .map(
+    (agent) =>
+      `- ${agent.agentName}: ${agent.enrollments} enrollments, $${agent.totalCommissions.toFixed(2)} commissions`,
+  )
+  .join("\n")}
+`
+    : ""
+}
 
 This automated weekly report was generated on ${new Date().toLocaleDateString()}
   `;
@@ -950,27 +1192,32 @@ This automated weekly report was generated on ${new Date().toLocaleDateString()}
       from: COMPANY_EMAIL,
       subject: `Weekly Enrollment Recap - Week of ${data.weekOf}`,
       text: textContent,
-      html: htmlContent
+      html: htmlContent,
     });
-    console.log('[Notification] Weekly recap sent to:', COMPANY_EMAIL);
+    console.log("[Notification] Weekly recap sent to:", COMPANY_EMAIL);
   } catch (error) {
-    console.error('[Notification] Failed to send weekly recap:', error);
+    console.error("[Notification] Failed to send weekly recap:", error);
   }
 }
 
-export async function sendPartnerInquiryEmails(data: PartnerLeadSubmissionDetails): Promise<void> {
+export async function sendPartnerInquiryEmails(
+  data: PartnerLeadSubmissionDetails,
+): Promise<void> {
   if (!process.env.SENDGRID_API_KEY) {
-    console.log('[Notification] Partner inquiry emails disabled - SendGrid not configured');
+    console.log(
+      "[Notification] Partner inquiry emails disabled - SendGrid not configured",
+    );
     return;
   }
 
   const adminHtml = buildPartnerAdminHtml(data);
-  const adminText = `New partner inquiry from ${data.firstName} ${data.lastName} (${data.agencyName})\n` +
+  const adminText =
+    `New partner inquiry from ${data.firstName} ${data.lastName} (${data.agencyName})\n` +
     `Email: ${data.email}\nPhone: ${data.phone}\n` +
-    `${data.statesServed ? `States: ${data.statesServed}\n` : ''}` +
-    `${data.experienceLevel ? `Experience: ${data.experienceLevel}\n` : ''}` +
-    `${data.volumeEstimate ? `Member volume: ${data.volumeEstimate}\n` : ''}` +
-    `${data.message ? `Notes: ${data.message}` : ''}`;
+    `${data.statesServed ? `States: ${data.statesServed}\n` : ""}` +
+    `${data.experienceLevel ? `Experience: ${data.experienceLevel}\n` : ""}` +
+    `${data.volumeEstimate ? `Member volume: ${data.volumeEstimate}\n` : ""}` +
+    `${data.message ? `Notes: ${data.message}` : ""}`;
 
   try {
     await sgMail.send({
@@ -978,11 +1225,14 @@ export async function sendPartnerInquiryEmails(data: PartnerLeadSubmissionDetail
       from: SALES_EMAIL,
       subject: `New Partner Inquiry: ${data.agencyName}`,
       text: adminText,
-      html: adminHtml
+      html: adminHtml,
     });
-    console.log('[Notification] Partner inquiry sent to partnerships team');
+    console.log("[Notification] Partner inquiry sent to partnerships team");
   } catch (error) {
-    console.error('[Notification] Failed to send partner inquiry email:', error);
+    console.error(
+      "[Notification] Failed to send partner inquiry email:",
+      error,
+    );
   }
 
   try {
@@ -990,11 +1240,14 @@ export async function sendPartnerInquiryEmails(data: PartnerLeadSubmissionDetail
       to: data.email,
       from: SUPPORT_EMAIL,
       replyTo: SUPPORT_EMAIL,
-      subject: 'Thanks for your interest in partnering with My Premier Plans',
-      html: buildPartnerFollowUpHtml(data)
+      subject: "Thanks for your interest in partnering with My Premier Plans",
+      html: buildPartnerFollowUpHtml(data),
     });
-    console.log('[Notification] Partner inquiry follow-up sent to prospect');
+    console.log("[Notification] Partner inquiry follow-up sent to prospect");
   } catch (error) {
-    console.error('[Notification] Failed to send partner follow-up email:', error);
+    console.error(
+      "[Notification] Failed to send partner follow-up email:",
+      error,
+    );
   }
 }
