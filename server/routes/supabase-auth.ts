@@ -571,13 +571,15 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     // ASSIGN HIERARCHY IF PROVIDED
     // ============================================
+    let hierarchyWarning: string | null = null;
     if (uplineAgentId) {
       const rate = typeof overrideCommissionRate === 'number' ? overrideCommissionRate : 5;
       try {
         await updateAgentHierarchy(dbUser.id, uplineAgentId, rate, adminUser.id, 'Set at account creation');
         console.log(`[Admin Create User] Hierarchy set: ${dbUser.id} → upline ${uplineAgentId}, rate $${rate}`);
       } catch (hierarchyError: any) {
-        console.error('[Admin Create User] Failed to set hierarchy (non-fatal):', hierarchyError.message);
+        hierarchyWarning = hierarchyError?.message || 'Failed to set hierarchy';
+        console.error('[Admin Create User] Failed to set hierarchy (non-fatal):', hierarchyWarning);
         // Non-fatal — user is created; hierarchy can be set later via the hierarchy page
       }
     }
@@ -622,7 +624,8 @@ router.post('/api/admin/create-user', async (req, res) => {
         id: adminDbUser.id,
         email: adminDbUser.email,
         name: `${adminDbUser.firstName} ${adminDbUser.lastName}`
-      }
+      },
+      warnings: hierarchyWarning ? [{ field: 'hierarchy', message: hierarchyWarning }] : []
     });
   } catch (error: any) {
     console.error('[Admin Create User] Error:', error);

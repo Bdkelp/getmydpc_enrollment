@@ -29,6 +29,7 @@ interface CommissionFeedItem {
   isClawedBack?: boolean;
   paymentStatus?: string;
   paymentCaptured?: boolean;
+  lineageSnapshotId?: string;
 }
 
 function toIsoDate(value: Date): string {
@@ -611,6 +612,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
 
       const row = {
         source_commission_id: item.id,
+        lineage_snapshot_id: item.lineageSnapshotId || null,
         agent_id: item.agentId || null,
         agent_name: item.agentName || 'Unknown Agent',
         writing_number: item.agentNumber || null,

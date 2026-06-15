@@ -217,7 +217,7 @@ async function syncCommissionLedgerForMemberIdempotently(
   try {
     const { data: sourceCommissions, error: sourceError } = await supabase
       .from('agent_commissions')
-      .select('id, agent_id, agent_number, member_id, enrollment_id, commission_amount, coverage_type, notes, is_clawed_back, payment_status, payment_captured, created_at')
+      .select('id, agent_id, agent_number, member_id, enrollment_id, lineage_snapshot_id, commission_amount, coverage_type, notes, is_clawed_back, payment_status, payment_captured, created_at')
       .eq('member_id', options.memberId);
 
     if (sourceError) {
@@ -280,6 +280,7 @@ async function syncCommissionLedgerForMemberIdempotently(
         agentNumber: commission?.agent_number || agent?.agent_number || undefined,
         memberId: String(commission?.member_id || options.memberId),
         enrollmentId: commission?.enrollment_id ? String(commission.enrollment_id) : undefined,
+        lineageSnapshotId: commission?.lineage_snapshot_id ? String(commission.lineage_snapshot_id) : undefined,
         memberName,
         coverageType: commission?.coverage_type || member?.coverage_type || undefined,
         effectiveDate: member?.membership_start_date || commission?.created_at || options.billedCycleDate,

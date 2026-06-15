@@ -29,6 +29,7 @@ export const agentCommissions = pgTable("agent_commissions", {
   // Commission Type (direct or override for downline structure)
   commissionType: text("commission_type").default("direct"), // 'direct' or 'override'
   overrideForAgentId: text("override_for_agent_id").references(() => users.id), // If override, which downline agent
+  lineageSnapshotId: uuid("lineage_snapshot_id"),
   
   // Status Tracking
   status: text("status").notNull().default("pending"),
@@ -48,6 +49,7 @@ export const agentCommissions = pgTable("agent_commissions", {
   index("idx_agent_commissions_payment_eligible_date").on(table.paymentEligibleDate),
   index("idx_agent_commissions_commission_type").on(table.commissionType),
   index("idx_agent_commissions_override_for").on(table.overrideForAgentId),
+  index("idx_agent_commissions_lineage_snapshot_id").on(table.lineageSnapshotId),
 ]);
 
 // Zod schemas for validation

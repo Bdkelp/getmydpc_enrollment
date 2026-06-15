@@ -707,6 +707,18 @@ type UserLookupOptions = {
   fallbackEmail?: string | null;
 };
 
+class HierarchyValidationError extends Error {
+  statusCode: number;
+  code: string;
+
+  constructor(message: string, statusCode = 400, code = 'HIERARCHY_VALIDATION_ERROR') {
+    super(message);
+    this.name = 'HierarchyValidationError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 export interface IStorage {
   // User operations (Supabase-authenticated agents/admins)
   getUser(id: string, options?: UserLookupOptions): Promise<User | null>;
@@ -1954,8 +1966,15 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
 }
 
 // Helper function to get all downline agents recursively (for agent tree view)
-async function getDownlineAgentIds(agentId: string): Promise<string[]> {
+async function getDownlineAgentIds(agentId: string, visited: Set<string> = new Set()): Promise<string[]> {
   try {
+    if (visited.has(agentId)) {
+      console.warn('[Storage] Cycle detected while traversing downline hierarchy:', { agentId });
+      return [];
+    }
+
+    visited.add(agentId);
+
     const { data, error } = await supabase
       .from('users')
       .select('id')
@@ -1976,7 +1995,7 @@ async function getDownlineAgentIds(agentId: string): Promise<string[]> {
     
     // Recursively get downline of downline
     const nestedDownline = await Promise.all(
-      directDownline.map(id => getDownlineAgentIds(id))
+      directDownline.map(id => getDownlineAgentIds(id, new Set(visited)))
     );
 
     // Flatten and combine all levels
@@ -4215,6 +4234,7 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
+        lineageSnapshotId: commission.lineage_snapshot_id || null,
         commissionAmount: normalizedCommissionAmount,
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
@@ -4458,6 +4478,7 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
+        lineageSnapshotId: commission.lineage_snapshot_id || null,
         commissionAmount: normalizedCommissionAmount,
         coverageType: commission.coverage_type || 'other',
         status: commission.status || 'pending',
@@ -4866,6 +4887,187 @@ export async function getAgentHierarchy(): Promise<any[]> {
   }
 }
 
+const HIERARCHY_ASSIGNABLE_ROLES = ['agent', 'admin', 'super_admin'];
+
+const normalizeHierarchyOverrideAmount = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new HierarchyValidationError('Override amount must be a non-negative number', 400, 'INVALID_OVERRIDE_AMOUNT');
+  }
+  return Math.round(parsed * 100) / 100;
+};
+
+async function getHierarchyUserForValidation(userId: string): Promise<any | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, role, is_active, upline_agent_id, override_commission_rate')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load hierarchy user (${userId}): ${error.message}`);
+  }
+
+  return data || null;
+}
+
+async function assertHierarchyMutationActorIsAdmin(changedBy: string): Promise<void> {
+  if (!changedBy || !String(changedBy).trim()) {
+    throw new HierarchyValidationError('Hierarchy change actor is required', 400, 'MISSING_ACTOR');
+  }
+
+  const actor = await getHierarchyUserForValidation(changedBy);
+  if (!actor) {
+    throw new HierarchyValidationError('Hierarchy change actor not found', 403, 'ACTOR_NOT_FOUND');
+  }
+
+  if (!actor.is_active) {
+    throw new HierarchyValidationError('Inactive users cannot modify hierarchy', 403, 'ACTOR_INACTIVE');
+  }
+
+  if (!['admin', 'super_admin'].includes(String(actor.role || ''))) {
+    throw new HierarchyValidationError('Only admins can modify hierarchy', 403, 'ACTOR_NOT_AUTHORIZED');
+  }
+}
+
+async function assertValidHierarchyAssignment(agentId: string, uplineId: string | null): Promise<void> {
+  const normalizedAgentId = String(agentId || '').trim();
+  if (!normalizedAgentId) {
+    throw new HierarchyValidationError('Agent ID is required', 400, 'MISSING_AGENT_ID');
+  }
+
+  const agent = await getHierarchyUserForValidation(normalizedAgentId);
+  if (!agent) {
+    throw new HierarchyValidationError('Target agent not found', 404, 'AGENT_NOT_FOUND');
+  }
+
+  if (!agent.is_active) {
+    throw new HierarchyValidationError('Cannot update hierarchy for an inactive user', 400, 'AGENT_INACTIVE');
+  }
+
+  if (!uplineId) {
+    return;
+  }
+
+  const normalizedUplineId = String(uplineId).trim();
+  if (normalizedUplineId === normalizedAgentId) {
+    throw new HierarchyValidationError('Agents cannot be assigned as their own upline', 400, 'SELF_UPLINE_NOT_ALLOWED');
+  }
+
+  const upline = await getHierarchyUserForValidation(normalizedUplineId);
+  if (!upline) {
+    throw new HierarchyValidationError('Selected upline does not exist', 404, 'UPLINE_NOT_FOUND');
+  }
+
+  if (!upline.is_active) {
+    throw new HierarchyValidationError('Cannot assign an inactive user as upline', 400, 'UPLINE_INACTIVE');
+  }
+
+  if (!HIERARCHY_ASSIGNABLE_ROLES.includes(String(upline.role || ''))) {
+    throw new HierarchyValidationError('Selected upline role is not eligible for hierarchy assignments', 400, 'UPLINE_ROLE_INVALID');
+  }
+
+  const visited = new Set<string>([normalizedAgentId]);
+  let cursorId: string | null = normalizedUplineId;
+
+  while (cursorId) {
+    if (visited.has(cursorId)) {
+      throw new HierarchyValidationError('Hierarchy update would create a circular reporting chain', 400, 'HIERARCHY_CYCLE_DETECTED');
+    }
+
+    visited.add(cursorId);
+    const cursorUser = await getHierarchyUserForValidation(cursorId);
+    if (!cursorUser) {
+      break;
+    }
+
+    cursorId = cursorUser.upline_agent_id ? String(cursorUser.upline_agent_id) : null;
+  }
+}
+
+export async function getAgentHierarchyHealthDiagnostics(): Promise<{
+  totalNodes: number;
+  activeNodes: number;
+  selfParentNodes: string[];
+  missingUplineNodes: Array<{ agentId: string; uplineId: string }>;
+  inactiveUplineNodes: Array<{ agentId: string; uplineId: string }>;
+  detectedCycles: string[][];
+}> {
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, role, is_active, upline_agent_id')
+    .in('role', HIERARCHY_ASSIGNABLE_ROLES);
+
+  if (error) {
+    throw new Error(`Failed to load hierarchy diagnostics: ${error.message}`);
+  }
+
+  const nodes = (users || []).map((row: any) => ({
+    id: String(row.id),
+    role: String(row.role || ''),
+    isActive: Boolean(row.is_active),
+    uplineId: row.upline_agent_id ? String(row.upline_agent_id) : null,
+  }));
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+
+  const selfParentNodes: string[] = [];
+  const missingUplineNodes: Array<{ agentId: string; uplineId: string }> = [];
+  const inactiveUplineNodes: Array<{ agentId: string; uplineId: string }> = [];
+  const detectedCycles: string[][] = [];
+  const cycleSignatures = new Set<string>();
+
+  for (const node of nodes) {
+    if (node.uplineId && node.uplineId === node.id) {
+      selfParentNodes.push(node.id);
+    }
+
+    if (node.uplineId) {
+      const upline = nodeById.get(node.uplineId);
+      if (!upline) {
+        missingUplineNodes.push({ agentId: node.id, uplineId: node.uplineId });
+      } else if (!upline.isActive) {
+        inactiveUplineNodes.push({ agentId: node.id, uplineId: node.uplineId });
+      }
+    }
+
+    const path: string[] = [];
+    const pathIndexByNode = new Map<string, number>();
+    let cursorId: string | null = node.id;
+
+    while (cursorId) {
+      if (pathIndexByNode.has(cursorId)) {
+        const cyclePath = path.slice(pathIndexByNode.get(cursorId));
+        const signature = [...cyclePath].sort().join('|');
+        if (!cycleSignatures.has(signature)) {
+          cycleSignatures.add(signature);
+          detectedCycles.push(cyclePath);
+        }
+        break;
+      }
+
+      pathIndexByNode.set(cursorId, path.length);
+      path.push(cursorId);
+
+      const cursor = nodeById.get(cursorId);
+      if (!cursor || !cursor.uplineId) {
+        break;
+      }
+
+      cursorId = cursor.uplineId;
+    }
+  }
+
+  return {
+    totalNodes: nodes.length,
+    activeNodes: nodes.filter((node) => node.isActive).length,
+    selfParentNodes,
+    missingUplineNodes,
+    inactiveUplineNodes,
+    detectedCycles,
+  };
+}
+
 export async function updateAgentHierarchy(
   agentId: string,
   uplineId: string | null,
@@ -4874,22 +5076,37 @@ export async function updateAgentHierarchy(
   reason?: string
 ): Promise<void> {
   try {
+    const normalizedAgentId = String(agentId || '').trim();
+    const normalizedUplineId = uplineId ? String(uplineId).trim() : null;
+    const normalizedOverrideAmount = normalizeHierarchyOverrideAmount(overrideAmount);
+    const normalizedReason = String(reason || '').trim();
+
+    await assertHierarchyMutationActorIsAdmin(changedBy);
+    await assertValidHierarchyAssignment(normalizedAgentId, normalizedUplineId);
+
     // Get current upline for history
     const { data: currentAgent } = await supabase
       .from('users')
-      .select('upline_agent_id')
-      .eq('id', agentId)
+      .select('upline_agent_id, override_commission_rate')
+      .eq('id', normalizedAgentId)
       .single();
+
+    const previousUplineId = currentAgent?.upline_agent_id ? String(currentAgent.upline_agent_id) : null;
+    const previousOverrideAmount = Number(currentAgent?.override_commission_rate || 0);
+
+    if (previousUplineId === normalizedUplineId && Math.abs(previousOverrideAmount - normalizedOverrideAmount) < 0.00001) {
+      return;
+    }
 
     // Update agent upline and override rate
     const { error: updateError } = await supabase
       .from('users')
       .update({
-        upline_agent_id: uplineId,
-        override_commission_rate: overrideAmount,
-        can_receive_overrides: !!uplineId // Can receive overrides if has upline
+        upline_agent_id: normalizedUplineId,
+        override_commission_rate: normalizedOverrideAmount,
+        can_receive_overrides: !!normalizedUplineId // Can receive overrides if has upline
       })
-      .eq('id', agentId);
+      .eq('id', normalizedAgentId);
 
     if (updateError) {
       throw new Error(`Failed to update agent hierarchy: ${updateError.message}`);
@@ -4899,21 +5116,23 @@ export async function updateAgentHierarchy(
     const { error: historyError } = await supabase
       .from('agent_hierarchy_history')
       .insert({
-        agent_id: agentId,
+        agent_id: normalizedAgentId,
         previous_upline_id: currentAgent?.upline_agent_id,
-        new_upline_id: uplineId,
+        new_upline_id: normalizedUplineId,
         changed_by_admin_id: changedBy,
-        reason: reason || 'Manual update'
+        reason: normalizedReason || 'Manual update'
       });
 
     if (historyError) {
-      console.error('[Storage] Error recording hierarchy history:', historyError);
-      // Don't fail the update if history recording fails
+      throw new Error(`Failed to record hierarchy history: ${historyError.message}`);
     }
 
-    console.log(`[Storage] ✅ Updated agent hierarchy for ${agentId}, new upline: ${uplineId || 'none'}, override: $${overrideAmount}`);
+    console.log(`[Storage] ✅ Updated agent hierarchy for ${normalizedAgentId}, new upline: ${normalizedUplineId || 'none'}, override: $${normalizedOverrideAmount}`);
   } catch (error: any) {
     console.error('[Storage] Error in updateAgentHierarchy:', error);
+    if (error instanceof HierarchyValidationError) {
+      throw error;
+    }
     throw new Error(`Failed to update agent hierarchy: ${error.message}`);
   }
 }
@@ -7637,6 +7856,7 @@ export const storage = {
   getUser,
   createUser,
   getAgentHierarchy,
+  getAgentHierarchyHealthDiagnostics,
   updateAgentHierarchy,
   updateUser,
   getUserByEmail,

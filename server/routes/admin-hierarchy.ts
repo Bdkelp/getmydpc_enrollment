@@ -22,6 +22,21 @@ router.get('/api/admin/agents/hierarchy', authenticateToken, async (req: AuthReq
   }
 });
 
+// Admin: Read-only hierarchy integrity diagnostics
+router.get('/api/admin/agents/hierarchy/health', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isAdmin(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const diagnostics = await storage.getAgentHierarchyHealthDiagnostics();
+    res.json({ success: true, diagnostics });
+  } catch (error: any) {
+    console.error('Error fetching hierarchy diagnostics:', error);
+    res.status(500).json({ error: 'Failed to fetch hierarchy diagnostics' });
+  }
+});
+
 // Admin: Update agent hierarchy
 router.post('/api/admin/agents/update-hierarchy', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
@@ -35,10 +50,15 @@ router.post('/api/admin/agents/update-hierarchy', authenticateToken, async (req:
       return res.status(400).json({ error: 'Agent ID is required' });
     }
 
+    const normalizedOverrideAmount = Number(overrideAmount ?? 0);
+    if (!Number.isFinite(normalizedOverrideAmount) || normalizedOverrideAmount < 0) {
+      return res.status(400).json({ error: 'Override amount must be a non-negative number' });
+    }
+
     await storage.updateAgentHierarchy(
       agentId,
       uplineId,
-      overrideAmount,
+      normalizedOverrideAmount,
       req.user?.id || '',
       reason
     );
@@ -46,7 +66,8 @@ router.post('/api/admin/agents/update-hierarchy', authenticateToken, async (req:
     res.json({ success: true, message: 'Agent hierarchy updated successfully' });
   } catch (error: any) {
     console.error('Error updating agent hierarchy:', error);
-    res.status(500).json({ error: 'Failed to update agent hierarchy' });
+    const statusCode = Number(error?.statusCode) || 500;
+    res.status(statusCode).json({ error: error?.message || 'Failed to update agent hierarchy' });
   }
 });
 

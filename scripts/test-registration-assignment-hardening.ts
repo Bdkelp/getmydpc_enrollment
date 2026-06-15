@@ -1,49 +1,76 @@
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
-function sliceBetween(content: string, startToken: string, endToken: string): string {
+function sliceBetween(
+  content: string,
+  startToken: string,
+  endToken: string,
+): string {
   const start = content.indexOf(startToken);
-  if (start === -1) return '';
+  if (start === -1) return "";
   const end = content.indexOf(endToken, start + startToken.length);
   if (end === -1) return content.slice(start);
   return content.slice(start, end);
 }
 
 function testOptionalAuthenticatedUserHelperExists(): void {
-  const routesPath = path.resolve(process.cwd(), 'server/routes.ts');
-  const routesContent = readFileSync(routesPath, 'utf8');
+  const routesPath = path.resolve(process.cwd(), "server/routes.ts");
+  const routesContent = readFileSync(routesPath, "utf8");
 
-  assert.equal(/async function getOptionalAuthenticatedUser\(req: any\): Promise<any \| null>/.test(routesContent), true);
+  assert.equal(
+    /async function getOptionalAuthenticatedUser\(req: any\): Promise<any \| null>/.test(
+      routesContent,
+    ),
+    true,
+  );
   assert.equal(/supabase\.auth\.getUser\(token\)/.test(routesContent), true);
-  assert.equal(/const dbUser = await storage\.getUser\(user\.id\)/.test(routesContent), true);
+  assert.equal(
+    /const dbUser = await storage\.getUser\(user\.id\)/.test(routesContent),
+    true,
+  );
 }
 
 function testRegistrationAssignmentAuthGuards(): void {
-  const routesPath = path.resolve(process.cwd(), 'server/routes.ts');
-  const routesContent = readFileSync(routesPath, 'utf8');
+  const routesPath = path.resolve(process.cwd(), "server/routes.ts");
+  const routesContent = readFileSync(routesPath, "utf8");
 
   const registrationBlock = sliceBetween(
     routesContent,
-    "app.post(\"/api/registration\", async (req: any, res: any) => {",
-    "app.post(\"/api/agent/enrollment\", authMiddleware, async (req: any, res: any) => {",
+    'app.post("/api/registration", async (req: any, res: any) => {',
+    'app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {',
   );
 
-  assert.equal(registrationBlock.length > 0, true, 'Registration route block not found');
-  assert.equal(/const authenticatedUser = await getOptionalAuthenticatedUser\(req\);/.test(registrationBlock), true);
-
   assert.equal(
-    /if \(normalizedRequestedEnrolledByAgentId\) \{[\s\S]*Authentication required when assigning an enrolling agent/.test(registrationBlock),
+    registrationBlock.length > 0,
+    true,
+    "Registration route block not found",
+  );
+  assert.equal(
+    /const authenticatedUser = await getOptionalAuthenticatedUser\(req\);/.test(
+      registrationBlock,
+    ),
     true,
   );
 
   assert.equal(
-    /Only admins can assign enrollment to another agent/.test(registrationBlock),
+    /if \(normalizedRequestedEnrolledByAgentId\) \{[\s\S]*Authentication required when assigning an enrolling agent/.test(
+      registrationBlock,
+    ),
     true,
   );
 
   assert.equal(
-    /if \(overrideEnrollmentDate\) \{[\s\S]*Authentication required for enrollment date override/.test(registrationBlock),
+    /Only admins can assign enrollment to another agent/.test(
+      registrationBlock,
+    ),
+    true,
+  );
+
+  assert.equal(
+    /if \(overrideEnrollmentDate\) \{[\s\S]*Authentication required for enrollment date override/.test(
+      registrationBlock,
+    ),
     true,
   );
 
@@ -54,13 +81,13 @@ function testRegistrationAssignmentAuthGuards(): void {
 }
 
 function testAssignedAgentTargetValidation(): void {
-  const routesPath = path.resolve(process.cwd(), 'server/routes.ts');
-  const routesContent = readFileSync(routesPath, 'utf8');
+  const routesPath = path.resolve(process.cwd(), "server/routes.ts");
+  const routesContent = readFileSync(routesPath, "utf8");
 
   const registrationBlock = sliceBetween(
     routesContent,
-    "app.post(\"/api/registration\", async (req: any, res: any) => {",
-    "app.post(\"/api/agent/enrollment\", authMiddleware, async (req: any, res: any) => {",
+    'app.post("/api/registration", async (req: any, res: any) => {',
+    'app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {',
   );
 
   assert.equal(
@@ -74,8 +101,43 @@ function testAssignedAgentTargetValidation(): void {
   );
 
   assert.equal(
-    /if \(authenticatedUser && isAdmin\(authenticatedUser\.role\)\)/.test(registrationBlock),
+    /if \(authenticatedUser && isAdmin\(authenticatedUser\.role\)\)/.test(
+      registrationBlock,
+    ),
     true,
+  );
+}
+
+function testInactiveAgentRejectedBeforeCommissionGeneration(): void {
+  const routesPath = path.resolve(process.cwd(), "server/routes.ts");
+  const routesContent = readFileSync(routesPath, "utf8");
+
+  const registrationBlock = sliceBetween(
+    routesContent,
+    'app.post("/api/registration", async (req: any, res: any) => {',
+    'app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {',
+  );
+
+  const inactiveGuardIndex = registrationBlock.indexOf(
+    "Assigned enrolling agent is inactive",
+  );
+  const commissionSectionIndex =
+    registrationBlock.indexOf("[Commission Check]");
+
+  assert.equal(
+    inactiveGuardIndex >= 0,
+    true,
+    "Inactive enrolling-agent guard missing",
+  );
+  assert.equal(
+    commissionSectionIndex >= 0,
+    true,
+    "Commission generation section marker missing",
+  );
+  assert.equal(
+    inactiveGuardIndex < commissionSectionIndex,
+    true,
+    "Inactive enrolling-agent rejection must occur before commission generation",
   );
 }
 
@@ -83,7 +145,8 @@ function run(): void {
   testOptionalAuthenticatedUserHelperExists();
   testRegistrationAssignmentAuthGuards();
   testAssignedAgentTargetValidation();
-  console.log('Registration assignment hardening tests passed');
+  testInactiveAgentRejectedBeforeCommissionGeneration();
+  console.log("Registration assignment hardening tests passed");
 }
 
 run();
