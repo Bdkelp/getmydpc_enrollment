@@ -1,37 +1,49 @@
-import { supabaseAdmin as supabase, getSupabaseClientDiagnostics } from './lib/supabaseClient'; // Use dedicated admin client for storage
-import { neonPool, query } from './lib/neonDb'; // Legacy Neon functions for dashboard queries still in use
-import { normalizeRole } from './auth/roles';
-import { calculateCommission, RX_VALET_COMMISSION } from './commissionCalculator';
-import { generateUniqueMemberIdentifier } from './utils/member-id-generator';
-import { encryptSSN, decryptSSN, isValidSSN, formatSSN as formatSSNNumber } from './utils/encryption';
-import crypto from 'crypto';
+import {
+  supabaseAdmin as supabase,
+  getSupabaseClientDiagnostics,
+} from "./lib/supabaseClient"; // Use dedicated admin client for storage
+import { neonPool, query } from "./lib/neonDb"; // Legacy Neon functions for dashboard queries still in use
+import { normalizeRole } from "./auth/roles";
+import {
+  calculateCommission,
+  RX_VALET_COMMISSION,
+} from "./commissionCalculator";
+import { generateUniqueMemberIdentifier } from "./utils/member-id-generator";
+import {
+  encryptSSN,
+  decryptSSN,
+  isValidSSN,
+  formatSSN as formatSSNNumber,
+} from "./utils/encryption";
+import crypto from "crypto";
 
 // Encryption utilities for sensitive data
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const ENCRYPTION_KEY =
+  process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString("hex");
 const IV_LENGTH = 16; // For AES, this is always 16
 
 export function encryptSensitiveData(data: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'); // Ensure 32 bytes key
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  let encrypted = cipher.update(data, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
+  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), "hex"); // Ensure 32 bytes key
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(data, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return iv.toString("hex") + ":" + encrypted;
 }
 
 export function decryptSensitiveData(encryptedData: string): string {
-  const parts = encryptedData.split(':');
-  const iv = Buffer.from(parts.shift()!, 'hex');
-  const encrypted = parts.join(':');
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex'); // Ensure 32 bytes key
-  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
+  const parts = encryptedData.split(":");
+  const iv = Buffer.from(parts.shift()!, "hex");
+  const encrypted = parts.join(":");
+  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), "hex"); // Ensure 32 bytes key
+  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+  let decrypted = decipher.update(encrypted, "hex", "utf8");
+  decrypted += decipher.final("utf8");
   return decrypted;
 }
 
 export function getLastFourSSN(ssn: string): string {
-  return ssn.replace(/\D/g, '').slice(-4);
+  return ssn.replace(/\D/g, "").slice(-4);
 }
 
 export function validateDOB(dateOfBirth: string): boolean {
@@ -47,8 +59,8 @@ export function validateDOB(dateOfBirth: string): boolean {
 }
 
 export function validatePhoneNumber(phone: string): boolean {
-  const cleaned = phone.replace(/\D/g, '');
-  return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === '1');
+  const cleaned = phone.replace(/\D/g, "");
+  return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === "1");
 }
 
 export function encryptPaymentToken(token: string): string {
@@ -62,8 +74,8 @@ export function decryptPaymentToken(encryptedToken: string): string {
 // Helper functions for member field formatting (matching database CHAR fields)
 export function formatPhoneNumber(phone: string): string {
   // Remove all non-digits and return exactly 10 digits
-  const cleaned = phone.replace(/\D/g, '');
-  if (cleaned.length === 11 && cleaned[0] === '1') {
+  const cleaned = phone.replace(/\D/g, "");
+  if (cleaned.length === 11 && cleaned[0] === "1") {
     return cleaned.slice(1); // Remove country code
   }
   return cleaned.slice(0, 10); // Ensure 10 digits max
@@ -72,20 +84,20 @@ export function formatPhoneNumber(phone: string): string {
 export function formatDateMMDDYYYY(date: string): string {
   // Convert date to MMDDYYYY format (8 chars)
   const d = new Date(date);
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   const year = String(d.getFullYear());
   return month + day + year; // MMDDYYYY
 }
 
 export function formatSSN(ssn: string): string {
   // Remove all non-digits and return exactly 9 digits
-  return ssn.replace(/\D/g, '').slice(0, 9);
+  return ssn.replace(/\D/g, "").slice(0, 9);
 }
 
 export function formatZipCode(zip: string): string {
   // Return exactly 5 digits
-  return zip.replace(/\D/g, '').slice(0, 5);
+  return zip.replace(/\D/g, "").slice(0, 5);
 }
 
 export interface PlatformSettingRecord<T = any> {
@@ -148,7 +160,7 @@ export interface LifecycleAlertSummary {
     totalAttention: number;
   };
   billingItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'failed' | 'stale_pending';
+    kind: "due_soon" | "overdue" | "failed" | "stale_pending";
     subscriptionId?: number | null;
     memberId: number;
     memberLabel: string;
@@ -156,7 +168,7 @@ export interface LifecycleAlertSummary {
     details?: string | null;
   }>;
   commissionItems: Array<{
-    kind: 'due_soon' | 'overdue' | 'unscheduled';
+    kind: "due_soon" | "overdue" | "unscheduled";
     commissionId: string;
     memberId: number;
     memberLabel: string;
@@ -165,16 +177,21 @@ export interface LifecycleAlertSummary {
   }>;
 }
 
-export async function getPlatformSetting<T = any>(key: string): Promise<PlatformSettingRecord<T> | null> {
+export async function getPlatformSetting<T = any>(
+  key: string,
+): Promise<PlatformSettingRecord<T> | null> {
   try {
     const { data, error } = await supabase
-      .from('platform_settings')
-      .select('key, value, updated_at, updated_by')
-      .eq('key', key)
+      .from("platform_settings")
+      .select("key, value, updated_at, updated_by")
+      .eq("key", key)
       .limit(1);
 
     if (error) {
-      console.warn(`[Storage] Failed to read platform setting ${key}:`, error.message);
+      console.warn(
+        `[Storage] Failed to read platform setting ${key}:`,
+        error.message,
+      );
       return null;
     }
 
@@ -190,18 +207,25 @@ export async function getPlatformSetting<T = any>(key: string): Promise<Platform
       updatedBy: record.updated_by || record.updatedBy,
     };
   } catch (error: any) {
-    console.error(`[Storage] Unexpected error reading platform setting ${key}:`, error.message);
+    console.error(
+      `[Storage] Unexpected error reading platform setting ${key}:`,
+      error.message,
+    );
     return null;
   }
 }
 
-export async function upsertPlatformSetting<T = any>(key: string, value: T, updatedBy?: string): Promise<T> {
+export async function upsertPlatformSetting<T = any>(
+  key: string,
+  value: T,
+  updatedBy?: string,
+): Promise<T> {
   try {
     const basePayload: Record<string, any> = { key, value };
     const attemptUpsert = async (payload: Record<string, any>) => {
       const { error } = await supabase
-        .from('platform_settings')
-        .upsert(payload, { onConflict: 'key' });
+        .from("platform_settings")
+        .upsert(payload, { onConflict: "key" });
       if (error) {
         throw error;
       }
@@ -214,8 +238,9 @@ export async function upsertPlatformSetting<T = any>(key: string, value: T, upda
     try {
       await attemptUpsert(basePayload);
     } catch (error: any) {
-      const fkViolation = typeof error?.message === 'string'
-        && error.message.includes('platform_settings_updated_by_fkey');
+      const fkViolation =
+        typeof error?.message === "string" &&
+        error.message.includes("platform_settings_updated_by_fkey");
       if (fkViolation && basePayload.updated_by) {
         console.warn(
           `[Storage] platform_settings updated_by reference failed for key ${key}. Falling back without updated_by (user ${basePayload.updated_by}).`,
@@ -230,12 +255,17 @@ export async function upsertPlatformSetting<T = any>(key: string, value: T, upda
 
     return value;
   } catch (error: any) {
-    console.error(`[Storage] Failed to upsert platform setting ${key}:`, error.message);
+    console.error(
+      `[Storage] Failed to upsert platform setting ${key}:`,
+      error.message,
+    );
     throw new Error(`Failed to update platform setting ${key}`);
   }
 }
 
-const ensurePerformanceGoals = (input?: Partial<PerformanceGoals> | null): PerformanceGoals =>
+const ensurePerformanceGoals = (
+  input?: Partial<PerformanceGoals> | null,
+): PerformanceGoals =>
   input ? normalizePerformanceGoals(input) : defaultPerformanceGoals;
 
 const mapGoalRow = (row: any): AgentPerformanceGoalOverrideRecord => ({
@@ -302,14 +332,19 @@ const buildLifecycleSummary = (input: {
   paymentStatus?: string | null;
   commissionStatus?: string | null;
 }) => {
-  const paymentStatus = String(input.paymentStatus || '').toLowerCase();
-  const paymentRiskStatus = ['failed', 'declined', 'canceled', 'cancelled'].includes(paymentStatus)
-    ? 'failed'
-    : paymentStatus === 'pending'
-      ? 'pending'
-      : paymentStatus === ''
-        ? 'unknown'
-        : 'ok';
+  const paymentStatus = String(input.paymentStatus || "").toLowerCase();
+  const paymentRiskStatus = [
+    "failed",
+    "declined",
+    "canceled",
+    "cancelled",
+  ].includes(paymentStatus)
+    ? "failed"
+    : paymentStatus === "pending"
+      ? "pending"
+      : paymentStatus === ""
+        ? "unknown"
+        : "ok";
 
   return {
     subscriptionStatus: input.subscriptionStatus || null,
@@ -322,7 +357,10 @@ const buildLifecycleSummary = (input: {
   };
 };
 
-const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberRow[]) => {
+const mapEnrollmentRowToDetails = (
+  row: EnrollmentRow,
+  familyRows: FamilyMemberRow[],
+) => {
   const mapped = {
     id: row.id?.toString(),
     userId: row.enrolled_by_agent_id || null,
@@ -368,7 +406,11 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
     subscriptionPendingDetails: (() => {
       const raw = (row as any).subscription_pending_details;
       if (!raw) return null;
-      try { return typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return raw; }
+      try {
+        return typeof raw === "string" ? JSON.parse(raw) : raw;
+      } catch {
+        return raw;
+      }
     })(),
     lifecycleSummary: buildLifecycleSummary({
       subscriptionStatus: row.subscription_status || null,
@@ -380,13 +422,14 @@ const mapEnrollmentRowToDetails = (row: EnrollmentRow, familyRows: FamilyMemberR
     }),
     familyMembers: (familyRows || []).map(mapFamilyMemberRowToRecord),
   };
-  
-  console.log('[Storage] mapEnrollmentRowToDetails result:', {
+
+  console.log("[Storage] mapEnrollmentRowToDetails result:", {
     memberId: mapped.id,
     familyMembersCount: mapped.familyMembers.length,
-    familyMembersData: mapped.familyMembers.length > 0 ? mapped.familyMembers : 'none'
+    familyMembersData:
+      mapped.familyMembers.length > 0 ? mapped.familyMembers : "none",
   });
-  
+
   return mapped;
 };
 
@@ -425,17 +468,16 @@ export async function getEnrollmentDetails(enrollmentId: number) {
       [enrollmentId],
     );
   } catch (error: any) {
-    const message = String(error?.message || '');
+    const message = String(error?.message || "");
     const missingPendingColumns =
-      message.includes('pending_reason') ||
-      message.includes('pending_details');
+      message.includes("pending_reason") || message.includes("pending_details");
 
     if (!missingPendingColumns) {
       throw error;
     }
 
     console.warn(
-      '[Storage] Falling back to legacy subscription schema in getEnrollmentDetails:',
+      "[Storage] Falling back to legacy subscription schema in getEnrollmentDetails:",
       message,
     );
 
@@ -480,14 +522,19 @@ export async function getEnrollmentDetails(enrollmentId: number) {
   console.log(`[Storage] getEnrollmentDetails for member ${enrollmentId}:`, {
     memberFound: !!memberResult.rows?.length,
     familyMembersCount: familyResult.rows?.length || 0,
-    familyMembers: familyResult.rows?.length > 0 ? familyResult.rows : 'none'
+    familyMembers: familyResult.rows?.length > 0 ? familyResult.rows : "none",
   });
 
-  return mapEnrollmentRowToDetails(memberResult.rows[0], familyResult.rows || []);
+  return mapEnrollmentRowToDetails(
+    memberResult.rows[0],
+    familyResult.rows || [],
+  );
 }
 
 export async function getPerformanceGoalDefaults(): Promise<PerformanceGoals> {
-  const record = await getPlatformSetting<PerformanceGoals>(PERFORMANCE_GOALS_SETTING_KEY);
+  const record = await getPlatformSetting<PerformanceGoals>(
+    PERFORMANCE_GOALS_SETTING_KEY,
+  );
   return ensurePerformanceGoals(record?.value);
 }
 
@@ -496,29 +543,43 @@ export async function updatePerformanceGoalDefaults(
   updatedBy?: string,
 ): Promise<PerformanceGoals> {
   const normalized = ensurePerformanceGoals(goals);
-  await upsertPlatformSetting(PERFORMANCE_GOALS_SETTING_KEY, normalized, updatedBy);
+  await upsertPlatformSetting(
+    PERFORMANCE_GOALS_SETTING_KEY,
+    normalized,
+    updatedBy,
+  );
   return normalized;
 }
 
-export async function getAgentPerformanceGoalOverride(agentId: string): Promise<PerformanceGoals | null> {
+export async function getAgentPerformanceGoalOverride(
+  agentId: string,
+): Promise<PerformanceGoals | null> {
   if (!agentId) return null;
 
   const { data, error } = await supabase
-    .from('agent_performance_goals')
-    .select('goals')
-    .eq('agent_id', agentId)
+    .from("agent_performance_goals")
+    .select("goals")
+    .eq("agent_id", agentId)
     .limit(1)
     .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') {
+    if (error.code === "PGRST116") {
       return null;
     }
-    if (handleAgentPerformanceGoalsError(error, `read agent performance goals for ${agentId}`)) {
+    if (
+      handleAgentPerformanceGoalsError(
+        error,
+        `read agent performance goals for ${agentId}`,
+      )
+    ) {
       return null;
     }
-    console.error(`[Storage] Failed to read agent performance goals for ${agentId}:`, error.message);
-    throw new Error('Failed to read agent performance goals');
+    console.error(
+      `[Storage] Failed to read agent performance goals for ${agentId}:`,
+      error.message,
+    );
+    throw new Error("Failed to read agent performance goals");
   }
 
   return data?.goals ? ensurePerformanceGoals(data.goals) : null;
@@ -530,7 +591,7 @@ export async function upsertAgentPerformanceGoalOverride(
   updatedBy?: string,
 ): Promise<PerformanceGoals> {
   if (!agentId) {
-    throw new Error('Agent ID is required for goal overrides');
+    throw new Error("Agent ID is required for goal overrides");
   }
 
   const normalized = ensurePerformanceGoals(goals);
@@ -546,54 +607,83 @@ export async function upsertAgentPerformanceGoalOverride(
   }
 
   const { error } = await supabase
-    .from('agent_performance_goals')
-    .upsert(payload, { onConflict: 'agent_id' });
+    .from("agent_performance_goals")
+    .upsert(payload, { onConflict: "agent_id" });
 
   if (error) {
-    if (handleAgentPerformanceGoalsError(error, `save agent performance goals for ${agentId}`)) {
-      throw new Error('Agent performance goals table is missing. Run the latest migrations to enable overrides.');
+    if (
+      handleAgentPerformanceGoalsError(
+        error,
+        `save agent performance goals for ${agentId}`,
+      )
+    ) {
+      throw new Error(
+        "Agent performance goals table is missing. Run the latest migrations to enable overrides.",
+      );
     }
-    console.error(`[Storage] Failed to upsert agent performance goals for ${agentId}:`, error.message);
-    throw new Error('Failed to save agent performance goals');
+    console.error(
+      `[Storage] Failed to upsert agent performance goals for ${agentId}:`,
+      error.message,
+    );
+    throw new Error("Failed to save agent performance goals");
   }
 
   return normalized;
 }
 
-export async function deleteAgentPerformanceGoalOverride(agentId: string): Promise<void> {
+export async function deleteAgentPerformanceGoalOverride(
+  agentId: string,
+): Promise<void> {
   if (!agentId) return;
   const { error } = await supabase
-    .from('agent_performance_goals')
+    .from("agent_performance_goals")
     .delete()
-    .eq('agent_id', agentId);
+    .eq("agent_id", agentId);
 
   if (error) {
-    if (handleAgentPerformanceGoalsError(error, `delete agent performance goals for ${agentId}`)) {
+    if (
+      handleAgentPerformanceGoalsError(
+        error,
+        `delete agent performance goals for ${agentId}`,
+      )
+    ) {
       return;
     }
-    console.error(`[Storage] Failed to delete agent performance goals for ${agentId}:`, error.message);
-    throw new Error('Failed to delete agent performance goals');
+    console.error(
+      `[Storage] Failed to delete agent performance goals for ${agentId}:`,
+      error.message,
+    );
+    throw new Error("Failed to delete agent performance goals");
   }
 }
 
-export async function listAgentPerformanceGoalOverrides(): Promise<AgentPerformanceGoalOverrideRecord[]> {
+export async function listAgentPerformanceGoalOverrides(): Promise<
+  AgentPerformanceGoalOverrideRecord[]
+> {
   const { data, error } = await supabase
-    .from('agent_performance_goals')
-    .select('agent_id, goals, updated_at, updated_by')
-    .order('updated_at', { ascending: false });
+    .from("agent_performance_goals")
+    .select("agent_id, goals, updated_at, updated_by")
+    .order("updated_at", { ascending: false });
 
   if (error) {
-    if (handleAgentPerformanceGoalsError(error, 'list agent performance goals')) {
+    if (
+      handleAgentPerformanceGoalsError(error, "list agent performance goals")
+    ) {
       return [];
     }
-    console.error('[Storage] Failed to list agent performance goals:', error.message);
-    throw new Error('Failed to list agent performance goals');
+    console.error(
+      "[Storage] Failed to list agent performance goals:",
+      error.message,
+    );
+    throw new Error("Failed to list agent performance goals");
   }
 
   return (data || []).map(mapGoalRow);
 }
 
-export async function resolvePerformanceGoalsForAgent(agentId?: string | null): Promise<ResolvedPerformanceGoals> {
+export async function resolvePerformanceGoalsForAgent(
+  agentId?: string | null,
+): Promise<ResolvedPerformanceGoals> {
   const defaults = await getPerformanceGoalDefaults();
   if (!agentId) {
     return {
@@ -629,14 +719,16 @@ const isLoginSessionTableMissing = (error: any) => {
   if (!error) return false;
   const message = [error.message, error.details, error.hint, error.code]
     .filter(Boolean)
-    .join(' ')
+    .join(" ")
     .toLowerCase();
-  return message.includes('login_sessions') && message.includes('does not exist');
+  return (
+    message.includes("login_sessions") && message.includes("does not exist")
+  );
 };
 
 const warnMissingLoginSessionTable = (operation: string) => {
   console.warn(
-    `[Storage] login_sessions table not found; skipping ${operation}. Add the table in Supabase to enable this tracking.`
+    `[Storage] login_sessions table not found; skipping ${operation}. Add the table in Supabase to enable this tracking.`,
   );
 };
 
@@ -652,15 +744,17 @@ const isAgentPerformanceGoalsTableMissing = (error: any) => {
   if (!error) return false;
   const fingerprint = [error.code, error.message, error.details, error.hint]
     .filter(Boolean)
-    .join(' ')
+    .join(" ")
     .toLowerCase();
-  return fingerprint.includes('agent_performance_goals') &&
-    (fingerprint.includes('does not exist') || fingerprint.includes('relation'));
+  return (
+    fingerprint.includes("agent_performance_goals") &&
+    (fingerprint.includes("does not exist") || fingerprint.includes("relation"))
+  );
 };
 
 const warnMissingAgentPerformanceGoalsTable = (operation: string) => {
   console.warn(
-    `[Storage] agent_performance_goals table not found; skipping ${operation}. Run migrations/20250120_add_agent_performance_goals_table.sql to enable performance goal overrides.`
+    `[Storage] agent_performance_goals table not found; skipping ${operation}. Run migrations/20250120_add_agent_performance_goals_table.sql to enable performance goal overrides.`,
   );
 };
 
@@ -711,9 +805,13 @@ class HierarchyValidationError extends Error {
   statusCode: number;
   code: string;
 
-  constructor(message: string, statusCode = 400, code = 'HIERARCHY_VALIDATION_ERROR') {
+  constructor(
+    message: string,
+    statusCode = 400,
+    code = "HIERARCHY_VALIDATION_ERROR",
+  ) {
     super(message);
-    this.name = 'HierarchyValidationError';
+    this.name = "HierarchyValidationError";
     this.statusCode = statusCode;
     this.code = code;
   }
@@ -723,13 +821,24 @@ export interface IStorage {
   // User operations (Supabase-authenticated agents/admins)
   getUser(id: string, options?: UserLookupOptions): Promise<User | null>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserProfile(id: string, data: Partial<User>, options?: UserLookupOptions): Promise<User>;
+  updateUserProfile(
+    id: string,
+    data: Partial<User>,
+    options?: UserLookupOptions,
+  ): Promise<User>;
   // Authentication operations
   createUser(user: Partial<User>): Promise<User>;
-  updateUser(id: string, data: Partial<User>, options?: UserLookupOptions): Promise<User>;
+  updateUser(
+    id: string,
+    data: Partial<User>,
+    options?: UserLookupOptions,
+  ): Promise<User>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByAgentNumber(agentNumber: string): Promise<User | undefined>;
-  isAgentNumberUsedByActiveAgent(agentNumber: string, excludeUserId?: string): Promise<boolean>;
+  isAgentNumberUsedByActiveAgent(
+    agentNumber: string,
+    excludeUserId?: string,
+  ): Promise<boolean>;
 
   // Plan operations
   getPlans(): Promise<Plan[]>;
@@ -740,28 +849,46 @@ export interface IStorage {
 
   // Subscription operations
   getUserSubscription(user_Id: string): Promise<Subscription | undefined>;
-  getSubscriptionByMemberId(memberId: string | number): Promise<Subscription | null>;
+  getSubscriptionByMemberId(
+    memberId: string | number,
+  ): Promise<Subscription | null>;
   createSubscription(subscription: InsertSubscription): Promise<Subscription>;
-  updateSubscription(id: number, data: Partial<Subscription>): Promise<Subscription>;
+  updateSubscription(
+    id: number,
+    data: Partial<Subscription>,
+  ): Promise<Subscription>;
   getActiveSubscriptions(): Promise<Subscription[]>;
 
   // Payment operations
   createPayment(payment: InsertPayment): Promise<Payment>;
-  upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }>;
-  upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInput): Promise<{ id: number }>;
+  upsertMemberPaymentToken(
+    input: UpsertPaymentTokenInput,
+  ): Promise<{ id: number }>;
+  upsertGroupPaymentToken(
+    input: UpsertGroupPaymentTokenInput,
+  ): Promise<{ id: number }>;
   getUserPayments(user_Id: string): Promise<Payment[]>;
-  getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined>;
+  getPaymentByTransactionId(
+    transactionId: string,
+  ): Promise<Payment | undefined>;
 
   // Member operations (healthcare customers - NO authentication)
   createMember(member: Partial<Member>): Promise<Member>;
   getMember(id: number): Promise<Member | undefined>;
   getMemberByEmail(email: string): Promise<Member | undefined>;
-  getMemberByCustomerNumber(customerNumber: string): Promise<Member | undefined>;
-  getAllMembers(limit?: number, offset?: number): Promise<{ members: Member[]; totalCount: number }>;
+  getMemberByCustomerNumber(
+    customerNumber: string,
+  ): Promise<Member | undefined>;
+  getAllMembers(
+    limit?: number,
+    offset?: number,
+  ): Promise<{ members: Member[]; totalCount: number }>;
   updateMember(id: number, data: Partial<Member>): Promise<Member>;
   getMembersByAgent(agentId: string): Promise<Member[]>;
   getMembershipStats(): Promise<MembershipStatsSummary>;
-  getDuplicateMembershipGroups(limit?: number): Promise<DuplicateMembershipGroup[]>;
+  getDuplicateMembershipGroups(
+    limit?: number,
+  ): Promise<DuplicateMembershipGroup[]>;
   setMemberTestFlag(
     memberId: number,
     isTestMember: boolean,
@@ -781,18 +908,36 @@ export interface IStorage {
   ): Promise<{ memberId: number; deleted: Record<string, number> }>;
 
   // Family member operations
-  getFamilyMembers(primaryMemberOrUserId: string | number): Promise<FamilyMember[]>;
+  getFamilyMembers(
+    primaryMemberOrUserId: string | number,
+  ): Promise<FamilyMember[]>;
   addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember>;
 
   // Admin operations
-  getAllUsers(limit?: number, offset?: number): Promise<{ users: User[]; totalCount: number }>;
+  getAllUsers(
+    limit?: number,
+    offset?: number,
+  ): Promise<{ users: User[]; totalCount: number }>;
   getUsersCount(): Promise<number>;
   getRevenueStats(): Promise<{ totalRevenue: number; monthlyRevenue: number }>;
-  getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }>;
+  getSubscriptionStats(): Promise<{
+    active: number;
+    pending: number;
+    cancelled: number;
+  }>;
 
   // Agent operations
-  getAgentEnrollments(agentId: string, startDate?: string, endDate?: string, agentNumber?: string | null): Promise<User[]>;
-  getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]>;
+  getAgentEnrollments(
+    agentId: string,
+    startDate?: string,
+    endDate?: string,
+    agentNumber?: string | null,
+  ): Promise<User[]>;
+  getAllEnrollments(
+    startDate?: string,
+    endDate?: string,
+    agentId?: string,
+  ): Promise<User[]>;
 
   // Enrollment modification operations
   recordEnrollmentModification(data: any): Promise<void>;
@@ -821,7 +966,13 @@ export interface IStorage {
   getLeadActivities(leadId: number): Promise<LeadActivity[]>;
 
   // Lead stats
-  getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }>;
+  getAgentLeadStats(agentId: string): Promise<{
+    new: number;
+    contacted: number;
+    qualified: number;
+    enrolled: number;
+    closed: number;
+  }>;
   getAvailableAgentForLead(): Promise<string | null>;
 
   // Agent operations
@@ -834,15 +985,30 @@ export interface IStorage {
 
   // Commission operations (NEW: Using new agent_commissions table)
   createCommission(commission: InsertCommission): Promise<Commission>;
-  getAgentCommissions(agent_Id: string, start_Date?: string, endDate?: string): Promise<Commission[]>;
-  getAllCommissions(start_Date?: string, endDate?: string): Promise<Commission[]>;
-  getCommissionBySubscriptionId(subscription_Id: number): Promise<Commission | undefined>;
+  getAgentCommissions(
+    agent_Id: string,
+    start_Date?: string,
+    endDate?: string,
+  ): Promise<Commission[]>;
+  getAllCommissions(
+    start_Date?: string,
+    endDate?: string,
+  ): Promise<Commission[]>;
+  getCommissionBySubscriptionId(
+    subscription_Id: number,
+  ): Promise<Commission | undefined>;
   getCommissionByMemberId(memberId: number): Promise<Commission | null>;
   updateCommission(id: number, data: Partial<Commission>): Promise<Commission>;
-  getCommissionStats(agent_Id?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
-  
+  getCommissionStats(
+    agent_Id?: string,
+  ): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }>;
+
   // NEW: Agent Commissions table functions (using new clean schema)
-  getAgentCommissionsNew(agent_Id: string, start_Date?: string, endDate?: string): Promise<any[]>;
+  getAgentCommissionsNew(
+    agent_Id: string,
+    start_Date?: string,
+    endDate?: string,
+  ): Promise<any[]>;
   getAllCommissionsNew(start_Date?: string, endDate?: string): Promise<any[]>;
   getCommissionTotals(agentId?: string): Promise<any>;
   getLifecycleAlertSummary(options?: {
@@ -850,6 +1016,15 @@ export interface IStorage {
     horizonDays?: number;
     stalePendingMinutes?: number;
   }): Promise<LifecycleAlertSummary>;
+  listAgencyUsers(): Promise<any[]>;
+  listAssignableAgents(): Promise<any[]>;
+  getAgencyAssignmentsSnapshot(): Promise<Record<string, string[]>>;
+  setAgencyAssignments(
+    agencyUserId: string,
+    agentIds: string[],
+    changedBy: string,
+    reason?: string,
+  ): Promise<string[]>;
 
   // Analytics
   getAnalytics(): Promise<any>;
@@ -859,12 +1034,25 @@ export interface IStorage {
 
   // Performance goals
   getPerformanceGoalDefaults(): Promise<PerformanceGoals>;
-  updatePerformanceGoalDefaults(goals: PerformanceGoals, updatedBy?: string): Promise<PerformanceGoals>;
-  getAgentPerformanceGoalOverride(agentId: string): Promise<PerformanceGoals | null>;
-  upsertAgentPerformanceGoalOverride(agentId: string, goals: PerformanceGoals, updatedBy?: string): Promise<PerformanceGoals>;
+  updatePerformanceGoalDefaults(
+    goals: PerformanceGoals,
+    updatedBy?: string,
+  ): Promise<PerformanceGoals>;
+  getAgentPerformanceGoalOverride(
+    agentId: string,
+  ): Promise<PerformanceGoals | null>;
+  upsertAgentPerformanceGoalOverride(
+    agentId: string,
+    goals: PerformanceGoals,
+    updatedBy?: string,
+  ): Promise<PerformanceGoals>;
   deleteAgentPerformanceGoalOverride(agentId: string): Promise<void>;
-  listAgentPerformanceGoalOverrides(): Promise<AgentPerformanceGoalOverrideRecord[]>;
-  resolvePerformanceGoalsForAgent(agentId?: string | null): Promise<ResolvedPerformanceGoals>;
+  listAgentPerformanceGoalOverrides(): Promise<
+    AgentPerformanceGoalOverrideRecord[]
+  >;
+  resolvePerformanceGoalsForAgent(
+    agentId?: string | null,
+  ): Promise<ResolvedPerformanceGoals>;
 
   // Login session tracking
   createLoginSession(sessionData: {
@@ -875,11 +1063,14 @@ export interface IStorage {
     browser?: string;
     location?: string;
   }): Promise<any>;
-  updateLoginSession(sessionId: string, updates: {
-    logoutTime?: Date;
-    sessionDurationMinutes?: number;
-    isActive?: boolean;
-  }): Promise<any>;
+  updateLoginSession(
+    sessionId: string,
+    updates: {
+      logoutTime?: Date;
+      sessionDurationMinutes?: number;
+      isActive?: boolean;
+    },
+  ): Promise<any>;
   getUserLoginSessions(userId: string, limit?: number): Promise<any[]>;
   getAllLoginSessions(limit?: number): Promise<any[]>;
 }
@@ -896,69 +1087,87 @@ export async function createUser(userData: Partial<User>): Promise<User> {
     // Never set 'member' here - members are in separate members table
     const normalizedRole = normalizeRole(userData.role);
     if (!normalizedRole && userData.role) {
-      console.warn(`[Storage] Unexpected role "${userData.role}" provided during createUser - defaulting to agent`);
+      console.warn(
+        `[Storage] Unexpected role "${userData.role}" provided during createUser - defaulting to agent`,
+      );
     }
-    const role = normalizedRole || 'agent';
-    
+    const role = normalizedRole || "agent";
+
     // Generate agent number if SSN is available
-    if ((role === 'agent' || role === 'admin' || role === 'super_admin') && userData.ssn && !agentNumber) {
-      const { generateAgentNumber } = await import('./utils/agent-number-generator.js');
+    if (
+      (role === "agent" || role === "admin" || role === "super_admin") &&
+      userData.ssn &&
+      !agentNumber
+    ) {
+      const { generateAgentNumber } =
+        await import("./utils/agent-number-generator.js");
       const ssnLast4 = userData.ssn.slice(-4);
       try {
         agentNumber = generateAgentNumber(role, ssnLast4);
-        console.log(`[Agent Number] Generated: ${agentNumber} for ${role} ${userData.email}`);
+        console.log(
+          `[Agent Number] Generated: ${agentNumber} for ${role} ${userData.email}`,
+        );
       } catch (error: any) {
         console.warn(`[Agent Number] Generation failed: ${error.message}`);
       }
     }
-    
+
     // If no agent number yet, generate a temporary one based on email/timestamp
     // This happens during auto-creation from login before user profile is complete
     if (!agentNumber) {
       const timestamp = Date.now().toString().slice(-6);
-      const emailHash = userData.email?.slice(0, 2).toUpperCase() || 'XX';
+      const emailHash = userData.email?.slice(0, 2).toUpperCase() || "XX";
       agentNumber = `MPP${emailHash}${timestamp}`;
-      console.log(`[Agent Number] Generated temporary: ${agentNumber} for ${userData.email}`);
+      console.log(
+        `[Agent Number] Generated temporary: ${agentNumber} for ${userData.email}`,
+      );
     }
-    
+
     // Build insert object with only columns that exist in Supabase
     const insertData: any = {
       email: userData.email,
-      first_name: userData.firstName || '',
-      last_name: userData.lastName || '',
+      first_name: userData.firstName || "",
+      last_name: userData.lastName || "",
       phone: userData.phone || null,
       role,
       agent_number: agentNumber,
       is_active: userData.isActive !== undefined ? userData.isActive : true,
-      approval_status: userData.approvalStatus || 'approved',
-      email_verified: userData.emailVerified !== undefined ? userData.emailVerified : false,
-      password_change_required: userData.passwordChangeRequired !== undefined ? userData.passwordChangeRequired : false,
+      approval_status: userData.approvalStatus || "approved",
+      email_verified:
+        userData.emailVerified !== undefined ? userData.emailVerified : false,
+      password_change_required:
+        userData.passwordChangeRequired !== undefined
+          ? userData.passwordChangeRequired
+          : false,
       // Note: created_by column does not exist in Supabase users table schema
       created_at: userData.createdAt || new Date(),
-      updated_at: userData.updatedAt || new Date()
+      updated_at: userData.updatedAt || new Date(),
     };
-    
+
     // Include ID if provided (for admin-created users with Supabase Auth ID)
     if (userData.id) {
       insertData.id = userData.id;
     }
-    
-    console.log('[Storage] createUser: Inserting user with data:', {
+
+    console.log("[Storage] createUser: Inserting user with data:", {
       id: insertData.id,
       email: insertData.email,
       role: insertData.role,
       agent_number: insertData.agent_number,
-      approval_status: insertData.approval_status
+      approval_status: insertData.approval_status,
     });
-    
-    const optionalColumns = new Set(['password_change_required', 'email_verified']);
+
+    const optionalColumns = new Set([
+      "password_change_required",
+      "email_verified",
+    ]);
     const mutableInsertData: Record<string, any> = { ...insertData };
 
     // Production can lag schema migrations. If Supabase reports a missing optional
     // column in schema cache, remove that column and retry once per missing field.
     for (let attempt = 0; attempt < 4; attempt++) {
       const { data, error } = await supabase
-        .from('users')
+        .from("users")
         .insert([mutableInsertData])
         .select()
         .single();
@@ -967,91 +1176,126 @@ export async function createUser(userData: Partial<User>): Promise<User> {
         return mapUserFromDB(data);
       }
 
-      const errorMessage = String(error.message || '');
+      const errorMessage = String(error.message || "");
       const missingColumnMatch = errorMessage.match(/'([^']+)'/);
       const missingColumn = missingColumnMatch?.[1];
 
-      if (missingColumn && optionalColumns.has(missingColumn) && missingColumn in mutableInsertData) {
-        console.warn(`[Storage] createUser: Missing optional column '${missingColumn}' in target schema. Retrying without it.`);
+      if (
+        missingColumn &&
+        optionalColumns.has(missingColumn) &&
+        missingColumn in mutableInsertData
+      ) {
+        console.warn(
+          `[Storage] createUser: Missing optional column '${missingColumn}' in target schema. Retrying without it.`,
+        );
         delete mutableInsertData[missingColumn];
         continue;
       }
 
-      console.error('Error creating user:', error);
+      console.error("Error creating user:", error);
       throw new Error(`Failed to create user: ${error.message}`);
     }
 
-    throw new Error('Failed to create user: exhausted insert retries');
+    throw new Error("Failed to create user: exhausted insert retries");
   } catch (error: any) {
-    console.error('Error creating user:', error);
+    console.error("Error creating user:", error);
     throw new Error(`Failed to create user: ${error.message}`);
   }
 }
 
-export async function getUser(id: string, options?: UserLookupOptions): Promise<User | null> {
+export async function getUser(
+  id: string,
+  options?: UserLookupOptions,
+): Promise<User | null> {
   try {
     const fallbackEmail = normalizeEmailInput(options?.fallbackEmail);
     const primaryIdentifier = resolveUserIdentifier(id);
 
-    const lookupQueue: Array<{ column: 'id' | 'email'; value: string; reason: string }> = [];
+    const lookupQueue: Array<{
+      column: "id" | "email";
+      value: string;
+      reason: string;
+    }> = [];
 
     if (primaryIdentifier) {
-      lookupQueue.push({ ...primaryIdentifier, reason: 'primary' });
+      lookupQueue.push({ ...primaryIdentifier, reason: "primary" });
     }
 
     if (fallbackEmail) {
-      const alreadyUsingFallback = primaryIdentifier?.column === 'email' && primaryIdentifier.value === fallbackEmail;
+      const alreadyUsingFallback =
+        primaryIdentifier?.column === "email" &&
+        primaryIdentifier.value === fallbackEmail;
       if (!alreadyUsingFallback) {
-        lookupQueue.push({ column: 'email', value: fallbackEmail, reason: 'fallbackEmail' });
+        lookupQueue.push({
+          column: "email",
+          value: fallbackEmail,
+          reason: "fallbackEmail",
+        });
       }
     }
 
     if (lookupQueue.length === 0) {
-      console.warn('[Storage] getUser: No valid identifier or fallback email provided');
+      console.warn(
+        "[Storage] getUser: No valid identifier or fallback email provided",
+      );
       return null;
     }
 
     for (const target of lookupQueue) {
       const { data, error } = await supabase
-        .from('users')
-        .select('*')
+        .from("users")
+        .select("*")
         .eq(target.column, target.value)
         .single();
 
       if (error) {
-        if ((error as any)?.code === 'PGRST116') {
-          console.warn(`[Storage] getUser: No record found via ${target.column} (${target.reason})`);
+        if ((error as any)?.code === "PGRST116") {
+          console.warn(
+            `[Storage] getUser: No record found via ${target.column} (${target.reason})`,
+          );
           continue;
         }
 
         if (isRecoverableIdentifierError(error)) {
-          console.warn(`[Storage] getUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`);
+          console.warn(
+            `[Storage] getUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`,
+          );
           continue;
         }
 
-        console.error(`[Storage] getUser: Supabase error via ${target.column} (${target.reason})`, error);
+        console.error(
+          `[Storage] getUser: Supabase error via ${target.column} (${target.reason})`,
+          error,
+        );
         throw error;
       }
 
       if (data) {
-        console.log(`[Storage] getUser: Found user via ${target.column} (${target.reason}):`, data.email);
-        console.log('[Storage] getUser: Raw role from DB:', {
+        console.log(
+          `[Storage] getUser: Found user via ${target.column} (${target.reason}):`,
+          data.email,
+        );
+        console.log("[Storage] getUser: Raw role from DB:", {
           role: data.role,
           roleType: typeof data.role,
           roleLength: data.role?.length,
-          roleBytes: data.role ? Buffer.from(data.role).toString('hex') : 'null'
+          roleBytes: data.role
+            ? Buffer.from(data.role).toString("hex")
+            : "null",
         });
 
         const mappedUser = mapUserFromDB(data);
-        console.log('[Storage] getUser: Mapped user role:', mappedUser?.role);
+        console.log("[Storage] getUser: Mapped user role:", mappedUser?.role);
         return mappedUser;
       }
     }
 
-    console.warn('[Storage] getUser: Exhausted all lookup strategies without finding a user');
+    console.warn(
+      "[Storage] getUser: Exhausted all lookup strategies without finding a user",
+    );
     return null;
   } catch (error: any) {
-    console.error('[Storage] Error in getUser:', error);
+    console.error("[Storage] Error in getUser:", error);
     return null;
   }
 }
@@ -1067,22 +1311,24 @@ function normalizeIdentifierInput(identifier: unknown): string | null {
 
 function isRecoverableIdentifierError(error: any): boolean {
   if (!error) return false;
-  const code = (error.code || error.details || '').toString();
-  const message = (error.message || '').toString().toLowerCase();
-  if (code === '22P02') {
+  const code = (error.code || error.details || "").toString();
+  const message = (error.message || "").toString().toLowerCase();
+  if (code === "22P02") {
     return true;
   }
-  return message.includes('invalid input syntax for type uuid');
+  return message.includes("invalid input syntax for type uuid");
 }
 
 function isValidUuid(value: string | null | undefined): boolean {
   if (!value) return false;
   const trimmed = value.trim();
-  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(trimmed);
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(
+    trimmed,
+  );
 }
 
 function looksLikeEmail(value: string | null | undefined): boolean {
-  return typeof value === 'string' && value.includes('@');
+  return typeof value === "string" && value.includes("@");
 }
 
 function normalizeEmailInput(value: unknown): string | null {
@@ -1093,22 +1339,24 @@ function normalizeEmailInput(value: unknown): string | null {
   return looksLikeEmail(normalized) ? normalized : null;
 }
 
-function resolveUserIdentifier(identifier: unknown): { column: 'id' | 'email'; value: string } | null {
+function resolveUserIdentifier(
+  identifier: unknown,
+): { column: "id" | "email"; value: string } | null {
   const normalized = normalizeIdentifierInput(identifier);
   if (!normalized) {
     return null;
   }
 
   if (looksLikeEmail(normalized)) {
-    return { column: 'email', value: normalized };
+    return { column: "email", value: normalized };
   }
 
   if (isValidUuid(normalized)) {
-    return { column: 'id', value: normalized };
+    return { column: "id", value: normalized };
   }
 
   // Default to using the id column to preserve legacy behavior for non-email identifiers
-  return { column: 'id', value: normalized };
+  return { column: "id", value: normalized };
 }
 
 // Helper function to map database snake_case to camelCase
@@ -1120,16 +1368,18 @@ function mapUserFromDB(data: any): User | null {
   // If somehow a null role is found, default to 'agent' (most common)
   const normalizedRole = normalizeRole(data.role);
   if (!normalizedRole && data.role) {
-    console.warn(`[Storage] Unexpected role "${data.role}" in users table for ${data.email} - defaulting to agent`);
+    console.warn(
+      `[Storage] Unexpected role "${data.role}" in users table for ${data.email} - defaulting to agent`,
+    );
   }
-  const roleValue = normalizedRole || 'agent';
+  const roleValue = normalizedRole || "agent";
 
   return {
     // The Supabase users table doesn't have an id column - use email as identifier
     id: data.id || data.email,
     email: data.email,
-    firstName: data.first_name || data.firstName || '',
-    lastName: data.last_name || data.lastName || '',
+    firstName: data.first_name || data.firstName || "",
+    lastName: data.last_name || data.lastName || "",
     middleName: data.middle_name || data.middleName,
     profileImageUrl: data.profile_image_url || data.profileImageUrl,
     phone: data.phone,
@@ -1140,19 +1390,27 @@ function mapUserFromDB(data: any): User | null {
     city: data.city,
     state: data.state,
     zipCode: data.zip_code || data.zipCode,
-    emergencyContactName: data.emergency_contact_name || data.emergencyContactName,
-    emergencyContactPhone: data.emergency_contact_phone || data.emergencyContactPhone,
+    emergencyContactName:
+      data.emergency_contact_name || data.emergencyContactName,
+    emergencyContactPhone:
+      data.emergency_contact_phone || data.emergencyContactPhone,
     role: roleValue,
     agentNumber: data.agent_number || data.agentNumber,
-    isActive: data.is_active !== undefined ? data.is_active : (data.isActive !== undefined ? data.isActive : true),
-    approvalStatus: data.approval_status || data.approvalStatus || 'approved',
+    isActive:
+      data.is_active !== undefined
+        ? data.is_active
+        : data.isActive !== undefined
+          ? data.isActive
+          : true,
+    approvalStatus: data.approval_status || data.approvalStatus || "approved",
     approvedAt: data.approved_at || data.approvedAt,
     approvedBy: data.approved_by || data.approvedBy,
     rejectionReason: data.rejection_reason || data.rejectionReason,
     emailVerified: (data.email_verified ?? data.emailVerified ?? true) === true,
     emailVerifiedAt: data.email_verified_at || data.emailVerifiedAt,
     registrationIp: data.registration_ip || data.registrationIp,
-    registrationUserAgent: data.registration_user_agent || data.registrationUserAgent,
+    registrationUserAgent:
+      data.registration_user_agent || data.registrationUserAgent,
     suspiciousFlags: data.suspicious_flags || data.suspiciousFlags,
     createdAt: data.created_at || new Date(),
     updatedAt: data.updated_at || new Date(),
@@ -1161,41 +1419,43 @@ function mapUserFromDB(data: any): User | null {
     // Agent hierarchy fields
     uplineAgentId: data.upline_agent_id || data.uplineAgentId,
     hierarchyLevel: data.hierarchy_level || data.hierarchyLevel || 0,
-    canReceiveOverrides: data.can_receive_overrides || data.canReceiveOverrides || false,
-    overrideCommissionRate: data.override_commission_rate || data.overrideCommissionRate || '0',
+    canReceiveOverrides:
+      data.can_receive_overrides || data.canReceiveOverrides || false,
+    overrideCommissionRate:
+      data.override_commission_rate || data.overrideCommissionRate || "0",
     // Banking information for commission payouts
     bankName: data.bank_name || data.bankName,
     routingNumber: data.routing_number || data.routingNumber,
     accountNumber: data.account_number || data.accountNumber,
     accountType: data.account_type || data.accountType,
-    accountHolderName: data.account_holder_name || data.accountHolderName
+    accountHolderName: data.account_holder_name || data.accountHolderName,
   } as User;
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
     const maskAccountLikeValue = (value: unknown): string => {
-      const raw = String(value || '').trim();
-      if (!raw) return '';
-      const digits = raw.replace(/\D/g, '');
-      if (!digits) return '***';
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      const digits = raw.replace(/\D/g, "");
+      if (!digits) return "***";
       const last4 = digits.slice(-4);
       return `****${last4}`;
     };
 
     const sanitizeUserDebugData = (value: any): any => {
-      if (!value || typeof value !== 'object') {
+      if (!value || typeof value !== "object") {
         return value;
       }
 
       const sanitized = { ...value };
       const sensitiveKeys = [
-        'routing_number',
-        'account_number',
-        'routingNumber',
-        'accountNumber',
-        'bank_routing_number',
-        'bank_account_number',
+        "routing_number",
+        "account_number",
+        "routingNumber",
+        "accountNumber",
+        "bank_routing_number",
+        "bank_account_number",
       ];
 
       sensitiveKeys.forEach((key) => {
@@ -1207,117 +1467,174 @@ export async function getUserByEmail(email: string): Promise<User | null> {
       return sanitized;
     };
 
-    console.log('[Storage] getUserByEmail called with:', email);
+    console.log("[Storage] getUserByEmail called with:", email);
     // Use Supabase to fetch user by email
     // The users table doesn't have an 'id' column - use email as the primary identifier
     // Column names in Supabase are snake_case (first_name, agent_number, etc.)
     const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
+      .from("users")
+      .select("*")
+      .eq("email", email)
       .single();
-    
+
     // DEBUG: Log the actual data structure
     if (data) {
       const safeDataForLog = sanitizeUserDebugData(data);
-      console.log('[Storage] getUserByEmail RAW data:', JSON.stringify(safeDataForLog, null, 2));
-      console.log('[Storage] getUserByEmail data.id:', data.id);
-      console.log('[Storage] getUserByEmail data keys:', Object.keys(data));
+      console.log(
+        "[Storage] getUserByEmail RAW data:",
+        JSON.stringify(safeDataForLog, null, 2),
+      );
+      console.log("[Storage] getUserByEmail data.id:", data.id);
+      console.log("[Storage] getUserByEmail data keys:", Object.keys(data));
     }
-    
+
     if (error || !data) {
-      if (error && error.code !== 'PGRST116') {
-        console.error('[Storage] getUserByEmail error:', error);
-        console.error('[Storage] getUserByEmail error details:', {
+      if (error && error.code !== "PGRST116") {
+        console.error("[Storage] getUserByEmail error:", error);
+        console.error("[Storage] getUserByEmail error details:", {
           code: error.code,
           message: error.message,
           details: error.details,
-          hint: error.hint
+          hint: error.hint,
         });
       } else {
-        console.log('[Storage] getUserByEmail: User not found (expected for new users)');
+        console.log(
+          "[Storage] getUserByEmail: User not found (expected for new users)",
+        );
       }
       return null;
     }
-    console.log('[Storage] getUserByEmail: User found, mapping data');
+    console.log("[Storage] getUserByEmail: User found, mapping data");
     const mappedUser = mapUserFromDB(data);
-    
+
     // FALLBACK: If id is still undefined, use email as the identifier
     // This handles cases where the id column doesn't exist in the database
     if (!mappedUser.id && mappedUser.email) {
-      console.warn('[Storage] getUserByEmail: id is undefined, using email as fallback identifier');
+      console.warn(
+        "[Storage] getUserByEmail: id is undefined, using email as fallback identifier",
+      );
       mappedUser.id = mappedUser.email;
     }
-    
-    console.log('[Storage] getUserByEmail: Mapped user:', { id: mappedUser?.id, email: mappedUser?.email, role: mappedUser?.role });
+
+    console.log("[Storage] getUserByEmail: Mapped user:", {
+      id: mappedUser?.id,
+      email: mappedUser?.email,
+      role: mappedUser?.role,
+    });
     return mappedUser;
   } catch (error: any) {
-    console.error('[Storage] getUserByEmail fatal error:', error);
-    console.error('[Storage] getUserByEmail error stack:', error.stack);
+    console.error("[Storage] getUserByEmail fatal error:", error);
+    console.error("[Storage] getUserByEmail error stack:", error.stack);
     return null;
   }
 }
 
-export async function updateUser(id: string, updates: Partial<User>, options?: UserLookupOptions): Promise<User> {
+export async function updateUser(
+  id: string,
+  updates: Partial<User>,
+  options?: UserLookupOptions,
+): Promise<User> {
   try {
     // Build update object with only columns that exist in Supabase
     // Supabase users table columns: email, username, first_name, last_name, phone, role, agent_number, is_active, created_at
     const updateData: any = {};
-    
+
     if (updates.email !== undefined) updateData.email = updates.email;
-    if (updates.firstName !== undefined) updateData.first_name = updates.firstName;
+    if (updates.firstName !== undefined)
+      updateData.first_name = updates.firstName;
     if (updates.lastName !== undefined) updateData.last_name = updates.lastName;
-    if (updates.middleName !== undefined) updateData.middle_name = updates.middleName;
+    if (updates.middleName !== undefined)
+      updateData.middle_name = updates.middleName;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
-    if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth;
+    if (updates.dateOfBirth !== undefined)
+      updateData.date_of_birth = updates.dateOfBirth;
     if (updates.gender !== undefined) updateData.gender = updates.gender;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.address2 !== undefined) updateData.address2 = updates.address2;
     if (updates.city !== undefined) updateData.city = updates.city;
     if (updates.state !== undefined) updateData.state = updates.state;
     if (updates.zipCode !== undefined) updateData.zip_code = updates.zipCode;
-    if (updates.emergencyContactName !== undefined) updateData.emergency_contact_name = updates.emergencyContactName;
-    if (updates.emergencyContactPhone !== undefined) updateData.emergency_contact_phone = updates.emergencyContactPhone;
+    if (updates.emergencyContactName !== undefined)
+      updateData.emergency_contact_name = updates.emergencyContactName;
+    if (updates.emergencyContactPhone !== undefined)
+      updateData.emergency_contact_phone = updates.emergencyContactPhone;
     if (updates.role !== undefined) updateData.role = updates.role;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
-    if (updates.agentNumber !== undefined) updateData.agent_number = updates.agentNumber;
+    if (updates.agentNumber !== undefined)
+      updateData.agent_number = updates.agentNumber;
     // Agent hierarchy fields
-    if (updates.uplineAgentId !== undefined) updateData.upline_agent_id = updates.uplineAgentId;
-    if (updates.hierarchyLevel !== undefined) updateData.hierarchy_level = updates.hierarchyLevel;
-    if (updates.canReceiveOverrides !== undefined) updateData.can_receive_overrides = updates.canReceiveOverrides;
-    if (updates.overrideCommissionRate !== undefined) updateData.override_commission_rate = updates.overrideCommissionRate;
+    if (updates.uplineAgentId !== undefined)
+      updateData.upline_agent_id = updates.uplineAgentId;
+    if (updates.hierarchyLevel !== undefined)
+      updateData.hierarchy_level = updates.hierarchyLevel;
+    if (updates.canReceiveOverrides !== undefined)
+      updateData.can_receive_overrides = updates.canReceiveOverrides;
+    if (updates.overrideCommissionRate !== undefined)
+      updateData.override_commission_rate = updates.overrideCommissionRate;
     // Banking information for commission payouts
     if (updates.bankName !== undefined) updateData.bank_name = updates.bankName;
-    if (updates.routingNumber !== undefined) updateData.routing_number = updates.routingNumber;
-    if (updates.accountNumber !== undefined) updateData.account_number = updates.accountNumber;
-    if (updates.accountType !== undefined) updateData.account_type = updates.accountType;
-    if (updates.accountHolderName !== undefined) updateData.account_holder_name = updates.accountHolderName;
-    if (updates.profileImageUrl !== undefined) updateData.profile_image_url = updates.profileImageUrl;
-    
+    if (updates.routingNumber !== undefined)
+      updateData.routing_number = updates.routingNumber;
+    if (updates.accountNumber !== undefined)
+      updateData.account_number = updates.accountNumber;
+    if (updates.accountType !== undefined)
+      updateData.account_type = updates.accountType;
+    if (updates.accountHolderName !== undefined)
+      updateData.account_holder_name = updates.accountHolderName;
+    if (updates.profileImageUrl !== undefined)
+      updateData.profile_image_url = updates.profileImageUrl;
+
     // Ignore fields that don't exist in Supabase:
     // - lastLoginAt, approvalStatus, approvedAt, approvedBy
     // - googleId, facebookId, twitterId, emailVerified, etc.
-    
+
     const fallbackEmail = normalizeEmailInput(options?.fallbackEmail);
 
     if (Object.keys(updateData).length === 0) {
-      console.log('[Storage] updateUser: No valid fields to update, returning existing user');
+      console.log(
+        "[Storage] updateUser: No valid fields to update, returning existing user",
+      );
       const currentUser = await getUser(id, { fallbackEmail });
       if (currentUser) return currentUser;
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
-    const primaryIdentifier = resolveUserIdentifier(id) || (fallbackEmail ? { column: 'email' as const, value: fallbackEmail } : null);
+    const primaryIdentifier =
+      resolveUserIdentifier(id) ||
+      (fallbackEmail
+        ? { column: "email" as const, value: fallbackEmail }
+        : null);
     if (!primaryIdentifier) {
-      throw new Error('Unable to determine identifier for user update');
+      throw new Error("Unable to determine identifier for user update");
     }
 
-    console.log('[Storage] updateUser: Updating user', primaryIdentifier.value, 'using column', primaryIdentifier.column, 'with data:', updateData);
-    console.log('[Storage] updateUser: Update data keys:', Object.keys(updateData));
-    console.log('[Storage] updateUser: profileImageUrl in updates?', 'profile_image_url' in updateData);
+    console.log(
+      "[Storage] updateUser: Updating user",
+      primaryIdentifier.value,
+      "using column",
+      primaryIdentifier.column,
+      "with data:",
+      updateData,
+    );
+    console.log(
+      "[Storage] updateUser: Update data keys:",
+      Object.keys(updateData),
+    );
+    console.log(
+      "[Storage] updateUser: profileImageUrl in updates?",
+      "profile_image_url" in updateData,
+    );
 
-    const bankingFields = ['bank_name', 'routing_number', 'account_number', 'account_type', 'account_holder_name'];
-    const hasBankingUpdates = bankingFields.some(field => updateData[field] !== undefined);
+    const bankingFields = [
+      "bank_name",
+      "routing_number",
+      "account_number",
+      "account_type",
+      "account_holder_name",
+    ];
+    const hasBankingUpdates = bankingFields.some(
+      (field) => updateData[field] !== undefined,
+    );
 
     let oldBankingInfo = null;
     if (hasBankingUpdates) {
@@ -1328,19 +1645,27 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
           routingNumber: currentUser.routingNumber,
           accountNumber: currentUser.accountNumber,
           accountType: currentUser.accountType,
-          accountHolderName: currentUser.accountHolderName
+          accountHolderName: currentUser.accountHolderName,
         };
       }
     }
 
-    const updateQueue: Array<{ column: 'id' | 'email'; value: string; reason: string }> = [
-      { ...primaryIdentifier, reason: 'primary' }
-    ];
+    const updateQueue: Array<{
+      column: "id" | "email";
+      value: string;
+      reason: string;
+    }> = [{ ...primaryIdentifier, reason: "primary" }];
 
     if (fallbackEmail) {
-      const alreadyQueued = primaryIdentifier.column === 'email' && primaryIdentifier.value === fallbackEmail;
+      const alreadyQueued =
+        primaryIdentifier.column === "email" &&
+        primaryIdentifier.value === fallbackEmail;
       if (!alreadyQueued) {
-        updateQueue.push({ column: 'email', value: fallbackEmail, reason: 'fallbackEmail' });
+        updateQueue.push({
+          column: "email",
+          value: fallbackEmail,
+          reason: "fallbackEmail",
+        });
       }
     }
 
@@ -1348,7 +1673,7 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     let schemaCacheError: any = null;
     for (const target of updateQueue) {
       const { data, error } = await supabase
-        .from('users')
+        .from("users")
         .update(updateData)
         .eq(target.column, target.value)
         .select()
@@ -1356,20 +1681,29 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
 
       if (error) {
         const errorCode = (error as any)?.code;
-        if (errorCode === 'PGRST116') {
-          console.warn(`[Storage] updateUser: No rows matched via ${target.column} (${target.reason})`);
+        if (errorCode === "PGRST116") {
+          console.warn(
+            `[Storage] updateUser: No rows matched via ${target.column} (${target.reason})`,
+          );
           continue;
         }
-        if (errorCode === 'PGRST204') {
+        if (errorCode === "PGRST204") {
           schemaCacheError = error;
-          console.warn('[Storage] updateUser: Supabase schema cache miss detected, preparing direct SQL fallback');
+          console.warn(
+            "[Storage] updateUser: Supabase schema cache miss detected, preparing direct SQL fallback",
+          );
           break;
         }
         if (isRecoverableIdentifierError(error)) {
-          console.warn(`[Storage] updateUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`);
+          console.warn(
+            `[Storage] updateUser: Identifier mismatch via ${target.column} (${target.reason}) - ${error.message}`,
+          );
           continue;
         }
-        console.error(`[Storage] updateUser error via ${target.column} (${target.reason})`, error);
+        console.error(
+          `[Storage] updateUser error via ${target.column} (${target.reason})`,
+          error,
+        );
         throw new Error(`Failed to update user: ${error.message}`);
       }
 
@@ -1380,53 +1714,63 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     }
 
     if (!updatedRecord && schemaCacheError) {
-      console.warn('[Storage] updateUser: Attempting direct SQL fallback due to schema cache error');
+      console.warn(
+        "[Storage] updateUser: Attempting direct SQL fallback due to schema cache error",
+      );
       updatedRecord = await updateUserViaDirectQuery(updateQueue, updateData);
       if (updatedRecord) {
-        console.log('[Storage] updateUser: Direct SQL fallback succeeded');
+        console.log("[Storage] updateUser: Direct SQL fallback succeeded");
       }
     }
 
     if (!updatedRecord) {
       if (schemaCacheError) {
-        throw new Error(`Failed to update user via Supabase client: ${schemaCacheError.message}`);
+        throw new Error(
+          `Failed to update user via Supabase client: ${schemaCacheError.message}`,
+        );
       }
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
     const auditUserId = updatedRecord.id || id;
-    
+
     // If banking info was updated and update was successful, log the change
     if (hasBankingUpdates && oldBankingInfo) {
       const newBankingInfo = {
         bankName: updatedRecord.bank_name ?? updateData.bank_name,
-        routingNumber: updatedRecord.routing_number ?? updateData.routing_number,
-        accountNumber: updatedRecord.account_number ?? updateData.account_number,
+        routingNumber:
+          updatedRecord.routing_number ?? updateData.routing_number,
+        accountNumber:
+          updatedRecord.account_number ?? updateData.account_number,
         accountType: updatedRecord.account_type ?? updateData.account_type,
-        accountHolderName: updatedRecord.account_holder_name ?? updateData.account_holder_name
+        accountHolderName:
+          updatedRecord.account_holder_name ?? updateData.account_holder_name,
       };
-      
+
       // Log the banking change (don't await to avoid blocking the response)
       recordBankingInfoChange({
         userId: auditUserId,
         modifiedBy: auditUserId,
         oldBankingInfo,
         newBankingInfo,
-        changeType: 'self_update'
-      }).catch(auditError => {
-        console.error('[Storage] Failed to log banking change audit:', auditError);
+        changeType: "self_update",
+      }).catch((auditError) => {
+        console.error(
+          "[Storage] Failed to log banking change audit:",
+          auditError,
+        );
       });
     }
 
     const mapped = mapUserFromDB(updatedRecord);
     if (!mapped) {
-      throw new Error('Failed to map updated user record');
+      throw new Error("Failed to map updated user record");
     }
 
     return mapped;
   } catch (error: any) {
-    console.error('Error updating user:', error);
-    console.error('[Storage] updateUser error details:', {
+    console.error("Error updating user:", error);
+    console.error("[Storage] updateUser error details:", {
       message: error?.message,
       code: error?.code,
       details: error?.details,
@@ -1435,10 +1779,16 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
     });
 
     // For non-critical updates like last_login_at, don't throw - just return the existing user
-    const isNonCriticalUpdate = Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
+    const isNonCriticalUpdate =
+      Object.keys(updates).length === 1 && updates.lastLoginAt !== undefined;
     if (isNonCriticalUpdate) {
-      console.warn(`Non-critical user update failed for ${id}, continuing anyway:`, error.message);
-      const currentUser = await getUser(id, { fallbackEmail: options?.fallbackEmail });
+      console.warn(
+        `Non-critical user update failed for ${id}, continuing anyway:`,
+        error.message,
+      );
+      const currentUser = await getUser(id, {
+        fallbackEmail: options?.fallbackEmail,
+      });
       if (currentUser) {
         return currentUser;
       }
@@ -1448,81 +1798,91 @@ export async function updateUser(id: string, updates: Partial<User>, options?: U
   }
 }
 
-export async function updateUserProfile(id: string, profileData: Partial<User>, options?: UserLookupOptions): Promise<User> {
+export async function updateUserProfile(
+  id: string,
+  profileData: Partial<User>,
+  options?: UserLookupOptions,
+): Promise<User> {
   return updateUser(id, profileData, options);
 }
 
-export async function getUserByUsername(username: string): Promise<User | null> {
+export async function getUserByUsername(
+  username: string,
+): Promise<User | null> {
   try {
-    const result = await query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    );
+    const result = await query("SELECT * FROM users WHERE username = $1", [
+      username,
+    ]);
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by username:', error);
+    console.error("Error fetching user by username:", error);
     return null;
   }
 }
 
-export async function getUserByGoogleId(googleId: string): Promise<User | null> {
+export async function getUserByGoogleId(
+  googleId: string,
+): Promise<User | null> {
   try {
-    const result = await query(
-      'SELECT * FROM users WHERE google_id = $1',
-      [googleId]
-    );
+    const result = await query("SELECT * FROM users WHERE google_id = $1", [
+      googleId,
+    ]);
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by Google ID:', error);
+    console.error("Error fetching user by Google ID:", error);
     return null;
   }
 }
 
-export async function getUserByFacebookId(facebookId: string): Promise<User | null> {
+export async function getUserByFacebookId(
+  facebookId: string,
+): Promise<User | null> {
   try {
-    const result = await query(
-      'SELECT * FROM users WHERE facebook_id = $1',
-      [facebookId]
-    );
+    const result = await query("SELECT * FROM users WHERE facebook_id = $1", [
+      facebookId,
+    ]);
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by Facebook ID:', error);
+    console.error("Error fetching user by Facebook ID:", error);
     return null;
   }
 }
 
-export async function getUserByTwitterId(twitterId: string): Promise<User | null> {
+export async function getUserByTwitterId(
+  twitterId: string,
+): Promise<User | null> {
   try {
-    const result = await query(
-      'SELECT * FROM users WHERE twitter_id = $1',
-      [twitterId]
-    );
+    const result = await query("SELECT * FROM users WHERE twitter_id = $1", [
+      twitterId,
+    ]);
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by Twitter ID:', error);
+    console.error("Error fetching user by Twitter ID:", error);
     return null;
   }
 }
 
-export async function getUserByVerificationToken(token: string): Promise<User | null> {
+export async function getUserByVerificationToken(
+  token: string,
+): Promise<User | null> {
   try {
     const result = await query(
-      'SELECT * FROM users WHERE email_verification_token = $1',
-      [token]
+      "SELECT * FROM users WHERE email_verification_token = $1",
+      [token],
     );
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by verification token:', error);
+    console.error("Error fetching user by verification token:", error);
     return null;
   }
 }
@@ -1530,29 +1890,30 @@ export async function getUserByVerificationToken(token: string): Promise<User | 
 export async function getUserByResetToken(token: string): Promise<User | null> {
   try {
     const result = await query(
-      'SELECT * FROM users WHERE reset_password_token = $1',
-      [token]
+      "SELECT * FROM users WHERE reset_password_token = $1",
+      [token],
     );
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by reset token:', error);
+    console.error("Error fetching user by reset token:", error);
     return null;
   }
 }
 
-export async function getUserByAgentNumber(agentNumber: string): Promise<User | null> {
+export async function getUserByAgentNumber(
+  agentNumber: string,
+): Promise<User | null> {
   try {
-    const result = await query(
-      'SELECT * FROM users WHERE agent_number = $1',
-      [agentNumber]
-    );
+    const result = await query("SELECT * FROM users WHERE agent_number = $1", [
+      agentNumber,
+    ]);
 
     if (result.rows.length === 0) return null;
     return mapUserFromDB(result.rows[0]);
   } catch (error: any) {
-    console.error('Error fetching user by agent number:', error);
+    console.error("Error fetching user by agent number:", error);
     return null;
   }
 }
@@ -1568,26 +1929,28 @@ export async function isAgentNumberUsedByActiveAgent(
     }
 
     let q = supabase
-      .from('users')
-      .select('id')
-      .eq('role', 'agent')
-      .eq('is_active', true)
-      .eq('agent_number', normalized);
+      .from("users")
+      .select("id")
+      .eq("role", "agent")
+      .eq("is_active", true)
+      .eq("agent_number", normalized);
 
     if (excludeUserId) {
-      q = q.neq('id', excludeUserId);
+      q = q.neq("id", excludeUserId);
     }
 
     const { data, error } = await q.limit(1);
 
     if (error) {
-      console.error('Error checking active agent number usage:', error);
-      throw new Error(`Failed to check active agent number usage: ${error.message}`);
+      console.error("Error checking active agent number usage:", error);
+      throw new Error(
+        `Failed to check active agent number usage: ${error.message}`,
+      );
     }
 
     return Array.isArray(data) && data.length > 0;
   } catch (error: any) {
-    console.error('Error in isAgentNumberUsedByActiveAgent:', error);
+    console.error("Error in isAgentNumberUsedByActiveAgent:", error);
     throw error;
   }
 }
@@ -1607,62 +1970,71 @@ export async function upsertUser(userData: UpsertUser): Promise<User> {
   }
 }
 
-
-
-
-export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
+export async function getAllUsers(
+  limit = 50,
+  offset = 0,
+): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching all active users via Supabase...');
+    console.log("[Storage] Fetching all active users via Supabase...");
 
     // Use Supabase instead of Neon to avoid connection issues
     // FILTER: Only return active users with approved status (exclude suspended/removed users)
     const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('is_active', true)
-      .eq('approval_status', 'approved')
-      .order('created_at', { ascending: false });
+      .from("users")
+      .select("*")
+      .eq("is_active", true)
+      .eq("approval_status", "approved")
+      .order("created_at", { ascending: false });
 
     if (usersError) {
-      console.error('[Storage] Supabase users error:', usersError);
+      console.error("[Storage] Supabase users error:", usersError);
       throw usersError;
     }
 
     if (!users) {
-      console.warn('[Storage] No users returned from Supabase');
+      console.warn("[Storage] No users returned from Supabase");
       return { users: [], totalCount: 0 };
     }
 
     // Fetch subscriptions separately
     const { data: subscriptions, error: subsError } = await supabase
-      .from('subscriptions')
-      .select('*');
+      .from("subscriptions")
+      .select("*");
 
     if (subsError) {
-      console.warn('[Storage] Supabase subscriptions error (continuing without):', subsError);
+      console.warn(
+        "[Storage] Supabase subscriptions error (continuing without):",
+        subsError,
+      );
     }
 
     // Map subscriptions to users and convert to camelCase
-    const usersWithSubscriptions = users.map(user => {
-      const userSubscription = subscriptions?.find(sub => sub.user_id === user.id);
-      const mappedUser = mapUserFromDB(user);
-      return {
-        ...mappedUser,
-        subscription: userSubscription || null
-      };
-    }).filter(u => u !== null);
+    const usersWithSubscriptions = users
+      .map((user) => {
+        const userSubscription = subscriptions?.find(
+          (sub) => sub.user_id === user.id,
+        );
+        const mappedUser = mapUserFromDB(user);
+        return {
+          ...mappedUser,
+          subscription: userSubscription || null,
+        };
+      })
+      .filter((u) => u !== null);
 
-    console.log('[Storage] Successfully fetched active users:', {
+    console.log("[Storage] Successfully fetched active users:", {
       totalUsers: usersWithSubscriptions.length,
-      roles: usersWithSubscriptions.slice(0, 5).map(u => ({ email: u.email, role: u.role, isActive: u.isActive }))
+      roles: usersWithSubscriptions
+        .slice(0, 5)
+        .map((u) => ({ email: u.email, role: u.role, isActive: u.isActive })),
     });
 
     return {
       users: usersWithSubscriptions,
-      totalCount: usersWithSubscriptions.length
+      totalCount: usersWithSubscriptions.length,
     };
   } catch (error: any) {
-    console.error('[Storage] Error in getAllUsers:', error);
+    console.error("[Storage] Error in getAllUsers:", error);
     throw error;
   }
 }
@@ -1670,71 +2042,78 @@ export async function getAllUsers(limit = 50, offset = 0): Promise<{ users: User
 // Get only members (from the members table - NOT from users table!)
 // NOTE: Members are enrolled customers in the members table, NOT in the users table
 // Users table should ONLY contain 'admin' and 'agent' roles for staff/agents
-export async function getMembersOnly(limit = 50, offset = 0): Promise<{ users: User[]; totalCount: number }> {
+export async function getMembersOnly(
+  limit = 50,
+  offset = 0,
+): Promise<{ users: User[]; totalCount: number }> {
   try {
-    console.log('[Storage] Fetching members from members table...');
+    console.log("[Storage] Fetching members from members table...");
 
     // Call getAllDPCMembers which queries the members table directly
     const members = await getAllDPCMembers();
-    
+
     // Apply limit and offset if needed
     const slicedMembers = members.slice(offset, offset + limit);
 
-    console.log('[Storage] Successfully fetched members:', {
-      totalMembers: members.length
+    console.log("[Storage] Successfully fetched members:", {
+      totalMembers: members.length,
     });
 
     return {
       users: slicedMembers as any[],
-      totalCount: members.length
+      totalCount: members.length,
     };
   } catch (error: any) {
-    console.error('[Storage] Error in getMembersOnly:', error);
+    console.error("[Storage] Error in getMembersOnly:", error);
     throw error;
   }
 }
 
-
 export async function getUsersCount(): Promise<number> {
   try {
-    const result = await query(
-      'SELECT COUNT(*) as count FROM users'
-    );
+    const result = await query("SELECT COUNT(*) as count FROM users");
     return parseInt(result.rows[0].count) || 0;
   } catch (error: any) {
-    console.error('Error fetching user count:', error);
+    console.error("Error fetching user count:", error);
     throw new Error(`Failed to get user count: ${error.message}`);
   }
 }
 
-export async function getRevenueStats(): Promise<{ totalRevenue: number; monthlyRevenue: number }> {
+export async function getRevenueStats(): Promise<{
+  totalRevenue: number;
+  monthlyRevenue: number;
+}> {
   try {
     const today = new Date();
     const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
     // Get total revenue
     const totalResult = await query(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1',
-      ['completed']
+      "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1",
+      ["completed"],
     );
 
     // Get monthly revenue
     const monthlyResult = await query(
-      'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1 AND created_at >= $2',
-      ['completed', firstDayOfMonth.toISOString()]
+      "SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = $1 AND created_at >= $2",
+      ["completed", firstDayOfMonth.toISOString()],
     );
 
     return {
       totalRevenue: parseFloat(totalResult.rows[0].total) || 0,
-      monthlyRevenue: parseFloat(monthlyResult.rows[0].total) || 0
+      monthlyRevenue: parseFloat(monthlyResult.rows[0].total) || 0,
     };
   } catch (error: any) {
-    console.error('Error fetching revenue stats:', error);
+    console.error("Error fetching revenue stats:", error);
     throw new Error(`Failed to get revenue stats: ${error.message}`);
   }
 }
 
-export async function getSubscriptionStats(): Promise<{ active: number; pending: number; cancelled: number }> {
+export async function getSubscriptionStats(): Promise<{
+  active: number;
+  pending: number;
+  cancelled: number;
+}> {
   try {
     const result = await query(`
       SELECT 
@@ -1748,10 +2127,10 @@ export async function getSubscriptionStats(): Promise<{ active: number; pending:
     return {
       active: parseInt(stats.active) || 0,
       pending: parseInt(stats.pending) || 0,
-      cancelled: parseInt(stats.cancelled) || 0
+      cancelled: parseInt(stats.cancelled) || 0,
     };
   } catch (error: any) {
-    console.error('Error fetching subscription stats:', error);
+    console.error("Error fetching subscription stats:", error);
     throw new Error(`Failed to get subscription stats: ${error.message}`);
   }
 }
@@ -1763,14 +2142,19 @@ export async function getAgentEnrollments(
   agentNumber?: string | null,
 ): Promise<User[]> {
   try {
-    console.log('[Storage] getAgentEnrollments called with:', { agentId, agentNumber, startDate, endDate });
+    console.log("[Storage] getAgentEnrollments called with:", {
+      agentId,
+      agentNumber,
+      startDate,
+      endDate,
+    });
     const normalizedAgentNumber = agentNumber?.trim() || null;
-    
+
     // Query members table from Neon database (not users table)
     const params: any[] = [];
     let paramCount = 1;
 
-    let agentFilter = '';
+    let agentFilter = "";
     if (agentId) {
       agentFilter = `(m.enrolled_by_agent_id::uuid = $${paramCount}::uuid`;
       params.push(agentId);
@@ -1781,13 +2165,13 @@ export async function getAgentEnrollments(
         params.push(normalizedAgentNumber);
         paramCount++;
       }
-      agentFilter += ')';
+      agentFilter += ")";
     } else if (normalizedAgentNumber) {
       agentFilter = `m.agent_number = $${paramCount}`;
       params.push(normalizedAgentNumber);
       paramCount++;
     } else {
-      throw new Error('Agent identifier required to fetch enrollments');
+      throw new Error("Agent identifier required to fetch enrollments");
     }
 
     let sql = `
@@ -1810,71 +2194,86 @@ export async function getAgentEnrollments(
       paramCount += 2;
     }
 
-    sql += ' ORDER BY m.created_at DESC';
+    sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
-    
-    console.log('[Storage] getAgentEnrollments - SQL:', sql);
-    console.log('[Storage] getAgentEnrollments - Found', result.rows.length, 'enrollments');
-    
+
+    console.log("[Storage] getAgentEnrollments - SQL:", sql);
+    console.log(
+      "[Storage] getAgentEnrollments - Found",
+      result.rows.length,
+      "enrollments",
+    );
+
     // DEBUG: Show ALL members to compare
-    const allMembers = await query('SELECT id, email, first_name, last_name, enrolled_by_agent_id, is_active, created_at FROM members ORDER BY created_at DESC LIMIT 10');
-    console.log('[Storage] DEBUG - ALL MEMBERS (last 10):');
+    const allMembers = await query(
+      "SELECT id, email, first_name, last_name, enrolled_by_agent_id, is_active, created_at FROM members ORDER BY created_at DESC LIMIT 10",
+    );
+    console.log("[Storage] DEBUG - ALL MEMBERS (last 10):");
     allMembers.rows.forEach((m: any) => {
-      console.log(`  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, IsActive: ${m.is_active}, Created: ${m.created_at}`);
+      console.log(
+        `  ID: ${m.id}, Email: ${m.email}, Name: ${m.first_name} ${m.last_name}, EnrolledBy: ${m.enrolled_by_agent_id}, IsActive: ${m.is_active}, Created: ${m.created_at}`,
+      );
     });
-    
+
     // Map member data to User format for compatibility, including plan and commission info
-    return result.rows.map((row: any) => ({
-      id: row.id.toString(),
-      email: row.email,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      middleName: row.middle_name,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      gender: row.gender,
-      address: row.address,
-      address2: row.address2,
-      city: row.city,
-      state: row.state,
-      zipCode: row.zip_code,
-      emergencyContactName: row.emergency_contact_name,
-      emergencyContactPhone: row.emergency_contact_phone,
-      role: 'member',
-      agentNumber: row.agent_number,
-      isActive: row.is_active,
-      emailVerified: row.email_verified || false,
-      enrolledByAgentId: row.enrolled_by_agent_id,
-      employerName: row.employer_name,
-      memberType: row.coverage_type,
-      ssn: row.ssn,
-      dateOfHire: row.date_of_hire,
-      planStartDate: row.plan_start_date,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      customerNumber: row.customer_number,
-      memberPublicId: row.member_public_id,
-      // Include plan and commission info
-      planId: row.plan_id,
-      planName: row.plan_name,
-      planPrice: row.plan_price,
-      totalMonthlyPrice: row.total_monthly_price,
-      commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status,
-      payment_status: row.payment_status || row.commission_status || null,
-      payment_id: row.payment_id || null,
-      status: row.status,
-      enrolledBy: 'Agent',
-      subscriptionId: row.subscription_id
-    } as any));
+    return result.rows.map(
+      (row: any) =>
+        ({
+          id: row.id.toString(),
+          email: row.email,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          middleName: row.middle_name,
+          phone: row.phone,
+          dateOfBirth: row.date_of_birth,
+          gender: row.gender,
+          address: row.address,
+          address2: row.address2,
+          city: row.city,
+          state: row.state,
+          zipCode: row.zip_code,
+          emergencyContactName: row.emergency_contact_name,
+          emergencyContactPhone: row.emergency_contact_phone,
+          role: "member",
+          agentNumber: row.agent_number,
+          isActive: row.is_active,
+          emailVerified: row.email_verified || false,
+          enrolledByAgentId: row.enrolled_by_agent_id,
+          employerName: row.employer_name,
+          memberType: row.coverage_type,
+          ssn: row.ssn,
+          dateOfHire: row.date_of_hire,
+          planStartDate: row.plan_start_date,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          customerNumber: row.customer_number,
+          memberPublicId: row.member_public_id,
+          // Include plan and commission info
+          planId: row.plan_id,
+          planName: row.plan_name,
+          planPrice: row.plan_price,
+          totalMonthlyPrice: row.total_monthly_price,
+          commissionAmount: row.commission_amount,
+          commissionStatus: row.commission_status,
+          payment_status: row.payment_status || row.commission_status || null,
+          payment_id: row.payment_id || null,
+          status: row.status,
+          enrolledBy: "Agent",
+          subscriptionId: row.subscription_id,
+        }) as any,
+    );
   } catch (error: any) {
-    console.error('Error fetching agent enrollments:', error);
+    console.error("Error fetching agent enrollments:", error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
   }
 }
 
-export async function getAllEnrollments(startDate?: string, endDate?: string, agentId?: string): Promise<User[]> {
+export async function getAllEnrollments(
+  startDate?: string,
+  endDate?: string,
+  agentId?: string,
+): Promise<User[]> {
   try {
     // Query members table from Neon database with plan and commission data
     // Admin view: Show ALL members regardless of is_active status
@@ -1911,78 +2310,92 @@ export async function getAllEnrollments(startDate?: string, endDate?: string, ag
     sql += " ORDER BY m.created_at DESC";
 
     const result = await query(sql, params);
-    
-    console.log('[Storage] getAllEnrollments - Query params:', { startDate, endDate, agentId });
-    console.log('[Storage] getAllEnrollments - Row count:', result.rows.length);
-    
+
+    console.log("[Storage] getAllEnrollments - Query params:", {
+      startDate,
+      endDate,
+      agentId,
+    });
+    console.log("[Storage] getAllEnrollments - Row count:", result.rows.length);
+
     // Map member data to User format for compatibility, including plan and commission data
-    return result.rows.map((row: any) => ({
-      id: row.id.toString(),
-      email: row.email,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      middleName: row.middle_name,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      gender: row.gender,
-      address: row.address,
-      address2: row.address2,
-      city: row.city,
-      state: row.state,
-      zipCode: row.zip_code,
-      emergencyContactName: row.emergency_contact_name,
-      emergencyContactPhone: row.emergency_contact_phone,
-      role: 'member',
-      agentNumber: row.agent_number,
-      isActive: row.is_active,
-      emailVerified: row.email_verified || false,
-      enrolledByAgentId: row.enrolled_by_agent_id,
-      employerName: row.employer_name,
-      memberType: row.coverage_type,
-      ssn: row.ssn,
-      dateOfHire: row.date_of_hire,
-      planStartDate: row.plan_start_date,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      customerNumber: row.customer_number,
-      memberPublicId: row.member_public_id,
-      // Include plan and commission info
-      planId: row.plan_id,
-      planName: row.plan_name,
-      planPrice: row.plan_price,
-      totalMonthlyPrice: row.total_monthly_price,
-      commissionAmount: row.commission_amount,
-      commissionStatus: row.commission_status,
-      status: row.status,
-      enrolledBy: row.agent_first_name && row.agent_last_name 
-        ? `${row.agent_first_name} ${row.agent_last_name}` 
-        : 'Unknown',
-      subscriptionId: row.subscription_id
-    } as any));
+    return result.rows.map(
+      (row: any) =>
+        ({
+          id: row.id.toString(),
+          email: row.email,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          middleName: row.middle_name,
+          phone: row.phone,
+          dateOfBirth: row.date_of_birth,
+          gender: row.gender,
+          address: row.address,
+          address2: row.address2,
+          city: row.city,
+          state: row.state,
+          zipCode: row.zip_code,
+          emergencyContactName: row.emergency_contact_name,
+          emergencyContactPhone: row.emergency_contact_phone,
+          role: "member",
+          agentNumber: row.agent_number,
+          isActive: row.is_active,
+          emailVerified: row.email_verified || false,
+          enrolledByAgentId: row.enrolled_by_agent_id,
+          employerName: row.employer_name,
+          memberType: row.coverage_type,
+          ssn: row.ssn,
+          dateOfHire: row.date_of_hire,
+          planStartDate: row.plan_start_date,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          customerNumber: row.customer_number,
+          memberPublicId: row.member_public_id,
+          // Include plan and commission info
+          planId: row.plan_id,
+          planName: row.plan_name,
+          planPrice: row.plan_price,
+          totalMonthlyPrice: row.total_monthly_price,
+          commissionAmount: row.commission_amount,
+          commissionStatus: row.commission_status,
+          status: row.status,
+          enrolledBy:
+            row.agent_first_name && row.agent_last_name
+              ? `${row.agent_first_name} ${row.agent_last_name}`
+              : "Unknown",
+          subscriptionId: row.subscription_id,
+        }) as any,
+    );
   } catch (error: any) {
-    console.error('Error fetching all enrollments:', error);
+    console.error("Error fetching all enrollments:", error);
     throw new Error(`Failed to get enrollments: ${error.message}`);
   }
 }
 
 // Helper function to get all downline agents recursively (for agent tree view)
-async function getDownlineAgentIds(agentId: string, visited: Set<string> = new Set()): Promise<string[]> {
+async function getDownlineAgentIds(
+  agentId: string,
+  visited: Set<string> = new Set(),
+): Promise<string[]> {
   try {
     if (visited.has(agentId)) {
-      console.warn('[Storage] Cycle detected while traversing downline hierarchy:', { agentId });
+      console.warn(
+        "[Storage] Cycle detected while traversing downline hierarchy:",
+        { agentId },
+      );
       return [];
     }
 
     visited.add(agentId);
 
     const { data, error } = await supabase
-      .from('users')
-      .select('id')
-      .eq('upline_agent_id', agentId)
-      .eq('role', 'agent');
+      .from("users")
+      .select("id")
+      .eq("upline_agent_id", agentId)
+      .eq("role", "agent");
 
     if (error) {
-      console.error('[Storage] Error fetching downline agents:', error);
+      console.error("[Storage] Error fetching downline agents:", error);
       return [];
     }
 
@@ -1991,32 +2404,351 @@ async function getDownlineAgentIds(agentId: string, visited: Set<string> = new S
     }
 
     // Get direct downline IDs
-    const directDownline = data.map(agent => agent.id);
-    
+    const directDownline = data.map((agent) => agent.id);
+
     // Recursively get downline of downline
     const nestedDownline = await Promise.all(
-      directDownline.map(id => getDownlineAgentIds(id, new Set(visited)))
+      directDownline.map((id) => getDownlineAgentIds(id, new Set(visited))),
     );
 
     // Flatten and combine all levels
     return [...directDownline, ...nestedDownline.flat()];
   } catch (error: any) {
-    console.error('[Storage] Error in getDownlineAgentIds:', error);
+    console.error("[Storage] Error in getDownlineAgentIds:", error);
     return [];
   }
 }
 
-export async function getEnrollmentsByAgent(agentId: string, startDate?: string, endDate?: string): Promise<User[]> {
+export async function getAgencyAssignedAgentIds(
+  agencyUserId: string,
+): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from("agency_agent_assignments")
+      .select("agent_user_id")
+      .eq("agency_user_id", agencyUserId)
+      .eq("is_active", true);
+
+    if (error) {
+      console.error("[Storage] Error fetching agency assignments:", error);
+      return [];
+    }
+
+    return (data || [])
+      .map((row: any) => String(row.agent_user_id || "").trim())
+      .filter((id: string) => id.length > 0);
+  } catch (error: any) {
+    console.error(
+      "[Storage] Unexpected error in getAgencyAssignedAgentIds:",
+      error,
+    );
+    return [];
+  }
+}
+
+export async function listAgencyUsers(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, email, first_name, last_name, role, agent_number")
+      .in("role", ["agency_admin", "agency_manager"])
+      .eq("is_active", true)
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to list agency users: ${error.message}`);
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      email: row.email,
+      firstName: row.first_name || "",
+      lastName: row.last_name || "",
+      role: row.role,
+      agentNumber: row.agent_number || null,
+    }));
+  } catch (error: any) {
+    console.error("[Storage] Error in listAgencyUsers:", error);
+    throw new Error(`Failed to list agency users: ${error.message}`);
+  }
+}
+
+export async function listAssignableAgents(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id, email, first_name, last_name, role, agent_number")
+      .eq("role", "agent")
+      .eq("is_active", true)
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
+
+    if (error) {
+      throw new Error(`Failed to list assignable agents: ${error.message}`);
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      email: row.email,
+      firstName: row.first_name || "",
+      lastName: row.last_name || "",
+      role: row.role,
+      agentNumber: row.agent_number || null,
+    }));
+  } catch (error: any) {
+    console.error("[Storage] Error in listAssignableAgents:", error);
+    throw new Error(`Failed to list assignable agents: ${error.message}`);
+  }
+}
+
+export async function getAgencyAssignmentsSnapshot(): Promise<
+  Record<string, string[]>
+> {
+  try {
+    const { data, error } = await supabase
+      .from("agency_agent_assignments")
+      .select("agency_user_id, agent_user_id")
+      .eq("is_active", true);
+
+    if (error) {
+      throw new Error(`Failed to list agency assignments: ${error.message}`);
+    }
+
+    const snapshot: Record<string, string[]> = {};
+    for (const row of data || []) {
+      const agencyUserId = String(row.agency_user_id || "").trim();
+      const agentUserId = String(row.agent_user_id || "").trim();
+      if (!agencyUserId || !agentUserId) continue;
+      if (!snapshot[agencyUserId]) {
+        snapshot[agencyUserId] = [];
+      }
+      if (!snapshot[agencyUserId].includes(agentUserId)) {
+        snapshot[agencyUserId].push(agentUserId);
+      }
+    }
+
+    return snapshot;
+  } catch (error: any) {
+    console.error("[Storage] Error in getAgencyAssignmentsSnapshot:", error);
+    throw new Error(`Failed to list agency assignments: ${error.message}`);
+  }
+}
+
+export async function setAgencyAssignments(
+  agencyUserId: string,
+  agentIds: string[],
+  changedBy: string,
+  reason?: string,
+): Promise<string[]> {
+  try {
+    const normalizedAgencyUserId = String(agencyUserId || "").trim();
+    if (!normalizedAgencyUserId) {
+      throw new Error("Agency user ID is required");
+    }
+
+    const normalizedAgentIds = Array.from(
+      new Set(
+        (Array.isArray(agentIds) ? agentIds : [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const [agencyUser, assignableAgents, existingRows] = await Promise.all([
+      supabase
+        .from("users")
+        .select("id, role, is_active")
+        .eq("id", normalizedAgencyUserId)
+        .maybeSingle(),
+      supabase
+        .from("users")
+        .select("id")
+        .eq("role", "agent")
+        .eq("is_active", true),
+      supabase
+        .from("agency_agent_assignments")
+        .select("id, agency_user_id, agent_user_id, is_active")
+        .eq("agency_user_id", normalizedAgencyUserId),
+    ]);
+
+    if (agencyUser.error) {
+      throw new Error(
+        `Failed to validate agency user: ${agencyUser.error.message}`,
+      );
+    }
+
+    const agency = agencyUser.data;
+    if (!agency) {
+      throw new Error("Agency user not found");
+    }
+
+    if (!agency.is_active) {
+      throw new Error("Cannot modify assignments for an inactive agency user");
+    }
+
+    if (
+      !["agency_admin", "agency_manager"].includes(String(agency.role || ""))
+    ) {
+      throw new Error("Target user must have an agency role");
+    }
+
+    if (assignableAgents.error) {
+      throw new Error(
+        `Failed to load assignable agents: ${assignableAgents.error.message}`,
+      );
+    }
+
+    const allowedAgentIds = new Set(
+      (assignableAgents.data || []).map((row: any) =>
+        String(row.id || "").trim(),
+      ),
+    );
+    const invalidAgentIds = normalizedAgentIds.filter(
+      (id) => !allowedAgentIds.has(id),
+    );
+    if (invalidAgentIds.length > 0) {
+      throw new Error("One or more selected agents are invalid or inactive");
+    }
+
+    if (existingRows.error) {
+      throw new Error(
+        `Failed to load existing assignments: ${existingRows.error.message}`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const existingByAgentId = new Map<string, any>();
+    for (const row of existingRows.data || []) {
+      const key = String(row.agent_user_id || "").trim();
+      if (key) existingByAgentId.set(key, row);
+    }
+
+    const currentlyActiveAgentIds = new Set(
+      (existingRows.data || [])
+        .filter((row: any) => row.is_active)
+        .map((row: any) => String(row.agent_user_id || "").trim())
+        .filter(Boolean),
+    );
+
+    const nextAgentIdSet = new Set(normalizedAgentIds);
+    const toDeactivate = Array.from(currentlyActiveAgentIds).filter(
+      (id) => !nextAgentIdSet.has(id),
+    );
+    const toActivate = normalizedAgentIds.filter(
+      (id) => !currentlyActiveAgentIds.has(id),
+    );
+
+    if (toDeactivate.length > 0) {
+      const rowsToDeactivate = toDeactivate
+        .map((agentId) => existingByAgentId.get(agentId))
+        .filter(Boolean)
+        .map((row) => row.id);
+
+      if (rowsToDeactivate.length > 0) {
+        const { error: deactivateError } = await supabase
+          .from("agency_agent_assignments")
+          .update({
+            is_active: false,
+            removed_at: now,
+            removed_by: changedBy,
+            reason: reason || null,
+            updated_at: now,
+          })
+          .in("id", rowsToDeactivate);
+
+        if (deactivateError) {
+          throw new Error(
+            `Failed to deactivate assignments: ${deactivateError.message}`,
+          );
+        }
+      }
+    }
+
+    for (const agentId of toActivate) {
+      const existing = existingByAgentId.get(agentId);
+      if (existing) {
+        const { error: reactivateError } = await supabase
+          .from("agency_agent_assignments")
+          .update({
+            is_active: true,
+            assigned_at: now,
+            assigned_by: changedBy,
+            removed_at: null,
+            removed_by: null,
+            reason: reason || null,
+            updated_at: now,
+          })
+          .eq("id", existing.id);
+
+        if (reactivateError) {
+          throw new Error(
+            `Failed to reactivate assignment: ${reactivateError.message}`,
+          );
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from("agency_agent_assignments")
+          .insert({
+            agency_user_id: normalizedAgencyUserId,
+            agent_user_id: agentId,
+            is_active: true,
+            assigned_at: now,
+            assigned_by: changedBy,
+            reason: reason || null,
+            created_at: now,
+            updated_at: now,
+          });
+
+        if (insertError) {
+          throw new Error(
+            `Failed to create assignment: ${insertError.message}`,
+          );
+        }
+      }
+    }
+
+    return normalizedAgentIds;
+  } catch (error: any) {
+    console.error("[Storage] Error in setAgencyAssignments:", error);
+    throw new Error(`Failed to save agency assignments: ${error.message}`);
+  }
+}
+
+export async function getEnrollmentsByAgent(
+  agentId: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<User[]> {
   try {
     // Get all downline agents for this agent
     const downlineAgentIds = await getDownlineAgentIds(agentId);
     const allAgentIds = [agentId, ...downlineAgentIds];
 
-    console.log('[Storage] getEnrollmentsByAgent - Agent hierarchy:', {
+    console.log("[Storage] getEnrollmentsByAgent - Agent hierarchy:", {
       agentId,
       downlineCount: downlineAgentIds.length,
-      allAgentIds: allAgentIds.slice(0, 5) // Show first 5 for debugging
+      allAgentIds: allAgentIds.slice(0, 5), // Show first 5 for debugging
     });
+
+    const { data: scopedAgents, error: scopedAgentsError } = await supabase
+      .from("users")
+      .select("id, agent_number")
+      .in("id", allAgentIds);
+
+    if (scopedAgentsError) {
+      throw new Error(
+        `Failed to load scoped agent numbers: ${scopedAgentsError.message}`,
+      );
+    }
+
+    const allAgentNumbers = Array.from(
+      new Set(
+        (scopedAgents || [])
+          .map((row: any) => String(row?.agent_number || "").trim())
+          .filter(Boolean),
+      ),
+    );
 
     // Query members table from Neon database with plan and commission data
     // Include enrollments by this agent AND all downline agents
@@ -2039,7 +2771,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       FROM members m
       LEFT JOIN plans p ON m.plan_id = p.id
       LEFT JOIN agent_commissions ac ON ac.member_id = m.id::text
-      LEFT JOIN users u ON m.enrolled_by_agent_id::uuid = u.id::uuid
+      LEFT JOIN users u ON m.enrolled_by_agent_id = u.id::text
       LEFT JOIN LATERAL (
         SELECT s.id, s.status, s.next_billing_date, s.end_date, s.pending_reason, s.pending_details
         FROM subscriptions s
@@ -2050,10 +2782,16 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
           s.id DESC
         LIMIT 1
       ) sub ON true
-      WHERE m.enrolled_by_agent_id::uuid = ANY($1::uuid[])
+      WHERE (
+        m.enrolled_by_agent_id = ANY($1::text[])
+        OR (
+          COALESCE(cardinality($2::text[]), 0) > 0
+          AND m.agent_number = ANY($2::text[])
+        )
+      )
     `;
-    const params: any[] = [allAgentIds];
-    let paramCount = 2;
+    const params: any[] = [allAgentIds, allAgentNumbers];
+    let paramCount = 3;
 
     if (startDate && endDate) {
       sql += ` AND m.created_at::date BETWEEN $${paramCount++}::date AND $${paramCount++}::date`;
@@ -2102,34 +2840,38 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
       groupParams.push(startDate, endExclusive);
     }
 
-    groupSql += ' ORDER BY COALESCE(gm.registered_at, gm.updated_at, g.created_at) DESC';
+    groupSql +=
+      " ORDER BY COALESCE(gm.registered_at, gm.updated_at, g.created_at) DESC";
 
     const groupResult = await query(groupSql, groupParams);
-    
-    console.log('[Storage] getEnrollmentsByAgent - Query params:', { 
+
+    console.log("[Storage] getEnrollmentsByAgent - Query params:", {
       agentCount: allAgentIds.length,
-      startDate, 
-      endDate 
+      startDate,
+      endDate,
     });
-    console.log('[Storage] getEnrollmentsByAgent - Row count:', result.rows.length);
-    
+    console.log(
+      "[Storage] getEnrollmentsByAgent - Row count:",
+      result.rows.length,
+    );
+
     if (result.rows.length > 0) {
-      console.log('[Storage] getEnrollmentsByAgent - Sample enrollment:', {
+      console.log("[Storage] getEnrollmentsByAgent - Sample enrollment:", {
         id: result.rows[0].id,
         email: result.rows[0].email,
         name: `${result.rows[0].first_name} ${result.rows[0].last_name}`,
         enrolledBy: result.rows[0].enrolling_agent_number,
-        plan: result.rows[0].plan_name
+        plan: result.rows[0].plan_name,
       });
     }
-    
+
     // Map member data to User format for compatibility, including plan and commission data
     const memberEnrollments = result.rows.map((row: any) => {
       // Determine if this enrollment is from a downline agent or self
       const isSelfEnrollment = row.enrolled_by_agent_id === agentId;
-      const enrolledByLabel = isSelfEnrollment 
-        ? 'Agent (Self)' 
-        : `Downline (${row.enrolling_agent_number || 'Agent'})`;
+      const enrolledByLabel = isSelfEnrollment
+        ? "Agent (Self)"
+        : `Downline (${row.enrolling_agent_number || "Agent"})`;
 
       return {
         id: row.id.toString(),
@@ -2147,7 +2889,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
         zipCode: row.zip_code,
         emergencyContactName: row.emergency_contact_name,
         emergencyContactPhone: row.emergency_contact_phone,
-        role: 'member',
+        role: "member",
         agentNumber: row.agent_number,
         isActive: row.is_active,
         emailVerified: row.email_verified || false,
@@ -2178,7 +2920,7 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
           const raw = row.subscription_pending_details;
           if (!raw) return null;
           try {
-            return typeof raw === 'string' ? JSON.parse(raw) : raw;
+            return typeof raw === "string" ? JSON.parse(raw) : raw;
           } catch {
             return raw;
           }
@@ -2191,68 +2933,87 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
           paymentStatus: row.payment_status || row.commission_status || null,
           commissionStatus: row.commission_status || null,
         }),
-        businessCategory: String(row.coverage_type || '').toLowerCase().includes('family') || String(row.coverage_type || '').toLowerCase().includes('spouse') || String(row.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
-        source: 'individual',
+        businessCategory:
+          String(row.coverage_type || "")
+            .toLowerCase()
+            .includes("family") ||
+          String(row.coverage_type || "")
+            .toLowerCase()
+            .includes("spouse") ||
+          String(row.coverage_type || "")
+            .toLowerCase()
+            .includes("child")
+            ? "family"
+            : "individual",
+        source: "individual",
         status: row.status,
         enrolledBy: enrolledByLabel,
         enrolledByAgentEmail: row.agent_email,
-        enrolledByAgentName: row.agent_first_name && row.agent_last_name 
-          ? `${row.agent_first_name} ${row.agent_last_name}` 
-          : row.agent_email,
+        enrolledByAgentName:
+          row.agent_first_name && row.agent_last_name
+            ? `${row.agent_first_name} ${row.agent_last_name}`
+            : row.agent_email,
         enrollingAgentNumber: row.enrolling_agent_number,
-        subscriptionId: row.subscription_id
+        subscriptionId: row.subscription_id,
       } as any;
     });
 
-    const groupEnrollments = (groupResult.rows || []).map((row: any) => ({
-      id: `group-${row.group_id}-${row.group_member_id}`,
-      email: row.email,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      middleName: row.middle_name,
-      phone: row.phone,
-      dateOfBirth: row.date_of_birth,
-      role: 'member',
-      isActive: row.status !== 'terminated',
-      enrolledByAgentId: agentId,
-      memberType: row.tier || row.relationship || 'group',
-      createdAt: row.registered_at || row.updated_at,
-      updatedAt: row.updated_at,
-      customerNumber: row.household_member_number,
-      memberPublicId: row.household_member_number,
-      planId: null,
-      planName: row.group_name ? `${row.group_name} (Group)` : 'Group Enrollment',
-      totalMonthlyPrice: parseFloat(String(row.total_amount || 0)) || 0,
-      commissionAmount: 0,
-      commissionStatus: null,
-      payment_status: null,
-      payment_id: null,
-      lifecycleSummary: buildLifecycleSummary({
-        subscriptionStatus: null,
-        pendingReason: null,
-        nextBillingDate: null,
-        accessThroughDate: null,
-        paymentStatus: null,
-        commissionStatus: null,
-      }),
-      businessCategory: 'group',
-      source: 'group',
-      groupName: row.group_name || '',
-      status: row.status || 'draft',
-      enrolledBy: 'Group',
-      enrolledByAgentEmail: null,
-      enrolledByAgentName: null,
-      enrollingAgentNumber: null,
-      subscriptionId: null,
-    } as any));
+    const groupEnrollments = (groupResult.rows || []).map(
+      (row: any) =>
+        ({
+          id: `group-${row.group_id}-${row.group_member_id}`,
+          email: row.email,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          middleName: row.middle_name,
+          phone: row.phone,
+          dateOfBirth: row.date_of_birth,
+          role: "member",
+          isActive: row.status !== "terminated",
+          enrolledByAgentId: agentId,
+          memberType: row.tier || row.relationship || "group",
+          createdAt: row.registered_at || row.updated_at,
+          updatedAt: row.updated_at,
+          customerNumber: row.household_member_number,
+          memberPublicId: row.household_member_number,
+          planId: null,
+          planName: row.group_name
+            ? `${row.group_name} (Group)`
+            : "Group Enrollment",
+          totalMonthlyPrice: parseFloat(String(row.total_amount || 0)) || 0,
+          commissionAmount: 0,
+          commissionStatus: null,
+          payment_status: null,
+          payment_id: null,
+          lifecycleSummary: buildLifecycleSummary({
+            subscriptionStatus: null,
+            pendingReason: null,
+            nextBillingDate: null,
+            accessThroughDate: null,
+            paymentStatus: null,
+            commissionStatus: null,
+          }),
+          businessCategory: "group",
+          source: "group",
+          groupName: row.group_name || "",
+          status: row.status || "draft",
+          enrolledBy: "Group",
+          enrolledByAgentEmail: null,
+          enrolledByAgentName: null,
+          enrollingAgentNumber: null,
+          subscriptionId: null,
+        }) as any,
+    );
 
-    return [...memberEnrollments, ...groupEnrollments].sort((a: any, b: any) => {
-      const left = new Date(a.createdAt || 0).getTime();
-      const right = new Date(b.createdAt || 0).getTime();
-      return right - left;
-    });
+    return [...memberEnrollments, ...groupEnrollments].sort(
+      (a: any, b: any) => {
+        const left = new Date(a.createdAt || 0).getTime();
+        const right = new Date(b.createdAt || 0).getTime();
+        return right - left;
+      },
+    );
   } catch (error: any) {
-    console.error('Error fetching agent enrollments:', error);
+    console.error("Error fetching agent enrollments:", error);
     throw new Error(`Failed to get agent enrollments: ${error.message}`);
   }
 }
@@ -2260,21 +3021,22 @@ export async function getEnrollmentsByAgent(agentId: string, startDate?: string,
 export async function updateMemberStatus(
   memberId: string | number,
   status: string,
-  options?: { reason?: string }
+  options?: { reason?: string },
 ): Promise<any> {
   const allowedStatuses = [
-    'pending_activation',
-    'active',
-    'inactive',
-    'cancelled',
-    'suspended'
+    "pending_activation",
+    "active",
+    "inactive",
+    "cancelled",
+    "suspended",
   ];
 
   if (!status || !allowedStatuses.includes(status)) {
     throw new Error(`Invalid status value: ${status}`);
   }
 
-  const numericId = typeof memberId === 'string' ? parseInt(memberId, 10) : memberId;
+  const numericId =
+    typeof memberId === "string" ? parseInt(memberId, 10) : memberId;
   if (!numericId || Number.isNaN(numericId)) {
     throw new Error(`Invalid member ID: ${memberId}`);
   }
@@ -2282,14 +3044,14 @@ export async function updateMemberStatus(
   const timestamp = new Date().toISOString();
   const updates: Record<string, any> = {
     status,
-    updated_at: timestamp
+    updated_at: timestamp,
   };
 
-  if (status === 'active') {
+  if (status === "active") {
     updates.is_active = true;
     updates.cancellation_date = null;
     updates.cancellation_reason = null;
-  } else if (status === 'pending_activation') {
+  } else if (status === "pending_activation") {
     updates.is_active = false;
     updates.cancellation_date = null;
     updates.cancellation_reason = null;
@@ -2302,64 +3064,74 @@ export async function updateMemberStatus(
   }
 
   try {
-    console.log('[Storage] Updating member status', { memberId: numericId, status });
+    console.log("[Storage] Updating member status", {
+      memberId: numericId,
+      status,
+    });
 
     const { data, error } = await supabase
-      .from('members')
+      .from("members")
       .update(updates)
-      .eq('id', numericId)
-      .select('*')
+      .eq("id", numericId)
+      .select("*")
       .single();
 
     if (error) {
-      console.error('[Storage] Error updating member status:', error);
+      console.error("[Storage] Error updating member status:", error);
       throw new Error(`Failed to update member status: ${error.message}`);
     }
 
     return data;
   } catch (error: any) {
-    console.error('[Storage] Unhandled error in updateMemberStatus:', error);
+    console.error("[Storage] Unhandled error in updateMemberStatus:", error);
     throw error;
   }
 }
 
 export async function activateMembershipNow(
   memberId: string | number,
-  options?: { note?: string; initiatedBy?: string }
+  options?: { note?: string; initiatedBy?: string },
 ): Promise<any> {
-  const numericId = typeof memberId === 'string' ? parseInt(memberId, 10) : memberId;
+  const numericId =
+    typeof memberId === "string" ? parseInt(memberId, 10) : memberId;
   if (!numericId || Number.isNaN(numericId)) {
     throw new Error(`Invalid member ID: ${memberId}`);
   }
 
   const now = new Date().toISOString();
   const updates = {
-    status: 'active',
+    status: "active",
     is_active: true,
     membership_start_date: now,
     updated_at: now,
     cancellation_date: null,
-    cancellation_reason: null
+    cancellation_reason: null,
   };
 
   try {
-    console.log('[Storage] Manual membership activation', { memberId: numericId, initiatedBy: options?.initiatedBy });
+    console.log("[Storage] Manual membership activation", {
+      memberId: numericId,
+      initiatedBy: options?.initiatedBy,
+    });
 
     const { data, error } = await supabase
-      .from('members')
+      .from("members")
       .update(updates)
-      .eq('id', numericId)
-      .select('*')
+      .eq("id", numericId)
+      .select("*")
       .single();
 
     if (error) {
-      console.error('[Storage] Error activating membership immediately:', error);
+      console.error(
+        "[Storage] Error activating membership immediately:",
+        error,
+      );
       throw new Error(`Failed to activate membership: ${error.message}`);
     }
 
     return data;
   } catch (error: any) {
-    console.error('[Storage] Unhandled error in activateMembershipNow:', error);
+    console.error("[Storage] Unhandled error in activateMembershipNow:", error);
     throw error;
   }
 }
@@ -2368,16 +3140,21 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
   try {
     try {
       await query(
-        'INSERT INTO enrollment_modifications (user_id, modified_by, changes, created_at) VALUES ($1, $2, $3, $4)',
-        [data.user_id || data.userId, data.modified_by || data.modifiedBy, JSON.stringify(data.changes || data), new Date()]
+        "INSERT INTO enrollment_modifications (user_id, modified_by, changes, created_at) VALUES ($1, $2, $3, $4)",
+        [
+          data.user_id || data.userId,
+          data.modified_by || data.modifiedBy,
+          JSON.stringify(data.changes || data),
+          new Date(),
+        ],
       );
       return;
     } catch (primaryInsertError: any) {
-      const message = String(primaryInsertError?.message || '').toLowerCase();
+      const message = String(primaryInsertError?.message || "").toLowerCase();
       const isChangesColumnMissing =
-        message.includes('column')
-        && message.includes('changes')
-        && message.includes('does not exist');
+        message.includes("column") &&
+        message.includes("changes") &&
+        message.includes("does not exist");
 
       if (!isChangesColumnMissing) {
         throw primaryInsertError;
@@ -2385,19 +3162,21 @@ export async function recordEnrollmentModification(data: any): Promise<void> {
 
       // Fallback for deployments where enrollment_modifications uses change_type/change_details.
       await query(
-        'INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)',
+        "INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)",
         [
           data.user_id || data.userId,
           data.modified_by || data.modifiedBy,
-          data?.changes?.changeType || data.changeType || 'membership_update',
+          data?.changes?.changeType || data.changeType || "membership_update",
           JSON.stringify(data.changes || data),
           new Date(),
-        ]
+        ],
       );
     }
   } catch (error: any) {
-    console.error('Error recording enrollment modification:', error);
-    throw new Error(`Failed to record enrollment modification: ${error.message}`);
+    console.error("Error recording enrollment modification:", error);
+    throw new Error(
+      `Failed to record enrollment modification: ${error.message}`,
+    );
   }
 }
 
@@ -2415,19 +3194,29 @@ export async function recordBankingInfoChange(data: {
       oldValues: data.oldBankingInfo,
       newValues: data.newBankingInfo,
       timestamp: new Date().toISOString(),
-      userAgent: 'DPC Enrollment System'
+      userAgent: "DPC Enrollment System",
     };
 
     await query(
-      'INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)',
-      [data.userId, data.modifiedBy, 'banking_info_update', JSON.stringify(changeDetails), new Date()]
+      "INSERT INTO enrollment_modifications (user_id, modified_by, change_type, change_details, created_at) VALUES ($1, $2, $3, $4, $5)",
+      [
+        data.userId,
+        data.modifiedBy,
+        "banking_info_update",
+        JSON.stringify(changeDetails),
+        new Date(),
+      ],
     );
-    
-    console.log(`[Audit] Banking info change recorded for user ${data.userId} by ${data.modifiedBy}`);
+
+    console.log(
+      `[Audit] Banking info change recorded for user ${data.userId} by ${data.modifiedBy}`,
+    );
   } catch (error: any) {
-    console.error('Error recording banking info change:', error);
+    console.error("Error recording banking info change:", error);
     // Don't throw - banking updates should not fail due to audit logging issues
-    console.warn('Banking info update will proceed despite audit logging failure');
+    console.warn(
+      "Banking info update will proceed despite audit logging failure",
+    );
   }
 }
 
@@ -2443,17 +3232,17 @@ export async function getBankingChangeHistory(userId: string): Promise<any[]> {
        FROM enrollment_modifications 
        WHERE user_id = $1 AND change_type = 'banking_info_update' 
        ORDER BY created_at DESC`,
-      [userId]
+      [userId],
     );
-    
-    return result.rows.map(row => ({
+
+    return result.rows.map((row) => ({
       id: row.id,
       modifiedBy: row.modified_by,
       changeDetails: row.change_details,
-      createdAt: row.created_at
+      createdAt: row.created_at,
     }));
   } catch (error: any) {
-    console.error('Error fetching banking change history:', error);
+    console.error("Error fetching banking change history:", error);
     return [];
   }
 }
@@ -2497,7 +3286,7 @@ export async function getAllDPCMembers(): Promise<any[]> {
       FROM members 
       ORDER BY created_at DESC
     `);
-    
+
     return result.rows.map((row: any) => ({
       id: row.customer_number, // Use customer_number as ID for frontend
       customerNumber: row.customer_number,
@@ -2521,29 +3310,37 @@ export async function getAllDPCMembers(): Promise<any[]> {
       memberType: row.member_type,
       dateOfHire: row.date_of_hire,
       planStartDate: row.plan_start_date,
-      role: 'member',
+      role: "member",
       agentNumber: row.agent_number,
       enrolledByAgentId: row.enrolled_by_agent_id,
       enrollmentDate: row.enrollment_date,
-      isActive: row.is_active && row.status === 'active',
+      isActive: row.is_active && row.status === "active",
       status: row.status,
-      approvalStatus: row.is_active && row.status === 'active' ? 'approved' : 
-                       row.status === 'suspended' ? 'suspended' : 'inactive',
+      approvalStatus:
+        row.is_active && row.status === "active"
+          ? "approved"
+          : row.status === "suspended"
+            ? "suspended"
+            : "inactive",
       cancellationDate: row.cancellation_date,
       cancellationReason: row.cancellation_reason,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      emailVerified: true // Members are pre-verified through enrollment process
+      emailVerified: true, // Members are pre-verified through enrollment process
     }));
   } catch (error: any) {
-    console.error('Error fetching DPC members:', error);
+    console.error("Error fetching DPC members:", error);
     throw new Error(`Failed to fetch DPC members: ${error.message}`);
   }
 }
 
-export async function suspendDPCMember(customerId: string, reason?: string): Promise<any> {
+export async function suspendDPCMember(
+  customerId: string,
+  reason?: string,
+): Promise<any> {
   try {
-    const result = await query(`
+    const result = await query(
+      `
       UPDATE members 
       SET 
         status = 'suspended',
@@ -2552,23 +3349,26 @@ export async function suspendDPCMember(customerId: string, reason?: string): Pro
         updated_at = NOW()
       WHERE customer_number = $1
       RETURNING *
-    `, [customerId, reason || 'Suspended by administrator']);
-    
+    `,
+      [customerId, reason || "Suspended by administrator"],
+    );
+
     if (result.rows.length === 0) {
-      throw new Error('Member not found');
+      throw new Error("Member not found");
     }
-    
+
     console.log(`✅ DPC Member ${customerId} suspended successfully`);
     return result.rows[0];
   } catch (error: any) {
-    console.error('Error suspending DPC member:', error);
+    console.error("Error suspending DPC member:", error);
     throw new Error(`Failed to suspend DPC member: ${error.message}`);
   }
 }
 
 export async function reactivateDPCMember(customerId: string): Promise<any> {
   try {
-    const result = await query(`
+    const result = await query(
+      `
       UPDATE members 
       SET 
         status = 'active',
@@ -2578,28 +3378,39 @@ export async function reactivateDPCMember(customerId: string): Promise<any> {
         updated_at = NOW()
       WHERE customer_number = $1
       RETURNING *
-    `, [customerId]);
-    
+    `,
+      [customerId],
+    );
+
     if (result.rows.length === 0) {
-      throw new Error('Member not found');
+      throw new Error("Member not found");
     }
-    
+
     console.log(`✅ DPC Member ${customerId} reactivated successfully`);
     return result.rows[0];
   } catch (error: any) {
-    console.error('Error reactivating DPC member:', error);
+    console.error("Error reactivating DPC member:", error);
     throw new Error(`Failed to reactivate DPC member: ${error.message}`);
   }
 }
 
 // Lead operations
-export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>): Promise<Lead> {
+export async function createLead(
+  leadData: Omit<Lead, "id" | "createdAt" | "updatedAt">,
+): Promise<Lead> {
   try {
-    console.log('[Storage] Creating lead with data:', leadData);
+    console.log("[Storage] Creating lead with data:", leadData);
 
     // Validate required fields
-    if (!leadData.firstName || !leadData.lastName || !leadData.email || !leadData.phone) {
-      throw new Error('Missing required fields: firstName, lastName, email, phone');
+    if (
+      !leadData.firstName ||
+      !leadData.lastName ||
+      !leadData.email ||
+      !leadData.phone
+    ) {
+      throw new Error(
+        "Missing required fields: firstName, lastName, email, phone",
+      );
     }
 
     // Supabase leads table uses snake_case columns (as shown in screenshot)
@@ -2611,8 +3422,8 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
       last_name: leadData.lastName.trim(),
       email: leadData.email.trim().toLowerCase(),
       phone: leadData.phone.trim(),
-      message: leadData.message ? leadData.message.trim() : '',
-      status: leadData.status || 'new'
+      message: leadData.message ? leadData.message.trim() : "",
+      status: leadData.status || "new",
       // created_at will be auto-generated by database DEFAULT
     };
 
@@ -2628,51 +3439,54 @@ export async function createLead(leadData: Omit<Lead, 'id' | 'createdAt' | 'upda
       dbData.notes = leadData.notes;
     }
 
-    console.log('[Storage] Mapped data for database:', dbData);
+    console.log("[Storage] Mapped data for database:", dbData);
 
     const { data, error } = await supabase
-      .from('leads')
+      .from("leads")
       .insert([dbData])
       .select()
       .single();
 
     if (error) {
-      console.error('[Storage] Supabase error creating lead:', {
+      console.error("[Storage] Supabase error creating lead:", {
         error: error.message,
         code: error.code,
         details: error.details,
-        hint: error.hint
+        hint: error.hint,
       });
       throw new Error(`Database error: ${error.message}`);
     }
 
-    console.log('[Storage] Lead created successfully:', data);
+    console.log("[Storage] Lead created successfully:", data);
 
     // Map back to camelCase for return
     return mapLeadFromDB(data);
   } catch (error: any) {
-    console.error('[Storage] Error in createLead:', error);
+    console.error("[Storage] Error in createLead:", error);
     throw new Error(`Failed to create lead: ${error.message}`);
   }
 }
 
-export async function getAgentLeads(agentId: string, status?: string): Promise<Lead[]> {
+export async function getAgentLeads(
+  agentId: string,
+  status?: string,
+): Promise<Lead[]> {
   try {
-    let sql = 'SELECT * FROM leads WHERE assigned_agent_id::uuid = $1::uuid';
+    let sql = "SELECT * FROM leads WHERE assigned_agent_id::uuid = $1::uuid";
     const params: any[] = [agentId];
 
     if (status) {
-      sql += ' AND status = $2';
+      sql += " AND status = $2";
       params.push(status);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    sql += " ORDER BY created_at DESC";
 
     const result = await query(sql, params);
     const data = result.rows || [];
 
     // Map snake_case to camelCase
-    const mappedData = (data || []).map(lead => ({
+    const mappedData = (data || []).map((lead) => ({
       id: lead.id,
       firstName: lead.first_name,
       lastName: lead.last_name,
@@ -2684,22 +3498,19 @@ export async function getAgentLeads(agentId: string, status?: string): Promise<L
       assignedAgentId: lead.assigned_agent_id,
       createdAt: lead.created_at,
       updatedAt: lead.updated_at,
-      notes: lead.notes
+      notes: lead.notes,
     }));
 
     return mappedData;
   } catch (error) {
-    console.error('[Storage] Error fetching agent leads:', error);
+    console.error("[Storage] Error fetching agent leads:", error);
     throw error;
   }
 }
 
 export async function getLead(id: number): Promise<Lead | undefined> {
   try {
-    const result = await query(
-      'SELECT * FROM leads WHERE id = $1',
-      [id]
-    );
+    const result = await query("SELECT * FROM leads WHERE id = $1", [id]);
 
     const data = result.rows[0];
     if (!data) return undefined;
@@ -2717,20 +3528,17 @@ export async function getLead(id: number): Promise<Lead | undefined> {
       assignedAgentId: data.assigned_agent_id,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
-      notes: data.notes
+      notes: data.notes,
     };
   } catch (error: any) {
-    console.error('Error fetching lead:', error);
+    console.error("Error fetching lead:", error);
     return undefined;
   }
 }
 
 export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
   try {
-    const result = await query(
-      'SELECT * FROM leads WHERE email = $1',
-      [email]
-    );
+    const result = await query("SELECT * FROM leads WHERE email = $1", [email]);
 
     const data = result.rows[0];
     if (!data) return undefined;
@@ -2748,15 +3556,18 @@ export async function getLeadByEmail(email: string): Promise<Lead | undefined> {
       assignedAgentId: data.assigned_agent_id,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
-      notes: data.notes
+      notes: data.notes,
     };
   } catch (error: any) {
-    console.error('Error fetching lead by email:', error);
+    console.error("Error fetching lead by email:", error);
     return undefined;
   }
 }
 
-export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead> {
+export async function updateLead(
+  id: number,
+  data: Partial<Lead>,
+): Promise<Lead> {
   // Map JavaScript camelCase to PostgreSQL snake_case
   const updateData: any = { updated_at: new Date().toISOString() };
 
@@ -2767,52 +3578,58 @@ export async function updateLead(id: number, data: Partial<Lead>): Promise<Lead>
   if (data.message !== undefined) updateData.message = data.message;
   if (data.source !== undefined) updateData.source = data.source;
   if (data.status !== undefined) updateData.status = data.status;
-  if (data.assignedAgentId !== undefined) updateData.assigned_agent_id = data.assignedAgentId;
+  if (data.assignedAgentId !== undefined)
+    updateData.assigned_agent_id = data.assignedAgentId;
   if (data.notes !== undefined) updateData.notes = data.notes;
 
   const { data: updatedLead, error } = await supabase
-    .from('leads')
+    .from("leads")
     .update(updateData)
-    .eq('id', id)
+    .eq("id", id)
     .select()
     .single();
 
   if (error) {
-    console.error('Error updating lead:', error);
+    console.error("Error updating lead:", error);
     throw new Error(`Failed to update lead: ${error.message}`);
   }
 
   // Map snake_case back to camelCase
-  return updatedLead ? {
-    id: updatedLead.id,
-    firstName: updatedLead.first_name,
-    lastName: updatedLead.last_name,
-    email: updatedLead.email,
-    phone: updatedLead.phone,
-    message: updatedLead.message,
-    source: updatedLead.source,
-    status: updatedLead.status,
-    assignedAgentId: updatedLead.assigned_agent_id,
-    createdAt: updatedLead.created_at,
-    updatedAt: updatedLead.updated_at,
-    notes: updatedLead.notes
-  } : undefined as any; // Should not happen if error is not thrown
+  return updatedLead
+    ? {
+        id: updatedLead.id,
+        firstName: updatedLead.first_name,
+        lastName: updatedLead.last_name,
+        email: updatedLead.email,
+        phone: updatedLead.phone,
+        message: updatedLead.message,
+        source: updatedLead.source,
+        status: updatedLead.status,
+        assignedAgentId: updatedLead.assigned_agent_id,
+        createdAt: updatedLead.created_at,
+        updatedAt: updatedLead.updated_at,
+        notes: updatedLead.notes,
+      }
+    : (undefined as any); // Should not happen if error is not thrown
 }
 
-export async function assignLeadToAgent(leadId: number, agentId: string): Promise<Lead> {
+export async function assignLeadToAgent(
+  leadId: number,
+  agentId: string,
+): Promise<Lead> {
   try {
     const { data, error } = await supabase
-      .from('leads')
+      .from("leads")
       .update({
         assigned_agent_id: agentId,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       })
-      .eq('id', leadId)
+      .eq("id", leadId)
       .select()
       .single();
 
     if (error) {
-      console.error('[Storage] Error assigning lead:', error);
+      console.error("[Storage] Error assigning lead:", error);
       throw error;
     }
 
@@ -2829,41 +3646,45 @@ export async function assignLeadToAgent(leadId: number, agentId: string): Promis
       assignedAgentId: data.assigned_agent_id,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
-      notes: data.notes
+      notes: data.notes,
     };
 
     return mappedLead;
   } catch (error) {
-    console.error('[Storage] Error assigning lead:', error);
+    console.error("[Storage] Error assigning lead:", error);
     throw error;
   }
 }
 
 // Lead activity operations
-export async function addLeadActivity(activity: InsertLeadActivity): Promise<LeadActivity> {
+export async function addLeadActivity(
+  activity: InsertLeadActivity,
+): Promise<LeadActivity> {
   const { data, error } = await supabase
-    .from('lead_activities')
+    .from("lead_activities")
     .insert([{ ...activity, created_at: new Date() }])
     .select()
     .single();
 
   if (error) {
-    console.error('Error creating lead activity:', error);
+    console.error("Error creating lead activity:", error);
     throw new Error(`Failed to create lead activity: ${error.message}`);
   }
 
   return data;
 }
 
-export async function getLeadActivities(leadId: number): Promise<LeadActivity[]> {
+export async function getLeadActivities(
+  leadId: number,
+): Promise<LeadActivity[]> {
   const { data, error } = await supabase
-    .from('lead_activities')
-    .select('*')
-    .eq('leadId', leadId)
-    .order('created_at', { ascending: false });
+    .from("lead_activities")
+    .select("*")
+    .eq("leadId", leadId)
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error('Error fetching lead activities:', error);
+    console.error("Error fetching lead activities:", error);
     throw new Error(`Failed to get lead activities: ${error.message}`);
   }
 
@@ -2871,7 +3692,13 @@ export async function getLeadActivities(leadId: number): Promise<LeadActivity[]>
 }
 
 // Lead stats
-export async function getAgentLeadStats(agentId: string): Promise<{ new: number; contacted: number; qualified: number; enrolled: number; closed: number }> {
+export async function getAgentLeadStats(agentId: string): Promise<{
+  new: number;
+  contacted: number;
+  qualified: number;
+  enrolled: number;
+  closed: number;
+}> {
   // Supabase doesn't directly support GROUP BY with conditional aggregation like Drizzle.
   // This will require fetching all leads and processing them client-side or using custom SQL.
   // For now, a simplified approach: count leads by status.
@@ -2885,7 +3712,7 @@ export async function getAgentLeadStats(agentId: string): Promise<{ new: number;
     closed: 0,
   };
 
-  leads.forEach(lead => {
+  leads.forEach((lead) => {
     if (lead.status && lead.status in stats) {
       stats[lead.status as keyof typeof stats]++;
     }
@@ -2897,10 +3724,13 @@ export async function getAgentLeadStats(agentId: string): Promise<{ new: number;
 export async function getAvailableAgentForLead(): Promise<string | null> {
   // This is a complex query to implement efficiently in Supabase without custom SQL.
   // A simple approach would be to fetch all agents and their lead counts, then sort.
-  const agentsWithLeadCount = await supabase.rpc('get_agents_with_lead_count'); // Assuming a PostgreSQL function exists for this
+  const agentsWithLeadCount = await supabase.rpc("get_agents_with_lead_count"); // Assuming a PostgreSQL function exists for this
 
   if (agentsWithLeadCount.error) {
-    console.error('Error fetching agents with lead count:', agentsWithLeadCount.error);
+    console.error(
+      "Error fetching agents with lead count:",
+      agentsWithLeadCount.error,
+    );
     return null;
   }
 
@@ -2920,8 +3750,8 @@ function mapLeadFromDB(dbLead: any): Lead | null {
 
   return {
     id: dbLead.id,
-    firstName: dbLead.first_name || dbLead.firstName,        // Handle both formats
-    lastName: dbLead.last_name || dbLead.lastName,           // Handle both formats
+    firstName: dbLead.first_name || dbLead.firstName, // Handle both formats
+    lastName: dbLead.last_name || dbLead.lastName, // Handle both formats
     email: dbLead.email,
     phone: dbLead.phone,
     message: dbLead.message,
@@ -2930,7 +3760,7 @@ function mapLeadFromDB(dbLead: any): Lead | null {
     assignedAgentId: dbLead.assigned_agent_id || dbLead.assignedAgentId,
     createdAt: dbLead.created_at || dbLead.createdAt,
     updatedAt: dbLead.updated_at || dbLead.updatedAt,
-    notes: dbLead.notes
+    notes: dbLead.notes,
   };
 }
 
@@ -2970,7 +3800,7 @@ const parsePartnerLeadNotes = (raw: any): PartnerLeadNotesPayload => {
   }
 
   try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!parsed) {
       return {};
     }
@@ -2991,7 +3821,10 @@ const parsePartnerLeadNotes = (raw: any): PartnerLeadNotesPayload => {
 
     return {};
   } catch (error) {
-    console.warn('[Storage] Unable to parse partner lead notes payload:', error);
+    console.warn(
+      "[Storage] Unable to parse partner lead notes payload:",
+      error,
+    );
     return {};
   }
 };
@@ -2999,14 +3832,17 @@ const parsePartnerLeadNotes = (raw: any): PartnerLeadNotesPayload => {
 const buildPartnerLeadRecord = (row: any): PartnerLeadRecord => {
   const { metadata, adminNotes } = parsePartnerLeadNotes(row.notes);
   const normalizedMetadata = metadata || {
-    agencyName: row.agencyName || row.agency_name || '',
+    agencyName: row.agencyName || row.agency_name || "",
     agencyWebsite: row.agencyWebsite || row.agency_website || null,
     statesServed: row.statesServed || row.states_served || null,
     experienceLevel: row.experienceLevel || row.experience_level || null,
     volumeEstimate: row.volumeEstimate || row.volume_estimate || null,
   };
 
-  const agencyName = normalizedMetadata?.agencyName || `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Prospective partner';
+  const agencyName =
+    normalizedMetadata?.agencyName ||
+    `${row.first_name || ""} ${row.last_name || ""}`.trim() ||
+    "Prospective partner";
 
   return {
     id: row.id,
@@ -3031,9 +3867,15 @@ const buildPartnerLeadRecord = (row: any): PartnerLeadRecord => {
   };
 };
 
-export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: string): Promise<Lead[]> {
+export async function getAllLeads(
+  statusFilter?: string,
+  assignedAgentFilter?: string,
+): Promise<Lead[]> {
   try {
-    console.log('[Storage] Getting all leads with filters:', { statusFilter, assignedAgentFilter });
+    console.log("[Storage] Getting all leads with filters:", {
+      statusFilter,
+      assignedAgentFilter,
+    });
 
     // Use raw SQL to handle snake_case column names from database
     let query = `
@@ -3056,49 +3898,53 @@ export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: s
     const conditions = [];
     const params: any[] = [];
 
-    if (statusFilter && statusFilter !== 'all') {
+    if (statusFilter && statusFilter !== "all") {
       conditions.push(`status = $${params.length + 1}`);
       params.push(statusFilter);
     }
 
     if (assignedAgentFilter) {
-      if (assignedAgentFilter === 'unassigned') {
-        conditions.push('assigned_agent_id IS NULL');
-      } else if (assignedAgentFilter !== 'all') {
-        conditions.push(`assigned_agent_id::uuid = $${params.length + 1}::uuid`);
+      if (assignedAgentFilter === "unassigned") {
+        conditions.push("assigned_agent_id IS NULL");
+      } else if (assignedAgentFilter !== "all") {
+        conditions.push(
+          `assigned_agent_id::uuid = $${params.length + 1}::uuid`,
+        );
         params.push(assignedAgentFilter);
       }
     }
 
     if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ');
+      query += " WHERE " + conditions.join(" AND ");
     }
 
-    query += ' ORDER BY created_at DESC';
+    query += " ORDER BY created_at DESC";
 
-    const { data, error } = await supabase
-      .rpc('execute_sql', {
-        sql_query: query,
-        params: params
-      });
+    const { data, error } = await supabase.rpc("execute_sql", {
+      sql_query: query,
+      params: params,
+    });
 
     if (error) {
-      console.error('[Storage] Supabase error:', error);
+      console.error("[Storage] Supabase error:", error);
       // Fallback to direct query
       let supabaseQuery = supabase
-        .from('leads')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-      if (statusFilter && statusFilter !== 'all') {
-        supabaseQuery = supabaseQuery.eq('status', statusFilter);
+      if (statusFilter && statusFilter !== "all") {
+        supabaseQuery = supabaseQuery.eq("status", statusFilter);
       }
 
       if (assignedAgentFilter) {
-        if (assignedAgentFilter === 'unassigned') {
-          supabaseQuery = supabaseQuery.is('assigned_agent_id', null);
-        } else if (assignedAgentFilter !== 'all') {
-          supabaseQuery = supabaseQuery.eq('assigned_agent_id', assignedAgentFilter);
+        if (assignedAgentFilter === "unassigned") {
+          supabaseQuery = supabaseQuery.is("assigned_agent_id", null);
+        } else if (assignedAgentFilter !== "all") {
+          supabaseQuery = supabaseQuery.eq(
+            "assigned_agent_id",
+            assignedAgentFilter,
+          );
         }
       }
 
@@ -3109,7 +3955,7 @@ export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: s
       }
 
       // Map snake_case to camelCase
-      const mappedData = (fallbackData || []).map(lead => ({
+      const mappedData = (fallbackData || []).map((lead) => ({
         id: lead.id,
         firstName: lead.first_name,
         lastName: lead.last_name,
@@ -3121,44 +3967,50 @@ export async function getAllLeads(statusFilter?: string, assignedAgentFilter?: s
         assignedAgentId: lead.assigned_agent_id,
         createdAt: lead.created_at,
         updatedAt: lead.updated_at,
-        notes: lead.notes
+        notes: lead.notes,
       }));
 
-      console.log(`[Storage] Retrieved ${mappedData.length} leads from database (fallback)`);
+      console.log(
+        `[Storage] Retrieved ${mappedData.length} leads from database (fallback)`,
+      );
       return mappedData;
     }
 
     console.log(`[Storage] Retrieved ${data?.length || 0} leads from database`);
     return data || [];
   } catch (error) {
-    console.error('[Storage] Error fetching leads:', error);
+    console.error("[Storage] Error fetching leads:", error);
     throw error;
   }
 }
 
-export async function getPartnerLeads(statusFilter?: string): Promise<PartnerLeadRecord[]> {
+export async function getPartnerLeads(
+  statusFilter?: string,
+): Promise<PartnerLeadRecord[]> {
   try {
     let supabaseQuery = supabase
-      .from('leads')
-      .select('*')
-      .eq('source', 'partner_lead')
-      .order('created_at', { ascending: false });
+      .from("leads")
+      .select("*")
+      .eq("source", "partner_lead")
+      .order("created_at", { ascending: false });
 
-    if (statusFilter && statusFilter !== 'all') {
-      supabaseQuery = supabaseQuery.eq('status', statusFilter);
+    if (statusFilter && statusFilter !== "all") {
+      supabaseQuery = supabaseQuery.eq("status", statusFilter);
     }
 
     const { data, error } = await supabaseQuery;
 
     if (error) {
-      console.error('[Storage] Failed to fetch partner leads:', error);
-      throw new Error('Failed to fetch partner leads');
+      console.error("[Storage] Failed to fetch partner leads:", error);
+      throw new Error("Failed to fetch partner leads");
     }
 
     return (data || []).map(buildPartnerLeadRecord);
   } catch (error) {
-    console.error('[Storage] Unexpected error fetching partner leads:', error);
-    throw error instanceof Error ? error : new Error('Failed to fetch partner leads');
+    console.error("[Storage] Unexpected error fetching partner leads:", error);
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to fetch partner leads");
   }
 }
 
@@ -3169,25 +4021,31 @@ export interface PartnerLeadUpdateInput {
   updatedBy?: string;
 }
 
-export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLeadUpdateInput): Promise<PartnerLeadRecord> {
+export async function updatePartnerLeadStatus(
+  leadId: number,
+  updates: PartnerLeadUpdateInput,
+): Promise<PartnerLeadRecord> {
   if (!leadId || Number.isNaN(leadId)) {
-    throw new Error('Valid lead ID is required');
+    throw new Error("Valid lead ID is required");
   }
 
   const { data: existingLead, error: fetchError } = await supabase
-    .from('leads')
-    .select('*')
-    .eq('id', leadId)
-    .eq('source', 'partner_lead')
+    .from("leads")
+    .select("*")
+    .eq("id", leadId)
+    .eq("source", "partner_lead")
     .maybeSingle();
 
   if (fetchError) {
-    console.error('[Storage] Failed to load partner lead for update:', fetchError);
-    throw new Error('Unable to load partner lead');
+    console.error(
+      "[Storage] Failed to load partner lead for update:",
+      fetchError,
+    );
+    throw new Error("Unable to load partner lead");
   }
 
   if (!existingLead) {
-    throw new Error('Partner lead not found');
+    throw new Error("Partner lead not found");
   }
 
   const currentNotes = parsePartnerLeadNotes(existingLead.notes);
@@ -3199,7 +4057,9 @@ export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLe
   if (updates.adminNote && updates.adminNote.trim().length > 0) {
     updatedNotes.adminNotes = updatedNotes.adminNotes || [];
     updatedNotes.adminNotes.push({
-      id: (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)),
+      id: crypto.randomUUID
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2),
       message: updates.adminNote.trim(),
       createdAt: new Date().toISOString(),
       createdBy: updates.updatedBy || null,
@@ -3226,16 +4086,16 @@ export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLe
   });
 
   const { data: updatedLead, error: updateError } = await supabase
-    .from('leads')
+    .from("leads")
     .update(payload)
-    .eq('id', leadId)
-    .eq('source', 'partner_lead')
-    .select('*')
+    .eq("id", leadId)
+    .eq("source", "partner_lead")
+    .select("*")
     .single();
 
   if (updateError) {
-    console.error('[Storage] Failed to update partner lead:', updateError);
-    throw new Error(updateError.message || 'Failed to update partner lead');
+    console.error("[Storage] Failed to update partner lead:", updateError);
+    throw new Error(updateError.message || "Failed to update partner lead");
   }
 
   return buildPartnerLeadRecord(updatedLead);
@@ -3245,15 +4105,15 @@ export async function updatePartnerLeadStatus(leadId: number, updates: PartnerLe
 export async function getAgents(): Promise<User[]> {
   // Get all active users (agents, admins, super_admins) since they all have agent numbers
   const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('is_active', true)
-    .order('first_name', { ascending: true, nullsFirst: false })
-    .order('last_name', { ascending: true, nullsFirst: false })
-    .order('agent_number', { ascending: true, nullsFirst: false });
+    .from("users")
+    .select("*")
+    .eq("is_active", true)
+    .order("first_name", { ascending: true, nullsFirst: false })
+    .order("last_name", { ascending: true, nullsFirst: false })
+    .order("agent_number", { ascending: true, nullsFirst: false });
 
   if (error) {
-    console.error('Error fetching agents:', error);
+    console.error("Error fetching agents:", error);
     throw new Error(`Failed to get agents: ${error.message}`);
   }
 
@@ -3264,26 +4124,31 @@ export async function getAgents(): Promise<User[]> {
 // Get database stats - this would typically involve custom SQL or specific Supabase functions.
 // Providing a placeholder implementation based on the original Drizzle queries.
 export async function getDatabaseStats(): Promise<any[]> {
-  const [userCountResult, leadCountResult, subCountResult, planCountResult] = await Promise.all([
-    supabase.from('users').select('*', { count: 'exact', head: true }),
-    supabase.from('leads').select('*', { count: 'exact', head: true }),
-    supabase.from('subscriptions').select('*', { count: 'exact', head: true }),
-    supabase.from('plans').select('*', { count: 'exact', head: true }),
-  ]);
+  const [userCountResult, leadCountResult, subCountResult, planCountResult] =
+    await Promise.all([
+      supabase.from("users").select("*", { count: "exact", head: true }),
+      supabase.from("leads").select("*", { count: "exact", head: true }),
+      supabase
+        .from("subscriptions")
+        .select("*", { count: "exact", head: true }),
+      supabase.from("plans").select("*", { count: "exact", head: true }),
+    ]);
 
   return [
-    { table: 'Users', count: userCountResult.count || 0 },
-    { table: 'Leads', count: leadCountResult.count || 0 },
-    { table: 'Subscriptions', count: subCountResult.count || 0 },
-    { table: 'Plans', count: planCountResult.count || 0 },
+    { table: "Users", count: userCountResult.count || 0 },
+    { table: "Leads", count: leadCountResult.count || 0 },
+    { table: "Subscriptions", count: subCountResult.count || 0 },
+    { table: "Plans", count: planCountResult.count || 0 },
   ];
 }
 
 export async function getTableData(tableName: string): Promise<any[]> {
-  const { data, error } = await supabase.from(tableName).select('*').limit(100);
+  const { data, error } = await supabase.from(tableName).select("*").limit(100);
   if (error) {
     console.error(`Error fetching data for table ${tableName}:`, error);
-    throw new Error(`Failed to get data for table ${tableName}: ${error.message}`);
+    throw new Error(
+      `Failed to get data for table ${tableName}: ${error.message}`,
+    );
   }
   return data || [];
 }
@@ -3292,31 +4157,39 @@ export async function getAnalytics(): Promise<any> {
   try {
     const { users } = await getAllUsers(); // Use the corrected getAllUsers
     const allSubscriptions = await getActiveSubscriptions(); // Assuming this fetches all subscriptions, not just active
-    const allPayments = await supabase.from('payments').select('*').eq('status', 'completed').then(res => res.data || []); // Fetch completed payments
+    const allPayments = await supabase
+      .from("payments")
+      .select("*")
+      .eq("status", "completed")
+      .then((res) => res.data || []); // Fetch completed payments
     const allLeads = await getAllLeads(); // Use the corrected getAllLeads
 
     const activeSubscriptionsCount = allSubscriptions.length;
-    const totalRevenue = allPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalRevenue = allPayments.reduce(
+      (sum, p) => sum + (parseFloat(p.amount) || 0),
+      0,
+    );
 
     const today = new Date();
     const monthlyRevenue = allPayments
-      .filter(p =>
-        new Date(p.created_at).getMonth() === today.getMonth() &&
-        new Date(p.created_at).getFullYear() === today.getFullYear()
+      .filter(
+        (p) =>
+          new Date(p.created_at).getMonth() === today.getMonth() &&
+          new Date(p.created_at).getFullYear() === today.getFullYear(),
       )
       .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
     return {
       totalUsers: users.length,
-      totalMembers: users.filter(u => u.role === 'member').length,
+      totalMembers: users.filter((u) => u.role === "member").length,
       activeSubscriptions: activeSubscriptionsCount,
       totalRevenue,
       monthlyRevenue,
       totalLeads: allLeads.length,
-      convertedLeads: allLeads.filter(l => l.status === 'converted').length
+      convertedLeads: allLeads.filter((l) => l.status === "converted").length,
     };
   } catch (error) {
-    console.error('Error getting analytics:', error);
+    console.error("Error getting analytics:", error);
     throw error;
   }
 }
@@ -3338,11 +4211,11 @@ export async function getAnalyticsOverview(days: number): Promise<any> {
       churnRate: 0,
       growthRate: 0,
       newEnrollmentsThisMonth: 0,
-      cancellationsThisMonth: 0
+      cancellationsThisMonth: 0,
     };
   }
 
-  const newEnrollments = allEnrollments.filter(enrollment => {
+  const newEnrollments = allEnrollments.filter((enrollment) => {
     if (!enrollment.createdAt) return false;
     const enrollmentDate = new Date(enrollment.createdAt);
     return enrollmentDate >= startDate && enrollmentDate <= endDate;
@@ -3370,56 +4243,63 @@ export async function getAnalyticsOverview(days: number): Promise<any> {
     churnRate,
     growthRate,
     newEnrollmentsThisMonth: newEnrollments,
-    cancellationsThisMonth
+    cancellationsThisMonth,
   };
 }
 
 export async function getActiveSubscriptionsCount() {
   const { count, error } = await supabase
-    .from('subscriptions')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'active');
+    .from("subscriptions")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active");
 
   if (error) {
-    console.error('Error fetching active subscriptions count:', error);
-    throw new Error(`Failed to get active subscriptions count: ${error.message}`);
+    console.error("Error fetching active subscriptions count:", error);
+    throw new Error(
+      `Failed to get active subscriptions count: ${error.message}`,
+    );
   }
   return count || 0;
 }
 
 export async function getPlanBreakdown(): Promise<any[]> {
   const { data, error } = await supabase
-    .from('subscriptions')
-    .select('planId, plans:planId(name), amount')
-    .eq('status', 'active');
+    .from("subscriptions")
+    .select("planId, plans:planId(name), amount")
+    .eq("status", "active");
 
   if (error) {
-    console.error('Error fetching plan breakdown:', error);
+    console.error("Error fetching plan breakdown:", error);
     throw new Error(`Failed to get plan breakdown: ${error.message}`);
   }
 
   const breakdown = data || [];
-  const total = breakdown.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
+  const total = breakdown.reduce(
+    (sum: number, item: any) => sum + (item.amount || 0),
+    0,
+  );
 
   return breakdown.map((item: any) => ({
     planId: item.planId,
     planName: item.plans.name,
     memberCount: item.memberCount || 0, // Assuming memberCount is returned by RPC
     monthlyRevenue: item.amount || 0,
-    percentage: total > 0 ? ((item.amount || 0) / total) * 100 : 0
+    percentage: total > 0 ? ((item.amount || 0) / total) * 100 : 0,
   }));
 }
 
 export async function getRecentEnrollments(limit: number): Promise<any[]> {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, firstName, lastName, email, subscriptions:subscriptionId(planId, amount, created_at, status), plans:planId(name)')
-    .eq('role', 'user')
-    .order('created_at', { ascending: false }) // Ordering by user creation date
+    .from("users")
+    .select(
+      "id, firstName, lastName, email, subscriptions:subscriptionId(planId, amount, created_at, status), plans:planId(name)",
+    )
+    .eq("role", "user")
+    .order("created_at", { ascending: false }) // Ordering by user creation date
     .limit(limit);
 
   if (error) {
-    console.error('Error fetching recent enrollments:', error);
+    console.error("Error fetching recent enrollments:", error);
     throw new Error(`Failed to get recent enrollments: ${error.message}`);
   }
 
@@ -3432,7 +4312,7 @@ export async function getRecentEnrollments(limit: number): Promise<any[]> {
     planName: user.plans?.name,
     amount: user.subscriptions?.amount,
     enrolledDate: user.subscriptions?.created_at || user.created_at, // Use subscription or user creation date
-    status: user.subscriptions?.status
+    status: user.subscriptions?.status,
   }));
 }
 
@@ -3446,38 +4326,54 @@ export async function getMonthlyTrends(): Promise<any[]> {
   for (let i = 5; i >= 0; i--) {
     const monthDate = new Date(now);
     monthDate.setMonth(monthDate.getMonth() - i);
-    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    const monthStart = new Date(
+      monthDate.getFullYear(),
+      monthDate.getMonth(),
+      1,
+    );
+    const monthEnd = new Date(
+      monthDate.getFullYear(),
+      monthDate.getMonth() + 1,
+      0,
+    );
 
     // Fetch active subscriptions created in the month
-    const enrollmentsResult = await supabase.from('subscriptions')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'active')
-      .gte('created_at', monthStart.toISOString())
-      .lte('created_at', monthEnd.toISOString());
+    const enrollmentsResult = await supabase
+      .from("subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "active")
+      .gte("created_at", monthStart.toISOString())
+      .lte("created_at", monthEnd.toISOString());
 
     // Fetch cancelled subscriptions updated in the month
-    const cancellationsResult = await supabase.from('subscriptions')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'cancelled')
-      .gte('updated_at', monthStart.toISOString())
-      .lte('updated_at', monthEnd.toISOString());
+    const cancellationsResult = await supabase
+      .from("subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "cancelled")
+      .gte("updated_at", monthStart.toISOString())
+      .lte("updated_at", monthEnd.toISOString());
 
     // Fetch revenue for active subscriptions in the month
-    const revenueResult = await supabase.from('subscriptions')
-      .select('amount')
-      .eq('status', 'active')
-      .gte('created_at', monthStart.toISOString())
-      .lte('created_at', monthEnd.toISOString());
+    const revenueResult = await supabase
+      .from("subscriptions")
+      .select("amount")
+      .eq("status", "active")
+      .gte("created_at", monthStart.toISOString())
+      .lte("created_at", monthEnd.toISOString());
 
-    const revenue = revenueResult.data?.reduce((sum, sub) => sum + (sub.amount || 0), 0) || 0;
+    const revenue =
+      revenueResult.data?.reduce((sum, sub) => sum + (sub.amount || 0), 0) || 0;
 
     trends.push({
-      month: monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      month: monthDate.toLocaleDateString("en-US", {
+        month: "short",
+        year: "numeric",
+      }),
       enrollments: enrollmentsResult.count || 0,
       cancellations: cancellationsResult.count || 0,
-      netGrowth: (enrollmentsResult.count || 0) - (cancellationsResult.count || 0),
-      revenue: revenue
+      netGrowth:
+        (enrollmentsResult.count || 0) - (cancellationsResult.count || 0),
+      revenue: revenue,
     });
   }
 
@@ -3487,90 +4383,110 @@ export async function getMonthlyTrends(): Promise<any[]> {
 // User approval operations
 export async function getPendingUsers(): Promise<User[]> {
   const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('approvalStatus', 'pending')
-    .order('created_at', { ascending: false });
+    .from("users")
+    .select("*")
+    .eq("approvalStatus", "pending")
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error('Error fetching pending users:', error);
+    console.error("Error fetching pending users:", error);
     throw new Error(`Failed to get pending users: ${error.message}`);
   }
 
   // Add suspicious flags based on simple checks
-  return (data || []).map(user => {
+  return (data || []).map((user) => {
     const suspiciousFlags: string[] = [];
 
     // Check for temporary email patterns
-    const tempEmailPatterns = ['tempmail', 'throwaway', 'guerrilla', '10minute', 'mailinator'];
-    if (user.email && tempEmailPatterns.some(pattern => user.email!.toLowerCase().includes(pattern))) {
-      suspiciousFlags.push('Temporary email detected');
+    const tempEmailPatterns = [
+      "tempmail",
+      "throwaway",
+      "guerrilla",
+      "10minute",
+      "mailinator",
+    ];
+    if (
+      user.email &&
+      tempEmailPatterns.some((pattern) =>
+        user.email!.toLowerCase().includes(pattern),
+      )
+    ) {
+      suspiciousFlags.push("Temporary email detected");
     }
 
     // Check if no user agent or suspicious user agent
-    if (!user.registrationUserAgent || user.registrationUserAgent === 'email') {
-      suspiciousFlags.push('No browser info');
+    if (!user.registrationUserAgent || user.registrationUserAgent === "email") {
+      suspiciousFlags.push("No browser info");
     }
 
     // Check if email is not verified
     if (!user.emailVerified) {
-      suspiciousFlags.push('Email not verified');
+      suspiciousFlags.push("Email not verified");
     }
 
     return {
       ...user,
-      suspiciousFlags: suspiciousFlags
+      suspiciousFlags: suspiciousFlags,
     };
   });
 }
 
-export async function approveUser(userId: string, approvedBy: string): Promise<User> {
+export async function approveUser(
+  userId: string,
+  approvedBy: string,
+): Promise<User> {
   const { data, error } = await supabase
-    .from('users')
+    .from("users")
     .update({
-      approvalStatus: 'approved',
+      approvalStatus: "approved",
       approvedAt: new Date(),
       approvedBy: approvedBy,
-      updated_at: new Date()
+      updated_at: new Date(),
     })
-    .eq('id', userId)
+    .eq("id", userId)
     .select()
     .single();
 
   if (error) {
-    console.error('Error approving user:', error);
+    console.error("Error approving user:", error);
     throw new Error(`Failed to approve user: ${error.message}`);
   }
   return data;
 }
 
-export async function rejectUser(userId: string, reason: string): Promise<User> {
+export async function rejectUser(
+  userId: string,
+  reason: string,
+): Promise<User> {
   const { data, error } = await supabase
-    .from('users')
+    .from("users")
     .update({
-      approvalStatus: 'rejected',
+      approvalStatus: "rejected",
       rejectionReason: reason,
-      updated_at: new Date()
+      updated_at: new Date(),
     })
-    .eq('id', userId)
+    .eq("id", userId)
     .select()
     .single();
 
   if (error) {
-    console.error('Error rejecting user:', error);
+    console.error("Error rejecting user:", error);
     throw new Error(`Failed to reject user: ${error.message}`);
   }
   return data;
 }
 
 // Commission operations
-export async function createCommission(commission: InsertCommission): Promise<Commission> {
+export async function createCommission(
+  commission: InsertCommission,
+): Promise<Commission> {
   // NOTE: Removed admin skip - admins and super_admins can also enroll members and earn commissions
   // All roles with agent numbers can earn commissions
 
   // Insert commission into database (Supabase PostgreSQL)
   try {
-    const result = await query(`
+    const result = await query(
+      `
       INSERT INTO commissions (
         agent_id,
         agent_number,
@@ -3588,30 +4504,38 @@ export async function createCommission(commission: InsertCommission): Promise<Co
         updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
       RETURNING *
-    `, [
-      commission.agentId,
-      commission.agentNumber || 'HOUSE',
-      commission.subscriptionId || null,
-      commission.userId || null,     // For staff enrollments
-      commission.memberId || null,   // For member enrollments
-      commission.planName,
-      commission.planType,
-      commission.planTier,
-      commission.commissionAmount,
-      commission.totalPlanCost,
-      commission.status || 'pending',
-      commission.paymentStatus || 'unpaid'
-    ]);
+    `,
+      [
+        commission.agentId,
+        commission.agentNumber || "HOUSE",
+        commission.subscriptionId || null,
+        commission.userId || null, // For staff enrollments
+        commission.memberId || null, // For member enrollments
+        commission.planName,
+        commission.planType,
+        commission.planTier,
+        commission.commissionAmount,
+        commission.totalPlanCost,
+        commission.status || "pending",
+        commission.paymentStatus || "unpaid",
+      ],
+    );
 
-    console.log(`✅ Commission created in Neon database: $${commission.commissionAmount} for agent ${commission.agentId}`);
+    console.log(
+      `✅ Commission created in Neon database: $${commission.commissionAmount} for agent ${commission.agentId}`,
+    );
     return result.rows[0];
   } catch (error: any) {
-    console.error('❌ Error creating commission in Neon:', error);
+    console.error("❌ Error creating commission in Neon:", error);
     throw new Error(`Failed to create commission: ${error.message}`);
   }
 }
 
-export async function getAgentCommissions(agentId: string, startDate?: string, endDate?: string): Promise<Commission[]> {
+export async function getAgentCommissions(
+  agentId: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<Commission[]> {
   try {
     let sql = `
       SELECT 
@@ -3639,20 +4563,21 @@ export async function getAgentCommissions(agentId: string, startDate?: string, e
     const params: any[] = [agentId];
 
     if (startDate && endDate) {
-      sql += ' AND c.created_at >= $2 AND c.created_at <= $3';
+      sql += " AND c.created_at >= $2 AND c.created_at <= $3";
       params.push(startDate, endDate);
     }
 
-    sql += ' ORDER BY c.created_at DESC';
+    sql += " ORDER BY c.created_at DESC";
 
     const result = await query(sql, params);
-    
+
     // Transform snake_case to camelCase for frontend
-    return (result.rows || []).map(row => ({
+    return (result.rows || []).map((row) => ({
       id: row.id,
       subscriptionId: row.subscription_id,
       userId: row.agent_id,
-      userName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown',
+      userName:
+        `${row.first_name || ""} ${row.last_name || ""}`.trim() || "Unknown",
       planName: row.plan_name,
       planType: row.plan_type,
       planTier: row.plan_tier,
@@ -3661,85 +4586,100 @@ export async function getAgentCommissions(agentId: string, startDate?: string, e
       status: row.status,
       paymentStatus: row.payment_status,
       paidDate: row.paid_date,
-      createdAt: row.created_at
+      createdAt: row.created_at,
     }));
   } catch (error: any) {
-    console.error('Error fetching agent commissions:', error);
+    console.error("Error fetching agent commissions:", error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);
   }
 }
 
-export async function getAllCommissions(startDate?: string, endDate?: string): Promise<Commission[]> {
+export async function getAllCommissions(
+  startDate?: string,
+  endDate?: string,
+): Promise<Commission[]> {
   try {
-    let sql = 'SELECT * FROM agent_commissions';
+    let sql = "SELECT * FROM agent_commissions";
     const params: any[] = [];
 
     if (startDate && endDate) {
-      sql += ' WHERE created_at >= $1 AND created_at <= $2';
+      sql += " WHERE created_at >= $1 AND created_at <= $2";
       params.push(startDate, endDate);
     }
 
-    sql += ' ORDER BY created_at DESC';
+    sql += " ORDER BY created_at DESC";
 
     const result = await query(sql, params);
     return result.rows || [];
   } catch (error: any) {
-    console.error('Error fetching all commissions:', error);
+    console.error("Error fetching all commissions:", error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
   }
 }
 
-export async function getCommissionBySubscriptionId(subscriptionId: number): Promise<Commission | undefined> {
+export async function getCommissionBySubscriptionId(
+  subscriptionId: number,
+): Promise<Commission | undefined> {
   try {
     const result = await query(
-      'SELECT * FROM agent_commissions WHERE subscription_id = $1 LIMIT 1',
-      [subscriptionId]
+      "SELECT * FROM agent_commissions WHERE subscription_id = $1 LIMIT 1",
+      [subscriptionId],
     );
-    
+
     if (result.rows.length === 0) return undefined;
     return result.rows[0];
   } catch (error: any) {
-    console.error('Error fetching commission by subscription ID:', error);
+    console.error("Error fetching commission by subscription ID:", error);
     return undefined;
   }
 }
 
 // DEPRECATED: Old commissions table removed - use agent_commissions instead
-export async function getCommissionByUserId(userId: string, agentId: string): Promise<Commission | undefined> {
+export async function getCommissionByUserId(
+  userId: string,
+  agentId: string,
+): Promise<Commission | undefined> {
   // Check agent_commissions table instead
   const { data, error } = await supabase
-    .from('agent_commissions')
-    .select('*')
-    .eq('member_id', userId)
-    .eq('agent_id', agentId)
+    .from("agent_commissions")
+    .select("*")
+    .eq("member_id", userId)
+    .eq("agent_id", agentId)
     .maybeSingle();
 
   if (error) {
-    console.error('Error fetching commission by member and agent ID:', error);
+    console.error("Error fetching commission by member and agent ID:", error);
     return undefined;
   }
   return data as any;
 }
 
-export async function getCommissionByMemberId(memberId: number): Promise<Commission | null> {
+export async function getCommissionByMemberId(
+  memberId: number,
+): Promise<Commission | null> {
   try {
-    console.log('[Storage] Looking up commission for member ID:', memberId);
+    console.log("[Storage] Looking up commission for member ID:", memberId);
     const result = await query(
       `SELECT * FROM agent_commissions 
        WHERE member_id = $1::text 
        AND payment_status IN ('unpaid', 'pending')
        ORDER BY created_at DESC 
        LIMIT 1`,
-      [memberId]
+      [memberId],
     );
-    
+
     if (!result.rows || result.rows.length === 0) {
-      console.log('[Storage] No unpaid commission found for member:', memberId);
+      console.log("[Storage] No unpaid commission found for member:", memberId);
       return null;
     }
-    
+
     const row = result.rows[0];
-    console.log('[Storage] Found commission:', row.id, 'Amount:', row.commission_amount);
+    console.log(
+      "[Storage] Found commission:",
+      row.id,
+      "Amount:",
+      row.commission_amount,
+    );
     return {
       id: row.id,
       agentId: row.agent_id,
@@ -3754,36 +4694,41 @@ export async function getCommissionByMemberId(memberId: number): Promise<Commiss
       paymentStatus: row.payment_status,
       paidDate: row.paid_date,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
     };
   } catch (error: any) {
-    console.error('[Storage] Error getting commission by member ID:', error);
+    console.error("[Storage] Error getting commission by member ID:", error);
     return null;
   }
 }
 
-export async function updateCommission(id: number, data: Partial<Commission>): Promise<Commission> {
+export async function updateCommission(
+  id: number,
+  data: Partial<Commission>,
+): Promise<Commission> {
   const { data: updatedCommission, error } = await supabase
-    .from('agent_commissions')
+    .from("agent_commissions")
     .update({ ...data, updated_at: new Date() })
-    .eq('id', id)
+    .eq("id", id)
     .select()
     .single();
 
   if (error) {
-    console.error('Error updating commission:', error);
+    console.error("Error updating commission:", error);
     throw new Error(`Failed to update commission: ${error.message}`);
   }
   return updatedCommission;
 }
 
-export async function getCommissionStats(agentId?: string): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
+export async function getCommissionStats(
+  agentId?: string,
+): Promise<{ totalEarned: number; totalPending: number; totalPaid: number }> {
   try {
-    let sql = 'SELECT commission_amount, payment_status FROM agent_commissions';
+    let sql = "SELECT commission_amount, payment_status FROM agent_commissions";
     const params: any[] = [];
 
     if (agentId) {
-      sql += ' WHERE agent_id = $1';
+      sql += " WHERE agent_id = $1";
       params.push(agentId);
     }
 
@@ -3794,23 +4739,28 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
     let totalPending = 0;
     let totalPaid = 0;
 
-    data.forEach(commission => {
-      const amount = parseFloat(commission.commission_amount?.toString() || '0');
-      if (commission.payment_status === 'paid') {
+    data.forEach((commission) => {
+      const amount = parseFloat(
+        commission.commission_amount?.toString() || "0",
+      );
+      if (commission.payment_status === "paid") {
         totalPaid += amount;
         totalEarned += amount;
-      } else if (commission.payment_status === 'unpaid' || commission.payment_status === 'pending') {
+      } else if (
+        commission.payment_status === "unpaid" ||
+        commission.payment_status === "pending"
+      ) {
         totalPending += amount;
       }
     });
 
-    return { 
-      totalEarned: parseFloat(totalEarned.toFixed(2)), 
-      totalPending: parseFloat(totalPending.toFixed(2)), 
-      totalPaid: parseFloat(totalPaid.toFixed(2)) 
+    return {
+      totalEarned: parseFloat(totalEarned.toFixed(2)),
+      totalPending: parseFloat(totalPending.toFixed(2)),
+      totalPaid: parseFloat(totalPaid.toFixed(2)),
     };
   } catch (error: any) {
-    console.error('Error fetching commission stats:', error);
+    console.error("Error fetching commission stats:", error);
     throw new Error(`Failed to get commission stats: ${error.message}`);
   }
 }
@@ -3818,48 +4768,55 @@ export async function getCommissionStats(agentId?: string): Promise<{ totalEarne
 // ========== NEW AGENT COMMISSIONS TABLE FUNCTIONS ==========
 // Using the new agent_commissions table with clean schema
 
-const resolveCommissionBusinessCategory = (member: any, commission: any): 'individual' | 'family' | 'group' => {
-  const memberId = String(commission?.member_id || '').toLowerCase();
-  const notes = String(commission?.notes || '').toLowerCase();
-  const commissionCoverage = String(commission?.coverage_type || '').toLowerCase();
+const resolveCommissionBusinessCategory = (
+  member: any,
+  commission: any,
+): "individual" | "family" | "group" => {
+  const memberId = String(commission?.member_id || "").toLowerCase();
+  const notes = String(commission?.notes || "").toLowerCase();
+  const commissionCoverage = String(
+    commission?.coverage_type || "",
+  ).toLowerCase();
 
   if (
-    memberId.startsWith('group_member:')
-    || notes.includes('group member commission')
-    || notes.includes('group:')
-    || commissionCoverage === 'group'
+    memberId.startsWith("group_member:") ||
+    notes.includes("group member commission") ||
+    notes.includes("group:") ||
+    commissionCoverage === "group"
   ) {
-    return 'group';
+    return "group";
   }
 
-  const memberCoverage = String(member?.coverage_type || '').toLowerCase();
+  const memberCoverage = String(member?.coverage_type || "").toLowerCase();
   if (
-    memberCoverage.includes('family')
-    || memberCoverage.includes('spouse')
-    || memberCoverage.includes('child')
-    || commissionCoverage.includes('family')
-    || commissionCoverage.includes('spouse')
-    || commissionCoverage.includes('child')
+    memberCoverage.includes("family") ||
+    memberCoverage.includes("spouse") ||
+    memberCoverage.includes("child") ||
+    commissionCoverage.includes("family") ||
+    commissionCoverage.includes("spouse") ||
+    commissionCoverage.includes("child")
   ) {
-    return 'family';
+    return "family";
   }
 
-  return 'individual';
+  return "individual";
 };
 
 const extractSyntheticGroupMemberId = (memberId: unknown): number | null => {
-  const token = String(memberId || '').trim().toLowerCase();
-  if (!token.startsWith('group_member:')) {
+  const token = String(memberId || "")
+    .trim()
+    .toLowerCase();
+  if (!token.startsWith("group_member:")) {
     return null;
   }
 
-  const numeric = parseInt(token.replace('group_member:', ''), 10);
+  const numeric = parseInt(token.replace("group_member:", ""), 10);
   return Number.isFinite(numeric) ? numeric : null;
 };
 
 const extractNoteToken = (notes: unknown, key: string): string | null => {
-  const text = String(notes || '');
-  const regex = new RegExp(`${key}:([^|]+)`, 'i');
+  const text = String(notes || "");
+  const regex = new RegExp(`${key}:([^|]+)`, "i");
   const match = text.match(regex);
   if (!match?.[1]) {
     return null;
@@ -3869,41 +4826,47 @@ const extractNoteToken = (notes: unknown, key: string): string | null => {
 };
 
 const normalizeFieldAlias = (value: unknown): string =>
-  String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 
 const PBM_FLAG_ALIASES = new Set([
-  'addrxvalet',
-  'rxvaletenrolled',
-  'rxvalet',
-  'pbm',
-  'pbmenrolled',
-  'pbmselected',
-  'prochoicerx',
-  'rxaddon',
-  'pharmacybenefit',
+  "addrxvalet",
+  "rxvaletenrolled",
+  "rxvalet",
+  "pbm",
+  "pbmenrolled",
+  "pbmselected",
+  "prochoicerx",
+  "rxaddon",
+  "pharmacybenefit",
 ]);
 
 const PBM_TRUTHY_MARKERS = new Set([
-  'true',
-  '1',
-  'yes',
-  'y',
-  'on',
-  'selected',
-  'enrolled',
-  'optin',
-  'included',
-  'add',
+  "true",
+  "1",
+  "yes",
+  "y",
+  "on",
+  "selected",
+  "enrolled",
+  "optin",
+  "included",
+  "add",
 ]);
 
 const isTruthySelection = (value: unknown): boolean => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') return value > 0;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
   const normalized = normalizeFieldAlias(value);
   return normalized.length > 0 && PBM_TRUTHY_MARKERS.has(normalized);
 };
 
-const hasTruthyAliasSelection = (source: Record<string, any> | null, aliases: Set<string>): boolean => {
+const hasTruthyAliasSelection = (
+  source: Record<string, any> | null,
+  aliases: Set<string>,
+): boolean => {
   if (!source) return false;
 
   for (const [key, value] of Object.entries(source)) {
@@ -3922,30 +4885,56 @@ const resolvePbmFromNotesAndSources = (
   notes: unknown,
   ...sources: Array<Record<string, any> | null>
 ): boolean => {
-  if (sources.some((source) => hasTruthyAliasSelection(source, PBM_FLAG_ALIASES))) {
+  if (
+    sources.some((source) => hasTruthyAliasSelection(source, PBM_FLAG_ALIASES))
+  ) {
     return true;
   }
 
-  const noteKeys = ['addRxValet', 'rxValetEnrolled', 'pbmEnrolled', 'pbm', 'rxValet'];
-  return noteKeys.some((key) => isTruthySelection(extractNoteToken(notes, key)));
+  const noteKeys = [
+    "addRxValet",
+    "rxValetEnrolled",
+    "pbmEnrolled",
+    "pbm",
+    "rxValet",
+  ];
+  return noteKeys.some((key) =>
+    isTruthySelection(extractNoteToken(notes, key)),
+  );
 };
 
 const toCommissionMemberType = (tierOrRelationship: unknown): string => {
-  const normalized = String(tierOrRelationship || '').trim().toLowerCase();
-  if (normalized === 'spouse' || normalized.includes('spouse')) return 'member/spouse';
-  if (normalized === 'child' || normalized === 'dependent' || normalized.includes('child')) return 'member/child';
-  if (normalized === 'family' || normalized === 'fam') return 'family';
-  return 'member only';
+  const normalized = String(tierOrRelationship || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "spouse" || normalized.includes("spouse"))
+    return "member/spouse";
+  if (
+    normalized === "child" ||
+    normalized === "dependent" ||
+    normalized.includes("child")
+  )
+    return "member/child";
+  if (normalized === "family" || normalized === "fam") return "family";
+  return "member only";
 };
 
-const normalizeGroupPlanName = (rawPlan: string | null, membershipFee: number, memberType: string): string => {
-  const trimmed = String(rawPlan || '').trim();
+const normalizeGroupPlanName = (
+  rawPlan: string | null,
+  membershipFee: number,
+  memberType: string,
+): string => {
+  const trimmed = String(rawPlan || "").trim();
   if (trimmed.length > 0) {
     return trimmed;
   }
 
-  const planCandidates = ['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'];
-  let bestPlan = 'MyPremierPlan Base';
+  const planCandidates = [
+    "MyPremierPlan Base",
+    "MyPremierPlan+",
+    "MyPremierPlan Elite",
+  ];
+  let bestPlan = "MyPremierPlan Base";
   let bestDistance = Number.POSITIVE_INFINITY;
 
   for (const candidate of planCandidates) {
@@ -3981,17 +4970,30 @@ const resolveCommissionAmountForReport = (
     forceCalculated = false,
   } = params;
 
-  const storedCommission = parseFloat(String(commission?.commission_amount || 0)) || 0;
+  const storedCommission =
+    parseFloat(String(commission?.commission_amount || 0)) || 0;
   const calculated = calculateCommission(planName, memberType, addRxValet);
 
   const calculatedCommission = calculated
-    ? Math.round((calculated.commission * (Number.isFinite(splitPercent) ? splitPercent : 100) / 100) * 100) / 100
+    ? Math.round(
+        ((calculated.commission *
+          (Number.isFinite(splitPercent) ? splitPercent : 100)) /
+          100) *
+          100,
+      ) / 100
     : null;
 
-  const membershipFeeAmount = Number.isFinite(membershipFee) ? membershipFee : 0;
-  const looksLikeMembershipFee = membershipFeeAmount > 0 && Math.abs(storedCommission - membershipFeeAmount) < 0.01;
+  const membershipFeeAmount = Number.isFinite(membershipFee)
+    ? membershipFee
+    : 0;
+  const looksLikeMembershipFee =
+    membershipFeeAmount > 0 &&
+    Math.abs(storedCommission - membershipFeeAmount) < 0.01;
 
-  if (calculatedCommission !== null && (forceCalculated || storedCommission <= 0 || looksLikeMembershipFee)) {
+  if (
+    calculatedCommission !== null &&
+    (forceCalculated || storedCommission <= 0 || looksLikeMembershipFee)
+  ) {
     return calculatedCommission;
   }
 
@@ -3999,12 +5001,16 @@ const resolveCommissionAmountForReport = (
 };
 
 const toExclusiveDateUpperBound = (endDate: string): string => {
-  const [yearStr, monthStr, dayStr] = endDate.split('-');
+  const [yearStr, monthStr, dayStr] = endDate.split("-");
   const year = Number(yearStr);
   const month = Number(monthStr);
   const day = Number(dayStr);
 
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day)
+  ) {
     return endDate;
   }
 
@@ -4012,233 +5018,350 @@ const toExclusiveDateUpperBound = (endDate: string): string => {
   return nextDay.toISOString().slice(0, 10);
 };
 
-export async function getAgentCommissionsNew(agentId: string, startDate?: string, endDate?: string): Promise<any[]> {
+export async function getAgentCommissionsNew(
+  agentId: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<any[]> {
   try {
-    console.log('[Storage] Fetching commissions via Supabase for agent:', agentId);
-    
+    console.log(
+      "[Storage] Fetching commissions via Supabase for agent:",
+      agentId,
+    );
+
     // First, get basic commissions data without complex joins to avoid foreign key issues
     let query = supabase
-      .from('agent_commissions')
-      .select('*')
-      .eq('agent_id', agentId);
+      .from("agent_commissions")
+      .select("*")
+      .eq("agent_id", agentId);
 
     if (startDate && endDate) {
       const endExclusive = toExclusiveDateUpperBound(endDate);
-      query = query.gte('created_at', startDate).lt('created_at', endExclusive);
+      query = query.gte("created_at", startDate).lt("created_at", endExclusive);
     }
 
-    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+    const { data: primaryCommissions, error } = await query.order(
+      "created_at",
+      {
+        ascending: false,
+      },
+    );
 
     if (error) {
-      console.error('[Storage] Supabase error fetching commissions:', error);
+      console.error("[Storage] Supabase error fetching commissions:", error);
       throw error;
     }
 
-    console.log('[Storage] Found', commissions?.length || 0, 'commissions');
-    
+    let commissions = primaryCommissions || [];
+
+    if (commissions.length === 0) {
+      const agent = await getUser(agentId).catch(() => null as any);
+      const fallbackAgentNumber = String(
+        (agent as any)?.agentNumber || (agent as any)?.agent_number || "",
+      ).trim();
+
+      if (fallbackAgentNumber) {
+        let fallbackQuery = supabase
+          .from("agent_commissions")
+          .select("*")
+          .eq("agent_number", fallbackAgentNumber);
+
+        if (startDate && endDate) {
+          const endExclusive = toExclusiveDateUpperBound(endDate);
+          fallbackQuery = fallbackQuery
+            .gte("created_at", startDate)
+            .lt("created_at", endExclusive);
+        }
+
+        const { data: fallbackCommissions, error: fallbackError } =
+          await fallbackQuery.order("created_at", { ascending: false });
+
+        if (!fallbackError) {
+          commissions = fallbackCommissions || [];
+        }
+      }
+    }
+
+    console.log("[Storage] Found", commissions?.length || 0, "commissions");
+
     if (!commissions || commissions.length === 0) {
       return [];
     }
 
     // Get unique member IDs, agent IDs, and enrollment IDs for batch lookup
-    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
-    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
-    const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
+    const memberIds = [
+      ...new Set(commissions.map((c) => c.member_id).filter(Boolean)),
+    ];
+    const agentIds = [
+      ...new Set(commissions.map((c) => c.agent_id).filter(Boolean)),
+    ];
+    const enrollmentIds = [
+      ...new Set(commissions.map((c) => c.enrollment_id).filter(Boolean)),
+    ];
     const numericMemberIds = memberIds
-      .map(id => parseInt(String(id), 10))
-      .filter(id => Number.isFinite(id));
+      .map((id) => parseInt(String(id), 10))
+      .filter((id) => Number.isFinite(id));
     const syntheticGroupMemberIds = memberIds
       .map((id) => extractSyntheticGroupMemberId(id))
       .filter((id): id is number => Number.isFinite(id as number));
     const numericEnrollmentIds = enrollmentIds
-      .map(id => parseInt(String(id), 10))
-      .filter(id => Number.isFinite(id));
+      .map((id) => parseInt(String(id), 10))
+      .filter((id) => Number.isFinite(id));
 
     // Batch fetch members data from members table (primary source for enrollees)
-    const { data: members, error: membersError } = numericMemberIds.length > 0
-      ? await supabase
-        .from('members')
-        .select('id, first_name, last_name, email, customer_number, coverage_type, membership_start_date')
-        .in('id', numericMemberIds)
-      : { data: [], error: null };
+    const { data: members, error: membersError } =
+      numericMemberIds.length > 0
+        ? await supabase
+            .from("members")
+            .select(
+              "id, first_name, last_name, email, customer_number, coverage_type, membership_start_date",
+            )
+            .in("id", numericMemberIds)
+        : { data: [], error: null };
 
     if (membersError) {
-      console.warn('[Storage] Could not fetch member details:', membersError);
+      console.warn("[Storage] Could not fetch member details:", membersError);
     }
 
-    const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
-      ? await supabase
-        .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload')
-        .in('id', syntheticGroupMemberIds)
-      : { data: [], error: null };
+    const { data: groupMembers, error: groupMembersError } =
+      syntheticGroupMemberIds.length > 0
+        ? await supabase
+            .from("group_members")
+            .select(
+              "id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload",
+            )
+            .in("id", syntheticGroupMemberIds)
+        : { data: [], error: null };
 
     if (groupMembersError) {
-      console.warn('[Storage] Could not fetch group member details:', groupMembersError);
+      console.warn(
+        "[Storage] Could not fetch group member details:",
+        groupMembersError,
+      );
     }
 
-    const groupIds = [...new Set(
-      (groupMembers || [])
-        .map((gm: any) => gm?.group_id)
-        .filter((id: any) => Number.isFinite(Number(id)))
-        .map((id: any) => Number(id))
-    )];
+    const groupIds = [
+      ...new Set(
+        (groupMembers || [])
+          .map((gm: any) => gm?.group_id)
+          .filter((id: any) => Number.isFinite(Number(id)))
+          .map((id: any) => Number(id)),
+      ),
+    ];
 
-    const { data: groups, error: groupsError } = groupIds.length > 0
-      ? await supabase
-        .from('groups')
-        .select('id, name')
-        .in('id', groupIds)
-      : { data: [], error: null };
+    const { data: groups, error: groupsError } =
+      groupIds.length > 0
+        ? await supabase.from("groups").select("id, name").in("id", groupIds)
+        : { data: [], error: null };
 
     if (groupsError) {
-      console.warn('[Storage] Could not fetch groups for group member details:', groupsError);
+      console.warn(
+        "[Storage] Could not fetch groups for group member details:",
+        groupsError,
+      );
     }
 
     // Batch fetch agents data from users table (agents/admins/super_admins)
     const { data: agents, error: agentsError } = await supabase
-      .from('users')
-      .select('id, email, first_name, last_name, role, agent_number, phone, address, address2, city, state, zip_code')
-      .in('id', agentIds);
+      .from("users")
+      .select(
+        "id, email, first_name, last_name, role, agent_number, phone, address, address2, city, state, zip_code",
+      )
+      .in("id", agentIds);
 
     if (agentsError) {
-      console.warn('[Storage] Could not fetch agent details:', agentsError);
+      console.warn("[Storage] Could not fetch agent details:", agentsError);
     }
 
-    // Batch fetch subscription/enrollment data for plan info  
-    const { data: enrollments, error: enrollmentsError } = numericEnrollmentIds.length > 0
-      ? await supabase
-        .from('subscriptions')
-        .select(`
+    // Batch fetch subscription/enrollment data for plan info
+    const { data: enrollments, error: enrollmentsError } =
+      numericEnrollmentIds.length > 0
+        ? await supabase
+            .from("subscriptions")
+            .select(
+              `
           id,
           plan_id,
           member_id,
           user_id,
           plans:plans(name)
-        `)
-        .in('id', numericEnrollmentIds)
-      : { data: [], error: null };
+        `,
+            )
+            .in("id", numericEnrollmentIds)
+        : { data: [], error: null };
 
     if (enrollmentsError) {
-      console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
+      console.warn(
+        "[Storage] Could not fetch enrollment details:",
+        enrollmentsError,
+      );
     }
 
     // Create lookup maps
     const membersMap = new Map(
       (members || [])
-        .filter(m => m?.id !== undefined && m?.id !== null)
-        .map(m => [m.id.toString(), m])
+        .filter((m) => m?.id !== undefined && m?.id !== null)
+        .map((m) => [m.id.toString(), m]),
     );
     const agentsMap = new Map(
       (agents || [])
-        .filter(a => a?.id !== undefined && a?.id !== null)
-        .map(a => [a.id.toString(), a])
+        .filter((a) => a?.id !== undefined && a?.id !== null)
+        .map((a) => [a.id.toString(), a]),
     );
     const enrollmentsMap = new Map(
       (enrollments || [])
-        .filter(e => e?.id !== undefined && e?.id !== null)
-        .map(e => [e.id.toString(), e])
+        .filter((e) => e?.id !== undefined && e?.id !== null)
+        .map((e) => [e.id.toString(), e]),
     );
     const groupMembersMap = new Map(
       (groupMembers || [])
         .filter((gm: any) => gm?.id !== undefined && gm?.id !== null)
-        .map((gm: any) => [`group_member:${gm.id}`, gm])
+        .map((gm: any) => [`group_member:${gm.id}`, gm]),
     );
     const groupsMap = new Map(
       (groups || [])
         .filter((g: any) => g?.id !== undefined && g?.id !== null)
-        .map((g: any) => [Number(g.id), g])
+        .map((g: any) => [Number(g.id), g]),
     );
 
-    console.log('[Storage] Sample raw commission:', {
+    console.log("[Storage] Sample raw commission:", {
       id: commissions[0].id,
       commission_amount: commissions[0].commission_amount,
       member_id: commissions[0].member_id,
-      agent_id: commissions[0].agent_id
+      agent_id: commissions[0].agent_id,
     });
-    
+
     // Format for frontend - transform to match expected structure
     const formatted = commissions.map((commission: any) => {
-      const memberKey = commission?.member_id !== undefined && commission?.member_id !== null
-        ? commission.member_id.toString()
-        : undefined;
-      const enrollmentKey = commission?.enrollment_id !== undefined && commission?.enrollment_id !== null
-        ? commission.enrollment_id.toString()
-        : undefined;
-      const agentKey = commission?.agent_id !== undefined && commission?.agent_id !== null
-        ? commission.agent_id.toString()
-        : undefined;
+      const memberKey =
+        commission?.member_id !== undefined && commission?.member_id !== null
+          ? commission.member_id.toString()
+          : undefined;
+      const enrollmentKey =
+        commission?.enrollment_id !== undefined &&
+        commission?.enrollment_id !== null
+          ? commission.enrollment_id.toString()
+          : undefined;
+      const agentKey =
+        commission?.agent_id !== undefined && commission?.agent_id !== null
+          ? commission.agent_id.toString()
+          : undefined;
 
       const member = memberKey ? membersMap.get(memberKey) : undefined;
       const agent = agentKey ? agentsMap.get(agentKey) : undefined;
-      const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
-      const groupMember = memberKey ? groupMembersMap.get(memberKey.toLowerCase()) : undefined;
+      const enrollment = enrollmentKey
+        ? enrollmentsMap.get(enrollmentKey)
+        : undefined;
+      const groupMember = memberKey
+        ? groupMembersMap.get(memberKey.toLowerCase())
+        : undefined;
       const plan = enrollment?.plans;
-      const businessCategory = resolveCommissionBusinessCategory(member, commission);
+      const businessCategory = resolveCommissionBusinessCategory(
+        member,
+        commission,
+      );
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
-      const isGroupCommission = Boolean(groupMember) || businessCategory === 'group';
-      const noteMembershipFee = parseFloat(extractNoteToken(commission.notes, 'membershipFee') || '0') || 0;
+      const isGroupCommission =
+        Boolean(groupMember) || businessCategory === "group";
+      const noteMembershipFee =
+        parseFloat(
+          extractNoteToken(commission.notes, "membershipFee") || "0",
+        ) || 0;
       const membershipFee = isGroupCommission
-        ? parseFloat(String(groupMember?.total_amount || noteMembershipFee || commission.base_premium || 0)) || 0
+        ? parseFloat(
+            String(
+              groupMember?.total_amount ||
+                noteMembershipFee ||
+                commission.base_premium ||
+                0,
+            ),
+          ) || 0
         : parseFloat(String(commission.base_premium || 0)) || 0;
-      const noteMemberType = extractNoteToken(commission.notes, 'memberType') || extractNoteToken(commission.notes, 'type');
-      const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship || noteMemberType);
-      const notePlan = extractNoteToken(commission.notes, 'plan');
-      const inferredPlanName = normalizeGroupPlanName(notePlan, membershipFee, groupMemberType);
-      const planTier = 'Base';
-      const planName = isGroupCommission ? inferredPlanName : (plan?.name || 'MyPremierPlan');
+      const noteMemberType =
+        extractNoteToken(commission.notes, "memberType") ||
+        extractNoteToken(commission.notes, "type");
+      const groupMemberType = toCommissionMemberType(
+        groupMember?.tier || groupMember?.relationship || noteMemberType,
+      );
+      const notePlan = extractNoteToken(commission.notes, "plan");
+      const inferredPlanName = normalizeGroupPlanName(
+        notePlan,
+        membershipFee,
+        groupMemberType,
+      );
+      const planTier = "Base";
+      const planName = isGroupCommission
+        ? inferredPlanName
+        : plan?.name || "MyPremierPlan";
       const coverageType = isGroupCommission
         ? groupMemberType
-        : (member?.coverage_type || 'Member Only');
-      const planDisplay = isGroupCommission ? planName : `${planTier} - ${coverageType}`;
+        : member?.coverage_type || "Member Only";
+      const planDisplay = isGroupCommission
+        ? planName
+        : `${planTier} - ${coverageType}`;
       const groupName = isGroupCommission
         ? String(
-            (groupMember?.group_id ? (groupsMap.get(Number(groupMember.group_id)) as any)?.name : '')
-            || extractNoteToken(commission.notes, 'groupName')
-            || extractNoteToken(commission.notes, 'group')
-            || ''
+            (groupMember?.group_id
+              ? (groupsMap.get(Number(groupMember.group_id)) as any)?.name
+              : "") ||
+              extractNoteToken(commission.notes, "groupName") ||
+              extractNoteToken(commission.notes, "group") ||
+              "",
           ).trim()
-        : '';
+        : "";
       const resolvedMemberId = isGroupCommission
-        ? String(groupMember?.member_id || '')
-        : String(commission.member_id || '');
+        ? String(groupMember?.member_id || "")
+        : String(commission.member_id || "");
       const resolvedMembershipId = isGroupCommission
-        ? String(groupMember?.member_id || '')
-        : String(member?.customer_number || commission.member_id || '');
-      const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+        ? String(groupMember?.member_id || "")
+        : String(member?.customer_number || commission.member_id || "");
+      const splitPercent = parseFloat(
+        extractNoteToken(commission.notes, "split") || "100",
+      );
       const registrationPayload = (groupMember as any)?.registration_payload;
       const groupMetadata = (groupMember as any)?.metadata;
-      const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
+      const addRxValet = resolvePbmFromNotesAndSources(
+        commission.notes,
+        registrationPayload,
+        groupMetadata,
+      );
       const memberTypeForCommission = isGroupCommission
         ? groupMemberType
-        : toCommissionMemberType(member?.coverage_type || commission.coverage_type || noteMemberType);
-      const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
-        planName,
-        memberType: memberTypeForCommission,
-        addRxValet,
-        splitPercent,
-        membershipFee,
-        forceCalculated: isGroupCommission,
-      });
+        : toCommissionMemberType(
+            member?.coverage_type || commission.coverage_type || noteMemberType,
+          );
+      const normalizedCommissionAmount = resolveCommissionAmountForReport(
+        commission,
+        {
+          planName,
+          memberType: memberTypeForCommission,
+          addRxValet,
+          splitPercent,
+          membershipFee,
+          forceCalculated: isGroupCommission,
+        },
+      );
       const resolvedUserName = isGroupCommission
-        ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || `Group Employee ${resolvedMemberId || commission.member_id || ''}`.trim())
-        : (member?.first_name && member?.last_name
+        ? `${groupMember?.first_name || ""} ${groupMember?.last_name || ""}`.trim() ||
+          groupMember?.email ||
+          `Group Employee ${resolvedMemberId || commission.member_id || ""}`.trim()
+        : member?.first_name && member?.last_name
           ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})`
-          : member?.email || `Member ${commission.member_id}`);
+          : member?.email || `Member ${commission.member_id}`;
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
-        agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
+        agentNumber: commission.agent_number || agent?.agent_number || "N/A",
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         lineageSnapshotId: commission.lineage_snapshot_id || null,
         commissionAmount: normalizedCommissionAmount,
-        coverageType: commission.coverage_type || 'other',
-        status: commission.status || 'pending',
-        paymentStatus: commission.payment_status || 'unpaid',
+        coverageType: commission.coverage_type || "other",
+        status: commission.status || "pending",
+        paymentStatus: commission.payment_status || "unpaid",
         // Map member data from lookup
         totalPlanCost: membershipFee,
         membershipFee,
@@ -4248,266 +5371,365 @@ export async function getAgentCommissionsNew(agentId: string, startDate?: string
         planType: coverageType,
         businessCategory,
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
-        notes: commission.notes || '',
+        notes: commission.notes || "",
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
         paymentDate: commission.paid_date,
         // Additional fields for display
-        memberEmail: isGroupCommission ? (groupMember?.email || '') : (member?.email || ''),
-        firstName: isGroupCommission ? (groupMember?.first_name || '') : (member?.first_name || ''),
-        lastName: isGroupCommission ? (groupMember?.last_name || '') : (member?.last_name || ''),
+        memberEmail: isGroupCommission
+          ? groupMember?.email || ""
+          : member?.email || "",
+        firstName: isGroupCommission
+          ? groupMember?.first_name || ""
+          : member?.first_name || "",
+        lastName: isGroupCommission
+          ? groupMember?.last_name || ""
+          : member?.last_name || "",
         planPrice: membershipFee,
         // Agent info
-        agentEmail: agent?.email || '',
-        agentName: agent?.first_name && agent?.last_name 
-          ? `${agent.first_name} ${agent.last_name}` 
-          : agent?.email || 'Unknown Agent'
+        agentEmail: agent?.email || "",
+        agentName:
+          agent?.first_name && agent?.last_name
+            ? `${agent.first_name} ${agent.last_name}`
+            : agent?.email || "Unknown Agent",
       };
     });
-    
+
     if (formatted.length > 0) {
-      console.log('[Storage] Sample formatted commission:', {
+      console.log("[Storage] Sample formatted commission:", {
         id: formatted[0].id,
         commissionAmount: formatted[0].commissionAmount,
         userName: formatted[0].userName,
-        memberEmail: formatted[0].memberEmail
+        memberEmail: formatted[0].memberEmail,
       });
     }
     return formatted;
   } catch (error: any) {
-    console.error('[Storage] Error in getAgentCommissionsNew:', error);
+    console.error("[Storage] Error in getAgentCommissionsNew:", error);
     throw new Error(`Failed to get agent commissions: ${error.message}`);
   }
 }
 
-export async function getAllCommissionsNew(startDate?: string, endDate?: string): Promise<any[]> {
+export async function getAllCommissionsNew(
+  startDate?: string,
+  endDate?: string,
+): Promise<any[]> {
   try {
-    console.log('[Storage] Fetching all commissions from agent_commissions table');
-    
-    let query = supabase
-      .from('agent_commissions')
-      .select('*');
+    console.log(
+      "[Storage] Fetching all commissions from agent_commissions table",
+    );
+
+    let query = supabase.from("agent_commissions").select("*");
 
     if (startDate && endDate) {
       const endExclusive = toExclusiveDateUpperBound(endDate);
-      query = query.gte('created_at', startDate).lt('created_at', endExclusive);
+      query = query.gte("created_at", startDate).lt("created_at", endExclusive);
     }
 
-    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+    const { data: commissions, error } = await query.order("created_at", {
+      ascending: false,
+    });
 
     if (error) {
-      console.error('[Storage] Error fetching all commissions:', error);
+      console.error("[Storage] Error fetching all commissions:", error);
       throw new Error(`Failed to get all commissions: ${error.message}`);
     }
 
-    console.log('[Storage] Found', commissions?.length || 0, 'total commissions');
-    
+    console.log(
+      "[Storage] Found",
+      commissions?.length || 0,
+      "total commissions",
+    );
+
     if (!commissions || commissions.length === 0) {
       return [];
     }
 
     // Get unique member IDs, agent IDs, and enrollment IDs for batch lookup
-    const memberIds = [...new Set(commissions.map(c => c.member_id).filter(Boolean))];
-    const agentIds = [...new Set(commissions.map(c => c.agent_id).filter(Boolean))];
-    const enrollmentIds = [...new Set(commissions.map(c => c.enrollment_id).filter(Boolean))];
+    const memberIds = [
+      ...new Set(commissions.map((c) => c.member_id).filter(Boolean)),
+    ];
+    const agentIds = [
+      ...new Set(commissions.map((c) => c.agent_id).filter(Boolean)),
+    ];
+    const enrollmentIds = [
+      ...new Set(commissions.map((c) => c.enrollment_id).filter(Boolean)),
+    ];
     const numericMemberIds = memberIds
-      .map(id => parseInt(String(id), 10))
-      .filter(id => Number.isFinite(id));
+      .map((id) => parseInt(String(id), 10))
+      .filter((id) => Number.isFinite(id));
     const syntheticGroupMemberIds = memberIds
       .map((id) => extractSyntheticGroupMemberId(id))
       .filter((id): id is number => Number.isFinite(id as number));
     const numericEnrollmentIds = enrollmentIds
-      .map(id => parseInt(String(id), 10))
-      .filter(id => Number.isFinite(id));
+      .map((id) => parseInt(String(id), 10))
+      .filter((id) => Number.isFinite(id));
 
     // Batch fetch members data from members table (primary source for enrollees)
-    const { data: members, error: membersError } = numericMemberIds.length > 0
-      ? await supabase
-        .from('members')
-        .select('id, first_name, last_name, email, customer_number, coverage_type')
-        .in('id', numericMemberIds)
-      : { data: [], error: null };
+    const { data: members, error: membersError } =
+      numericMemberIds.length > 0
+        ? await supabase
+            .from("members")
+            .select(
+              "id, first_name, last_name, email, customer_number, coverage_type",
+            )
+            .in("id", numericMemberIds)
+        : { data: [], error: null };
 
     if (membersError) {
-      console.warn('[Storage] Could not fetch member details:', membersError);
+      console.warn("[Storage] Could not fetch member details:", membersError);
     }
 
-    const { data: groupMembers, error: groupMembersError } = syntheticGroupMemberIds.length > 0
-      ? await supabase
-        .from('group_members')
-        .select('id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload')
-        .in('id', syntheticGroupMemberIds)
-      : { data: [], error: null };
+    const { data: groupMembers, error: groupMembersError } =
+      syntheticGroupMemberIds.length > 0
+        ? await supabase
+            .from("group_members")
+            .select(
+              "id, group_id, first_name, last_name, email, member_id, total_amount, tier, metadata, registration_payload",
+            )
+            .in("id", syntheticGroupMemberIds)
+        : { data: [], error: null };
 
     if (groupMembersError) {
-      console.warn('[Storage] Could not fetch group member details:', groupMembersError);
+      console.warn(
+        "[Storage] Could not fetch group member details:",
+        groupMembersError,
+      );
     }
 
-    const groupIds = [...new Set(
-      (groupMembers || [])
-        .map((gm: any) => gm?.group_id)
-        .filter((id: any) => Number.isFinite(Number(id)))
-        .map((id: any) => Number(id))
-    )];
+    const groupIds = [
+      ...new Set(
+        (groupMembers || [])
+          .map((gm: any) => gm?.group_id)
+          .filter((id: any) => Number.isFinite(Number(id)))
+          .map((id: any) => Number(id)),
+      ),
+    ];
 
-    const { data: groups, error: groupsError } = groupIds.length > 0
-      ? await supabase
-        .from('groups')
-        .select('id, name')
-        .in('id', groupIds)
-      : { data: [], error: null };
+    const { data: groups, error: groupsError } =
+      groupIds.length > 0
+        ? await supabase.from("groups").select("id, name").in("id", groupIds)
+        : { data: [], error: null };
 
     if (groupsError) {
-      console.warn('[Storage] Could not fetch groups for group member details:', groupsError);
+      console.warn(
+        "[Storage] Could not fetch groups for group member details:",
+        groupsError,
+      );
     }
 
     // Batch fetch agents data from users table (agents/admins/super_admins)
     const { data: agents, error: agentsError } = await supabase
-      .from('users')
-      .select('id, email, first_name, last_name, role, agent_number')
-      .in('id', agentIds);
+      .from("users")
+      .select("id, email, first_name, last_name, role, agent_number")
+      .in("id", agentIds);
 
     if (agentsError) {
-      console.warn('[Storage] Could not fetch agent details:', agentsError);
+      console.warn("[Storage] Could not fetch agent details:", agentsError);
     }
 
     // Batch fetch subscription/enrollment data for plan info
-    const { data: enrollments, error: enrollmentsError } = numericEnrollmentIds.length > 0
-      ? await supabase
-        .from('subscriptions')
-        .select(`
+    const { data: enrollments, error: enrollmentsError } =
+      numericEnrollmentIds.length > 0
+        ? await supabase
+            .from("subscriptions")
+            .select(
+              `
           id,
           plan_id,
           member_id,
           user_id,
           plans:plans(name)
-        `)
-        .in('id', numericEnrollmentIds)
-      : { data: [], error: null };
+        `,
+            )
+            .in("id", numericEnrollmentIds)
+        : { data: [], error: null };
 
     if (enrollmentsError) {
-      console.warn('[Storage] Could not fetch enrollment details:', enrollmentsError);
+      console.warn(
+        "[Storage] Could not fetch enrollment details:",
+        enrollmentsError,
+      );
     }
 
     // Create lookup maps
-    const membersMap = new Map((members || []).map(m => [m.id.toString(), m]));
-    const agentsMap = new Map((agents || []).map(a => [a.id, a]));
-    const enrollmentsMap = new Map((enrollments || []).map(e => [e.id.toString(), e]));
+    const membersMap = new Map(
+      (members || []).map((m) => [m.id.toString(), m]),
+    );
+    const agentsMap = new Map((agents || []).map((a) => [a.id, a]));
+    const enrollmentsMap = new Map(
+      (enrollments || []).map((e) => [e.id.toString(), e]),
+    );
     const groupMembersMap = new Map(
       (groupMembers || [])
         .filter((gm: any) => gm?.id !== undefined && gm?.id !== null)
-        .map((gm: any) => [`group_member:${gm.id}`, gm])
+        .map((gm: any) => [`group_member:${gm.id}`, gm]),
     );
     const groupsMap = new Map(
       (groups || [])
         .filter((g: any) => g?.id !== undefined && g?.id !== null)
-        .map((g: any) => [Number(g.id), g])
+        .map((g: any) => [Number(g.id), g]),
     );
-    
+
     // Format for frontend - enhanced for admin view
-    const formatted = commissions.map(commission => {
-      const memberKey = commission?.member_id !== undefined && commission?.member_id !== null
-        ? commission.member_id.toString()
-        : undefined;
-      const enrollmentKey = commission?.enrollment_id !== undefined && commission?.enrollment_id !== null
-        ? commission.enrollment_id.toString()
-        : undefined;
+    const formatted = commissions.map((commission) => {
+      const memberKey =
+        commission?.member_id !== undefined && commission?.member_id !== null
+          ? commission.member_id.toString()
+          : undefined;
+      const enrollmentKey =
+        commission?.enrollment_id !== undefined &&
+        commission?.enrollment_id !== null
+          ? commission.enrollment_id.toString()
+          : undefined;
 
       const member = memberKey ? membersMap.get(memberKey) : undefined;
       const agent = agentsMap.get(commission.agent_id);
-      const enrollment = enrollmentKey ? enrollmentsMap.get(enrollmentKey) : undefined;
-      const groupMember = memberKey ? groupMembersMap.get(memberKey.toLowerCase()) : undefined;
+      const enrollment = enrollmentKey
+        ? enrollmentsMap.get(enrollmentKey)
+        : undefined;
+      const groupMember = memberKey
+        ? groupMembersMap.get(memberKey.toLowerCase())
+        : undefined;
       const plan = enrollment?.plans;
-      const businessCategory = resolveCommissionBusinessCategory(member, commission);
+      const businessCategory = resolveCommissionBusinessCategory(
+        member,
+        commission,
+      );
 
       // Build plan display name (e.g., "MPP Base - Member Only", "MPP Plus - Member/Child")
-      const isGroupCommission = Boolean(groupMember) || businessCategory === 'group';
-      const noteMembershipFee = parseFloat(extractNoteToken(commission.notes, 'membershipFee') || '0') || 0;
+      const isGroupCommission =
+        Boolean(groupMember) || businessCategory === "group";
+      const noteMembershipFee =
+        parseFloat(
+          extractNoteToken(commission.notes, "membershipFee") || "0",
+        ) || 0;
       const membershipFee = isGroupCommission
-        ? parseFloat(String(groupMember?.total_amount || noteMembershipFee || commission.base_premium || 0)) || 0
+        ? parseFloat(
+            String(
+              groupMember?.total_amount ||
+                noteMembershipFee ||
+                commission.base_premium ||
+                0,
+            ),
+          ) || 0
         : parseFloat(String(commission.base_premium || 0)) || 0;
-      const noteMemberType = extractNoteToken(commission.notes, 'memberType') || extractNoteToken(commission.notes, 'type');
-      const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship || noteMemberType);
-      const notePlan = extractNoteToken(commission.notes, 'plan');
-      const inferredPlanName = normalizeGroupPlanName(notePlan, membershipFee, groupMemberType);
-      const planTier = 'Base';
-      const planName = isGroupCommission ? inferredPlanName : (plan?.name || 'MyPremierPlan');
+      const noteMemberType =
+        extractNoteToken(commission.notes, "memberType") ||
+        extractNoteToken(commission.notes, "type");
+      const groupMemberType = toCommissionMemberType(
+        groupMember?.tier || groupMember?.relationship || noteMemberType,
+      );
+      const notePlan = extractNoteToken(commission.notes, "plan");
+      const inferredPlanName = normalizeGroupPlanName(
+        notePlan,
+        membershipFee,
+        groupMemberType,
+      );
+      const planTier = "Base";
+      const planName = isGroupCommission
+        ? inferredPlanName
+        : plan?.name || "MyPremierPlan";
       const coverageType = isGroupCommission
         ? groupMemberType
-        : (member?.coverage_type || 'Member Only');
-      const planDisplay = isGroupCommission ? planName : `${planTier} - ${coverageType}`;
+        : member?.coverage_type || "Member Only";
+      const planDisplay = isGroupCommission
+        ? planName
+        : `${planTier} - ${coverageType}`;
       const groupName = isGroupCommission
         ? String(
-            (groupMember?.group_id ? (groupsMap.get(Number(groupMember.group_id)) as any)?.name : '')
-            || extractNoteToken(commission.notes, 'groupName')
-            || extractNoteToken(commission.notes, 'group')
-            || ''
+            (groupMember?.group_id
+              ? (groupsMap.get(Number(groupMember.group_id)) as any)?.name
+              : "") ||
+              extractNoteToken(commission.notes, "groupName") ||
+              extractNoteToken(commission.notes, "group") ||
+              "",
           ).trim()
-        : '';
+        : "";
       const resolvedMemberName = isGroupCommission
-        ? `${groupMember?.first_name || ''} ${groupMember?.last_name || ''}`.trim() || (groupMember?.email || `Group Employee ${commission.member_id || ''}`.trim())
-        : (member?.first_name && member?.last_name
+        ? `${groupMember?.first_name || ""} ${groupMember?.last_name || ""}`.trim() ||
+          groupMember?.email ||
+          `Group Employee ${commission.member_id || ""}`.trim()
+        : member?.first_name && member?.last_name
           ? `${member.first_name} ${member.last_name} (${member.customer_number || commission.member_id})`
-          : member?.email || `Member ${commission.member_id}`);
+          : member?.email || `Member ${commission.member_id}`;
       const resolvedMemberId = isGroupCommission
-        ? String(groupMember?.member_id || '')
-        : String(commission.member_id || '');
+        ? String(groupMember?.member_id || "")
+        : String(commission.member_id || "");
       const resolvedMembershipId = isGroupCommission
-        ? String(groupMember?.member_id || '')
-        : String(member?.customer_number || commission.member_id || '');
-      const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+        ? String(groupMember?.member_id || "")
+        : String(member?.customer_number || commission.member_id || "");
+      const splitPercent = parseFloat(
+        extractNoteToken(commission.notes, "split") || "100",
+      );
       const registrationPayload = (groupMember as any)?.registration_payload;
       const groupMetadata = (groupMember as any)?.metadata;
-      const addRxValet = resolvePbmFromNotesAndSources(commission.notes, registrationPayload, groupMetadata);
+      const addRxValet = resolvePbmFromNotesAndSources(
+        commission.notes,
+        registrationPayload,
+        groupMetadata,
+      );
       const memberTypeForCommission = isGroupCommission
         ? groupMemberType
-        : toCommissionMemberType(member?.coverage_type || commission.coverage_type || noteMemberType);
-      const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
-        planName,
-        memberType: memberTypeForCommission,
-        addRxValet,
-        splitPercent,
-        membershipFee,
-        forceCalculated: isGroupCommission,
-      });
+        : toCommissionMemberType(
+            member?.coverage_type || commission.coverage_type || noteMemberType,
+          );
+      const normalizedCommissionAmount = resolveCommissionAmountForReport(
+        commission,
+        {
+          planName,
+          memberType: memberTypeForCommission,
+          addRxValet,
+          splitPercent,
+          membershipFee,
+          forceCalculated: isGroupCommission,
+        },
+      );
 
       return {
         id: commission.id,
         agentId: commission.agent_id,
-        agentNumber: commission.agent_number || agent?.agent_number || 'N/A',
+        agentNumber: commission.agent_number || agent?.agent_number || "N/A",
         memberId: resolvedMemberId,
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         lineageSnapshotId: commission.lineage_snapshot_id || null,
         commissionAmount: normalizedCommissionAmount,
-        coverageType: commission.coverage_type || 'other',
-        status: commission.status || 'pending',
-        paymentStatus: commission.payment_status || 'unpaid',
+        coverageType: commission.coverage_type || "other",
+        status: commission.status || "pending",
+        paymentStatus: commission.payment_status || "unpaid",
         basePremium: membershipFee,
         membershipFee,
         groupName,
-        notes: commission.notes || '',
+        notes: commission.notes || "",
         createdAt: commission.created_at,
         updatedAt: commission.updated_at,
         paymentDate: commission.paid_date,
         // Member information
-        memberEmail: isGroupCommission ? (groupMember?.email || '') : (member?.email || ''),
+        memberEmail: isGroupCommission
+          ? groupMember?.email || ""
+          : member?.email || "",
         memberName: resolvedMemberName,
-        memberFirstName: isGroupCommission ? (groupMember?.first_name || '') : (member?.first_name || ''),
-        memberLastName: isGroupCommission ? (groupMember?.last_name || '') : (member?.last_name || ''),
+        memberFirstName: isGroupCommission
+          ? groupMember?.first_name || ""
+          : member?.first_name || "",
+        memberLastName: isGroupCommission
+          ? groupMember?.last_name || ""
+          : member?.last_name || "",
         // Agent information
-        agentEmail: agent?.email || '',
-        agentName: agent?.first_name && agent?.last_name 
-          ? `${agent.first_name} ${agent.last_name}` 
-          : agent?.email || 'Unknown Agent',
-        agentFirstName: agent?.first_name || '',
-        agentLastName: agent?.last_name || '',
-        agentPhone: agent?.phone || '',
-        agentAddress: agent?.address || '',
-        agentAddress2: agent?.address2 || '',
-        agentCity: agent?.city || '',
-        agentState: agent?.state || '',
-        agentZipCode: agent?.zip_code || '',
+        agentEmail: agent?.email || "",
+        agentName:
+          agent?.first_name && agent?.last_name
+            ? `${agent.first_name} ${agent.last_name}`
+            : agent?.email || "Unknown Agent",
+        agentFirstName: agent?.first_name || "",
+        agentLastName: agent?.last_name || "",
+        agentPhone: agent?.phone || "",
+        agentAddress: agent?.address || "",
+        agentAddress2: agent?.address2 || "",
+        agentCity: agent?.city || "",
+        agentState: agent?.state || "",
+        agentZipCode: agent?.zip_code || "",
         // Plan information
         planTier: planTier,
         planType: coverageType,
@@ -4515,64 +5737,73 @@ export async function getAllCommissionsNew(startDate?: string, endDate?: string)
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         planPrice: membershipFee,
         totalPlanCost: membershipFee,
-        effectiveDate: isGroupCommission ? (commission.created_at || null) : (member?.membership_start_date || commission.created_at || null),
-        userName: resolvedMemberName
+        effectiveDate: isGroupCommission
+          ? commission.created_at || null
+          : member?.membership_start_date || commission.created_at || null,
+        userName: resolvedMemberName,
       };
     });
 
-    console.log('[Storage] Sample formatted admin commission:', {
+    console.log("[Storage] Sample formatted admin commission:", {
       id: formatted[0]?.id,
       commissionAmount: formatted[0]?.commissionAmount,
       agentName: formatted[0]?.agentName,
-      memberName: formatted[0]?.memberName
+      memberName: formatted[0]?.memberName,
     });
 
     return formatted;
   } catch (error: any) {
-    console.error('[Storage] Error in getAllCommissionsNew:', error);
+    console.error("[Storage] Error in getAllCommissionsNew:", error);
     throw new Error(`Failed to get all commissions: ${error.message}`);
   }
 }
 
-export async function markCommissionsAsPaid(commissionIds: string[], paymentDate?: string): Promise<void> {
+export async function markCommissionsAsPaid(
+  commissionIds: string[],
+  paymentDate?: string,
+): Promise<void> {
   try {
-    throw new Error('Legacy direct-pay workflow disabled. Use ledger batch workflow only.');
+    throw new Error(
+      "Legacy direct-pay workflow disabled. Use ledger batch workflow only.",
+    );
 
-    console.log('[Storage] markCommissionsAsPaid - Input:', { 
-      commissionIds, 
+    console.log("[Storage] markCommissionsAsPaid - Input:", {
+      commissionIds,
       paymentDate,
       idsType: typeof commissionIds,
-      firstIdType: typeof commissionIds[0]
+      firstIdType: typeof commissionIds[0],
     });
 
     // Validate that we have commission IDs
     if (!commissionIds || commissionIds.length === 0) {
-      throw new Error('No commission IDs provided');
+      throw new Error("No commission IDs provided");
     }
 
-    console.log('[Storage] Commission IDs to update:', commissionIds);
+    console.log("[Storage] Commission IDs to update:", commissionIds);
 
     const updateData = {
-      payment_status: 'paid',
-      paid_date: paymentDate || new Date().toISOString()
+      payment_status: "paid",
+      paid_date: paymentDate || new Date().toISOString(),
     };
 
-    console.log('[Storage] Update payload:', updateData);
-    
+    console.log("[Storage] Update payload:", updateData);
+
     const { data, error } = await supabase
-      .from('agent_commissions')
+      .from("agent_commissions")
       .update(updateData)
-      .in('id', commissionIds)
+      .in("id", commissionIds)
       .select();
 
     if (error) {
-      console.error('[Storage] Supabase error:', error);
+      console.error("[Storage] Supabase error:", error);
       throw new Error(`Failed to mark commissions as paid: ${error.message}`);
     }
 
-    console.log(`[Storage] Marked ${commissionIds.length} commission(s) as paid, updated ${data?.length || 0} rows`);
+    console.log(
+      `[Storage] Marked ${commissionIds.length} commission(s) as paid, updated ${data?.length || 0} rows`,
+    );
   } catch (error: any) {
-    console.error('[Storage] Error in markCommissionsAsPaid:', error);
+    console.error("[Storage] Error in markCommissionsAsPaid:", error);
     throw new Error(`Failed to mark commissions as paid: ${error.message}`);
   }
 }
@@ -4580,24 +5811,31 @@ export async function markCommissionsAsPaid(commissionIds: string[], paymentDate
 export async function updateCommissionPayoutStatus(
   commissionId: string,
   payoutData: {
-    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentStatus: "paid" | "pending" | "unpaid";
     paymentDate?: string;
     notes?: string;
-  }
+  },
 ): Promise<any> {
   try {
-    throw new Error('Legacy direct payout mutation disabled. Use ledger batch workflow only.');
+    throw new Error(
+      "Legacy direct payout mutation disabled. Use ledger batch workflow only.",
+    );
 
-    console.log('[Storage] Updating commission payout status:', commissionId, payoutData);
+    console.log(
+      "[Storage] Updating commission payout status:",
+      commissionId,
+      payoutData,
+    );
 
     const updatePayload: any = {
       payment_status: payoutData.paymentStatus,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
 
     // If marking as paid, set the payment date
-    if (payoutData.paymentStatus === 'paid') {
-      updatePayload.paid_date = payoutData.paymentDate || new Date().toISOString();
+    if (payoutData.paymentStatus === "paid") {
+      updatePayload.paid_date =
+        payoutData.paymentDate || new Date().toISOString();
     }
 
     // Add notes if provided
@@ -4606,34 +5844,44 @@ export async function updateCommissionPayoutStatus(
     }
 
     const { data, error } = await supabase
-      .from('agent_commissions')
+      .from("agent_commissions")
       .update(updatePayload)
-      .eq('id', commissionId)
+      .eq("id", commissionId)
       .select();
 
     if (error) {
-      throw new Error(`Failed to update commission payout status: ${error.message}`);
+      throw new Error(
+        `Failed to update commission payout status: ${error.message}`,
+      );
     }
 
-    console.log('[Storage] Commission payout status updated successfully');
+    console.log("[Storage] Commission payout status updated successfully");
     return data?.[0] || null;
   } catch (error: any) {
-    console.error('[Storage] Error in updateCommissionPayoutStatus:', error);
-    throw new Error(`Failed to update commission payout status: ${error.message}`);
+    console.error("[Storage] Error in updateCommissionPayoutStatus:", error);
+    throw new Error(
+      `Failed to update commission payout status: ${error.message}`,
+    );
   }
 }
 
 export async function updateMultipleCommissionPayouts(
   updates: Array<{
     commissionId: string;
-    paymentStatus: 'paid' | 'pending' | 'unpaid';
+    paymentStatus: "paid" | "pending" | "unpaid";
     paymentDate?: string;
-  }>
+  }>,
 ): Promise<void> {
   try {
-    throw new Error('Legacy batch payout mutation disabled. Use ledger batch workflow only.');
+    throw new Error(
+      "Legacy batch payout mutation disabled. Use ledger batch workflow only.",
+    );
 
-    console.log('[Storage] Batch updating commission payouts for', updates.length, 'commissions');
+    console.log(
+      "[Storage] Batch updating commission payouts for",
+      updates.length,
+      "commissions",
+    );
 
     // Process updates in batches of 100 to avoid hitting rate limits
     const batchSize = 100;
@@ -4642,42 +5890,47 @@ export async function updateMultipleCommissionPayouts(
 
       // Update each commission individually (Supabase doesn't support batch conditional updates)
       await Promise.all(
-        batch.map(update => {
+        batch.map((update) => {
           const updatePayload: any = {
             payment_status: update.paymentStatus,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           };
 
-          if (update.paymentStatus === 'paid') {
-            updatePayload.paid_date = update.paymentDate || new Date().toISOString();
+          if (update.paymentStatus === "paid") {
+            updatePayload.paid_date =
+              update.paymentDate || new Date().toISOString();
           }
 
           return supabase
-            .from('agent_commissions')
+            .from("agent_commissions")
             .update(updatePayload)
-            .eq('id', update.commissionId);
-        })
+            .eq("id", update.commissionId);
+        }),
       );
     }
 
-    console.log('[Storage] Batch payout update completed');
+    console.log("[Storage] Batch payout update completed");
   } catch (error: any) {
-    console.error('[Storage] Error in updateMultipleCommissionPayouts:', error);
-    throw new Error(`Failed to batch update commission payouts: ${error.message}`);
+    console.error("[Storage] Error in updateMultipleCommissionPayouts:", error);
+    throw new Error(
+      `Failed to batch update commission payouts: ${error.message}`,
+    );
   }
 }
 
 export async function getCommissionsForPayout(
   agentId?: string,
   paymentStatus?: string,
-  minAmount?: number
+  minAmount?: number,
 ): Promise<any[]> {
   try {
-    console.log('[Storage] Fetching commissions for payout:', { agentId, paymentStatus, minAmount });
+    console.log("[Storage] Fetching commissions for payout:", {
+      agentId,
+      paymentStatus,
+      minAmount,
+    });
 
-    let query = supabase
-      .from('agent_commissions')
-      .select(`
+    let query = supabase.from("agent_commissions").select(`
         id,
         agent_id,
         member_id,
@@ -4694,14 +5947,16 @@ export async function getCommissionsForPayout(
       `);
 
     if (agentId) {
-      query = query.eq('agent_id', agentId);
+      query = query.eq("agent_id", agentId);
     }
 
     if (paymentStatus) {
-      query = query.eq('payment_status', paymentStatus);
+      query = query.eq("payment_status", paymentStatus);
     }
 
-    const { data: commissions, error } = await query.order('created_at', { ascending: false });
+    const { data: commissions, error } = await query.order("created_at", {
+      ascending: false,
+    });
 
     if (error) {
       throw new Error(`Failed to get commissions for payout: ${error.message}`);
@@ -4710,25 +5965,31 @@ export async function getCommissionsForPayout(
     // Filter by minimum amount if specified
     let filtered = commissions || [];
     if (minAmount) {
-      filtered = filtered.filter(c => parseFloat(c.commission_amount || '0') >= minAmount);
+      filtered = filtered.filter(
+        (c) => parseFloat(c.commission_amount || "0") >= minAmount,
+      );
     }
 
     // Get agent and member details
-    const agentIds = [...new Set(filtered.map((c: any) => c.agent_id).filter(Boolean))];
-    const memberIds = [...new Set(filtered.map((c: any) => c.member_id).filter(Boolean))];
+    const agentIds = [
+      ...new Set(filtered.map((c: any) => c.agent_id).filter(Boolean)),
+    ];
+    const memberIds = [
+      ...new Set(filtered.map((c: any) => c.member_id).filter(Boolean)),
+    ];
 
     const { data: agents } = await supabase
-      .from('users')
-      .select('id, first_name, last_name, email')
-      .in('id', agentIds);
+      .from("users")
+      .select("id, first_name, last_name, email")
+      .in("id", agentIds);
 
     const { data: members } = await supabase
-      .from('users')
-      .select('id, first_name, last_name, email')
-      .in('id', memberIds);
+      .from("users")
+      .select("id, first_name, last_name, email")
+      .in("id", memberIds);
 
-    const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
-    const membersMap = new Map(members?.map(m => [m.id, m]) || []);
+    const agentsMap = new Map(agents?.map((a) => [a.id, a]) || []);
+    const membersMap = new Map(members?.map((m) => [m.id, m]) || []);
 
     // Enhance with agent and member details
     const enhanced = filtered.map((commission: any) => {
@@ -4737,32 +5998,34 @@ export async function getCommissionsForPayout(
 
       return {
         ...commission,
-        commissionAmount: parseFloat(commission.commission_amount || '0'),
-        agentName: agent?.first_name && agent?.last_name 
-          ? `${agent.first_name} ${agent.last_name}` 
-          : agent?.email || 'Unknown',
-        agentEmail: agent?.email || '',
-        memberName: member?.first_name && member?.last_name 
-          ? `${member.first_name} ${member.last_name}` 
-          : member?.email || 'Unknown',
-        memberEmail: member?.email || '',
-        formattedAmount: `$${parseFloat(commission.commission_amount || '0').toFixed(2)}`,
-        isPaid: commission.payment_status === 'paid'
+        commissionAmount: parseFloat(commission.commission_amount || "0"),
+        agentName:
+          agent?.first_name && agent?.last_name
+            ? `${agent.first_name} ${agent.last_name}`
+            : agent?.email || "Unknown",
+        agentEmail: agent?.email || "",
+        memberName:
+          member?.first_name && member?.last_name
+            ? `${member.first_name} ${member.last_name}`
+            : member?.email || "Unknown",
+        memberEmail: member?.email || "",
+        formattedAmount: `$${parseFloat(commission.commission_amount || "0").toFixed(2)}`,
+        isPaid: commission.payment_status === "paid",
       };
     });
 
-    console.log('[Storage] Found', enhanced.length, 'commissions for payout');
+    console.log("[Storage] Found", enhanced.length, "commissions for payout");
     return enhanced;
   } catch (error: any) {
-    console.error('[Storage] Error in getCommissionsForPayout:', error);
+    console.error("[Storage] Error in getCommissionsForPayout:", error);
     throw new Error(`Failed to get commissions for payout: ${error.message}`);
   }
 }
 
 export async function markCommissionPaymentCaptured(
-  memberId: string, 
+  memberId: string,
   paymentIntentId: string,
-  transactionId?: string
+  transactionId?: string,
 ): Promise<void> {
   try {
     // Calculate eligible payout date (14 days from now)
@@ -4770,55 +6033,66 @@ export async function markCommissionPaymentCaptured(
     const eligibleDate = new Date(capturedAt);
     eligibleDate.setDate(eligibleDate.getDate() + 14);
 
-    const { error} = await supabase
-      .from('agent_commissions')
+    const { error } = await supabase
+      .from("agent_commissions")
       .update({
         payment_captured: true,
         payment_intent_id: paymentIntentId,
         payment_captured_at: capturedAt.toISOString(),
         eligible_for_payout_at: eligibleDate.toISOString(),
-        status: 'approved', // Move from pending to approved once payment captured
-        updated_at: new Date().toISOString()
+        status: "approved", // Move from pending to approved once payment captured
+        updated_at: new Date().toISOString(),
       })
-      .eq('member_id', memberId)
-      .eq('payment_captured', false); // Only update if not already captured
+      .eq("member_id", memberId)
+      .eq("payment_captured", false); // Only update if not already captured
 
     if (error) {
-      console.error('[Storage] Error marking commission payment as captured:', error);
-      throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+      console.error(
+        "[Storage] Error marking commission payment as captured:",
+        error,
+      );
+      throw new Error(
+        `Failed to mark commission payment as captured: ${error.message}`,
+      );
     }
 
-    console.log(`[Storage] ✅ Commission payment captured for member ${memberId}, eligible for payout on ${eligibleDate.toISOString().split('T')[0]}`);
+    console.log(
+      `[Storage] ✅ Commission payment captured for member ${memberId}, eligible for payout on ${eligibleDate.toISOString().split("T")[0]}`,
+    );
   } catch (error: any) {
-    console.error('[Storage] Error in markCommissionPaymentCaptured:', error);
-    throw new Error(`Failed to mark commission payment as captured: ${error.message}`);
+    console.error("[Storage] Error in markCommissionPaymentCaptured:", error);
+    throw new Error(
+      `Failed to mark commission payment as captured: ${error.message}`,
+    );
   }
 }
 
 export async function clawbackCommission(
   commissionId: string,
-  reason: string
+  reason: string,
 ): Promise<void> {
   try {
     const { error } = await supabase
-      .from('agent_commissions')
+      .from("agent_commissions")
       .update({
         is_clawed_back: true,
         clawback_reason: reason,
         clawback_date: new Date().toISOString(),
-        payment_status: 'unpaid', // Revert to unpaid
-        status: 'cancelled', // Mark as cancelled
-        updated_at: new Date().toISOString()
+        payment_status: "unpaid", // Revert to unpaid
+        status: "cancelled", // Mark as cancelled
+        updated_at: new Date().toISOString(),
       })
-      .eq('id', commissionId);
+      .eq("id", commissionId);
 
     if (error) {
       throw new Error(`Failed to clawback commission: ${error.message}`);
     }
 
-    console.log(`[Storage] ⚠️  Commission ${commissionId} clawed back: ${reason}`);
+    console.log(
+      `[Storage] ⚠️  Commission ${commissionId} clawed back: ${reason}`,
+    );
   } catch (error: any) {
-    console.error('[Storage] Error in clawbackCommission:', error);
+    console.error("[Storage] Error in clawbackCommission:", error);
     throw new Error(`Failed to clawback commission: ${error.message}`);
   }
 }
@@ -4829,8 +6103,9 @@ export async function getAgentHierarchy(): Promise<any[]> {
     // as structural uplines without receiving override commissions.
     // Avoid PostgREST relational join on upline — RLS on production can block it.
     const { data, error } = await supabase
-      .from('users')
-      .select(`
+      .from("users")
+      .select(
+        `
         id,
         email,
         role,
@@ -4841,11 +6116,12 @@ export async function getAgentHierarchy(): Promise<any[]> {
         override_commission_rate,
         hierarchy_level,
         can_receive_overrides
-      `)
-      .in('role', ['agent', 'admin', 'super_admin'])
-      .eq('is_active', true)
-      .order('hierarchy_level', { ascending: true })
-      .order('agent_number', { ascending: true });
+      `,
+      )
+      .in("role", ["agent", "admin", "super_admin"])
+      .eq("is_active", true)
+      .order("hierarchy_level", { ascending: true })
+      .order("agent_number", { ascending: true });
 
     if (error) {
       throw new Error(`Failed to get agent hierarchy: ${error.message}`);
@@ -4853,96 +6129,145 @@ export async function getAgentHierarchy(): Promise<any[]> {
 
     // Build a map of id → email for upline lookups (avoids relational join RLS issues)
     const emailMap: Record<string, string> = {};
-    (data || []).forEach((u: any) => { emailMap[u.id] = u.email; });
+    (data || []).forEach((u: any) => {
+      emailMap[u.id] = u.email;
+    });
 
     // Get downline counts for each user
-    const agentsWithCounts = await Promise.all((data || []).map(async (agent: any) => {
-      const { count } = await supabase
-        .from('users')
-        .select('id', { count: 'exact', head: true })
-        .eq('upline_agent_id', agent.id);
+    const agentsWithCounts = await Promise.all(
+      (data || []).map(async (agent: any) => {
+        const { count } = await supabase
+          .from("users")
+          .select("id", { count: "exact", head: true })
+          .eq("upline_agent_id", agent.id);
 
-      const isAdmin = agent.role === 'admin' || agent.role === 'super_admin';
-      return {
-        id: agent.id,
-        email: agent.email,
-        role: agent.role,
-        firstName: agent.first_name,
-        lastName: agent.last_name,
-        agentNumber: agent.agent_number,
-        uplineAgentId: agent.upline_agent_id,
-        uplineEmail: agent.upline_agent_id ? emailMap[agent.upline_agent_id] : undefined,
-        overrideCommissionRate: parseFloat(agent.override_commission_rate || '0'),
-        hierarchyLevel: agent.hierarchy_level || 0,
-        canReceiveOverrides: agent.can_receive_overrides || false,
-        overrideSuppressed: isAdmin,
-        downlineCount: count || 0
-      };
-    }));
+        const isAdmin = agent.role === "admin" || agent.role === "super_admin";
+        return {
+          id: agent.id,
+          email: agent.email,
+          role: agent.role,
+          firstName: agent.first_name,
+          lastName: agent.last_name,
+          agentNumber: agent.agent_number,
+          uplineAgentId: agent.upline_agent_id,
+          uplineEmail: agent.upline_agent_id
+            ? emailMap[agent.upline_agent_id]
+            : undefined,
+          overrideCommissionRate: parseFloat(
+            agent.override_commission_rate || "0",
+          ),
+          hierarchyLevel: agent.hierarchy_level || 0,
+          canReceiveOverrides: agent.can_receive_overrides || false,
+          overrideSuppressed: isAdmin,
+          downlineCount: count || 0,
+        };
+      }),
+    );
 
     return agentsWithCounts;
   } catch (error: any) {
-    console.error('[Storage] Error in getAgentHierarchy:', error);
+    console.error("[Storage] Error in getAgentHierarchy:", error);
     throw new Error(`Failed to get agent hierarchy: ${error.message}`);
   }
 }
 
-const HIERARCHY_ASSIGNABLE_ROLES = ['agent', 'admin', 'super_admin'];
+const HIERARCHY_ASSIGNABLE_ROLES = ["agent", "admin", "super_admin"];
 
 const normalizeHierarchyOverrideAmount = (value: unknown): number => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new HierarchyValidationError('Override amount must be a non-negative number', 400, 'INVALID_OVERRIDE_AMOUNT');
+    throw new HierarchyValidationError(
+      "Override amount must be a non-negative number",
+      400,
+      "INVALID_OVERRIDE_AMOUNT",
+    );
   }
   return Math.round(parsed * 100) / 100;
 };
 
-async function getHierarchyUserForValidation(userId: string): Promise<any | null> {
+async function getHierarchyUserForValidation(
+  userId: string,
+): Promise<any | null> {
   const { data, error } = await supabase
-    .from('users')
-    .select('id, role, is_active, upline_agent_id, override_commission_rate')
-    .eq('id', userId)
+    .from("users")
+    .select("id, role, is_active, upline_agent_id, override_commission_rate")
+    .eq("id", userId)
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to load hierarchy user (${userId}): ${error.message}`);
+    throw new Error(
+      `Failed to load hierarchy user (${userId}): ${error.message}`,
+    );
   }
 
   return data || null;
 }
 
-async function assertHierarchyMutationActorIsAdmin(changedBy: string): Promise<void> {
+async function assertHierarchyMutationActorIsAdmin(
+  changedBy: string,
+): Promise<void> {
   if (!changedBy || !String(changedBy).trim()) {
-    throw new HierarchyValidationError('Hierarchy change actor is required', 400, 'MISSING_ACTOR');
+    throw new HierarchyValidationError(
+      "Hierarchy change actor is required",
+      400,
+      "MISSING_ACTOR",
+    );
   }
 
   const actor = await getHierarchyUserForValidation(changedBy);
   if (!actor) {
-    throw new HierarchyValidationError('Hierarchy change actor not found', 403, 'ACTOR_NOT_FOUND');
+    throw new HierarchyValidationError(
+      "Hierarchy change actor not found",
+      403,
+      "ACTOR_NOT_FOUND",
+    );
   }
 
   if (!actor.is_active) {
-    throw new HierarchyValidationError('Inactive users cannot modify hierarchy', 403, 'ACTOR_INACTIVE');
+    throw new HierarchyValidationError(
+      "Inactive users cannot modify hierarchy",
+      403,
+      "ACTOR_INACTIVE",
+    );
   }
 
-  if (!['admin', 'super_admin'].includes(String(actor.role || ''))) {
-    throw new HierarchyValidationError('Only admins can modify hierarchy', 403, 'ACTOR_NOT_AUTHORIZED');
+  if (!["admin", "super_admin"].includes(String(actor.role || ""))) {
+    throw new HierarchyValidationError(
+      "Only admins can modify hierarchy",
+      403,
+      "ACTOR_NOT_AUTHORIZED",
+    );
   }
 }
 
-async function assertValidHierarchyAssignment(agentId: string, uplineId: string | null): Promise<void> {
-  const normalizedAgentId = String(agentId || '').trim();
+async function assertValidHierarchyAssignment(
+  agentId: string,
+  uplineId: string | null,
+): Promise<void> {
+  const normalizedAgentId = String(agentId || "").trim();
   if (!normalizedAgentId) {
-    throw new HierarchyValidationError('Agent ID is required', 400, 'MISSING_AGENT_ID');
+    throw new HierarchyValidationError(
+      "Agent ID is required",
+      400,
+      "MISSING_AGENT_ID",
+    );
   }
 
   const agent = await getHierarchyUserForValidation(normalizedAgentId);
   if (!agent) {
-    throw new HierarchyValidationError('Target agent not found', 404, 'AGENT_NOT_FOUND');
+    throw new HierarchyValidationError(
+      "Target agent not found",
+      404,
+      "AGENT_NOT_FOUND",
+    );
   }
 
   if (!agent.is_active) {
-    throw new HierarchyValidationError('Cannot update hierarchy for an inactive user', 400, 'AGENT_INACTIVE');
+    throw new HierarchyValidationError(
+      "Cannot update hierarchy for an inactive user",
+      400,
+      "AGENT_INACTIVE",
+    );
   }
 
   if (!uplineId) {
@@ -4951,20 +6276,36 @@ async function assertValidHierarchyAssignment(agentId: string, uplineId: string 
 
   const normalizedUplineId = String(uplineId).trim();
   if (normalizedUplineId === normalizedAgentId) {
-    throw new HierarchyValidationError('Agents cannot be assigned as their own upline', 400, 'SELF_UPLINE_NOT_ALLOWED');
+    throw new HierarchyValidationError(
+      "Agents cannot be assigned as their own upline",
+      400,
+      "SELF_UPLINE_NOT_ALLOWED",
+    );
   }
 
   const upline = await getHierarchyUserForValidation(normalizedUplineId);
   if (!upline) {
-    throw new HierarchyValidationError('Selected upline does not exist', 404, 'UPLINE_NOT_FOUND');
+    throw new HierarchyValidationError(
+      "Selected upline does not exist",
+      404,
+      "UPLINE_NOT_FOUND",
+    );
   }
 
   if (!upline.is_active) {
-    throw new HierarchyValidationError('Cannot assign an inactive user as upline', 400, 'UPLINE_INACTIVE');
+    throw new HierarchyValidationError(
+      "Cannot assign an inactive user as upline",
+      400,
+      "UPLINE_INACTIVE",
+    );
   }
 
-  if (!HIERARCHY_ASSIGNABLE_ROLES.includes(String(upline.role || ''))) {
-    throw new HierarchyValidationError('Selected upline role is not eligible for hierarchy assignments', 400, 'UPLINE_ROLE_INVALID');
+  if (!HIERARCHY_ASSIGNABLE_ROLES.includes(String(upline.role || ""))) {
+    throw new HierarchyValidationError(
+      "Selected upline role is not eligible for hierarchy assignments",
+      400,
+      "UPLINE_ROLE_INVALID",
+    );
   }
 
   const visited = new Set<string>([normalizedAgentId]);
@@ -4972,7 +6313,11 @@ async function assertValidHierarchyAssignment(agentId: string, uplineId: string 
 
   while (cursorId) {
     if (visited.has(cursorId)) {
-      throw new HierarchyValidationError('Hierarchy update would create a circular reporting chain', 400, 'HIERARCHY_CYCLE_DETECTED');
+      throw new HierarchyValidationError(
+        "Hierarchy update would create a circular reporting chain",
+        400,
+        "HIERARCHY_CYCLE_DETECTED",
+      );
     }
 
     visited.add(cursorId);
@@ -4981,7 +6326,9 @@ async function assertValidHierarchyAssignment(agentId: string, uplineId: string 
       break;
     }
 
-    cursorId = cursorUser.upline_agent_id ? String(cursorUser.upline_agent_id) : null;
+    cursorId = cursorUser.upline_agent_id
+      ? String(cursorUser.upline_agent_id)
+      : null;
   }
 }
 
@@ -4994,9 +6341,9 @@ export async function getAgentHierarchyHealthDiagnostics(): Promise<{
   detectedCycles: string[][];
 }> {
   const { data: users, error } = await supabase
-    .from('users')
-    .select('id, role, is_active, upline_agent_id')
-    .in('role', HIERARCHY_ASSIGNABLE_ROLES);
+    .from("users")
+    .select("id, role, is_active, upline_agent_id")
+    .in("role", HIERARCHY_ASSIGNABLE_ROLES);
 
   if (error) {
     throw new Error(`Failed to load hierarchy diagnostics: ${error.message}`);
@@ -5004,7 +6351,7 @@ export async function getAgentHierarchyHealthDiagnostics(): Promise<{
 
   const nodes = (users || []).map((row: any) => ({
     id: String(row.id),
-    role: String(row.role || ''),
+    role: String(row.role || ""),
     isActive: Boolean(row.is_active),
     uplineId: row.upline_agent_id ? String(row.upline_agent_id) : null,
   }));
@@ -5038,7 +6385,7 @@ export async function getAgentHierarchyHealthDiagnostics(): Promise<{
     while (cursorId) {
       if (pathIndexByNode.has(cursorId)) {
         const cyclePath = path.slice(pathIndexByNode.get(cursorId));
-        const signature = [...cyclePath].sort().join('|');
+        const signature = [...cyclePath].sort().join("|");
         if (!cycleSignatures.has(signature)) {
           cycleSignatures.add(signature);
           detectedCycles.push(cyclePath);
@@ -5073,63 +6420,77 @@ export async function updateAgentHierarchy(
   uplineId: string | null,
   overrideAmount: number,
   changedBy: string,
-  reason?: string
+  reason?: string,
 ): Promise<void> {
   try {
-    const normalizedAgentId = String(agentId || '').trim();
+    const normalizedAgentId = String(agentId || "").trim();
     const normalizedUplineId = uplineId ? String(uplineId).trim() : null;
-    const normalizedOverrideAmount = normalizeHierarchyOverrideAmount(overrideAmount);
-    const normalizedReason = String(reason || '').trim();
+    const normalizedOverrideAmount =
+      normalizeHierarchyOverrideAmount(overrideAmount);
+    const normalizedReason = String(reason || "").trim();
 
     await assertHierarchyMutationActorIsAdmin(changedBy);
     await assertValidHierarchyAssignment(normalizedAgentId, normalizedUplineId);
 
     // Get current upline for history
     const { data: currentAgent } = await supabase
-      .from('users')
-      .select('upline_agent_id, override_commission_rate')
-      .eq('id', normalizedAgentId)
+      .from("users")
+      .select("upline_agent_id, override_commission_rate")
+      .eq("id", normalizedAgentId)
       .single();
 
-    const previousUplineId = currentAgent?.upline_agent_id ? String(currentAgent.upline_agent_id) : null;
-    const previousOverrideAmount = Number(currentAgent?.override_commission_rate || 0);
+    const previousUplineId = currentAgent?.upline_agent_id
+      ? String(currentAgent.upline_agent_id)
+      : null;
+    const previousOverrideAmount = Number(
+      currentAgent?.override_commission_rate || 0,
+    );
 
-    if (previousUplineId === normalizedUplineId && Math.abs(previousOverrideAmount - normalizedOverrideAmount) < 0.00001) {
+    if (
+      previousUplineId === normalizedUplineId &&
+      Math.abs(previousOverrideAmount - normalizedOverrideAmount) < 0.00001
+    ) {
       return;
     }
 
     // Update agent upline and override rate
     const { error: updateError } = await supabase
-      .from('users')
+      .from("users")
       .update({
         upline_agent_id: normalizedUplineId,
         override_commission_rate: normalizedOverrideAmount,
-        can_receive_overrides: !!normalizedUplineId // Can receive overrides if has upline
+        can_receive_overrides: !!normalizedUplineId, // Can receive overrides if has upline
       })
-      .eq('id', normalizedAgentId);
+      .eq("id", normalizedAgentId);
 
     if (updateError) {
-      throw new Error(`Failed to update agent hierarchy: ${updateError.message}`);
+      throw new Error(
+        `Failed to update agent hierarchy: ${updateError.message}`,
+      );
     }
 
     // Record hierarchy change in history
     const { error: historyError } = await supabase
-      .from('agent_hierarchy_history')
+      .from("agent_hierarchy_history")
       .insert({
         agent_id: normalizedAgentId,
         previous_upline_id: currentAgent?.upline_agent_id,
         new_upline_id: normalizedUplineId,
         changed_by_admin_id: changedBy,
-        reason: normalizedReason || 'Manual update'
+        reason: normalizedReason || "Manual update",
       });
 
     if (historyError) {
-      throw new Error(`Failed to record hierarchy history: ${historyError.message}`);
+      throw new Error(
+        `Failed to record hierarchy history: ${historyError.message}`,
+      );
     }
 
-    console.log(`[Storage] ✅ Updated agent hierarchy for ${normalizedAgentId}, new upline: ${normalizedUplineId || 'none'}, override: $${normalizedOverrideAmount}`);
+    console.log(
+      `[Storage] ✅ Updated agent hierarchy for ${normalizedAgentId}, new upline: ${normalizedUplineId || "none"}, override: $${normalizedOverrideAmount}`,
+    );
   } catch (error: any) {
-    console.error('[Storage] Error in updateAgentHierarchy:', error);
+    console.error("[Storage] Error in updateAgentHierarchy:", error);
     if (error instanceof HierarchyValidationError) {
       throw error;
     }
@@ -5141,10 +6502,16 @@ export async function getCommissionTotals(agentId?: string): Promise<{
   mtd: { earned: number; paid: number; pending: number };
   ytd: { earned: number; paid: number; pending: number };
   lifetime: { earned: number; paid: number; pending: number };
-  byAgent?: Array<{ agentId: string; agentName: string; mtd: number; ytd: number; lifetime: number }>;
+  byAgent?: Array<{
+    agentId: string;
+    agentName: string;
+    mtd: number;
+    ytd: number;
+    lifetime: number;
+  }>;
 }> {
   try {
-    console.log('[Storage] Calculating commission totals for agent:', agentId);
+    console.log("[Storage] Calculating commission totals for agent:", agentId);
 
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -5155,20 +6522,45 @@ export async function getCommissionTotals(agentId?: string): Promise<{
     // First day of current year
     const ytdStart = new Date(currentYear, 0, 1).toISOString();
     // Today
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const today = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    ).toISOString();
 
     let query = supabase
-      .from('agent_commissions')
-      .select('commission_amount, payment_status, created_at, agent_id');
+      .from("agent_commissions")
+      .select("commission_amount, payment_status, created_at, agent_id");
 
     if (agentId) {
-      query = query.eq('agent_id', agentId);
+      query = query.eq("agent_id", agentId);
     }
 
-    const { data: allCommissions, error } = await query;
+    const { data: primaryCommissions, error } = await query;
 
     if (error) {
       throw new Error(`Failed to get commission totals: ${error.message}`);
+    }
+
+    let allCommissions = primaryCommissions || [];
+
+    if (agentId && allCommissions.length === 0) {
+      const agent = await getUser(agentId).catch(() => null as any);
+      const fallbackAgentNumber = String(
+        (agent as any)?.agentNumber || (agent as any)?.agent_number || "",
+      ).trim();
+
+      if (fallbackAgentNumber) {
+        const { data: fallbackCommissions, error: fallbackError } =
+          await supabase
+            .from("agent_commissions")
+            .select("commission_amount, payment_status, created_at, agent_id")
+            .eq("agent_number", fallbackAgentNumber);
+
+        if (!fallbackError) {
+          allCommissions = fallbackCommissions || [];
+        }
+      }
     }
 
     // Helper to calculate totals from commissions array
@@ -5178,10 +6570,12 @@ export async function getCommissionTotals(agentId?: string): Promise<{
       let pending = 0;
 
       commissions.forEach((commission: any) => {
-        const amount = parseFloat(commission.commission_amount?.toString() || '0');
+        const amount = parseFloat(
+          commission.commission_amount?.toString() || "0",
+        );
         earned += amount;
-        
-        if (commission.payment_status === 'paid') {
+
+        if (commission.payment_status === "paid") {
           paid += amount;
         } else {
           pending += amount;
@@ -5191,103 +6585,147 @@ export async function getCommissionTotals(agentId?: string): Promise<{
       return {
         earned: parseFloat(earned.toFixed(2)),
         paid: parseFloat(paid.toFixed(2)),
-        pending: parseFloat(pending.toFixed(2))
+        pending: parseFloat(pending.toFixed(2)),
       };
     };
 
     // Filter commissions by date range
-    const mtdCommissions = (allCommissions || []).filter((c: any) => 
-      new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
+    const mtdCommissions = (allCommissions || []).filter(
+      (c: any) =>
+        new Date(c.created_at) >= new Date(mtdStart) &&
+        new Date(c.created_at) <= new Date(today),
     );
 
-    const ytdCommissions = (allCommissions || []).filter((c: any) =>
-      new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
+    const ytdCommissions = (allCommissions || []).filter(
+      (c: any) =>
+        new Date(c.created_at) >= new Date(ytdStart) &&
+        new Date(c.created_at) <= new Date(today),
     );
 
-    console.log('[Storage] MTD commissions:', mtdCommissions.length, 'YTD commissions:', ytdCommissions.length);
+    console.log(
+      "[Storage] MTD commissions:",
+      mtdCommissions.length,
+      "YTD commissions:",
+      ytdCommissions.length,
+    );
 
     const result: any = {
       mtd: calculateTotals(mtdCommissions),
       ytd: calculateTotals(ytdCommissions),
-      lifetime: calculateTotals(allCommissions || [])
+      lifetime: calculateTotals(allCommissions || []),
     };
 
     // If no specific agent requested, also get breakdown by agent
     if (!agentId && allCommissions && allCommissions.length > 0) {
       // Get unique agent IDs
-      const agentIds = [...new Set((allCommissions || []).map(c => c.agent_id).filter(Boolean))];
+      const agentIds = [
+        ...new Set(
+          (allCommissions || []).map((c) => c.agent_id).filter(Boolean),
+        ),
+      ];
 
       // Fetch agent details
       const { data: agents } = await supabase
-        .from('users')
-        .select('id, first_name, last_name')
-        .in('id', agentIds);
+        .from("users")
+        .select("id, first_name, last_name")
+        .in("id", agentIds);
 
-      const agentsMap = new Map(agents?.map(a => [a.id, a]) || []);
+      const agentsMap = new Map(agents?.map((a) => [a.id, a]) || []);
 
       // Calculate totals per agent
-      result.byAgent = agentIds.map(aid => {
-        const agentCommissions = (allCommissions || []).filter(c => c.agent_id === aid);
-        const agent = agentsMap.get(aid);
-        const agentName = agent?.first_name && agent?.last_name 
-          ? `${agent.first_name} ${agent.last_name}` 
-          : `Agent ${aid}`;
+      result.byAgent = agentIds
+        .map((aid) => {
+          const agentCommissions = (allCommissions || []).filter(
+            (c) => c.agent_id === aid,
+          );
+          const agent = agentsMap.get(aid);
+          const agentName =
+            agent?.first_name && agent?.last_name
+              ? `${agent.first_name} ${agent.last_name}`
+              : `Agent ${aid}`;
 
-        const mtdTotal = calculateTotals(
-          agentCommissions.filter((c: any) => 
-            new Date(c.created_at) >= new Date(mtdStart) && new Date(c.created_at) <= new Date(today)
-          )
-        );
+          const mtdTotal = calculateTotals(
+            agentCommissions.filter(
+              (c: any) =>
+                new Date(c.created_at) >= new Date(mtdStart) &&
+                new Date(c.created_at) <= new Date(today),
+            ),
+          );
 
-        const ytdTotal = calculateTotals(
-          agentCommissions.filter((c: any) =>
-            new Date(c.created_at) >= new Date(ytdStart) && new Date(c.created_at) <= new Date(today)
-          )
-        );
+          const ytdTotal = calculateTotals(
+            agentCommissions.filter(
+              (c: any) =>
+                new Date(c.created_at) >= new Date(ytdStart) &&
+                new Date(c.created_at) <= new Date(today),
+            ),
+          );
 
-        const lifetimeTotal = calculateTotals(agentCommissions);
+          const lifetimeTotal = calculateTotals(agentCommissions);
 
-        return {
-          agentId: aid,
-          agentName,
-          mtd: mtdTotal.earned,
-          ytd: ytdTotal.earned,
-          lifetime: lifetimeTotal.earned
-        };
-      }).sort((a, b) => b.lifetime - a.lifetime); // Sort by lifetime earnings descending
+          return {
+            agentId: aid,
+            agentName,
+            mtd: mtdTotal.earned,
+            ytd: ytdTotal.earned,
+            lifetime: lifetimeTotal.earned,
+          };
+        })
+        .sort((a, b) => b.lifetime - a.lifetime); // Sort by lifetime earnings descending
     }
 
-    console.log('[Storage] Commission totals calculated:', {
+    console.log("[Storage] Commission totals calculated:", {
       mtd: result.mtd.earned,
       ytd: result.ytd.earned,
-      lifetime: result.lifetime.earned
+      lifetime: result.lifetime.earned,
     });
 
     return result;
   } catch (error: any) {
-    console.error('[Storage] Error calculating commission totals:', error);
+    console.error("[Storage] Error calculating commission totals:", error);
     throw new Error(`Failed to get commission totals: ${error.message}`);
   }
 }
 
-export async function getCommissionStatsNew(agentId?: string): Promise<{ 
-  totalEarned: number; 
-  totalPending: number; 
+export async function getCommissionStatsNew(agentId?: string): Promise<{
+  totalEarned: number;
+  totalPending: number;
   totalPaid: number;
   byStatus: Record<string, number>;
   byPaymentStatus: Record<string, number>;
 }> {
   try {
-    let query = supabase.from('agent_commissions').select('commission_amount, status, payment_status');
+    let query = supabase
+      .from("agent_commissions")
+      .select("commission_amount, status, payment_status");
 
     if (agentId) {
-      query = query.eq('agent_id', agentId);
+      query = query.eq("agent_id", agentId);
     }
 
-    const { data, error } = await query;
+    const { data: primaryData, error } = await query;
 
     if (error) {
       throw new Error(`Failed to get commission stats: ${error.message}`);
+    }
+
+    let data = primaryData || [];
+
+    if (agentId && data.length === 0) {
+      const agent = await getUser(agentId).catch(() => null as any);
+      const fallbackAgentNumber = String(
+        (agent as any)?.agentNumber || (agent as any)?.agent_number || "",
+      ).trim();
+
+      if (fallbackAgentNumber) {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("agent_commissions")
+          .select("commission_amount, status, payment_status")
+          .eq("agent_number", fallbackAgentNumber);
+
+        if (!fallbackError) {
+          data = fallbackData || [];
+        }
+      }
     }
 
     let totalEarned = 0;
@@ -5297,13 +6735,15 @@ export async function getCommissionStatsNew(agentId?: string): Promise<{
     const byPaymentStatus: Record<string, number> = {};
 
     (data || []).forEach((commission: any) => {
-      const amount = parseFloat(commission.commission_amount?.toString() || '0');
-      
+      const amount = parseFloat(
+        commission.commission_amount?.toString() || "0",
+      );
+
       // Add to totalEarned (all commissions regardless of payment status)
       totalEarned += amount;
-      
+
       // Separate paid vs pending
-      if (commission.payment_status === 'paid') {
+      if (commission.payment_status === "paid") {
         totalPaid += amount;
       } else {
         totalPending += amount;
@@ -5311,74 +6751,88 @@ export async function getCommissionStatsNew(agentId?: string): Promise<{
 
       // Count by status
       byStatus[commission.status] = (byStatus[commission.status] || 0) + 1;
-      byPaymentStatus[commission.payment_status] = (byPaymentStatus[commission.payment_status] || 0) + 1;
+      byPaymentStatus[commission.payment_status] =
+        (byPaymentStatus[commission.payment_status] || 0) + 1;
     });
 
-    return { 
-      totalEarned: parseFloat(totalEarned.toFixed(2)), 
-      totalPending: parseFloat(totalPending.toFixed(2)), 
+    return {
+      totalEarned: parseFloat(totalEarned.toFixed(2)),
+      totalPending: parseFloat(totalPending.toFixed(2)),
       totalPaid: parseFloat(totalPaid.toFixed(2)),
       byStatus,
-      byPaymentStatus
+      byPaymentStatus,
     };
   } catch (error: any) {
-    console.error('Error fetching commission stats (new table):', error);
+    console.error("Error fetching commission stats (new table):", error);
     throw new Error(`Failed to get commission stats: ${error.message}`);
   }
 }
 
-export async function getLifecycleAlertSummary(options: {
-  agentId?: string;
-  horizonDays?: number;
-  stalePendingMinutes?: number;
-} = {}): Promise<LifecycleAlertSummary> {
+export async function getLifecycleAlertSummary(
+  options: {
+    agentId?: string;
+    horizonDays?: number;
+    stalePendingMinutes?: number;
+  } = {},
+): Promise<LifecycleAlertSummary> {
   const now = new Date();
   const horizonDays = Number.isFinite(options.horizonDays as number)
     ? Math.max(1, Number(options.horizonDays))
     : 7;
-  const stalePendingMinutes = Number.isFinite(options.stalePendingMinutes as number)
+  const stalePendingMinutes = Number.isFinite(
+    options.stalePendingMinutes as number,
+  )
     ? Math.max(1, Number(options.stalePendingMinutes))
     : 30;
 
-  const horizonDate = new Date(now.getTime() + horizonDays * 24 * 60 * 60 * 1000);
-  const staleThreshold = new Date(now.getTime() - stalePendingMinutes * 60 * 1000);
+  const horizonDate = new Date(
+    now.getTime() + horizonDays * 24 * 60 * 60 * 1000,
+  );
+  const staleThreshold = new Date(
+    now.getTime() - stalePendingMinutes * 60 * 1000,
+  );
 
   let scopedMemberIds: number[] | null = null;
   if (options.agentId) {
     try {
       const enrollments = await getEnrollmentsByAgent(options.agentId);
-      const ids = Array.from(new Set(
-        (enrollments || [])
-          .map((item: any) => parseInt(String(item?.id), 10))
-          .filter((id) => Number.isFinite(id))
-      ));
+      const ids = Array.from(
+        new Set(
+          (enrollments || [])
+            .map((item: any) => parseInt(String(item?.id), 10))
+            .filter((id) => Number.isFinite(id)),
+        ),
+      );
       scopedMemberIds = ids;
     } catch (error: any) {
-      console.warn('[Storage] getLifecycleAlertSummary could not scope member IDs:', error?.message || error);
+      console.warn(
+        "[Storage] getLifecycleAlertSummary could not scope member IDs:",
+        error?.message || error,
+      );
       scopedMemberIds = [];
     }
   }
 
   const getSoonOrOverdue = (iso: string | null | undefined) => {
     if (!iso) {
-      return 'missing';
+      return "missing";
     }
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) {
-      return 'missing';
+      return "missing";
     }
     if (date < now) {
-      return 'overdue';
+      return "overdue";
     }
     if (date <= horizonDate) {
-      return 'soon';
+      return "soon";
     }
-    return 'later';
+    return "later";
   };
 
   let subscriptionsQuery = supabase
-    .from('subscriptions')
-    .select('id, member_id, next_billing_date, status');
+    .from("subscriptions")
+    .select("id, member_id, next_billing_date, status");
 
   if (scopedMemberIds !== null) {
     if (scopedMemberIds.length === 0) {
@@ -5406,39 +6860,52 @@ export async function getLifecycleAlertSummary(options: {
         commissionItems: [],
       };
     }
-    subscriptionsQuery = subscriptionsQuery.in('member_id', scopedMemberIds);
+    subscriptionsQuery = subscriptionsQuery.in("member_id", scopedMemberIds);
   }
 
-  const { data: subscriptions, error: subscriptionsError } = await subscriptionsQuery;
+  const { data: subscriptions, error: subscriptionsError } =
+    await subscriptionsQuery;
   if (subscriptionsError) {
-    throw new Error(`Failed to load subscriptions for lifecycle alerts: ${subscriptionsError.message}`);
+    throw new Error(
+      `Failed to load subscriptions for lifecycle alerts: ${subscriptionsError.message}`,
+    );
   }
 
   let recurringLogQuery = supabase
-    .from('recurring_billing_log')
-    .select('id, member_id, status, created_at');
+    .from("recurring_billing_log")
+    .select("id, member_id, status, created_at");
   if (scopedMemberIds !== null) {
-    recurringLogQuery = recurringLogQuery.in('member_id', scopedMemberIds);
+    recurringLogQuery = recurringLogQuery.in("member_id", scopedMemberIds);
   }
 
-  const { data: recurringLogs, error: recurringLogsError } = await recurringLogQuery;
+  const { data: recurringLogs, error: recurringLogsError } =
+    await recurringLogQuery;
   if (recurringLogsError) {
-    throw new Error(`Failed to load recurring billing logs for lifecycle alerts: ${recurringLogsError.message}`);
+    throw new Error(
+      `Failed to load recurring billing logs for lifecycle alerts: ${recurringLogsError.message}`,
+    );
   }
 
   let commissionsQuery = supabase
-    .from('agent_commissions')
-    .select('id, agent_id, member_id, payment_status, payment_eligible_date, commission_amount, created_at');
+    .from("agent_commissions")
+    .select(
+      "id, agent_id, member_id, payment_status, payment_eligible_date, commission_amount, created_at",
+    );
 
   if (options.agentId) {
-    commissionsQuery = commissionsQuery.eq('agent_id', options.agentId);
+    commissionsQuery = commissionsQuery.eq("agent_id", options.agentId);
   } else if (scopedMemberIds !== null) {
-    commissionsQuery = commissionsQuery.in('member_id', scopedMemberIds.map(String));
+    commissionsQuery = commissionsQuery.in(
+      "member_id",
+      scopedMemberIds.map(String),
+    );
   }
 
   const { data: commissions, error: commissionsError } = await commissionsQuery;
   if (commissionsError) {
-    throw new Error(`Failed to load commissions for lifecycle alerts: ${commissionsError.message}`);
+    throw new Error(
+      `Failed to load commissions for lifecycle alerts: ${commissionsError.message}`,
+    );
   }
 
   const candidateMemberIds = new Set<number>();
@@ -5459,12 +6926,15 @@ export async function getLifecycleAlertSummary(options: {
   const memberLookup = new Map<number, any>();
   if (memberIds.length > 0) {
     const { data: members, error: membersError } = await supabase
-      .from('members')
-      .select('id, first_name, last_name, customer_number, email')
-      .in('id', memberIds);
+      .from("members")
+      .select("id, first_name, last_name, customer_number, email")
+      .in("id", memberIds);
 
     if (membersError) {
-      console.warn('[Storage] getLifecycleAlertSummary failed to load member labels:', membersError.message);
+      console.warn(
+        "[Storage] getLifecycleAlertSummary failed to load member labels:",
+        membersError.message,
+      );
     } else {
       (members || []).forEach((member: any) => {
         const parsed = parseInt(String(member?.id), 10);
@@ -5478,7 +6948,7 @@ export async function getLifecycleAlertSummary(options: {
   const getMemberLabel = (memberIdRaw: unknown): string => {
     const memberId = parseInt(String(memberIdRaw), 10);
     if (!Number.isFinite(memberId)) {
-      return 'Member';
+      return "Member";
     }
 
     const member = memberLookup.get(memberId);
@@ -5486,8 +6956,9 @@ export async function getLifecycleAlertSummary(options: {
       return `Member #${memberId}`;
     }
 
-    const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
-    const customer = String(member.customer_number || '').trim();
+    const fullName =
+      `${member.first_name || ""} ${member.last_name || ""}`.trim();
+    const customer = String(member.customer_number || "").trim();
     if (fullName && customer) return `${fullName} (${customer})`;
     if (fullName) return fullName;
     if (customer) return `Member ${customer}`;
@@ -5495,66 +6966,74 @@ export async function getLifecycleAlertSummary(options: {
   };
 
   const activeSubscriptions = (subscriptions || []).filter((sub: any) => {
-    const status = String(sub?.status || '').toLowerCase();
-    return status === 'active' || status === 'pending' || status === 'trialing';
+    const status = String(sub?.status || "").toLowerCase();
+    return status === "active" || status === "pending" || status === "trialing";
   });
 
   let billingDueSoon = 0;
   let billingOverdue = 0;
   let nextCycleDateMs: number | null = null;
-  const billingItems: LifecycleAlertSummary['billingItems'] = [];
+  const billingItems: LifecycleAlertSummary["billingItems"] = [];
 
   for (const sub of activeSubscriptions) {
     const state = getSoonOrOverdue(sub?.next_billing_date);
-    if (state === 'soon') {
+    if (state === "soon") {
       billingDueSoon += 1;
       billingItems.push({
-        kind: 'due_soon',
+        kind: "due_soon",
         subscriptionId: Number(sub?.id) || null,
         memberId: Number(sub?.member_id) || 0,
         memberLabel: getMemberLabel(sub?.member_id),
         referenceDate: sub?.next_billing_date || null,
-        details: 'Recurring cycle due soon',
+        details: "Recurring cycle due soon",
       });
     }
-    if (state === 'overdue') {
+    if (state === "overdue") {
       billingOverdue += 1;
       billingItems.push({
-        kind: 'overdue',
+        kind: "overdue",
         subscriptionId: Number(sub?.id) || null,
         memberId: Number(sub?.member_id) || 0,
         memberLabel: getMemberLabel(sub?.member_id),
         referenceDate: sub?.next_billing_date || null,
-        details: 'Recurring cycle date has passed',
+        details: "Recurring cycle date has passed",
       });
     }
 
-    const nextDate = sub?.next_billing_date ? new Date(sub.next_billing_date) : null;
-    if (nextDate && !Number.isNaN(nextDate.getTime()) && nextDate.getTime() >= now.getTime()) {
+    const nextDate = sub?.next_billing_date
+      ? new Date(sub.next_billing_date)
+      : null;
+    if (
+      nextDate &&
+      !Number.isNaN(nextDate.getTime()) &&
+      nextDate.getTime() >= now.getTime()
+    ) {
       if (nextCycleDateMs === null || nextDate.getTime() < nextCycleDateMs) {
         nextCycleDateMs = nextDate.getTime();
       }
     }
   }
 
-  const failedRecurringRows = (recurringLogs || []).filter((row: any) => String(row?.status || '').toLowerCase() === 'failed');
+  const failedRecurringRows = (recurringLogs || []).filter(
+    (row: any) => String(row?.status || "").toLowerCase() === "failed",
+  );
   const failedRecurring = failedRecurringRows.length;
   failedRecurringRows.forEach((row: any) => {
     billingItems.push({
-      kind: 'failed',
+      kind: "failed",
       subscriptionId: null,
       memberId: Number(row?.member_id) || 0,
       memberLabel: getMemberLabel(row?.member_id),
       referenceDate: row?.created_at || null,
-      details: 'Recurring billing attempt failed',
+      details: "Recurring billing attempt failed",
     });
   });
 
   const stalePendingRows = (recurringLogs || []).filter((row: any) => {
-    if (String(row?.status || '').toLowerCase() !== 'pending') {
+    if (String(row?.status || "").toLowerCase() !== "pending") {
       return false;
     }
-    const createdAt = new Date(String(row?.created_at || ''));
+    const createdAt = new Date(String(row?.created_at || ""));
     if (Number.isNaN(createdAt.getTime())) {
       return false;
     }
@@ -5563,12 +7042,12 @@ export async function getLifecycleAlertSummary(options: {
   const stalePending = stalePendingRows.length;
   stalePendingRows.forEach((row: any) => {
     billingItems.push({
-      kind: 'stale_pending',
+      kind: "stale_pending",
       subscriptionId: null,
       memberId: Number(row?.member_id) || 0,
       memberLabel: getMemberLabel(row?.member_id),
       referenceDate: row?.created_at || null,
-      details: 'Pending longer than stale threshold',
+      details: "Pending longer than stale threshold",
     });
   });
 
@@ -5577,41 +7056,43 @@ export async function getLifecycleAlertSummary(options: {
   let commissionUnscheduled = 0;
   let commissionPending = 0;
   let nextEligibleMs: number | null = null;
-  const commissionItems: LifecycleAlertSummary['commissionItems'] = [];
+  const commissionItems: LifecycleAlertSummary["commissionItems"] = [];
 
   for (const commission of commissions || []) {
-    const paymentStatus = String(commission?.payment_status || '').toLowerCase();
-    if (paymentStatus === 'paid' || paymentStatus === 'cancelled') {
+    const paymentStatus = String(
+      commission?.payment_status || "",
+    ).toLowerCase();
+    if (paymentStatus === "paid" || paymentStatus === "cancelled") {
       continue;
     }
 
     commissionPending += 1;
     const state = getSoonOrOverdue(commission?.payment_eligible_date);
-    if (state === 'soon') {
+    if (state === "soon") {
       commissionDueSoon += 1;
       commissionItems.push({
-        kind: 'due_soon',
-        commissionId: String(commission?.id || ''),
+        kind: "due_soon",
+        commissionId: String(commission?.id || ""),
         memberId: Number(commission?.member_id) || 0,
         memberLabel: getMemberLabel(commission?.member_id),
         referenceDate: commission?.payment_eligible_date || null,
         amount: parseFloat(String(commission?.commission_amount || 0)) || 0,
       });
-    } else if (state === 'overdue') {
+    } else if (state === "overdue") {
       commissionOverdue += 1;
       commissionItems.push({
-        kind: 'overdue',
-        commissionId: String(commission?.id || ''),
+        kind: "overdue",
+        commissionId: String(commission?.id || ""),
         memberId: Number(commission?.member_id) || 0,
         memberLabel: getMemberLabel(commission?.member_id),
         referenceDate: commission?.payment_eligible_date || null,
         amount: parseFloat(String(commission?.commission_amount || 0)) || 0,
       });
-    } else if (state === 'missing') {
+    } else if (state === "missing") {
       commissionUnscheduled += 1;
       commissionItems.push({
-        kind: 'unscheduled',
-        commissionId: String(commission?.id || ''),
+        kind: "unscheduled",
+        commissionId: String(commission?.id || ""),
         memberId: Number(commission?.member_id) || 0,
         memberLabel: getMemberLabel(commission?.member_id),
         referenceDate: null,
@@ -5619,25 +7100,39 @@ export async function getLifecycleAlertSummary(options: {
       });
     }
 
-    const eligibleDate = commission?.payment_eligible_date ? new Date(commission.payment_eligible_date) : null;
-    if (eligibleDate && !Number.isNaN(eligibleDate.getTime()) && eligibleDate.getTime() >= now.getTime()) {
+    const eligibleDate = commission?.payment_eligible_date
+      ? new Date(commission.payment_eligible_date)
+      : null;
+    if (
+      eligibleDate &&
+      !Number.isNaN(eligibleDate.getTime()) &&
+      eligibleDate.getTime() >= now.getTime()
+    ) {
       if (nextEligibleMs === null || eligibleDate.getTime() < nextEligibleMs) {
         nextEligibleMs = eligibleDate.getTime();
       }
     }
   }
 
-  const billingAttention = billingDueSoon + billingOverdue + failedRecurring + stalePending;
-  const commissionAttention = commissionDueSoon + commissionOverdue + commissionUnscheduled;
+  const billingAttention =
+    billingDueSoon + billingOverdue + failedRecurring + stalePending;
+  const commissionAttention =
+    commissionDueSoon + commissionOverdue + commissionUnscheduled;
 
-  const billingSeverity: Record<LifecycleAlertSummary['billingItems'][number]['kind'], number> = {
+  const billingSeverity: Record<
+    LifecycleAlertSummary["billingItems"][number]["kind"],
+    number
+  > = {
     overdue: 0,
     failed: 1,
     stale_pending: 2,
     due_soon: 3,
   };
 
-  const commissionSeverity: Record<LifecycleAlertSummary['commissionItems'][number]['kind'], number> = {
+  const commissionSeverity: Record<
+    LifecycleAlertSummary["commissionItems"][number]["kind"],
+    number
+  > = {
     overdue: 0,
     unscheduled: 1,
     due_soon: 2,
@@ -5674,7 +7169,9 @@ export async function getLifecycleAlertSummary(options: {
       failed: failedRecurring,
       stalePending,
       totalAttention: billingAttention,
-      nextCycleDate: nextCycleDateMs ? new Date(nextCycleDateMs).toISOString() : null,
+      nextCycleDate: nextCycleDateMs
+        ? new Date(nextCycleDateMs).toISOString()
+        : null,
     },
     commissions: {
       dueSoon: commissionDueSoon,
@@ -5682,7 +7179,9 @@ export async function getLifecycleAlertSummary(options: {
       unscheduled: commissionUnscheduled,
       pending: commissionPending,
       totalAttention: commissionAttention,
-      nextEligibleDate: nextEligibleMs ? new Date(nextEligibleMs).toISOString() : null,
+      nextEligibleDate: nextEligibleMs
+        ? new Date(nextEligibleMs).toISOString()
+        : null,
     },
     totals: {
       totalAttention: billingAttention + commissionAttention,
@@ -5701,49 +7200,62 @@ function mapPlanFromDB(data: any): Plan | null {
     name: data.name,
     description: data.description,
     price: data.price,
-    billingPeriod: data.billing_period || data.billingPeriod || 'monthly',
+    billingPeriod: data.billing_period || data.billingPeriod || "monthly",
     features: data.features,
     maxMembers: data.max_members || data.maxMembers || 1,
     isActive: data.is_active !== undefined ? data.is_active : true,
     createdAt: data.created_at || data.createdAt,
-    updatedAt: data.updated_at || data.updatedAt
+    updatedAt: data.updated_at || data.updatedAt,
   } as Plan;
 }
 
 // Plan operations (add missing ones from original Drizzle implementation)
 export async function getPlans(): Promise<Plan[]> {
   try {
-    console.log('[Storage] getPlans called');
+    console.log("[Storage] getPlans called");
     const { data, error } = await supabase
-      .from('plans')
-      .select('*')
-      .order('price', { ascending: true });
-    console.log('[Storage] getPlans Supabase response:', { dataCount: data?.length || 0, error: error ? error.message : 'none' });
+      .from("plans")
+      .select("*")
+      .order("price", { ascending: true });
+    console.log("[Storage] getPlans Supabase response:", {
+      dataCount: data?.length || 0,
+      error: error ? error.message : "none",
+    });
     if (error) {
-      console.error('[Storage] getPlans error:', error);
-      console.error('[Storage] getPlans error details:', {
+      console.error("[Storage] getPlans error:", error);
+      console.error("[Storage] getPlans error details:", {
         code: error.code,
         message: error.message,
         details: error.details,
-        hint: error.hint
+        hint: error.hint,
       });
       throw new Error(`Failed to get plans: ${error.message}`);
     }
-    console.log('[Storage] getPlans: Mapping data for', data?.length || 0, 'plans');
-    const mappedPlans = (data || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
-    console.log('[Storage] getPlans: Successfully mapped', mappedPlans.length, 'plans');
+    console.log(
+      "[Storage] getPlans: Mapping data for",
+      data?.length || 0,
+      "plans",
+    );
+    const mappedPlans = (data || [])
+      .map(mapPlanFromDB)
+      .filter(Boolean) as Plan[];
+    console.log(
+      "[Storage] getPlans: Successfully mapped",
+      mappedPlans.length,
+      "plans",
+    );
     if (mappedPlans.length > 0) {
-      console.log('[Storage] getPlans: Sample plan:', {
+      console.log("[Storage] getPlans: Sample plan:", {
         id: mappedPlans[0].id,
         name: mappedPlans[0].name,
         price: mappedPlans[0].price,
-        isActive: mappedPlans[0].isActive
+        isActive: mappedPlans[0].isActive,
       });
     }
     return mappedPlans;
   } catch (error: any) {
-    console.error('[Storage] getPlans fatal error:', error);
-    console.error('[Storage] getPlans error stack:', error.stack);
+    console.error("[Storage] getPlans fatal error:", error);
+    console.error("[Storage] getPlans error stack:", error.stack);
     throw new Error(`Failed to get plans: ${error.message}`);
   }
 }
@@ -5751,53 +7263,53 @@ export async function getPlans(): Promise<Plan[]> {
 export async function getActivePlans(): Promise<Plan[]> {
   try {
     const result = await query(
-      'SELECT * FROM plans WHERE is_active = true ORDER BY price ASC'
+      "SELECT * FROM plans WHERE is_active = true ORDER BY price ASC",
     );
     return (result.rows || []).map(mapPlanFromDB).filter(Boolean) as Plan[];
   } catch (error: any) {
-    console.error('Error fetching active plans:', error);
+    console.error("Error fetching active plans:", error);
     throw new Error(`Failed to get active plans: ${error.message}`);
   }
 }
 
 export async function getPlanById(id: string): Promise<Plan | undefined> {
   try {
-    const result = await query(
-      'SELECT * FROM plans WHERE id = $1',
-      [id]
-    );
+    const result = await query("SELECT * FROM plans WHERE id = $1", [id]);
     if (result.rows.length === 0) return undefined;
     return mapPlanFromDB(result.rows[0]) || undefined;
   } catch (error: any) {
-    console.error('Error fetching plan:', error);
+    console.error("Error fetching plan:", error);
     return undefined;
   }
 }
 
 export async function createPlan(plan: InsertPlan): Promise<Plan> {
   const { data, error } = await supabase
-    .from('plans')
+    .from("plans")
     .insert([{ ...plan, created_at: new Date(), updated_at: new Date() }])
     .select()
     .single();
 
   if (error) {
-    console.error('Error creating plan:', error);
+    console.error("Error creating plan:", error);
     throw new Error(`Failed to create plan: ${error.message}`);
   }
   return mapPlanFromDB(data)!;
 }
 
-export async function updatePlan(id: number, data: Partial<Plan>): Promise<Plan> {
+export async function updatePlan(
+  id: number,
+  data: Partial<Plan>,
+): Promise<Plan> {
   const { data: updatedPlan, error } = await supabase
-    .from('plans')
+    .from("plans")
     .update({ ...data, updated_at: new Date() })
-    .eq('id', id.toString()) // Assuming ID is string/UUID in Supabase
+    .eq("id", id.toString()) // Assuming ID is string/UUID in Supabase
     .select()
     .single();
 
   if (error) {
-    console.error('Error updating plan:', error);
+    console.error("Error updating plan:", error);
     throw new Error(`Failed to update plan: ${error.message}`);
   }
   return updatedPlan;
@@ -5806,13 +7318,13 @@ export async function updatePlan(id: number, data: Partial<Plan>): Promise<Plan>
 // Subscription operations (add missing ones)
 export async function getActiveSubscriptions(): Promise<Subscription[]> {
   const { data, error } = await supabase
-    .from('subscriptions')
-    .select('*')
-    .eq('status', 'active')
-    .order('created_at', { ascending: false });
+    .from("subscriptions")
+    .select("*")
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error('Error fetching active subscriptions:', error);
+    console.error("Error fetching active subscriptions:", error);
     throw new Error(`Failed to get active subscriptions: ${error.message}`);
   }
 
@@ -5831,16 +7343,16 @@ export interface BillableSubscription {
   planId: number;
   amount: string;
   nextBillingDate: string;
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerAccountId: string;
   payerDisplayName: string | null;
   payerEmail: string | null;
-  payerContactSource: 'responsible_person' | 'contact_person' | null;
+  payerContactSource: "responsible_person" | "contact_person" | null;
   payerResponsibleEmail: string | null;
   payerContactEmail: string | null;
   groupId: string | null;
   groupName: string | null;
-  tokenOwnerType: 'member' | 'group';
+  tokenOwnerType: "member" | "group";
   tokenId: number;
   bricToken: string;
   paymentMethodType: string;
@@ -5863,7 +7375,9 @@ export interface BillableSubscription {
   memberBankAccountLastFour: string | null;
 }
 
-export const RECURRING_BILLING_READY_SUBSCRIPTION_STATUSES = ['active'] as const;
+export const RECURRING_BILLING_READY_SUBSCRIPTION_STATUSES = [
+  "active",
+] as const;
 
 export function getRecurringBillingReadySubscriptionStatuses(): string[] {
   return [...RECURRING_BILLING_READY_SUBSCRIPTION_STATUSES];
@@ -5871,13 +7385,19 @@ export function getRecurringBillingReadySubscriptionStatuses(): string[] {
 
 export async function getSubscriptionsDueForBilling(
   now: Date,
-  options?: { includeACH?: boolean }
+  options?: { includeACH?: boolean },
 ): Promise<BillableSubscription[]> {
   const includeACH = options?.includeACH === true;
-  const supportedPaymentMethodTypes = includeACH ? ['CreditCard', 'ACH'] : ['CreditCard'];
+  const supportedPaymentMethodTypes = includeACH
+    ? ["CreditCard", "ACH"]
+    : ["CreditCard"];
   const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
 
-  const paymentTokenColumnNames = ['group_id', 'bank_account_number', 'bank_account_holder_name'];
+  const paymentTokenColumnNames = [
+    "group_id",
+    "bank_account_number",
+    "bank_account_holder_name",
+  ];
   const paymentTokenColumnResult = await query(
     `
       SELECT column_name
@@ -5889,13 +7409,21 @@ export async function getSubscriptionsDueForBilling(
     [paymentTokenColumnNames],
   );
   const paymentTokenColumnSet = new Set(
-    (paymentTokenColumnResult.rows || []).map((row: any) => String(row.column_name || '').toLowerCase()),
+    (paymentTokenColumnResult.rows || []).map((row: any) =>
+      String(row.column_name || "").toLowerCase(),
+    ),
   );
-  const hasTokenGroupId = paymentTokenColumnSet.has('group_id');
-  const hasTokenBankAccountNumber = paymentTokenColumnSet.has('bank_account_number');
-  const hasTokenBankAccountHolderName = paymentTokenColumnSet.has('bank_account_holder_name');
+  const hasTokenGroupId = paymentTokenColumnSet.has("group_id");
+  const hasTokenBankAccountNumber = paymentTokenColumnSet.has(
+    "bank_account_number",
+  );
+  const hasTokenBankAccountHolderName = paymentTokenColumnSet.has(
+    "bank_account_holder_name",
+  );
 
-  const memberTokenGroupFilter = hasTokenGroupId ? 'AND pt.group_id IS NULL' : '';
+  const memberTokenGroupFilter = hasTokenGroupId
+    ? "AND pt.group_id IS NULL"
+    : "";
   const groupTokenWhereClause = hasTokenGroupId
     ? `
         WHERE gp.group_id IS NOT NULL
@@ -5903,28 +7431,28 @@ export async function getSubscriptionsDueForBilling(
           AND pt.is_active = true
           AND pt.payment_method_type = ANY($2::text[])
       `
-    : 'WHERE 1=0';
+    : "WHERE 1=0";
 
   const tokenBankAccountNumberSelect = hasTokenBankAccountNumber
-    ? 'COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,'
-    : 'NULL::text AS token_bank_account_number,';
+    ? "COALESCE(t_group.bank_account_number, t_member.bank_account_number) AS token_bank_account_number,"
+    : "NULL::text AS token_bank_account_number,";
   const tokenBankAccountHolderNameSelect = hasTokenBankAccountHolderName
-    ? 'COALESCE(t_group.bank_account_holder_name, t_member.bank_account_holder_name) AS token_bank_account_holder_name,'
-    : 'NULL::text AS token_bank_account_holder_name,';
+    ? "COALESCE(t_group.bank_account_holder_name, t_member.bank_account_holder_name) AS token_bank_account_holder_name,"
+    : "NULL::text AS token_bank_account_holder_name,";
 
   const memberTokenBankAccountNumberColumn = hasTokenBankAccountNumber
-    ? 'pt.bank_account_number,'
-    : 'NULL::text AS bank_account_number,';
+    ? "pt.bank_account_number,"
+    : "NULL::text AS bank_account_number,";
   const memberTokenBankAccountHolderNameColumn = hasTokenBankAccountHolderName
-    ? 'pt.bank_account_holder_name,'
-    : 'NULL::text AS bank_account_holder_name,';
+    ? "pt.bank_account_holder_name,"
+    : "NULL::text AS bank_account_holder_name,";
 
   const groupTokenBankAccountNumberColumn = hasTokenBankAccountNumber
-    ? 'pt.bank_account_number,'
-    : 'NULL::text AS bank_account_number,';
+    ? "pt.bank_account_number,"
+    : "NULL::text AS bank_account_number,";
   const groupTokenBankAccountHolderNameColumn = hasTokenBankAccountHolderName
-    ? 'pt.bank_account_holder_name,'
-    : 'NULL::text AS bank_account_holder_name,';
+    ? "pt.bank_account_holder_name,"
+    : "NULL::text AS bank_account_holder_name,";
 
   const result = await query(
     `
@@ -6099,7 +7627,7 @@ export async function getSubscriptionsDueForBilling(
       planId: row.plan_id,
       amount: row.amount,
       nextBillingDate: row.next_billing_date,
-      payerType: row.payer_type === 'group' ? 'group' : 'member',
+      payerType: row.payer_type === "group" ? "group" : "member",
       payerAccountId: String(row.payer_account_id || row.member_id),
       payerDisplayName: row.payer_display_name || null,
       payerEmail: row.payer_email || null,
@@ -6108,7 +7636,7 @@ export async function getSubscriptionsDueForBilling(
       payerContactEmail: row.payer_contact_email || null,
       groupId: row.group_id || null,
       groupName: row.group_name || null,
-      tokenOwnerType: row.token_owner_type === 'group' ? 'group' : 'member',
+      tokenOwnerType: row.token_owner_type === "group" ? "group" : "member",
       tokenId: row.token_id,
       bricToken: row.bric_token,
       paymentMethodType: row.payment_method_type,
@@ -6154,7 +7682,7 @@ export interface RecurringBillingLogEntry {
 
 export interface UpsertPaymentTokenInput {
   memberId: number;
-  paymentMethodType: 'CreditCard' | 'ACH' | 'BankAccount';
+  paymentMethodType: "CreditCard" | "ACH" | "BankAccount";
   token: string;
   cardLastFour?: string | null;
   cardType?: string | null;
@@ -6171,7 +7699,7 @@ export interface UpsertPaymentTokenInput {
 
 export interface UpsertGroupPaymentTokenInput {
   groupId: string;
-  paymentMethodType: 'CreditCard' | 'ACH' | 'BankAccount';
+  paymentMethodType: "CreditCard" | "ACH" | "BankAccount";
   token: string;
   cardLastFour?: string | null;
   cardType?: string | null;
@@ -6186,7 +7714,9 @@ export interface UpsertGroupPaymentTokenInput {
   bankName?: string | null;
 }
 
-export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): Promise<{ id: number }> {
+export async function upsertMemberPaymentToken(
+  input: UpsertPaymentTokenInput,
+): Promise<{ id: number }> {
   const encryptedToken = encryptPaymentToken(input.token);
 
   // Keep one active primary token per member + payment method type.
@@ -6200,7 +7730,7 @@ export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): 
         AND payment_method_type = $2
         AND is_active = true
     `,
-    [input.memberId, input.paymentMethodType]
+    [input.memberId, input.paymentMethodType],
   );
 
   const result = await query(
@@ -6257,18 +7787,22 @@ export async function upsertMemberPaymentToken(input: UpsertPaymentTokenInput): 
       input.expiryYear ?? null,
       input.originalNetworkTransId ?? null,
       input.bankRoutingNumber ?? null,
-      input.bankAccountNumber ? encryptSensitiveData(input.bankAccountNumber) : null,
+      input.bankAccountNumber
+        ? encryptSensitiveData(input.bankAccountNumber)
+        : null,
       input.bankAccountLastFour ?? null,
       input.bankAccountHolderName ?? null,
       input.bankAccountType ?? null,
       input.bankName ?? null,
-    ]
+    ],
   );
 
   return { id: Number(result.rows[0]?.id) };
 }
 
-export async function upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInput): Promise<{ id: number }> {
+export async function upsertGroupPaymentToken(
+  input: UpsertGroupPaymentTokenInput,
+): Promise<{ id: number }> {
   const encryptedToken = encryptPaymentToken(input.token);
 
   await query(
@@ -6281,7 +7815,7 @@ export async function upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInpu
         AND payment_method_type = $2
         AND is_active = true
     `,
-    [input.groupId, input.paymentMethodType]
+    [input.groupId, input.paymentMethodType],
   );
 
   const result = await query(
@@ -6340,20 +7874,24 @@ export async function upsertGroupPaymentToken(input: UpsertGroupPaymentTokenInpu
       input.expiryYear ?? null,
       input.originalNetworkTransId ?? null,
       input.bankRoutingNumber ?? null,
-      input.bankAccountNumber ? encryptSensitiveData(input.bankAccountNumber) : null,
+      input.bankAccountNumber
+        ? encryptSensitiveData(input.bankAccountNumber)
+        : null,
       input.bankAccountLastFour ?? null,
       input.bankAccountHolderName ?? null,
       input.bankAccountType ?? null,
       input.bankName ?? null,
-    ]
+    ],
   );
 
   return { id: Number(result.rows[0]?.id) };
 }
 
-export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry): Promise<number> {
+export async function insertRecurringBillingLog(
+  entry: RecurringBillingLogEntry,
+): Promise<number> {
   const { data, error } = await supabase
-    .from('recurring_billing_log')
+    .from("recurring_billing_log")
     .insert({
       subscription_id: entry.subscriptionId,
       member_id: entry.memberId,
@@ -6372,11 +7910,11 @@ export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry)
       payment_id: entry.paymentId ?? null,
       processed_at: entry.processedAt ?? null,
     })
-    .select('id')
+    .select("id")
     .single();
 
   if (error) {
-    console.error('[Recurring Billing] Error inserting billing log:', error);
+    console.error("[Recurring Billing] Error inserting billing log:", error);
     throw new Error(`Failed to insert recurring billing log: ${error.message}`);
   }
 
@@ -6385,45 +7923,53 @@ export async function insertRecurringBillingLog(entry: RecurringBillingLogEntry)
 
 export async function updateRecurringBillingLog(
   logId: number,
-  updates: Partial<RecurringBillingLogEntry>
+  updates: Partial<RecurringBillingLogEntry>,
 ): Promise<void> {
   const dbUpdates: Record<string, any> = {};
   if (updates.status !== undefined) dbUpdates.status = updates.status;
-  if (updates.paymentMethodType !== undefined) dbUpdates.payment_method_type = updates.paymentMethodType;
-  if (updates.epxTransactionId !== undefined) dbUpdates.epx_transaction_id = updates.epxTransactionId;
-  if (updates.epxAuthCode !== undefined) dbUpdates.epx_auth_code = updates.epxAuthCode;
-  if (updates.epxResponseCode !== undefined) dbUpdates.epx_response_code = updates.epxResponseCode;
-  if (updates.epxResponseMessage !== undefined) dbUpdates.epx_response_message = updates.epxResponseMessage;
-  if (updates.failureReason !== undefined) dbUpdates.failure_reason = updates.failureReason;
-  if (updates.nextRetryDate !== undefined) dbUpdates.next_retry_date = updates.nextRetryDate;
+  if (updates.paymentMethodType !== undefined)
+    dbUpdates.payment_method_type = updates.paymentMethodType;
+  if (updates.epxTransactionId !== undefined)
+    dbUpdates.epx_transaction_id = updates.epxTransactionId;
+  if (updates.epxAuthCode !== undefined)
+    dbUpdates.epx_auth_code = updates.epxAuthCode;
+  if (updates.epxResponseCode !== undefined)
+    dbUpdates.epx_response_code = updates.epxResponseCode;
+  if (updates.epxResponseMessage !== undefined)
+    dbUpdates.epx_response_message = updates.epxResponseMessage;
+  if (updates.failureReason !== undefined)
+    dbUpdates.failure_reason = updates.failureReason;
+  if (updates.nextRetryDate !== undefined)
+    dbUpdates.next_retry_date = updates.nextRetryDate;
   if (updates.paymentId !== undefined) dbUpdates.payment_id = updates.paymentId;
-  if (updates.processedAt !== undefined) dbUpdates.processed_at = updates.processedAt;
+  if (updates.processedAt !== undefined)
+    dbUpdates.processed_at = updates.processedAt;
 
   const { error } = await supabase
-    .from('recurring_billing_log')
+    .from("recurring_billing_log")
     .update(dbUpdates)
-    .eq('id', logId);
+    .eq("id", logId);
 
   if (error) {
-    console.error('[Recurring Billing] Error updating billing log:', error);
+    console.error("[Recurring Billing] Error updating billing log:", error);
     throw new Error(`Failed to update recurring billing log: ${error.message}`);
   }
 }
 
 export async function hasExistingBillingLogEntry(
   subscriptionId: number,
-  billingDate: string
+  billingDate: string,
 ): Promise<{ exists: boolean; status?: string }> {
   const { data, error } = await supabase
-    .from('recurring_billing_log')
-    .select('id, status')
-    .eq('subscription_id', subscriptionId)
-    .eq('billing_date', billingDate)
-    .in('status', ['success', 'pending', 'failed', 'ach_test_success'])
+    .from("recurring_billing_log")
+    .select("id, status")
+    .eq("subscription_id", subscriptionId)
+    .eq("billing_date", billingDate)
+    .in("status", ["success", "pending", "failed", "ach_test_success"])
     .limit(1);
 
   if (error) {
-    console.error('[Recurring Billing] Error checking billing log:', error);
+    console.error("[Recurring Billing] Error checking billing log:", error);
     throw new Error(`Failed to check billing log: ${error.message}`);
   }
 
@@ -6438,32 +7984,42 @@ export async function getBillingLogAttemptCountForCycle(
   billingDate: string,
 ): Promise<number> {
   const { count, error } = await supabase
-    .from('recurring_billing_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('subscription_id', subscriptionId)
-    .eq('billing_date', billingDate)
-    .in('status', ['failed', 'pending', 'success', 'ach_test_success']);
+    .from("recurring_billing_log")
+    .select("id", { count: "exact", head: true })
+    .eq("subscription_id", subscriptionId)
+    .eq("billing_date", billingDate)
+    .in("status", ["failed", "pending", "success", "ach_test_success"]);
 
   if (error) {
-    console.error('[Recurring Billing] Error counting attempts for cycle:', error);
-    throw new Error(`Failed to count billing attempts for cycle: ${error.message}`);
+    console.error(
+      "[Recurring Billing] Error counting attempts for cycle:",
+      error,
+    );
+    throw new Error(
+      `Failed to count billing attempts for cycle: ${error.message}`,
+    );
   }
 
   return Number(count) || 0;
 }
 
 export async function getStalePendingBillingLogs(
-  staleThresholdMinutes: number
+  staleThresholdMinutes: number,
 ): Promise<Array<{ id: number; subscriptionId: number; billingDate: string }>> {
-  const threshold = new Date(Date.now() - staleThresholdMinutes * 60 * 1000).toISOString();
+  const threshold = new Date(
+    Date.now() - staleThresholdMinutes * 60 * 1000,
+  ).toISOString();
   const { data, error } = await supabase
-    .from('recurring_billing_log')
-    .select('id, subscription_id, billing_date')
-    .eq('status', 'pending')
-    .lt('created_at', threshold);
+    .from("recurring_billing_log")
+    .select("id, subscription_id, billing_date")
+    .eq("status", "pending")
+    .lt("created_at", threshold);
 
   if (error) {
-    console.error('[Recurring Billing] Error checking stale pending logs:', error);
+    console.error(
+      "[Recurring Billing] Error checking stale pending logs:",
+      error,
+    );
     return [];
   }
 
@@ -6475,36 +8031,50 @@ export async function getStalePendingBillingLogs(
 }
 
 // Family member operations (add missing ones)
-export async function getFamilyMembers(primaryMemberOrUserId: string | number): Promise<FamilyMember[]> {
+export async function getFamilyMembers(
+  primaryMemberOrUserId: string | number,
+): Promise<FamilyMember[]> {
   const numericId = Number(primaryMemberOrUserId);
   const isMemberId = Number.isFinite(numericId);
 
   let queryBuilder = supabase
-    .from('family_members')
-    .select('*')
-    .order('created_at', { ascending: true });
+    .from("family_members")
+    .select("*")
+    .order("created_at", { ascending: true });
 
   if (isMemberId) {
-    queryBuilder = queryBuilder.eq('primary_member_id', numericId);
+    queryBuilder = queryBuilder.eq("primary_member_id", numericId);
   } else {
-    queryBuilder = queryBuilder.eq('primary_user_id', String(primaryMemberOrUserId));
+    queryBuilder = queryBuilder.eq(
+      "primary_user_id",
+      String(primaryMemberOrUserId),
+    );
   }
 
   const { data, error } = await queryBuilder;
 
   if (error) {
-    console.error('Error fetching family members:', error);
+    console.error("Error fetching family members:", error);
     throw new Error(`Failed to fetch family members: ${error.message}`);
   }
 
   return (data || []).map((row: any) => mapFamilyMemberRowToRecord(row));
 }
 
-export async function addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember> {
-  const normalizedRelationship = String(member.relationship || member.memberType || 'dependent').trim().toLowerCase();
-  const normalizedMemberType = String(member.memberType || '').trim().toLowerCase();
-  const isSpouse = normalizedRelationship === 'spouse' || normalizedMemberType === 'spouse';
-  const relationship = isSpouse ? 'spouse' : 'dependent';
+export async function addFamilyMember(
+  member: InsertFamilyMember,
+): Promise<FamilyMember> {
+  const normalizedRelationship = String(
+    member.relationship || member.memberType || "dependent",
+  )
+    .trim()
+    .toLowerCase();
+  const normalizedMemberType = String(member.memberType || "")
+    .trim()
+    .toLowerCase();
+  const isSpouse =
+    normalizedRelationship === "spouse" || normalizedMemberType === "spouse";
+  const relationship = isSpouse ? "spouse" : "dependent";
 
   let householdBaseNumber: string | null = null;
   let customerNumber: string | null = null;
@@ -6512,28 +8082,32 @@ export async function addFamilyMember(member: InsertFamilyMember): Promise<Famil
 
   if (member.primaryMemberId) {
     const primaryResult = await query(
-      'SELECT customer_number FROM members WHERE id = $1 LIMIT 1',
-      [member.primaryMemberId]
+      "SELECT customer_number FROM members WHERE id = $1 LIMIT 1",
+      [member.primaryMemberId],
     );
     householdBaseNumber = primaryResult.rows?.[0]?.customer_number || null;
 
     if (!householdBaseNumber) {
-      throw new Error(`Primary member ${member.primaryMemberId} is missing customer number`);
+      throw new Error(
+        `Primary member ${member.primaryMemberId} is missing customer number`,
+      );
     }
 
     if (isSpouse) {
       dependentSuffix = 1;
       const spouseExists = await query(
-        'SELECT id FROM family_members WHERE primary_member_id = $1 AND dependent_suffix = 1 LIMIT 1',
-        [member.primaryMemberId]
+        "SELECT id FROM family_members WHERE primary_member_id = $1 AND dependent_suffix = 1 LIMIT 1",
+        [member.primaryMemberId],
       );
       if (spouseExists.rows?.length) {
-        throw new Error('A spouse already exists for this household and must retain suffix -1.');
+        throw new Error(
+          "A spouse already exists for this household and must retain suffix -1.",
+        );
       }
     } else {
       const maxSuffixResult = await query(
-        'SELECT COALESCE(MAX(dependent_suffix), 1) AS max_suffix FROM family_members WHERE primary_member_id = $1 AND dependent_suffix IS NOT NULL',
-        [member.primaryMemberId]
+        "SELECT COALESCE(MAX(dependent_suffix), 1) AS max_suffix FROM family_members WHERE primary_member_id = $1 AND dependent_suffix IS NOT NULL",
+        [member.primaryMemberId],
       );
       const maxSuffix = Number(maxSuffixResult.rows?.[0]?.max_suffix || 1);
       dependentSuffix = Math.max(2, maxSuffix + 1);
@@ -6569,13 +8143,13 @@ export async function addFamilyMember(member: InsertFamilyMember): Promise<Famil
   };
 
   const { data, error } = await supabase
-    .from('family_members')
+    .from("family_members")
     .insert([payload])
     .select()
     .single();
 
   if (error) {
-    console.error('Error adding family member:', error);
+    console.error("Error adding family member:", error);
     throw new Error(`Failed to add family member: ${error.message}`);
   }
   return mapFamilyMemberRowToRecord(data as any) as FamilyMember;
@@ -6584,34 +8158,49 @@ export async function addFamilyMember(member: InsertFamilyMember): Promise<Famil
 // Clear test data function (as provided in the snippet)
 export async function clearTestData(): Promise<void> {
   try {
-    console.log('🧹 Starting production data cleanup...');
+    console.log("🧹 Starting production data cleanup...");
 
     const preserveEmails = [
-      'michael@mypremierplans.com',
-      'travis@mypremierplans.com',
-      'richard@mypremierplans.com',
-      'joaquin@mypremierplans.com',
-      'mdkeener@gmail.com'
+      "michael@mypremierplans.com",
+      "travis@mypremierplans.com",
+      "richard@mypremierplans.com",
+      "joaquin@mypremierplans.com",
+      "mdkeener@gmail.com",
     ];
 
-    console.log('Deleting family members...');
-    await supabase.from('family_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    console.log("Deleting family members...");
+    await supabase
+      .from("family_members")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
-    console.log('Deleting commissions...');
-    await supabase.from('agent_commissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    console.log("Deleting commissions...");
+    await supabase
+      .from("agent_commissions")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
-    console.log('Deleting payments...');
-    await supabase.from('payments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    console.log("Deleting payments...");
+    await supabase
+      .from("payments")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
-    console.log('Deleting subscriptions...');
-    await supabase.from('subscriptions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    console.log("Deleting subscriptions...");
+    await supabase
+      .from("subscriptions")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
 
-    console.log('Deleting test users (preserving admin/agent accounts)...');
-    await supabase.from('users').delete().not('email', 'in', `(${preserveEmails.map(e => `"${e}"`).join(',')})`);
+    console.log("Deleting test users (preserving admin/agent accounts)...");
+    await supabase
+      .from("users")
+      .delete()
+      .not("email", "in", `(${preserveEmails.map((e) => `"${e}"`).join(",")})`);
 
-    console.log('✅ Production cleanup completed successfully');
+    console.log("✅ Production cleanup completed successfully");
   } catch (error: any) {
-    console.error('❌ Error during production cleanup:', error);
+    console.error("❌ Error during production cleanup:", error);
     throw new Error(`Failed during production cleanup: ${error.message}`);
   }
 }
@@ -6630,15 +8219,20 @@ export async function createPayment(paymentData: {
   epxAuthGuid?: string | null;
   metadata?: Record<string, any>;
 }): Promise<any> {
-  console.log('[Storage] Creating payment record at', new Date().toISOString(), ':', {
-    userId: paymentData.userId,
-    memberId: paymentData.memberId,
-    amount: paymentData.amount,
-    status: paymentData.status,
-    paymentMethod: paymentData.paymentMethod,
-    transactionId: paymentData.transactionId,
-    hasMetadata: !!paymentData.metadata
-  });
+  console.log(
+    "[Storage] Creating payment record at",
+    new Date().toISOString(),
+    ":",
+    {
+      userId: paymentData.userId,
+      memberId: paymentData.memberId,
+      amount: paymentData.amount,
+      status: paymentData.status,
+      paymentMethod: paymentData.paymentMethod,
+      transactionId: paymentData.transactionId,
+      hasMetadata: !!paymentData.metadata,
+    },
+  );
 
   try {
     // Use direct PostgreSQL query to Neon - no more Supabase schema cache issues!
@@ -6667,31 +8261,33 @@ export async function createPayment(paymentData: {
       paymentData.memberId || null,
       paymentData.amount,
       paymentData.status,
-      paymentData.currency || 'USD',
-      paymentData.paymentMethod || 'card',
+      paymentData.currency || "USD",
+      paymentData.paymentMethod || "card",
       paymentData.epxAuthGuid || null,
       paymentData.transactionId || null,
       paymentData.subscriptionId || null,
-      paymentData.metadata ? JSON.stringify(paymentData.metadata) : null
+      paymentData.metadata ? JSON.stringify(paymentData.metadata) : null,
     ];
 
-    console.log('[Storage] Executing direct SQL insert to Neon database');
+    console.log("[Storage] Executing direct SQL insert to Neon database");
     const result = await query(insertQuery, values);
 
     if (!result.rows || result.rows.length === 0) {
-      throw new Error('Payment creation failed - no data returned');
+      throw new Error("Payment creation failed - no data returned");
     }
 
     const createdPayment = result.rows[0];
-    console.log('[Storage] Payment created successfully in Neon:', createdPayment.id);
+    console.log(
+      "[Storage] Payment created successfully in Neon:",
+      createdPayment.id,
+    );
 
     return createdPayment;
-
   } catch (error: any) {
-    console.error('[Storage] Payment creation exception:', {
+    console.error("[Storage] Payment creation exception:", {
       message: error.message,
       stack: error.stack,
-      paymentData
+      paymentData,
     });
     throw error;
   }
@@ -6701,30 +8297,31 @@ export async function getUserPayments(userId: string): Promise<Payment[]> {
   try {
     // Use direct Neon query instead of Supabase
     const result = await query(
-      'SELECT * FROM payments WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
+      "SELECT * FROM payments WHERE user_id = $1 ORDER BY created_at DESC",
+      [userId],
     );
     return result.rows || [];
   } catch (error: any) {
-    console.error('Error fetching user payments:', error);
+    console.error("Error fetching user payments:", error);
     throw new Error(`Failed to get user payments: ${error.message}`);
   }
 }
 
 export async function getPaymentById(id: number): Promise<Payment | undefined> {
   try {
-    const result = await query(
-      'SELECT * FROM payments WHERE id = $1 LIMIT 1',
-      [id]
-    );
+    const result = await query("SELECT * FROM payments WHERE id = $1 LIMIT 1", [
+      id,
+    ]);
     return result.rows[0] || undefined;
   } catch (error: any) {
-    console.error('Error fetching payment by ID:', error);
+    console.error("Error fetching payment by ID:", error);
     return undefined;
   }
 }
 
-export async function getLatestEnrollmentPayment(memberId: number): Promise<Payment | undefined> {
+export async function getLatestEnrollmentPayment(
+  memberId: number,
+): Promise<Payment | undefined> {
   try {
     const result = await query(
       `
@@ -6738,16 +8335,18 @@ export async function getLatestEnrollmentPayment(memberId: number): Promise<Paym
         ORDER BY created_at DESC
         LIMIT 1
       `,
-      [memberId]
+      [memberId],
     );
     return result.rows[0] || undefined;
   } catch (error: any) {
-    console.error('Error fetching latest enrollment payment:', error);
+    console.error("Error fetching latest enrollment payment:", error);
     return undefined;
   }
 }
 
-export async function getPaymentByTransactionId(transactionId: string): Promise<Payment | undefined> {
+export async function getPaymentByTransactionId(
+  transactionId: string,
+): Promise<Payment | undefined> {
   try {
     // Use direct Neon query instead of Supabase. Match either the stored transaction_id
     // or the original hosted checkout order number persisted in metadata.
@@ -6760,69 +8359,82 @@ export async function getPaymentByTransactionId(transactionId: string): Promise<
         ORDER BY updated_at DESC
         LIMIT 1
       `,
-      [transactionId]
+      [transactionId],
     );
     return result.rows[0] || undefined;
   } catch (error: any) {
-    console.error('Error fetching payment by transaction ID:', error);
+    console.error("Error fetching payment by transaction ID:", error);
     return undefined;
   }
 }
 
-export async function getLatestPaymentWithAuthGuid(memberId: number): Promise<Payment | undefined> {
+export async function getLatestPaymentWithAuthGuid(
+  memberId: number,
+): Promise<Payment | undefined> {
   try {
     const result = await query(
-      'SELECT * FROM payments WHERE member_id = $1 AND epx_auth_guid IS NOT NULL ORDER BY created_at DESC LIMIT 1',
-      [memberId]
+      "SELECT * FROM payments WHERE member_id = $1 AND epx_auth_guid IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+      [memberId],
     );
     return result.rows[0] || undefined;
   } catch (error: any) {
-    console.error('Error fetching latest payment with auth GUID:', error);
+    console.error("Error fetching latest payment with auth GUID:", error);
     return undefined;
   }
 }
 
-export async function updatePayment(id: number, updates: Partial<Payment>): Promise<Payment> {
+export async function updatePayment(
+  id: number,
+  updates: Partial<Payment>,
+): Promise<Payment> {
   try {
     // Strict allowlist for columns that may be updated through this helper.
     const fieldMapping: Record<string, string> = {
-      userId: 'user_id',
-      memberId: 'member_id',
-      subscriptionId: 'subscription_id',
-      paymentMethod: 'payment_method',
-      transactionId: 'transaction_id',
-      authorizationCode: 'authorization_code',
-      epxAuthGuid: 'epx_auth_guid',
-      status: 'status',
-      amount: 'amount',
-      currency: 'currency',
-      metadata: 'metadata',
-      createdAt: 'created_at',
-      updatedAt: 'updated_at'
+      userId: "user_id",
+      memberId: "member_id",
+      subscriptionId: "subscription_id",
+      paymentMethod: "payment_method",
+      transactionId: "transaction_id",
+      authorizationCode: "authorization_code",
+      epxAuthGuid: "epx_auth_guid",
+      status: "status",
+      amount: "amount",
+      currency: "currency",
+      metadata: "metadata",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
     };
 
     const incomingFields = Object.keys(updates || {});
-    const unknownFields = incomingFields.filter((field) => !(field in fieldMapping));
+    const unknownFields = incomingFields.filter(
+      (field) => !(field in fieldMapping),
+    );
     if (unknownFields.length > 0) {
-      throw new Error(`Invalid payment update fields: ${unknownFields.join(', ')}`);
+      throw new Error(
+        `Invalid payment update fields: ${unknownFields.join(", ")}`,
+      );
     }
 
-    const fields = incomingFields.filter((field) => (updates as any)[field] !== undefined);
+    const fields = incomingFields.filter(
+      (field) => (updates as any)[field] !== undefined,
+    );
     if (fields.length === 0) {
-      throw new Error('No valid payment update fields provided');
+      throw new Error("No valid payment update fields provided");
     }
 
-    const setClause = fields.map((field, index) => {
-      const dbField = fieldMapping[field];
-      if (field === 'metadata') {
-        return `${dbField} = $${index + 2}::jsonb`;
-      }
-      return `${dbField} = $${index + 2}`;
-    }).join(', ');
+    const setClause = fields
+      .map((field, index) => {
+        const dbField = fieldMapping[field];
+        if (field === "metadata") {
+          return `${dbField} = $${index + 2}::jsonb`;
+        }
+        return `${dbField} = $${index + 2}`;
+      })
+      .join(", ");
 
     const processedValues = fields.map((field) => {
       const value = (updates as any)[field];
-      if (field === 'metadata' && typeof value === 'object' && value !== null) {
+      if (field === "metadata" && typeof value === "object" && value !== null) {
         return JSON.stringify(value);
       }
       return value;
@@ -6838,12 +8450,12 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
     const result = await query(updateQuery, [id, ...processedValues]);
 
     if (!result.rows || result.rows.length === 0) {
-      throw new Error('Payment not found');
+      throw new Error("Payment not found");
     }
 
     return result.rows[0];
   } catch (error: any) {
-    console.error('Error updating payment:', error);
+    console.error("Error updating payment:", error);
     throw new Error(`Failed to update payment: ${error.message}`);
   }
 }
@@ -6851,39 +8463,51 @@ export async function updatePayment(id: number, updates: Partial<Payment>): Prom
 // Adding a placeholder for SupabaseStorage and its export
 // Storage object with existing functions and necessary stubs
 // Missing function that was referenced in debug-payments.ts
-export async function getPaymentsWithFilters(filters: { limit?: number; offset?: number; status?: string; environment?: string } = {}): Promise<Payment[]> {
+export async function getPaymentsWithFilters(
+  filters: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    environment?: string;
+  } = {},
+): Promise<Payment[]> {
   let query = supabase
-    .from('payments')
-    .select('*')
-    .order('created_at', { ascending: false });
+    .from("payments")
+    .select("*")
+    .order("created_at", { ascending: false });
 
   if (filters.limit) {
     query = query.limit(filters.limit);
   }
 
   if (filters.offset) {
-    query = query.range(filters.offset, filters.offset + (filters.limit || 50) - 1);
+    query = query.range(
+      filters.offset,
+      filters.offset + (filters.limit || 50) - 1,
+    );
   }
 
   if (filters.status) {
-    query = query.eq('status', filters.status);
+    query = query.eq("status", filters.status);
   }
 
   if (filters.environment) {
-    query = query.eq('metadata->environment', filters.environment);
+    query = query.eq("metadata->environment", filters.environment);
   }
 
   const { data, error } = await query;
 
   if (error) {
-    console.error('Error fetching payments with filters:', error);
+    console.error("Error fetching payments with filters:", error);
     throw new Error(`Failed to get payments: ${error.message}`);
   }
 
   return data || [];
 }
 
-export async function getRecentPaymentsDetailed(options: { limit?: number; status?: string; includeArchived?: boolean } = {}): Promise<any[]> {
+export async function getRecentPaymentsDetailed(
+  options: { limit?: number; status?: string; includeArchived?: boolean } = {},
+): Promise<any[]> {
   const limit = Math.min(Math.max(options.limit ?? 25, 1), 200);
   const values: any[] = [];
   const whereClauses: string[] = [];
@@ -6894,10 +8518,14 @@ export async function getRecentPaymentsDetailed(options: { limit?: number; statu
   }
 
   if (!options.includeArchived) {
-    whereClauses.push(`COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'`);
+    whereClauses.push(
+      `COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'`,
+    );
   }
 
-  const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const whereSql = whereClauses.length
+    ? `WHERE ${whereClauses.join(" AND ")}`
+    : "";
   const sql = `
     SELECT
       p.*,
@@ -6920,9 +8548,12 @@ export async function getRecentPaymentsDetailed(options: { limit?: number; statu
  * Get failed payments for members enrolled by a specific agent
  * Returns failed payments with member details for agent's oversight
  */
-export async function getAgentFailedPayments(agentId: string, options: { includeArchived?: boolean } = {}): Promise<any[]> {
+export async function getAgentFailedPayments(
+  agentId: string,
+  options: { includeArchived?: boolean } = {},
+): Promise<any[]> {
   const archiveFilter = options.includeArchived
-    ? ''
+    ? ""
     : `AND COALESCE(LOWER(p.metadata->>'attentionArchived'), 'false') <> 'true'`;
 
   const sql = `
@@ -6985,14 +8616,14 @@ export async function createAdminNotification(notification: {
     notification.memberId || null,
     notification.subscriptionId || null,
     notification.errorMessage || null,
-    notification.metadata ? JSON.stringify(notification.metadata) : null
+    notification.metadata ? JSON.stringify(notification.metadata) : null,
   ];
 
   try {
     const result = await query(sql, values);
     return result.rows[0];
   } catch (error: any) {
-    console.error('[Storage] Failed to create admin notification:', error);
+    console.error("[Storage] Failed to create admin notification:", error);
     throw error;
   }
 }
@@ -7023,7 +8654,9 @@ export async function getUnresolvedNotifications(limit = 50): Promise<any[]> {
  * Create unresolved notifications for members who are still pending without any payment attempt.
  * This fills the "never attempted" payment lifecycle state for admin follow-up.
  */
-export async function createNeverAttemptedPaymentNotifications(limit = 100): Promise<number> {
+export async function createNeverAttemptedPaymentNotifications(
+  limit = 100,
+): Promise<number> {
   const sql = `
     INSERT INTO admin_notifications (
       type,
@@ -7069,7 +8702,10 @@ export async function createNeverAttemptedPaymentNotifications(limit = 100): Pro
     const result = await query(sql, [limit]);
     return result.rows?.length || 0;
   } catch (error: any) {
-    console.error('[Storage] Failed to create never-attempted payment notifications:', error);
+    console.error(
+      "[Storage] Failed to create never-attempted payment notifications:",
+      error,
+    );
     return 0;
   }
 }
@@ -7077,7 +8713,10 @@ export async function createNeverAttemptedPaymentNotifications(limit = 100): Pro
 /**
  * Mark an admin notification as resolved
  */
-export async function resolveAdminNotification(notificationId: number, resolvedBy: string): Promise<void> {
+export async function resolveAdminNotification(
+  notificationId: number,
+  resolvedBy: string,
+): Promise<void> {
   const sql = `
     UPDATE admin_notifications
     SET resolved = true,
@@ -7089,8 +8728,8 @@ export async function resolveAdminNotification(notificationId: number, resolvedB
   await query(sql, [resolvedBy, notificationId]);
 }
 
-export type DiscountValueType = 'fixed' | 'percentage';
-export type DiscountDurationType = 'once' | 'limited_months' | 'indefinite';
+export type DiscountValueType = "fixed" | "percentage";
+export type DiscountDurationType = "once" | "limited_months" | "indefinite";
 
 export interface DiscountCodeRecord {
   id: string;
@@ -7112,7 +8751,7 @@ export interface DiscountCodeRecord {
 
 function mapDiscountCode(record: any): DiscountCodeRecord {
   if (!record) {
-    throw new Error('[Storage] Discount code record not found');
+    throw new Error("[Storage] Discount code record not found");
   }
 
   return {
@@ -7161,22 +8800,25 @@ interface DiscountCodeDbPayload {
 
 function buildDiscountCodePayload(
   input: DiscountCodeInput,
-  options: { includeCreatedBy?: boolean; createdBy?: string | null } = {}
+  options: { includeCreatedBy?: boolean; createdBy?: string | null } = {},
 ): DiscountCodeDbPayload {
   const normalizedCode = input.code.trim().toUpperCase();
   const discountValue = Number(input.discountValue);
 
   if (!normalizedCode) {
-    throw new Error('Discount code is required');
+    throw new Error("Discount code is required");
   }
 
   if (Number.isNaN(discountValue) || discountValue <= 0) {
-    throw new Error('Discount value must be a positive number');
+    throw new Error("Discount value must be a positive number");
   }
 
-  const durationMonths = input.durationType === 'limited_months'
-    ? (input.durationMonths && input.durationMonths > 0 ? input.durationMonths : null)
-    : null;
+  const durationMonths =
+    input.durationType === "limited_months"
+      ? input.durationMonths && input.durationMonths > 0
+        ? input.durationMonths
+        : null
+      : null;
 
   const maxUses = input.maxUses && input.maxUses > 0 ? input.maxUses : null;
 
@@ -7200,26 +8842,36 @@ function buildDiscountCodePayload(
 }
 
 export async function getAllDiscountCodes(): Promise<DiscountCodeRecord[]> {
-  const result = await query('SELECT * FROM discount_codes ORDER BY created_at DESC');
+  const result = await query(
+    "SELECT * FROM discount_codes ORDER BY created_at DESC",
+  );
   return (result.rows || []).map(mapDiscountCode);
 }
 
-export async function getDiscountCodeByCode(code: string): Promise<DiscountCodeRecord | null> {
+export async function getDiscountCodeByCode(
+  code: string,
+): Promise<DiscountCodeRecord | null> {
   const normalizedCode = code.trim().toUpperCase();
   if (!normalizedCode) {
     return null;
   }
 
-  const result = await query('SELECT * FROM discount_codes WHERE code = $1 LIMIT 1', [normalizedCode]);
+  const result = await query(
+    "SELECT * FROM discount_codes WHERE code = $1 LIMIT 1",
+    [normalizedCode],
+  );
   const record = result.rows?.[0];
   return record ? mapDiscountCode(record) : null;
 }
 
 export async function createDiscountCode(
   input: DiscountCodeInput,
-  options: { createdBy?: string | null } = {}
+  options: { createdBy?: string | null } = {},
 ): Promise<DiscountCodeRecord> {
-  const payload = buildDiscountCodePayload(input, { includeCreatedBy: true, createdBy: options.createdBy ?? null });
+  const payload = buildDiscountCodePayload(input, {
+    includeCreatedBy: true,
+    createdBy: options.createdBy ?? null,
+  });
 
   const result = await query(
     `INSERT INTO discount_codes (
@@ -7246,18 +8898,21 @@ export async function createDiscountCode(
       payload.valid_from,
       payload.valid_until,
       payload.created_by ?? null,
-    ]
+    ],
   );
 
   const record = result.rows?.[0];
   if (!record) {
-    throw new Error('Failed to create discount code');
+    throw new Error("Failed to create discount code");
   }
 
   return mapDiscountCode(record);
 }
 
-export async function updateDiscountCode(id: string, input: DiscountCodeInput): Promise<DiscountCodeRecord> {
+export async function updateDiscountCode(
+  id: string,
+  input: DiscountCodeInput,
+): Promise<DiscountCodeRecord> {
   const payload = buildDiscountCodePayload(input);
 
   const result = await query(
@@ -7285,45 +8940,51 @@ export async function updateDiscountCode(id: string, input: DiscountCodeInput): 
       payload.valid_from,
       payload.valid_until,
       id,
-    ]
+    ],
   );
 
   const record = result.rows?.[0];
   if (!record) {
-    throw new Error('Discount code not found');
+    throw new Error("Discount code not found");
   }
 
   return mapDiscountCode(record);
 }
 
-export async function toggleDiscountCodeActive(id: string, isActive: boolean): Promise<DiscountCodeRecord> {
+export async function toggleDiscountCodeActive(
+  id: string,
+  isActive: boolean,
+): Promise<DiscountCodeRecord> {
   const result = await query(
     `UPDATE discount_codes SET is_active = $1, updated_at = NOW()
      WHERE id = $2
      RETURNING *`,
-    [isActive, id]
+    [isActive, id],
   );
 
   const record = result.rows?.[0];
   if (!record) {
-    throw new Error('Discount code not found');
+    throw new Error("Discount code not found");
   }
 
   return mapDiscountCode(record);
 }
 
 export async function deleteDiscountCode(id: string): Promise<void> {
-  const result = await query('DELETE FROM discount_codes WHERE id = $1 RETURNING id', [id]);
+  const result = await query(
+    "DELETE FROM discount_codes WHERE id = $1 RETURNING id",
+    [id],
+  );
 
   if (!result.rows?.length) {
-    throw new Error('Discount code not found');
+    throw new Error("Discount code not found");
   }
 }
 
 export async function getDiscountCodeUsageCount(id: string): Promise<number> {
   const result = await query(
-    'SELECT COUNT(*)::int AS count FROM member_discount_codes WHERE discount_code_id = $1',
-    [id]
+    "SELECT COUNT(*)::int AS count FROM member_discount_codes WHERE discount_code_id = $1",
+    [id],
   );
 
   const count = result.rows?.[0]?.count ?? 0;
@@ -7334,32 +8995,47 @@ export async function getDiscountCodeUsageCount(id: string): Promise<number> {
 // Group Enrollment helpers
 // ============================================================
 
-const GROUP_TABLE = 'groups';
-const GROUP_MEMBER_TABLE = 'group_members';
+const GROUP_TABLE = "groups";
+const GROUP_MEMBER_TABLE = "group_members";
 const REQUIRED_GROUP_MEMBER_COLUMNS = new Set<string>();
 
-const extractMissingGroupMemberColumnFromSchemaError = (error: any): string | null => {
-  const message = typeof error?.message === 'string' ? error.message : '';
-  const details = typeof error?.details === 'string' ? error.details : '';
+const extractMissingGroupMemberColumnFromSchemaError = (
+  error: any,
+): string | null => {
+  const message = typeof error?.message === "string" ? error.message : "";
+  const details = typeof error?.details === "string" ? error.details : "";
   const source = `${message} ${details}`;
-  const explicitMatch = source.match(/Could not find the '([^']+)' column of 'group_members'/i);
+  const explicitMatch = source.match(
+    /Could not find the '([^']+)' column of 'group_members'/i,
+  );
   if (explicitMatch?.[1]) {
     return explicitMatch[1];
   }
 
-  if ((error as any)?.code === 'PGRST204' && source.toLowerCase().includes('schema cache')) {
-    if (source.includes('relationship')) return 'relationship';
-    if (source.includes('tier')) return 'tier';
-    if (source.includes('dependent_suffix')) return 'dependent_suffix';
-    if (source.includes('household_base_number')) return 'household_base_number';
-    if (source.includes('household_member_number')) return 'household_member_number';
+  if (
+    (error as any)?.code === "PGRST204" &&
+    source.toLowerCase().includes("schema cache")
+  ) {
+    if (source.includes("relationship")) return "relationship";
+    if (source.includes("tier")) return "tier";
+    if (source.includes("dependent_suffix")) return "dependent_suffix";
+    if (source.includes("household_base_number"))
+      return "household_base_number";
+    if (source.includes("household_member_number"))
+      return "household_member_number";
   }
 
   return null;
 };
 
-const shouldFailOnMissingGroupMemberColumn = (missingColumn: string, payload: Record<string, any>): boolean => {
-  return REQUIRED_GROUP_MEMBER_COLUMNS.has(missingColumn) && Object.prototype.hasOwnProperty.call(payload, missingColumn);
+const shouldFailOnMissingGroupMemberColumn = (
+  missingColumn: string,
+  payload: Record<string, any>,
+): boolean => {
+  return (
+    REQUIRED_GROUP_MEMBER_COLUMNS.has(missingColumn) &&
+    Object.prototype.hasOwnProperty.call(payload, missingColumn)
+  );
 };
 
 const buildMissingGroupMemberColumnError = (missingColumn: string): Error => {
@@ -7369,21 +9045,21 @@ const buildMissingGroupMemberColumnError = (missingColumn: string): Error => {
 };
 
 const isGroupMemberRlsError = (error: any): boolean => {
-  const message = String(error?.message || '').toLowerCase();
-  const details = String(error?.details || '').toLowerCase();
-  const code = String(error?.code || '').toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  const code = String(error?.code || "").toLowerCase();
 
   return (
-    message.includes('row-level security policy')
-    || details.includes('row-level security policy')
-    || code === '42501'
+    message.includes("row-level security policy") ||
+    details.includes("row-level security policy") ||
+    code === "42501"
   );
 };
 
-const formatGroupMemberRlsError = (operation: 'insert' | 'update') => {
+const formatGroupMemberRlsError = (operation: "insert" | "update") => {
   const diagnostics = getSupabaseClientDiagnostics();
-  const source = diagnostics.selectedKeySource || 'unknown';
-  const role = diagnostics.selectedRole || 'unknown';
+  const source = diagnostics.selectedKeySource || "unknown";
+  const role = diagnostics.selectedRole || "unknown";
   return `Failed to ${operation} group member: RLS blocked Supabase write (selectedKeySource=${source}, selectedRole=${role}). Verify production server uses a service_role key for backend writes.`;
 };
 
@@ -7398,9 +9074,12 @@ const mapGroupFromDB = (record: any): Group => ({
   metadata: record.metadata ?? null,
   createdBy: record.created_by ?? record.createdBy ?? null,
   updatedBy: record.updated_by ?? record.updatedBy ?? null,
-  registrationCompletedAt: record.registration_completed_at ?? record.registrationCompletedAt ?? null,
-  hostedCheckoutLink: record.hosted_checkout_link ?? record.hostedCheckoutLink ?? null,
-  hostedCheckoutStatus: record.hosted_checkout_status ?? record.hostedCheckoutStatus ?? null,
+  registrationCompletedAt:
+    record.registration_completed_at ?? record.registrationCompletedAt ?? null,
+  hostedCheckoutLink:
+    record.hosted_checkout_link ?? record.hostedCheckoutLink ?? null,
+  hostedCheckoutStatus:
+    record.hosted_checkout_status ?? record.hostedCheckoutStatus ?? null,
   createdAt: record.created_at ?? record.createdAt ?? null,
   updatedAt: record.updated_at ?? record.updatedAt ?? null,
 });
@@ -7410,8 +9089,10 @@ const mapGroupMemberFromDB = (record: any): GroupMember => ({
   groupId: record.group_id ?? record.groupId,
   memberId: record.member_id ?? record.memberId ?? null,
   relationship: record.relationship ?? null,
-  householdBaseNumber: record.household_base_number ?? record.householdBaseNumber ?? null,
-  householdMemberNumber: record.household_member_number ?? record.householdMemberNumber ?? null,
+  householdBaseNumber:
+    record.household_base_number ?? record.householdBaseNumber ?? null,
+  householdMemberNumber:
+    record.household_member_number ?? record.householdMemberNumber ?? null,
   dependentSuffix: record.dependent_suffix ?? record.dependentSuffix ?? null,
   tier: record.tier,
   payorType: record.payor_type ?? record.payorType,
@@ -7427,29 +9108,38 @@ const mapGroupMemberFromDB = (record: any): GroupMember => ({
   phone: record.phone ?? null,
   dateOfBirth: record.date_of_birth ?? record.dateOfBirth ?? null,
   metadata: record.metadata ?? null,
-  registrationPayload: record.registration_payload ?? record.registrationPayload ?? null,
+  registrationPayload:
+    record.registration_payload ?? record.registrationPayload ?? null,
   registeredAt: record.registered_at ?? record.registeredAt ?? null,
   updatedAt: record.updated_at ?? record.updatedAt ?? null,
-  enrollmentCompletedAt: record.enrollment_completed_at ?? record.enrollmentCompletedAt ?? null,
+  enrollmentCompletedAt:
+    record.enrollment_completed_at ?? record.enrollmentCompletedAt ?? null,
   terminatedAt: record.terminated_at ?? record.terminatedAt ?? null,
   notes: record.notes ?? null,
 });
 
-const mapGroupToDBPayload = (group: Partial<Group> | Partial<InsertGroup>): Record<string, any> => {
+const mapGroupToDBPayload = (
+  group: Partial<Group> | Partial<InsertGroup>,
+): Record<string, any> => {
   const payload: Record<string, any> = {};
 
   if (group.name !== undefined) payload.name = group.name;
   if (group.groupType !== undefined) payload.group_type = group.groupType;
   if (group.payorType !== undefined) payload.payor_type = group.payorType;
-  if (group.discountCode !== undefined) payload.discount_code = group.discountCode;
-  if (group.discountCodeId !== undefined) payload.discount_code_id = group.discountCodeId;
+  if (group.discountCode !== undefined)
+    payload.discount_code = group.discountCode;
+  if (group.discountCodeId !== undefined)
+    payload.discount_code_id = group.discountCodeId;
   if (group.status !== undefined) payload.status = group.status;
   if (group.metadata !== undefined) payload.metadata = group.metadata;
   if (group.createdBy !== undefined) payload.created_by = group.createdBy;
   if (group.updatedBy !== undefined) payload.updated_by = group.updatedBy;
-  if (group.registrationCompletedAt !== undefined) payload.registration_completed_at = group.registrationCompletedAt;
-  if (group.hostedCheckoutLink !== undefined) payload.hosted_checkout_link = group.hostedCheckoutLink;
-  if (group.hostedCheckoutStatus !== undefined) payload.hosted_checkout_status = group.hostedCheckoutStatus;
+  if (group.registrationCompletedAt !== undefined)
+    payload.registration_completed_at = group.registrationCompletedAt;
+  if (group.hostedCheckoutLink !== undefined)
+    payload.hosted_checkout_link = group.hostedCheckoutLink;
+  if (group.hostedCheckoutStatus !== undefined)
+    payload.hosted_checkout_status = group.hostedCheckoutStatus;
   if (group.createdAt !== undefined) payload.created_at = group.createdAt;
   if (group.updatedAt !== undefined) payload.updated_at = group.updatedAt;
 
@@ -7463,29 +9153,43 @@ const mapGroupMemberToDBPayload = (
 
   if (member.groupId !== undefined) payload.group_id = member.groupId;
   if (member.memberId !== undefined) payload.member_id = member.memberId;
-  if ((member as any).relationship !== undefined) payload.relationship = (member as any).relationship;
-  if ((member as any).householdBaseNumber !== undefined) payload.household_base_number = (member as any).householdBaseNumber;
-  if ((member as any).householdMemberNumber !== undefined) payload.household_member_number = (member as any).householdMemberNumber;
-  if ((member as any).dependentSuffix !== undefined) payload.dependent_suffix = (member as any).dependentSuffix;
+  if ((member as any).relationship !== undefined)
+    payload.relationship = (member as any).relationship;
+  if ((member as any).householdBaseNumber !== undefined)
+    payload.household_base_number = (member as any).householdBaseNumber;
+  if ((member as any).householdMemberNumber !== undefined)
+    payload.household_member_number = (member as any).householdMemberNumber;
+  if ((member as any).dependentSuffix !== undefined)
+    payload.dependent_suffix = (member as any).dependentSuffix;
   if (member.tier !== undefined) payload.tier = member.tier;
   if (member.payorType !== undefined) payload.payor_type = member.payorType;
-  if (member.employerAmount !== undefined) payload.employer_amount = member.employerAmount;
-  if (member.memberAmount !== undefined) payload.member_amount = member.memberAmount;
-  if (member.discountAmount !== undefined) payload.discount_amount = member.discountAmount;
-  if (member.totalAmount !== undefined) payload.total_amount = member.totalAmount;
-  if (member.paymentStatus !== undefined) payload.payment_status = member.paymentStatus;
+  if (member.employerAmount !== undefined)
+    payload.employer_amount = member.employerAmount;
+  if (member.memberAmount !== undefined)
+    payload.member_amount = member.memberAmount;
+  if (member.discountAmount !== undefined)
+    payload.discount_amount = member.discountAmount;
+  if (member.totalAmount !== undefined)
+    payload.total_amount = member.totalAmount;
+  if (member.paymentStatus !== undefined)
+    payload.payment_status = member.paymentStatus;
   if (member.status !== undefined) payload.status = member.status;
   if (member.firstName !== undefined) payload.first_name = member.firstName;
   if (member.lastName !== undefined) payload.last_name = member.lastName;
   if (member.email !== undefined) payload.email = member.email;
   if (member.phone !== undefined) payload.phone = member.phone;
-  if (member.dateOfBirth !== undefined) payload.date_of_birth = member.dateOfBirth;
+  if (member.dateOfBirth !== undefined)
+    payload.date_of_birth = member.dateOfBirth;
   if (member.metadata !== undefined) payload.metadata = member.metadata;
-  if (member.registrationPayload !== undefined) payload.registration_payload = member.registrationPayload;
-  if (member.registeredAt !== undefined) payload.registered_at = member.registeredAt;
+  if (member.registrationPayload !== undefined)
+    payload.registration_payload = member.registrationPayload;
+  if (member.registeredAt !== undefined)
+    payload.registered_at = member.registeredAt;
   if (member.updatedAt !== undefined) payload.updated_at = member.updatedAt;
-  if (member.enrollmentCompletedAt !== undefined) payload.enrollment_completed_at = member.enrollmentCompletedAt;
-  if ((member as any).terminatedAt !== undefined) payload.terminated_at = (member as any).terminatedAt;
+  if (member.enrollmentCompletedAt !== undefined)
+    payload.enrollment_completed_at = member.enrollmentCompletedAt;
+  if ((member as any).terminatedAt !== undefined)
+    payload.terminated_at = (member as any).terminatedAt;
   if (member.notes !== undefined) payload.notes = member.notes;
 
   return payload;
@@ -7516,29 +9220,35 @@ export async function createGroup(group: InsertGroup): Promise<Group> {
   const { data, error } = await supabase
     .from(GROUP_TABLE)
     .insert([payload])
-    .select('*')
+    .select("*")
     .single();
 
   if (error) {
-    console.error('[Storage] Failed to create group:', error);
+    console.error("[Storage] Failed to create group:", error);
     throw new Error(`Failed to create group: ${error.message}`);
   }
 
   return mapGroupFromDB(data);
 }
 
-export async function updateGroup(id: string, updates: Partial<Group>): Promise<Group> {
-  const payload = mapGroupToDBPayload({ ...updates, updatedAt: new Date().toISOString() });
+export async function updateGroup(
+  id: string,
+  updates: Partial<Group>,
+): Promise<Group> {
+  const payload = mapGroupToDBPayload({
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
 
   const { data, error } = await supabase
     .from(GROUP_TABLE)
     .update(payload)
-    .eq('id', id)
-    .select('*')
+    .eq("id", id)
+    .select("*")
     .single();
 
   if (error) {
-    console.error('[Storage] Failed to update group:', error);
+    console.error("[Storage] Failed to update group:", error);
     throw new Error(`Failed to update group: ${error.message}`);
   }
 
@@ -7546,7 +9256,7 @@ export async function updateGroup(id: string, updates: Partial<Group>): Promise<
 }
 
 export async function getGroupById(id: string): Promise<Group | null> {
-  const normalizedId = String(id || '').trim();
+  const normalizedId = String(id || "").trim();
   if (!normalizedId) {
     return null;
   }
@@ -7554,12 +9264,12 @@ export async function getGroupById(id: string): Promise<Group | null> {
   for (let attempt = 0; attempt <= GROUP_READ_MAX_RETRIES; attempt += 1) {
     const { data, error } = await supabase
       .from(GROUP_TABLE)
-      .select('*')
-      .eq('id', normalizedId)
+      .select("*")
+      .eq("id", normalizedId)
       .maybeSingle();
 
     if (error) {
-      console.error('[Storage] Failed to fetch group:', error);
+      console.error("[Storage] Failed to fetch group:", error);
       throw new Error(`Failed to fetch group: ${error.message}`);
     }
 
@@ -7585,54 +9295,61 @@ export async function getGroupById(id: string): Promise<Group | null> {
     );
 
     if (result.rows && result.rows.length > 0) {
-      console.warn('[Storage] getGroupById recovered via SQL fallback', { groupId: normalizedId });
+      console.warn("[Storage] getGroupById recovered via SQL fallback", {
+        groupId: normalizedId,
+      });
       return mapGroupFromDB(result.rows[0]);
     }
   } catch (fallbackError: any) {
-    console.warn('[Storage] getGroupById SQL fallback failed:', fallbackError?.message || fallbackError);
+    console.warn(
+      "[Storage] getGroupById SQL fallback failed:",
+      fallbackError?.message || fallbackError,
+    );
   }
 
   return null;
 }
 
-export async function listGroups(options: ListGroupsOptions = {}): Promise<{ groups: Group[]; count: number | null }> {
+export async function listGroups(
+  options: ListGroupsOptions = {},
+): Promise<{ groups: Group[]; count: number | null }> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const offset = Math.max(options.offset ?? 0, 0);
   for (let attempt = 0; attempt <= GROUP_READ_MAX_RETRIES; attempt += 1) {
     let request = supabase
       .from(GROUP_TABLE)
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false });
+      .select("*", { count: "exact" })
+      .order("created_at", { ascending: false });
 
     if (options.status) {
-      request = request.eq('status', options.status);
+      request = request.eq("status", options.status);
     }
 
     if (options.payorType) {
-      request = request.eq('payor_type', options.payorType);
+      request = request.eq("payor_type", options.payorType);
     }
 
     if (options.search) {
-      request = request.ilike('name', `%${options.search}%`);
+      request = request.ilike("name", `%${options.search}%`);
     }
 
     const to = offset + limit - 1;
     const { data, error, count } = await request.range(offset, to);
 
     if (error) {
-      console.error('[Storage] Failed to list groups:', error);
+      console.error("[Storage] Failed to list groups:", error);
       throw new Error(`Failed to list groups: ${error.message}`);
     }
 
     const groups = (data || []).map(mapGroupFromDB);
     const shouldRetryEmpty =
-      groups.length === 0
-      && (count ?? 0) === 0
-      && offset === 0
-      && !options.status
-      && !options.payorType
-      && !options.search
-      && attempt < GROUP_READ_MAX_RETRIES;
+      groups.length === 0 &&
+      (count ?? 0) === 0 &&
+      offset === 0 &&
+      !options.status &&
+      !options.payorType &&
+      !options.search &&
+      attempt < GROUP_READ_MAX_RETRIES;
 
     if (shouldRetryEmpty) {
       await sleep(GROUP_READ_RETRY_DELAY_MS);
@@ -7648,7 +9365,10 @@ export async function listGroups(options: ListGroupsOptions = {}): Promise<{ gro
   return { groups: [], count: 0 };
 }
 
-export async function addGroupMember(groupId: string, member: InsertGroupMember): Promise<GroupMember> {
+export async function addGroupMember(
+  groupId: string,
+  member: InsertGroupMember,
+): Promise<GroupMember> {
   const payload = mapGroupMemberToDBPayload({ ...member, groupId });
   payload.updated_at = new Date().toISOString();
 
@@ -7656,7 +9376,7 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
     const { data, error } = await supabase
       .from(GROUP_MEMBER_TABLE)
       .insert([insertPayload])
-      .select('*')
+      .select("*")
       .single();
     return { data, error };
   };
@@ -7666,49 +9386,62 @@ export async function addGroupMember(groupId: string, member: InsertGroupMember)
 
   for (let attempt = 0; error && attempt < 4; attempt += 1) {
     const missingColumn = extractMissingGroupMemberColumnFromSchemaError(error);
-    if (!missingColumn || !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)) {
+    if (
+      !missingColumn ||
+      !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)
+    ) {
       break;
     }
 
     if (shouldFailOnMissingGroupMemberColumn(missingColumn, nextPayload)) {
-      console.error(`[Storage] addGroupMember missing required column: ${missingColumn}`);
+      console.error(
+        `[Storage] addGroupMember missing required column: ${missingColumn}`,
+      );
       throw buildMissingGroupMemberColumnError(missingColumn);
     }
 
     const fallbackPayload = { ...nextPayload };
     delete fallbackPayload[missingColumn];
-    console.warn(`[Storage] addGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`);
+    console.warn(
+      `[Storage] addGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`,
+    );
     nextPayload = fallbackPayload;
     ({ data, error } = await insertWithPayload(nextPayload));
   }
 
   if (error) {
     if (isGroupMemberRlsError(error)) {
-      console.error('[Storage] addGroupMember blocked by RLS', {
+      console.error("[Storage] addGroupMember blocked by RLS", {
         code: (error as any)?.code,
         message: (error as any)?.message,
         details: (error as any)?.details,
         diagnostics: getSupabaseClientDiagnostics(),
       });
-      throw new Error(formatGroupMemberRlsError('insert'));
+      throw new Error(formatGroupMemberRlsError("insert"));
     }
 
-    console.error('[Storage] Failed to add group member:', error);
+    console.error("[Storage] Failed to add group member:", error);
     throw new Error(`Failed to add group member: ${error.message}`);
   }
 
   return mapGroupMemberFromDB(data);
 }
 
-export async function updateGroupMember(id: number, updates: Partial<GroupMember>): Promise<GroupMember> {
-  const payload = mapGroupMemberToDBPayload({ ...updates, updatedAt: new Date().toISOString() });
+export async function updateGroupMember(
+  id: number,
+  updates: Partial<GroupMember>,
+): Promise<GroupMember> {
+  const payload = mapGroupMemberToDBPayload({
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
 
   const updateWithPayload = async (updatePayload: Record<string, any>) => {
     const { data, error } = await supabase
       .from(GROUP_MEMBER_TABLE)
       .update(updatePayload)
-      .eq('id', id)
-      .select('*')
+      .eq("id", id)
+      .select("*")
       .single();
     return { data, error };
   };
@@ -7718,35 +9451,42 @@ export async function updateGroupMember(id: number, updates: Partial<GroupMember
 
   for (let attempt = 0; error && attempt < 4; attempt += 1) {
     const missingColumn = extractMissingGroupMemberColumnFromSchemaError(error);
-    if (!missingColumn || !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)) {
+    if (
+      !missingColumn ||
+      !Object.prototype.hasOwnProperty.call(nextPayload, missingColumn)
+    ) {
       break;
     }
 
     if (shouldFailOnMissingGroupMemberColumn(missingColumn, nextPayload)) {
-      console.error(`[Storage] updateGroupMember missing required column: ${missingColumn}`);
+      console.error(
+        `[Storage] updateGroupMember missing required column: ${missingColumn}`,
+      );
       throw buildMissingGroupMemberColumnError(missingColumn);
     }
 
     const fallbackPayload = { ...nextPayload };
     delete fallbackPayload[missingColumn];
-    console.warn(`[Storage] updateGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`);
+    console.warn(
+      `[Storage] updateGroupMember: ${missingColumn} column missing; retrying without ${missingColumn} payload.`,
+    );
     nextPayload = fallbackPayload;
     ({ data, error } = await updateWithPayload(nextPayload));
   }
 
   if (error) {
     if (isGroupMemberRlsError(error)) {
-      console.error('[Storage] updateGroupMember blocked by RLS', {
+      console.error("[Storage] updateGroupMember blocked by RLS", {
         id,
         code: (error as any)?.code,
         message: (error as any)?.message,
         details: (error as any)?.details,
         diagnostics: getSupabaseClientDiagnostics(),
       });
-      throw new Error(formatGroupMemberRlsError('update'));
+      throw new Error(formatGroupMemberRlsError("update"));
     }
 
-    console.error('[Storage] Failed to update group member:', error);
+    console.error("[Storage] Failed to update group member:", error);
     throw new Error(`Failed to update group member: ${error.message}`);
   }
 
@@ -7757,44 +9497,48 @@ export async function deleteGroupMember(id: number): Promise<void> {
   const { error } = await supabase
     .from(GROUP_MEMBER_TABLE)
     .delete()
-    .eq('id', id);
+    .eq("id", id);
 
   if (error) {
-    console.error('[Storage] Failed to delete group member:', error);
+    console.error("[Storage] Failed to delete group member:", error);
     throw new Error(`Failed to delete group member: ${error.message}`);
   }
 }
 
-export async function getGroupMemberById(id: number): Promise<GroupMember | null> {
+export async function getGroupMemberById(
+  id: number,
+): Promise<GroupMember | null> {
   const { data, error } = await supabase
     .from(GROUP_MEMBER_TABLE)
-    .select('*')
-    .eq('id', id)
+    .select("*")
+    .eq("id", id)
     .maybeSingle();
 
   if (error) {
-    console.error('[Storage] Failed to fetch group member:', error);
+    console.error("[Storage] Failed to fetch group member:", error);
     throw new Error(`Failed to fetch group member: ${error.message}`);
   }
 
   return data ? mapGroupMemberFromDB(data) : null;
 }
 
-export async function listGroupMembers(options: ListGroupMembersOptions): Promise<GroupMember[]> {
+export async function listGroupMembers(
+  options: ListGroupMembersOptions,
+): Promise<GroupMember[]> {
   let request = supabase
     .from(GROUP_MEMBER_TABLE)
-    .select('*')
-    .eq('group_id', options.groupId)
-    .order('registered_at', { ascending: true });
+    .select("*")
+    .eq("group_id", options.groupId)
+    .order("registered_at", { ascending: true });
 
   if (options.status) {
-    request = request.eq('status', options.status);
+    request = request.eq("status", options.status);
   }
 
   const { data, error } = await request;
 
   if (error) {
-    console.error('[Storage] Failed to list group members:', error);
+    console.error("[Storage] Failed to list group members:", error);
     throw new Error(`Failed to list group members: ${error.message}`);
   }
 
@@ -7806,17 +9550,24 @@ export async function setGroupMemberPaymentStatus(
   paymentStatus: string,
   updates: Partial<GroupMember> = {},
 ): Promise<GroupMember> {
-  const payload = mapGroupMemberToDBPayload({ ...updates, paymentStatus, updatedAt: new Date().toISOString() });
+  const payload = mapGroupMemberToDBPayload({
+    ...updates,
+    paymentStatus,
+    updatedAt: new Date().toISOString(),
+  });
 
   const { data, error } = await supabase
     .from(GROUP_MEMBER_TABLE)
     .update(payload)
-    .eq('id', memberId)
-    .select('*')
+    .eq("id", memberId)
+    .select("*")
     .single();
 
   if (error) {
-    console.error('[Storage] Failed to update payment status for group member:', error);
+    console.error(
+      "[Storage] Failed to update payment status for group member:",
+      error,
+    );
     throw new Error(`Failed to update payment status: ${error.message}`);
   }
 
@@ -7825,10 +9576,14 @@ export async function setGroupMemberPaymentStatus(
 
 export async function completeGroupRegistration(
   groupId: string,
-  options: { hostedCheckoutLink?: string; hostedCheckoutStatus?: string; status?: string } = {}
+  options: {
+    hostedCheckoutLink?: string;
+    hostedCheckoutStatus?: string;
+    status?: string;
+  } = {},
 ): Promise<Group> {
   const payload = mapGroupToDBPayload({
-    status: options.status ?? 'registered',
+    status: options.status ?? "registered",
     hostedCheckoutLink: options.hostedCheckoutLink,
     hostedCheckoutStatus: options.hostedCheckoutStatus,
     registrationCompletedAt: new Date().toISOString(),
@@ -7838,12 +9593,12 @@ export async function completeGroupRegistration(
   const { data, error } = await supabase
     .from(GROUP_TABLE)
     .update(payload)
-    .eq('id', groupId)
-    .select('*')
+    .eq("id", groupId)
+    .select("*")
     .single();
 
   if (error) {
-    console.error('[Storage] Failed to complete group registration:', error);
+    console.error("[Storage] Failed to complete group registration:", error);
     throw new Error(`Failed to complete group registration: ${error.message}`);
   }
 
@@ -7877,6 +9632,11 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   getEnrollmentsByAgent,
+  getAgencyAssignedAgentIds,
+  listAgencyUsers,
+  listAssignableAgents,
+  getAgencyAssignmentsSnapshot,
+  setAgencyAssignments,
   getEnrollmentDetails,
   updateMemberStatus,
   activateMembershipNow,
@@ -7913,14 +9673,14 @@ export const storage = {
   getSubscriptionByMemberId: async (memberId: string | number) => {
     try {
       const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('member_id', String(memberId))
-        .order('created_at', { ascending: false })
+        .from("subscriptions")
+        .select("*")
+        .eq("member_id", String(memberId))
+        .order("created_at", { ascending: false })
         .limit(10);
 
       if (error) {
-        console.error('Error fetching subscription by member_id:', error);
+        console.error("Error fetching subscription by member_id:", error);
         return null;
       }
 
@@ -7928,7 +9688,7 @@ export const storage = {
       if (!rows.length) return null;
 
       // Prefer the active subscription, then any latest
-      const active = rows.find((r: any) => r.status === 'active');
+      const active = rows.find((r: any) => r.status === "active");
       const raw = active || rows[0];
 
       return {
@@ -7947,45 +9707,55 @@ export const storage = {
         updatedAt: raw.updated_at,
       };
     } catch (error) {
-      console.error('Unexpected error fetching subscription for member', memberId, ':', error);
+      console.error(
+        "Unexpected error fetching subscription for member",
+        memberId,
+        ":",
+        error,
+      );
       return null;
     }
   },
   getUserSubscription: async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', userId)  // Use snake_case column name
-        .order('created_at', { ascending: false })
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", userId) // Use snake_case column name
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(); // Use maybeSingle instead of single to avoid errors when no records
 
       if (error) {
-        console.error('Error fetching user subscription:', error);
+        console.error("Error fetching user subscription:", error);
         return null;
       }
 
       return data;
     } catch (error) {
-      console.error('Unexpected error fetching user subscription for', userId, ':', error);
+      console.error(
+        "Unexpected error fetching user subscription for",
+        userId,
+        ":",
+        error,
+      );
       return null;
     }
   },
   getUserSubscriptions: async (userId: string) => {
     const { data, error } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .eq('user_id', userId)  // Use snake_case column name
-      .order('created_at', { ascending: false });
+      .from("subscriptions")
+      .select("*")
+      .eq("user_id", userId) // Use snake_case column name
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error('Error fetching user subscriptions:', error);
+      console.error("Error fetching user subscriptions:", error);
       return [];
     }
 
     // Map the results to camelCase
-    return (data || []).map(sub => ({
+    return (data || []).map((sub) => ({
       id: sub.id,
       userId: sub.user_id,
       planId: sub.plan_id,
@@ -7997,13 +9767,13 @@ export const storage = {
       nextBillingDate: sub.next_billing_date,
       amount: sub.amount,
       createdAt: sub.created_at,
-      updatedAt: sub.updated_at
+      updatedAt: sub.updated_at,
     }));
   },
   createSubscription: async (sub: any) => {
     try {
-      console.log('[Storage] Creating subscription:', sub);
-      
+      console.log("[Storage] Creating subscription:", sub);
+
       // Use direct Neon database connection to bypass Supabase RLS
       const insertQuery = `
         INSERT INTO subscriptions (
@@ -8029,24 +9799,26 @@ export const storage = {
         sub.userId || null,
         sub.memberId || null,
         sub.planId,
-        sub.status || 'pending_payment',
+        sub.status || "pending_payment",
         sub.amount,
         sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
-        sub.currentPeriodEnd || sub.endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        sub.currentPeriodEnd ||
+          sub.endDate ||
+          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         sub.pendingReason || null,
         sub.pendingDetails || null,
-        sub.nextBillingDate || null
+        sub.nextBillingDate || null,
       ];
 
-      console.log('[Storage] Executing direct SQL insert to Neon database');
+      console.log("[Storage] Executing direct SQL insert to Neon database");
       const result = await query(insertQuery, values);
 
       if (!result.rows || result.rows.length === 0) {
-        throw new Error('Subscription creation failed - no data returned');
+        throw new Error("Subscription creation failed - no data returned");
       }
 
       const data = result.rows[0];
-      console.log('[Storage] ✅ Subscription created successfully:', data.id);
+      console.log("[Storage] ✅ Subscription created successfully:", data.id);
 
       // Return with camelCase for application layer
       return {
@@ -8064,10 +9836,10 @@ export const storage = {
         currentPeriodEnd: data.end_date, // Map for compatibility
         amount: parseFloat(data.amount),
         createdAt: data.created_at,
-        updatedAt: data.updated_at
+        updatedAt: data.updated_at,
       };
     } catch (error: any) {
-      console.error('[Storage] Exception in createSubscription:', error);
+      console.error("[Storage] Exception in createSubscription:", error);
       throw error;
     }
   },
@@ -8078,22 +9850,26 @@ export const storage = {
     // Map the fields that might be updated
     if (updates.planId !== undefined) dbUpdates.plan_id = updates.planId;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.pendingReason !== undefined) dbUpdates.pending_reason = updates.pendingReason;
-    if (updates.pendingDetails !== undefined) dbUpdates.pending_details = updates.pendingDetails;
+    if (updates.pendingReason !== undefined)
+      dbUpdates.pending_reason = updates.pendingReason;
+    if (updates.pendingDetails !== undefined)
+      dbUpdates.pending_details = updates.pendingDetails;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
-    if (updates.nextBillingDate !== undefined) dbUpdates.next_billing_date = updates.nextBillingDate;
-    if (updates.updatedAt !== undefined) dbUpdates.updated_at = updates.updatedAt;
+    if (updates.nextBillingDate !== undefined)
+      dbUpdates.next_billing_date = updates.nextBillingDate;
+    if (updates.updatedAt !== undefined)
+      dbUpdates.updated_at = updates.updatedAt;
     else dbUpdates.updated_at = new Date().toISOString();
 
     const { data: updatedSub, error } = await supabase
-      .from('subscriptions')
+      .from("subscriptions")
       .update(dbUpdates)
-      .eq('id', id)
+      .eq("id", id)
       .select()
       .single();
 
     if (error) {
-      console.error('Error updating subscription:', error);
+      console.error("Error updating subscription:", error);
       throw new Error(`Failed to update subscription: ${error.message}`);
     }
 
@@ -8110,10 +9886,10 @@ export const storage = {
       nextBillingDate: updatedSub.next_billing_date,
       amount: updatedSub.amount,
       createdAt: updatedSub.created_at,
-      updatedAt: updatedSub.updated_at
+      updatedAt: updatedSub.updated_at,
     };
   },
-  getActiveSubscriptions,  // Use real function defined above
+  getActiveSubscriptions, // Use real function defined above
 
   upsertMemberPaymentToken,
   upsertGroupPaymentToken,
@@ -8128,7 +9904,7 @@ export const storage = {
   updatePayment,
   getPaymentsWithFilters,
   getAgentFailedPayments,
-  
+
   createAdminNotification,
   createNeverAttemptedPaymentNotifications,
   getUnresolvedNotifications,
@@ -8141,49 +9917,51 @@ export const storage = {
   updateLead,
   getLead: async (id: number) => {
     const { data, error } = await supabase
-      .from('leads')
-      .select('*')
-      .eq('id', id)
+      .from("leads")
+      .select("*")
+      .eq("id", id)
       .single();
 
     if (error) {
-      if (error.code === 'PGRST116') return undefined;
-      console.error('Error fetching lead:', error);
+      if (error.code === "PGRST116") return undefined;
+      console.error("Error fetching lead:", error);
       return undefined;
     }
     // Map snake_case to camelCase
-    return data ? {
-      id: data.id,
-      firstName: data.first_name,
-      lastName: data.last_name,
-      email: data.email,
-      phone: data.phone,
-      message: data.message,
-      source: data.source,
-      status: data.status,
-      assignedAgentId: data.assigned_agent_id,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-      notes: data.notes
-    } : undefined;
+    return data
+      ? {
+          id: data.id,
+          firstName: data.first_name,
+          lastName: data.last_name,
+          email: data.email,
+          phone: data.phone,
+          message: data.message,
+          source: data.source,
+          status: data.status,
+          assignedAgentId: data.assigned_agent_id,
+          createdAt: data.created_at,
+          updatedAt: data.updated_at,
+          notes: data.notes,
+        }
+      : undefined;
   },
   getAgentLeads,
   getAllLeads,
   getPartnerLeads,
   updatePartnerLeadStatus,
   getLeadByEmail,
-  addLeadActivity,  // Use real function defined above
-  getLeadActivities,  // Use real function defined above
+  addLeadActivity, // Use real function defined above
+  getLeadActivities, // Use real function defined above
   getAgents: async () => {
     const { users } = await getAllUsers(); // Use the corrected getAllUsers
-    const agents = users?.filter((user: any) => user.role === 'agent') || [];
+    const agents = users?.filter((user: any) => user.role === "agent") || [];
     return agents.map((agent: any) => ({
       id: agent.id,
       firstName: agent.firstName,
       lastName: agent.lastName,
       name: `${agent.firstName} ${agent.lastName}`,
       email: agent.email,
-      agentNumber: agent.agentNumber
+      agentNumber: agent.agentNumber,
     }));
   },
   assignLead: async (leadId: number, agentId: string) => {
@@ -8228,57 +10006,64 @@ export const storage = {
     location?: string;
   }) => {
     const { data, error } = await supabase
-      .from('login_sessions')
-      .insert([{
-        user_id: sessionData.userId,
-        ip_address: sessionData.ipAddress,
-        user_agent: sessionData.userAgent,
-        device_type: sessionData.deviceType,
-        browser: sessionData.browser,
-        location: sessionData.location,
-        login_time: new Date().toISOString(),
-        is_active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }])
+      .from("login_sessions")
+      .insert([
+        {
+          user_id: sessionData.userId,
+          ip_address: sessionData.ipAddress,
+          user_agent: sessionData.userAgent,
+          device_type: sessionData.deviceType,
+          browser: sessionData.browser,
+          location: sessionData.location,
+          login_time: new Date().toISOString(),
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
       .select()
       .single();
 
     if (error) {
-      if (handleLoginSessionError(error, 'createLoginSession')) {
+      if (handleLoginSessionError(error, "createLoginSession")) {
         return null;
       }
-      console.error('Error creating login session:', error);
+      console.error("Error creating login session:", error);
       throw new Error(`Failed to create login session: ${error.message}`);
     }
     return data;
   },
 
-  updateLoginSession: async (sessionId: string, updates: {
-    logoutTime?: Date;
-    sessionDurationMinutes?: number;
-    isActive?: boolean;
-  }) => {
+  updateLoginSession: async (
+    sessionId: string,
+    updates: {
+      logoutTime?: Date;
+      sessionDurationMinutes?: number;
+      isActive?: boolean;
+    },
+  ) => {
     const updateData: any = {
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     };
 
-    if (updates.logoutTime) updateData.logout_time = updates.logoutTime.toISOString();
-    if (updates.sessionDurationMinutes) updateData.session_duration_minutes = updates.sessionDurationMinutes;
+    if (updates.logoutTime)
+      updateData.logout_time = updates.logoutTime.toISOString();
+    if (updates.sessionDurationMinutes)
+      updateData.session_duration_minutes = updates.sessionDurationMinutes;
     if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
 
     const { data, error } = await supabase
-      .from('login_sessions')
+      .from("login_sessions")
       .update(updateData)
-      .eq('id', sessionId)
+      .eq("id", sessionId)
       .select()
       .single();
 
     if (error) {
-      if (handleLoginSessionError(error, 'updateLoginSession')) {
+      if (handleLoginSessionError(error, "updateLoginSession")) {
         return null;
       }
-      console.error('Error updating login session:', error);
+      console.error("Error updating login session:", error);
       throw new Error(`Failed to update login session: ${error.message}`);
     }
     return data;
@@ -8286,17 +10071,17 @@ export const storage = {
 
   getUserLoginSessions: async (userId: string, limit = 10) => {
     const { data, error } = await supabase
-      .from('login_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('login_time', { ascending: false })
+      .from("login_sessions")
+      .select("*")
+      .eq("user_id", userId)
+      .order("login_time", { ascending: false })
       .limit(limit);
 
     if (error) {
-      if (handleLoginSessionError(error, 'getUserLoginSessions')) {
+      if (handleLoginSessionError(error, "getUserLoginSessions")) {
         return [];
       }
-      console.error('Error fetching user login sessions:', error);
+      console.error("Error fetching user login sessions:", error);
       return [];
     }
     return data || [];
@@ -8306,16 +10091,16 @@ export const storage = {
     try {
       // First get the login sessions
       const { data: sessions, error: sessionsError } = await supabase
-        .from('login_sessions')
-        .select('*')
-        .order('login_time', { ascending: false })
+        .from("login_sessions")
+        .select("*")
+        .order("login_time", { ascending: false })
         .limit(limit);
 
       if (sessionsError) {
-        if (handleLoginSessionError(sessionsError, 'getAllLoginSessions')) {
+        if (handleLoginSessionError(sessionsError, "getAllLoginSessions")) {
           return [];
         }
-        console.error('Error fetching all login sessions:', sessionsError);
+        console.error("Error fetching all login sessions:", sessionsError);
         return [];
       }
 
@@ -8324,7 +10109,9 @@ export const storage = {
       }
 
       // Get unique user IDs from sessions
-      const userIds = [...new Set(sessions.map(s => s.user_id).filter(Boolean))];
+      const userIds = [
+        ...new Set(sessions.map((s) => s.user_id).filter(Boolean)),
+      ];
 
       if (userIds.length === 0) {
         return sessions;
@@ -8332,47 +10119,49 @@ export const storage = {
 
       // Fetch user details separately
       const { data: users, error: usersError } = await supabase
-        .from('users')
-        .select('id, firstName, lastName, email, role')
-        .in('id', userIds);
+        .from("users")
+        .select("id, firstName, lastName, email, role")
+        .in("id", userIds);
 
       if (usersError) {
-        console.error('Error fetching users for sessions:', usersError);
+        console.error("Error fetching users for sessions:", usersError);
         // Return sessions without user data
         return sessions;
       }
 
       // Map users to sessions
-      const usersMap = new Map(users?.map(u => [u.id, u]) || []);
-      const sessionsWithUsers = sessions.map(session => ({
+      const usersMap = new Map(users?.map((u) => [u.id, u]) || []);
+      const sessionsWithUsers = sessions.map((session) => ({
         ...session,
-        user: session.user_id ? usersMap.get(session.user_id) : null
+        user: session.user_id ? usersMap.get(session.user_id) : null,
       }));
 
       return sessionsWithUsers;
     } catch (error) {
-      console.error('Unexpected error fetching login sessions:', error);
+      console.error("Unexpected error fetching login sessions:", error);
       return [];
     }
   },
 
   getAdminDashboardStats: async () => {
     try {
-      console.log('[Storage] Fetching admin dashboard stats...');
+      console.log("[Storage] Fetching admin dashboard stats...");
 
       // Get users from Supabase (agents/admins only stored there)
-      const { data: allUsersData, error: usersError } = await supabase.from('users').select('*');
+      const { data: allUsersData, error: usersError } = await supabase
+        .from("users")
+        .select("*");
       if (usersError) {
-        console.error('[Storage] Error fetching users:', usersError);
+        console.error("[Storage] Error fetching users:", usersError);
       }
       const allUsers = allUsersData || [];
 
       // Get members, subscriptions, and commissions from Supabase (same database as users)
       // Include ALL members regardless of status (active, pending_activation, etc.)
-      const membersResult = await query('SELECT * FROM members');
-      const subscriptionsResult = await query('SELECT * FROM subscriptions');
-      const commissionsResult = await query('SELECT * FROM agent_commissions');
-      const groupMembersResult = await query('SELECT * FROM group_members');
+      const membersResult = await query("SELECT * FROM members");
+      const subscriptionsResult = await query("SELECT * FROM subscriptions");
+      const commissionsResult = await query("SELECT * FROM agent_commissions");
+      const groupMembersResult = await query("SELECT * FROM group_members");
 
       const allMembers = membersResult.rows || [];
       const allSubscriptions = subscriptionsResult.rows || [];
@@ -8380,7 +10169,8 @@ export const storage = {
       const allGroupMembers = groupMembersResult.rows || [];
 
       const parseAmount = (value: unknown): number => {
-        const amount = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+        const amount =
+          typeof value === "number" ? value : parseFloat(String(value ?? 0));
         return Number.isFinite(amount) ? amount : 0;
       };
 
@@ -8395,10 +10185,17 @@ export const storage = {
         return date.toISOString().slice(0, 10);
       };
 
-      const getMonthsOnBooks = (initialDate: Date | null, endDate?: Date | null): number | null => {
+      const getMonthsOnBooks = (
+        initialDate: Date | null,
+        endDate?: Date | null,
+      ): number | null => {
         if (!initialDate) return null;
         const finalDate = endDate || new Date();
-        if (!finalDate || Number.isNaN(finalDate.getTime()) || finalDate < initialDate) {
+        if (
+          !finalDate ||
+          Number.isNaN(finalDate.getTime()) ||
+          finalDate < initialDate
+        ) {
           return 0;
         }
 
@@ -8412,87 +10209,140 @@ export const storage = {
 
       const getTenureBucket = (monthsOnBooks: number | null): string | null => {
         if (monthsOnBooks === null || monthsOnBooks < 0) return null;
-        if (monthsOnBooks <= 1) return '0-1 months';
-        if (monthsOnBooks <= 3) return '2-3 months';
-        if (monthsOnBooks <= 6) return '4-6 months';
-        if (monthsOnBooks <= 12) return '7-12 months';
-        return '12+ months';
+        if (monthsOnBooks <= 1) return "0-1 months";
+        if (monthsOnBooks <= 3) return "2-3 months";
+        if (monthsOnBooks <= 6) return "4-6 months";
+        if (monthsOnBooks <= 12) return "7-12 months";
+        return "12+ months";
       };
 
       const isGroupMemberEligible = (groupMember: any): boolean => {
-        if (groupMember?.status === 'terminated') {
+        if (groupMember?.status === "terminated") {
           return false;
         }
 
-        const groupStatus = String(groupMember?.group_status || '').toLowerCase();
-        return groupStatus === 'registered' || groupStatus === 'active';
+        const groupStatus = String(
+          groupMember?.group_status || "",
+        ).toLowerCase();
+        return groupStatus === "registered" || groupStatus === "active";
       };
 
-      console.log('[Storage] Raw dashboard data counts:', {
+      console.log("[Storage] Raw dashboard data counts:", {
         users: allUsers.length,
         members: allMembers.length,
         groupMembers: allGroupMembers.length,
         subscriptions: allSubscriptions.length,
-        commissions: allCommissions.length
+        commissions: allCommissions.length,
       });
 
-      const totalAgents = allUsers.filter(user => user.role === 'agent').length;
-      const totalAdmins = allUsers.filter(user => user.role === 'admin' || user.role === 'super_admin').length;
+      const totalAgents = allUsers.filter(
+        (user) => user.role === "agent",
+      ).length;
+      const totalAdmins = allUsers.filter(
+        (user) => user.role === "admin" || user.role === "super_admin",
+      ).length;
       const activeGroupMembers = allGroupMembers.filter(isGroupMemberEligible);
-      const activeIndividualMembers = allMembers.filter(member => {
-        if (!(member.status === 'active' || member.status === 'pending_activation')) {
+      const activeIndividualMembers = allMembers.filter((member) => {
+        if (
+          !(
+            member.status === "active" || member.status === "pending_activation"
+          )
+        ) {
           return false;
         }
 
-        const coverage = String(member.coverage_type || '').toLowerCase();
-        return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+        const coverage = String(member.coverage_type || "").toLowerCase();
+        return (
+          !coverage.includes("family") &&
+          !coverage.includes("spouse") &&
+          !coverage.includes("child")
+        );
       });
-      const activeFamilyMembers = allMembers.filter(member => {
-        if (!(member.status === 'active' || member.status === 'pending_activation')) {
+      const activeFamilyMembers = allMembers.filter((member) => {
+        if (
+          !(
+            member.status === "active" || member.status === "pending_activation"
+          )
+        ) {
           return false;
         }
 
-        const coverage = String(member.coverage_type || '').toLowerCase();
-        return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+        const coverage = String(member.coverage_type || "").toLowerCase();
+        return (
+          coverage.includes("family") ||
+          coverage.includes("spouse") ||
+          coverage.includes("child")
+        );
       });
       const totalMembers = allMembers.length + activeGroupMembers.length;
-      const activeMembers = allMembers.filter(m => m.status === 'active').length + activeGroupMembers.length;
+      const activeMembers =
+        allMembers.filter((m) => m.status === "active").length +
+        activeGroupMembers.length;
       const totalUsers = totalAgents + totalAdmins + totalMembers;
 
-      const activeSubscriptions = allSubscriptions.filter(sub => sub.status === 'active').length;
-      const pendingSubscriptions = allSubscriptions.filter(sub => sub.status === 'pending').length;
-      const cancelledSubscriptions = allSubscriptions.filter(sub => sub.status === 'cancelled').length;
+      const activeSubscriptions = allSubscriptions.filter(
+        (sub) => sub.status === "active",
+      ).length;
+      const pendingSubscriptions = allSubscriptions.filter(
+        (sub) => sub.status === "pending",
+      ).length;
+      const cancelledSubscriptions = allSubscriptions.filter(
+        (sub) => sub.status === "cancelled",
+      ).length;
 
       // Calculate revenue from individual and group enrollments.
-      const individualMonthlyRevenue = activeIndividualMembers
-        .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
-      const familyMonthlyRevenue = activeFamilyMembers
-        .reduce((total, member) => total + parseFloat(member.total_monthly_price || 0), 0);
-      const groupMonthlyRevenue = activeGroupMembers
-        .reduce((total, groupMember) => total + parseAmount(groupMember.total_amount), 0);
-      const monthlyRevenue = individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
+      const individualMonthlyRevenue = activeIndividualMembers.reduce(
+        (total, member) => total + parseFloat(member.total_monthly_price || 0),
+        0,
+      );
+      const familyMonthlyRevenue = activeFamilyMembers.reduce(
+        (total, member) => total + parseFloat(member.total_monthly_price || 0),
+        0,
+      );
+      const groupMonthlyRevenue = activeGroupMembers.reduce(
+        (total, groupMember) => total + parseAmount(groupMember.total_amount),
+        0,
+      );
+      const monthlyRevenue =
+        individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
 
       // Calculate commissions
-      const totalCommissions = allCommissions.reduce((total, comm) => 
-        total + parseFloat(comm.commission_amount || 0), 0);
+      const totalCommissions = allCommissions.reduce(
+        (total, comm) => total + parseFloat(comm.commission_amount || 0),
+        0,
+      );
       const paidCommissions = allCommissions
-        .filter(comm => comm.payment_status === 'paid')
-        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
+        .filter((comm) => comm.payment_status === "paid")
+        .reduce(
+          (total, comm) => total + parseFloat(comm.commission_amount || 0),
+          0,
+        );
       const pendingCommissions = allCommissions
-        .filter(comm => comm.payment_status === 'unpaid' || comm.payment_status === 'pending')
-        .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
+        .filter(
+          (comm) =>
+            comm.payment_status === "unpaid" ||
+            comm.payment_status === "pending",
+        )
+        .reduce(
+          (total, comm) => total + parseFloat(comm.commission_amount || 0),
+          0,
+        );
 
       // Calculate new enrollments (last 30 days)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const newIndividualEnrollments = allMembers.filter(member =>
-        member.created_at && new Date(member.created_at) >= thirtyDaysAgo
-      ).length || 0;
-      const newGroupEnrollments = allGroupMembers.filter(groupMember =>
-        isGroupMemberEligible(groupMember) &&
-        groupMember.registered_at &&
-        new Date(groupMember.registered_at) >= thirtyDaysAgo
-      ).length || 0;
+      const newIndividualEnrollments =
+        allMembers.filter(
+          (member) =>
+            member.created_at && new Date(member.created_at) >= thirtyDaysAgo,
+        ).length || 0;
+      const newGroupEnrollments =
+        allGroupMembers.filter(
+          (groupMember) =>
+            isGroupMemberEligible(groupMember) &&
+            groupMember.registered_at &&
+            new Date(groupMember.registered_at) >= thirtyDaysAgo,
+        ).length || 0;
       const newEnrollments = newIndividualEnrollments + newGroupEnrollments;
 
       // Get plan distribution from members with planId
@@ -8505,7 +10355,7 @@ export const storage = {
         ORDER BY member_count DESC
       `);
       const planDistribution = planDistributionResult.rows || [];
-      
+
       // Also get coverage type distribution
       const coverageDistributionResult = await query(`
         SELECT coverage_type, COUNT(id) as count
@@ -8525,7 +10375,9 @@ export const storage = {
         pendingSubscriptions,
         cancelledSubscriptions,
         monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
-        individualMonthlyRevenue: parseFloat(individualMonthlyRevenue.toFixed(2)),
+        individualMonthlyRevenue: parseFloat(
+          individualMonthlyRevenue.toFixed(2),
+        ),
         familyMonthlyRevenue: parseFloat(familyMonthlyRevenue.toFixed(2)),
         groupMonthlyRevenue: parseFloat(groupMonthlyRevenue.toFixed(2)),
         totalCommissions: parseFloat(totalCommissions.toFixed(2)),
@@ -8535,18 +10387,26 @@ export const storage = {
         familyEnrollments: activeFamilyMembers.length,
         groupEnrollments: activeGroupMembers.length,
         newEnrollments,
-        churnRate: totalMembers > 0 ? parseFloat(((cancelledSubscriptions / totalMembers) * 100).toFixed(2)) : 0,
-        averageRevenue: activeMembers > 0 ? parseFloat((monthlyRevenue / activeMembers).toFixed(2)) : 0,
+        churnRate:
+          totalMembers > 0
+            ? parseFloat(
+                ((cancelledSubscriptions / totalMembers) * 100).toFixed(2),
+              )
+            : 0,
+        averageRevenue:
+          activeMembers > 0
+            ? parseFloat((monthlyRevenue / activeMembers).toFixed(2))
+            : 0,
         planDistribution,
         coverageDistribution,
-        totalEnrollments: totalMembers
+        totalEnrollments: totalMembers,
       };
 
-      console.log('[Storage] Admin stats:', stats);
+      console.log("[Storage] Admin stats:", stats);
       return stats;
     } catch (error: any) {
-      console.error('[Storage] Error fetching admin dashboard stats:', error);
-      console.error('[Storage] Error details:', error.message);
+      console.error("[Storage] Error fetching admin dashboard stats:", error);
+      console.error("[Storage] Error details:", error.message);
       // Return a default object in case of error
       return {
         totalUsers: 0,
@@ -8568,7 +10428,7 @@ export const storage = {
         groupEnrollments: 0,
         newEnrollments: 0,
         churnRate: 0,
-        averageRevenue: 0
+        averageRevenue: 0,
       };
     }
   },
@@ -8583,35 +10443,63 @@ export const storage = {
 
   getComprehensiveAnalytics: async (days: number = 30) => {
     try {
-      console.log('[Storage] Fetching comprehensive analytics...');
+      console.log("[Storage] Fetching comprehensive analytics...");
 
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      const safeQuery = async (sql: string, params: any[] = [], source: string) => {
+      const safeQuery = async (
+        sql: string,
+        params: any[] = [],
+        source: string,
+      ) => {
         try {
           return await query(sql, params);
         } catch (error: any) {
-          console.warn(`[Analytics] ${source} query failed, using empty fallback:`, error?.message || error);
+          console.warn(
+            `[Analytics] ${source} query failed, using empty fallback:`,
+            error?.message || error,
+          );
           return { rows: [] as any[] } as any;
         }
       };
 
       // Query from Supabase database - where all data lives
       // Include all members regardless of is_active flag
-      const membersResult = await safeQuery('SELECT * FROM members ORDER BY created_at DESC', [], 'members');
-      const commissionsResult = await safeQuery('SELECT * FROM agent_commissions ORDER BY created_at DESC', [], 'agent_commissions');
-      let plansResult = await safeQuery('SELECT * FROM plans WHERE is_active = true', [], 'plans(active only)');
+      const membersResult = await safeQuery(
+        "SELECT * FROM members ORDER BY created_at DESC",
+        [],
+        "members",
+      );
+      const commissionsResult = await safeQuery(
+        "SELECT * FROM agent_commissions ORDER BY created_at DESC",
+        [],
+        "agent_commissions",
+      );
+      let plansResult = await safeQuery(
+        "SELECT * FROM plans WHERE is_active = true",
+        [],
+        "plans(active only)",
+      );
       if (!plansResult.rows?.length) {
-        plansResult = await safeQuery('SELECT * FROM plans ORDER BY id ASC', [], 'plans(all)');
+        plansResult = await safeQuery(
+          "SELECT * FROM plans ORDER BY id ASC",
+          [],
+          "plans(all)",
+        );
       }
       const { data: agentsData, error: agentsError } = await supabase
-        .from('users')
-        .select('id, first_name, last_name, email, agent_number, role, created_at')
-        .eq('role', 'agent')
-        .order('created_at', { ascending: false });
+        .from("users")
+        .select(
+          "id, first_name, last_name, email, agent_number, role, created_at",
+        )
+        .eq("role", "agent")
+        .order("created_at", { ascending: false });
       if (agentsError) {
-        console.warn('[Storage] Could not fetch agents for analytics:', agentsError.message || agentsError);
+        console.warn(
+          "[Storage] Could not fetch agents for analytics:",
+          agentsError.message || agentsError,
+        );
       }
       const groupMembersResult = await safeQuery(
         `SELECT
@@ -8625,7 +10513,7 @@ export const storage = {
         JOIN groups g ON g.id = gm.group_id
         ORDER BY gm.registered_at DESC`,
         [],
-        'group_members + groups'
+        "group_members + groups",
       );
 
       const allMembers = membersResult.rows || [];
@@ -8635,7 +10523,8 @@ export const storage = {
       const allGroupMembers = groupMembersResult.rows || [];
 
       const parseAmount = (value: unknown): number => {
-        const amount = typeof value === 'number' ? value : parseFloat(String(value ?? 0));
+        const amount =
+          typeof value === "number" ? value : parseFloat(String(value ?? 0));
         return Number.isFinite(amount) ? amount : 0;
       };
 
@@ -8650,10 +10539,17 @@ export const storage = {
         return date.toISOString().slice(0, 10);
       };
 
-      const getMonthsOnBooks = (initialDate: Date | null, endDate?: Date | null): number | null => {
+      const getMonthsOnBooks = (
+        initialDate: Date | null,
+        endDate?: Date | null,
+      ): number | null => {
         if (!initialDate) return null;
         const finalDate = endDate || new Date();
-        if (!finalDate || Number.isNaN(finalDate.getTime()) || finalDate < initialDate) {
+        if (
+          !finalDate ||
+          Number.isNaN(finalDate.getTime()) ||
+          finalDate < initialDate
+        ) {
           return 0;
         }
 
@@ -8667,39 +10563,45 @@ export const storage = {
 
       const getTenureBucket = (monthsOnBooks: number | null): string | null => {
         if (monthsOnBooks === null || monthsOnBooks < 0) return null;
-        if (monthsOnBooks <= 1) return '0-1 months';
-        if (monthsOnBooks <= 3) return '2-3 months';
-        if (monthsOnBooks <= 6) return '4-6 months';
-        if (monthsOnBooks <= 12) return '7-12 months';
-        return '12+ months';
+        if (monthsOnBooks <= 1) return "0-1 months";
+        if (monthsOnBooks <= 3) return "2-3 months";
+        if (monthsOnBooks <= 6) return "4-6 months";
+        if (monthsOnBooks <= 12) return "7-12 months";
+        return "12+ months";
       };
 
       const toObjectOrNull = (value: unknown): Record<string, any> | null => {
         if (!value) return null;
-        if (typeof value === 'object') return value as Record<string, any>;
+        if (typeof value === "object") return value as Record<string, any>;
 
         try {
           const parsed = JSON.parse(String(value));
-          return parsed && typeof parsed === 'object' ? (parsed as Record<string, any>) : null;
+          return parsed && typeof parsed === "object"
+            ? (parsed as Record<string, any>)
+            : null;
         } catch {
           return null;
         }
       };
 
       const parseAssignedAgentId = (metadata: any): string | null => {
-        if (!metadata || typeof metadata !== 'object') {
+        if (!metadata || typeof metadata !== "object") {
           return null;
         }
 
-        const assignment = metadata.assignment && typeof metadata.assignment === 'object'
-          ? metadata.assignment
-          : {};
-        const assigned = assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
-        return typeof assigned === 'string' && assigned.trim().length > 0 ? assigned.trim() : null;
+        const assignment =
+          metadata.assignment && typeof metadata.assignment === "object"
+            ? metadata.assignment
+            : {};
+        const assigned =
+          assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
+        return typeof assigned === "string" && assigned.trim().length > 0
+          ? assigned.trim()
+          : null;
       };
 
       const parsePbmAmountCandidate = (value: unknown): number | null => {
-        if (value === null || value === undefined || value === '') {
+        if (value === null || value === undefined || value === "") {
           return null;
         }
 
@@ -8741,86 +10643,115 @@ export const storage = {
       };
 
       const isGroupMemberEligible = (groupMember: any): boolean => {
-        if (groupMember?.status === 'terminated') {
+        if (groupMember?.status === "terminated") {
           return false;
         }
 
-        const groupStatus = String(groupMember?.group_status || '').toLowerCase();
-        return groupStatus === 'registered' || groupStatus === 'active';
+        const groupStatus = String(
+          groupMember?.group_status || "",
+        ).toLowerCase();
+        return groupStatus === "registered" || groupStatus === "active";
       };
 
-      console.log('[Analytics] Raw data counts:', {
+      console.log("[Analytics] Raw data counts:", {
         members: allMembers.length,
         groupMembers: allGroupMembers.length,
         agents: allAgents.length,
         commissions: allCommissions.length,
-        plans: allPlans.length
+        plans: allPlans.length,
       });
 
       // Overview metrics - count active members from members table
-      const activeMembers = allMembers.filter(member => member.status === 'active');
+      const activeMembers = allMembers.filter(
+        (member) => member.status === "active",
+      );
       const activeGroupMembers = allGroupMembers.filter(isGroupMemberEligible);
       const activeIndividualMembers = activeMembers.filter((member) => {
-        const coverage = String(member.coverage_type || '').toLowerCase();
-        return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+        const coverage = String(member.coverage_type || "").toLowerCase();
+        return (
+          !coverage.includes("family") &&
+          !coverage.includes("spouse") &&
+          !coverage.includes("child")
+        );
       });
       const activeFamilyMembers = activeMembers.filter((member) => {
-        const coverage = String(member.coverage_type || '').toLowerCase();
-        return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+        const coverage = String(member.coverage_type || "").toLowerCase();
+        return (
+          coverage.includes("family") ||
+          coverage.includes("spouse") ||
+          coverage.includes("child")
+        );
       });
 
-      const individualMonthlyRevenue = activeIndividualMembers.reduce((total, member) =>
-        total + parseFloat(member.total_monthly_price || 0), 0
+      const individualMonthlyRevenue = activeIndividualMembers.reduce(
+        (total, member) => total + parseFloat(member.total_monthly_price || 0),
+        0,
       );
-      const familyMonthlyRevenue = activeFamilyMembers.reduce((total, member) =>
-        total + parseFloat(member.total_monthly_price || 0), 0
+      const familyMonthlyRevenue = activeFamilyMembers.reduce(
+        (total, member) => total + parseFloat(member.total_monthly_price || 0),
+        0,
       );
-      const groupMonthlyRevenue = activeGroupMembers.reduce((total, member) =>
-        total + parseAmount(member.total_amount), 0
+      const groupMonthlyRevenue = activeGroupMembers.reduce(
+        (total, member) => total + parseAmount(member.total_amount),
+        0,
       );
-      const monthlyRevenue = individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
+      const monthlyRevenue =
+        individualMonthlyRevenue + familyMonthlyRevenue + groupMonthlyRevenue;
 
       // Use proper date comparison
-      const newIndividualEnrollmentsThisMonth = allMembers.filter(member =>
-        member.created_at && new Date(member.created_at) >= cutoffDate && member.status === 'active'
+      const newIndividualEnrollmentsThisMonth = allMembers.filter(
+        (member) =>
+          member.created_at &&
+          new Date(member.created_at) >= cutoffDate &&
+          member.status === "active",
       ).length;
-      const newGroupEnrollmentsThisMonth = allGroupMembers.filter(member => {
+      const newGroupEnrollmentsThisMonth = allGroupMembers.filter((member) => {
         if (!isGroupMemberEligible(member) || !member.registered_at) {
           return false;
         }
         return new Date(member.registered_at) >= cutoffDate;
       }).length;
-      const newEnrollmentsThisMonth = newIndividualEnrollmentsThisMonth + newGroupEnrollmentsThisMonth;
+      const newEnrollmentsThisMonth =
+        newIndividualEnrollmentsThisMonth + newGroupEnrollmentsThisMonth;
 
-      const cancelledIndividualsThisMonth = allMembers.filter(member =>
-        member.status === 'cancelled' && 
-        member.cancellation_date && 
-        new Date(member.cancellation_date) >= cutoffDate
+      const cancelledIndividualsThisMonth = allMembers.filter(
+        (member) =>
+          member.status === "cancelled" &&
+          member.cancellation_date &&
+          new Date(member.cancellation_date) >= cutoffDate,
       ).length;
-      const cancelledGroupMembersThisMonth = allGroupMembers.filter(member =>
-        member.status === 'terminated' &&
-        member.terminated_at &&
-        new Date(member.terminated_at) >= cutoffDate
+      const cancelledGroupMembersThisMonth = allGroupMembers.filter(
+        (member) =>
+          member.status === "terminated" &&
+          member.terminated_at &&
+          new Date(member.terminated_at) >= cutoffDate,
       ).length;
-      const cancellationsThisMonth = cancelledIndividualsThisMonth + cancelledGroupMembersThisMonth;
+      const cancellationsThisMonth =
+        cancelledIndividualsThisMonth + cancelledGroupMembersThisMonth;
 
       const totalIndividualMembers = allMembers.length;
       const totalGroupMembers = activeGroupMembers.length;
       const totalMembers = totalIndividualMembers + totalGroupMembers;
 
-      console.log('[Analytics] Calculated metrics:', {
+      console.log("[Analytics] Calculated metrics:", {
         totalMembers,
         activeMembers: activeMembers.length,
         activeGroupMembers: totalGroupMembers,
         monthlyRevenue,
         newEnrollments: newEnrollmentsThisMonth,
-        cancellations: cancellationsThisMonth
+        cancellations: cancellationsThisMonth,
       });
 
       const resolveGroupPlanSelection = (
         groupMember: any,
-      ): { planId: number | null; planName: string | null; memberType: string } => {
-        const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+      ): {
+        planId: number | null;
+        planName: string | null;
+        memberType: string;
+      } => {
+        const registrationPayload = toObjectOrNull(
+          groupMember.registration_payload,
+        );
         const memberMetadata = toObjectOrNull(groupMember.metadata);
         const groupMetadata = toObjectOrNull(groupMember.group_metadata);
 
@@ -8861,7 +10792,7 @@ export const storage = {
 
         let resolvedPlanName: string | null = null;
         for (const candidate of textPlanCandidates) {
-          const value = String(candidate || '').trim();
+          const value = String(candidate || "").trim();
           if (value.length > 0) {
             resolvedPlanName = value;
             break;
@@ -8870,7 +10801,9 @@ export const storage = {
 
         if (resolvedPlanId === null && resolvedPlanName) {
           const matchedPlan = allPlans.find(
-            (plan) => String(plan.name || '').toLowerCase() === resolvedPlanName!.toLowerCase(),
+            (plan) =>
+              String(plan.name || "").toLowerCase() ===
+              resolvedPlanName!.toLowerCase(),
           );
           if (matchedPlan) {
             resolvedPlanId = Number(matchedPlan.id);
@@ -8878,11 +10811,15 @@ export const storage = {
         }
 
         if (!resolvedPlanName && resolvedPlanId !== null) {
-          const matchedPlan = allPlans.find((plan) => Number(plan.id) === resolvedPlanId);
+          const matchedPlan = allPlans.find(
+            (plan) => Number(plan.id) === resolvedPlanId,
+          );
           resolvedPlanName = matchedPlan?.name || null;
         }
 
-        const memberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
+        const memberType = toCommissionMemberType(
+          groupMember?.tier || groupMember?.relationship,
+        );
 
         return {
           planId: resolvedPlanId,
@@ -8892,13 +10829,16 @@ export const storage = {
       };
 
       // Plan breakdown
-      const planAccumulator = new Map<number, {
-        planId: number;
-        planName: string;
-        memberCount: number;
-        monthlyRevenue: number;
-        estimatedMonthlyCommission: number;
-      }>();
+      const planAccumulator = new Map<
+        number,
+        {
+          planId: number;
+          planName: string;
+          memberCount: number;
+          monthlyRevenue: number;
+          estimatedMonthlyCommission: number;
+        }
+      >();
 
       for (const plan of allPlans) {
         planAccumulator.set(Number(plan.id), {
@@ -8911,17 +10851,24 @@ export const storage = {
       }
 
       const PBM_PRODUCT_PLAN_ID = -1000;
-      const PBM_PRODUCT_PLAN_NAME = 'BestChoice Rx Pro Premium-5 (PBM Add-on)';
+      const PBM_PRODUCT_PLAN_NAME = "BestChoice Rx Pro Premium-5 (PBM Add-on)";
 
-      const individualPbmMembers = activeMembers.filter((member) => Boolean(member.add_rx_valet));
-      const individualPbmRevenue = individualPbmMembers.reduce((total, member) => {
-        const addOnAmount = RX_ADDON_MONTHLY_PRICE;
-        return total + addOnAmount;
-      }, 0);
+      const individualPbmMembers = activeMembers.filter((member) =>
+        Boolean(member.add_rx_valet),
+      );
+      const individualPbmRevenue = individualPbmMembers.reduce(
+        (total, member) => {
+          const addOnAmount = RX_ADDON_MONTHLY_PRICE;
+          return total + addOnAmount;
+        },
+        0,
+      );
 
       const groupPbmSummary = activeGroupMembers.reduce(
         (summary, groupMember) => {
-          const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+          const registrationPayload = toObjectOrNull(
+            groupMember.registration_payload,
+          );
           const memberMetadata = toObjectOrNull(groupMember.metadata);
           const groupMetadata = toObjectOrNull(groupMember.group_metadata);
           const pbmEnabled = resolvePbmFromNotesAndSources(
@@ -8948,8 +10895,10 @@ export const storage = {
         { memberCount: 0, monthlyRevenue: 0 },
       );
 
-      const pbmMemberCount = individualPbmMembers.length + groupPbmSummary.memberCount;
-      const pbmMonthlyRevenue = individualPbmRevenue + groupPbmSummary.monthlyRevenue;
+      const pbmMemberCount =
+        individualPbmMembers.length + groupPbmSummary.memberCount;
+      const pbmMonthlyRevenue =
+        individualPbmRevenue + groupPbmSummary.monthlyRevenue;
 
       for (const member of activeMembers) {
         const planId = Number(member.plan_id);
@@ -8959,24 +10908,33 @@ export const storage = {
 
         const planRow = planAccumulator.get(planId)!;
         const totalAmount = parseAmount(member.total_monthly_price);
-        const pbmAmount = member.add_rx_valet
-          ? RX_ADDON_MONTHLY_PRICE
-          : 0;
+        const pbmAmount = member.add_rx_valet ? RX_ADDON_MONTHLY_PRICE : 0;
 
         planRow.memberCount += 1;
         planRow.monthlyRevenue += Math.max(0, totalAmount - pbmAmount);
 
-        const memberType = toCommissionMemberType(member.coverage_type || member.member_type);
-        const commissionResult = calculateCommission(planRow.planName, memberType, false);
+        const memberType = toCommissionMemberType(
+          member.coverage_type || member.member_type,
+        );
+        const commissionResult = calculateCommission(
+          planRow.planName,
+          memberType,
+          false,
+        );
         planRow.estimatedMonthlyCommission += commissionResult?.commission || 0;
       }
 
       for (const groupMember of activeGroupMembers) {
-        const registrationPayload = toObjectOrNull(groupMember.registration_payload);
+        const registrationPayload = toObjectOrNull(
+          groupMember.registration_payload,
+        );
         const memberMetadata = toObjectOrNull(groupMember.metadata);
         const groupMetadata = toObjectOrNull(groupMember.group_metadata);
         const selection = resolveGroupPlanSelection(groupMember);
-        if (selection.planId === null || !planAccumulator.has(selection.planId)) {
+        if (
+          selection.planId === null ||
+          !planAccumulator.has(selection.planId)
+        ) {
           continue;
         }
 
@@ -8988,14 +10946,22 @@ export const storage = {
           groupMetadata,
         );
         const pbmAmount = pbmEnabled
-          ? resolveGroupPbmAmount(registrationPayload, memberMetadata, groupMetadata)
+          ? resolveGroupPbmAmount(
+              registrationPayload,
+              memberMetadata,
+              groupMetadata,
+            )
           : 0;
         const totalAmount = parseAmount(groupMember.total_amount);
 
         planRow.memberCount += 1;
         planRow.monthlyRevenue += Math.max(0, totalAmount - pbmAmount);
 
-        const commissionResult = calculateCommission(planRow.planName, selection.memberType, false);
+        const commissionResult = calculateCommission(
+          planRow.planName,
+          selection.memberType,
+          false,
+        );
         planRow.estimatedMonthlyCommission += commissionResult?.commission || 0;
       }
 
@@ -9004,7 +10970,8 @@ export const storage = {
         planName: row.planName,
         memberCount: row.memberCount,
         monthlyRevenue: row.monthlyRevenue,
-        percentage: monthlyRevenue > 0 ? (row.monthlyRevenue / monthlyRevenue) * 100 : 0,
+        percentage:
+          monthlyRevenue > 0 ? (row.monthlyRevenue / monthlyRevenue) * 100 : 0,
         estimatedMonthlyCommission: row.estimatedMonthlyCommission,
       }));
 
@@ -9013,98 +10980,136 @@ export const storage = {
         planName: PBM_PRODUCT_PLAN_NAME,
         memberCount: pbmMemberCount,
         monthlyRevenue: pbmMonthlyRevenue,
-        percentage: monthlyRevenue > 0 ? (pbmMonthlyRevenue / monthlyRevenue) * 100 : 0,
+        percentage:
+          monthlyRevenue > 0 ? (pbmMonthlyRevenue / monthlyRevenue) * 100 : 0,
         // Optional field for downstream consumers that need PBM-only commission visibility.
         estimatedMonthlyCommission: pbmMemberCount * RX_VALET_COMMISSION,
       });
 
       // Recent enrollments
       const recentEnrollments = allMembers
-        .filter(m => m.created_at && new Date(m.created_at) >= cutoffDate)
-        .map(m => {
-          const plan = allPlans.find(p => p.id === m.plan_id);
+        .filter((m) => m.created_at && new Date(m.created_at) >= cutoffDate)
+        .map((m) => {
+          const plan = allPlans.find((p) => p.id === m.plan_id);
           return {
             id: m.id.toString(),
-            memberId: m.id?.toString() || '',
-            memberPublicId: m.member_public_id || '',
-            customerNumber: m.customer_number || '',
-            firstName: m.first_name || '',
-            lastName: m.last_name || '',
-            email: m.email || '',
-            source: 'individual',
-            planName: plan?.name || '',
+            memberId: m.id?.toString() || "",
+            memberPublicId: m.member_public_id || "",
+            customerNumber: m.customer_number || "",
+            firstName: m.first_name || "",
+            lastName: m.last_name || "",
+            email: m.email || "",
+            source: "individual",
+            planName: plan?.name || "",
             amount: parseFloat(m.total_monthly_price || 0),
-            enrolledDate: m.created_at || '',
-            status: m.status
+            enrolledDate: m.created_at || "",
+            status: m.status,
           };
         });
 
       const recentGroupEnrollments = allGroupMembers
-        .filter((m) => m.registered_at && new Date(m.registered_at) >= cutoffDate)
+        .filter(
+          (m) => m.registered_at && new Date(m.registered_at) >= cutoffDate,
+        )
         .map((m) => ({
           id: `group-${m.group_id}-${m.id}`,
-          memberId: m.member_id?.toString() || '',
-          memberPublicId: m.household_member_number || '',
-          customerNumber: m.household_member_number || '',
-          firstName: m.first_name || '',
-          lastName: m.last_name || '',
-          email: m.email || '',
-          source: 'group',
+          memberId: m.member_id?.toString() || "",
+          memberPublicId: m.household_member_number || "",
+          customerNumber: m.household_member_number || "",
+          firstName: m.first_name || "",
+          lastName: m.last_name || "",
+          email: m.email || "",
+          source: "group",
           groupId: m.group_id,
-          groupName: m.group_name || '',
-          planName: m.group_name ? `${m.group_name} (Group)` : 'Group Enrollment',
+          groupName: m.group_name || "",
+          planName: m.group_name
+            ? `${m.group_name} (Group)`
+            : "Group Enrollment",
           amount: parseAmount(m.total_amount),
-          enrolledDate: m.registered_at || m.updated_at || m.group_created_at || '',
-          status: m.status || 'draft'
+          enrolledDate:
+            m.registered_at || m.updated_at || m.group_created_at || "",
+          status: m.status || "draft",
         }));
 
-      const recentEnrollmentsCombined = [...recentEnrollments, ...recentGroupEnrollments]
-        .sort((a, b) => new Date(b.enrolledDate).getTime() - new Date(a.enrolledDate).getTime())
+      const recentEnrollmentsCombined = [
+        ...recentEnrollments,
+        ...recentGroupEnrollments,
+      ]
+        .sort(
+          (a, b) =>
+            new Date(b.enrolledDate).getTime() -
+            new Date(a.enrolledDate).getTime(),
+        )
         .slice(0, 20);
 
       // Agent performance
-      const agentPerformance = allAgents.map(agent => {
-        const agentCommissions = allCommissions.filter(comm => comm.agent_id === agent.id);
-        const agentMembers = allMembers.filter(m => m.enrolled_by_agent_id === agent.id || m.enrolled_by_agent_id === agent.id.toString());
+      const agentPerformance = allAgents.map((agent) => {
+        const agentCommissions = allCommissions.filter(
+          (comm) => comm.agent_id === agent.id,
+        );
+        const agentMembers = allMembers.filter(
+          (m) =>
+            m.enrolled_by_agent_id === agent.id ||
+            m.enrolled_by_agent_id === agent.id.toString(),
+        );
         const agentIndividualMembers = agentMembers.filter((member) => {
-          const coverage = String(member.coverage_type || '').toLowerCase();
-          return !coverage.includes('family') && !coverage.includes('spouse') && !coverage.includes('child');
+          const coverage = String(member.coverage_type || "").toLowerCase();
+          return (
+            !coverage.includes("family") &&
+            !coverage.includes("spouse") &&
+            !coverage.includes("child")
+          );
         });
         const agentFamilyMembers = agentMembers.filter((member) => {
-          const coverage = String(member.coverage_type || '').toLowerCase();
-          return coverage.includes('family') || coverage.includes('spouse') || coverage.includes('child');
+          const coverage = String(member.coverage_type || "").toLowerCase();
+          return (
+            coverage.includes("family") ||
+            coverage.includes("spouse") ||
+            coverage.includes("child")
+          );
         });
         const agentGroupMembers = allGroupMembers.filter((groupMember) => {
           if (!isGroupMemberEligible(groupMember)) {
             return false;
           }
 
-          const assignedAgentId = parseAssignedAgentId(groupMember.group_metadata);
+          const assignedAgentId = parseAssignedAgentId(
+            groupMember.group_metadata,
+          );
           return assignedAgentId === agent.id;
         });
 
-        const monthlyIndividualEnrollments = agentMembers.filter(m =>
-          m.created_at && new Date(m.created_at) >= cutoffDate
+        const monthlyIndividualEnrollments = agentMembers.filter(
+          (m) => m.created_at && new Date(m.created_at) >= cutoffDate,
         ).length;
-        const monthlyGroupEnrollments = agentGroupMembers.filter(m =>
-          m.registered_at && new Date(m.registered_at) >= cutoffDate
+        const monthlyGroupEnrollments = agentGroupMembers.filter(
+          (m) => m.registered_at && new Date(m.registered_at) >= cutoffDate,
         ).length;
-        const monthlyEnrollments = monthlyIndividualEnrollments + monthlyGroupEnrollments;
+        const monthlyEnrollments =
+          monthlyIndividualEnrollments + monthlyGroupEnrollments;
 
-        const totalCommissions = agentCommissions.reduce((total, comm) => 
-          total + parseFloat(comm.commission_amount || 0), 0
+        const totalCommissions = agentCommissions.reduce(
+          (total, comm) => total + parseFloat(comm.commission_amount || 0),
+          0,
         );
         const paidCommissions = agentCommissions
-          .filter(comm => comm.payment_status === 'paid')
-          .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
+          .filter((comm) => comm.payment_status === "paid")
+          .reduce(
+            (total, comm) => total + parseFloat(comm.commission_amount || 0),
+            0,
+          );
         const pendingCommissions = agentCommissions
-          .filter(comm => comm.payment_status !== 'paid')
-          .reduce((total, comm) => total + parseFloat(comm.commission_amount || 0), 0);
+          .filter((comm) => comm.payment_status !== "paid")
+          .reduce(
+            (total, comm) => total + parseFloat(comm.commission_amount || 0),
+            0,
+          );
 
         return {
           agentId: agent.id,
-          agentName: `${agent.first_name || ''} ${agent.last_name || ''}`.trim(),
-          agentNumber: agent.agent_number || '',
+          agentName:
+            `${agent.first_name || ""} ${agent.last_name || ""}`.trim(),
+          agentNumber: agent.agent_number || "",
           totalEnrollments: agentMembers.length + agentGroupMembers.length,
           individualEnrollments: agentIndividualMembers.length,
           familyEnrollments: agentFamilyMembers.length,
@@ -9113,40 +11118,70 @@ export const storage = {
           totalCommissions,
           paidCommissions,
           pendingCommissions,
-          conversionRate: agentMembers.length > 0 ? (agentMembers.filter(m => m.status === 'active').length / agentMembers.length) * 100 : 0,
-          averageCommission: agentCommissions.length > 0 ? totalCommissions / agentCommissions.length : 0
+          conversionRate:
+            agentMembers.length > 0
+              ? (agentMembers.filter((m) => m.status === "active").length /
+                  agentMembers.length) *
+                100
+              : 0,
+          averageCommission:
+            agentCommissions.length > 0
+              ? totalCommissions / agentCommissions.length
+              : 0,
         };
       });
 
       // Member reports
-      const memberReports = allMembers.map(member => {
-        const plan = allPlans.find(p => p.id === member.plan_id);
-        const agent = allAgents.find(a => a.id === member.enrolled_by_agent_id);
-        const initialAddedDate = toDateOrNull(member.created_at || member.enrollment_date || member.first_payment_date);
+      const memberReports = allMembers.map((member) => {
+        const plan = allPlans.find((p) => p.id === member.plan_id);
+        const agent = allAgents.find(
+          (a) => a.id === member.enrolled_by_agent_id,
+        );
+        const initialAddedDate = toDateOrNull(
+          member.created_at ||
+            member.enrollment_date ||
+            member.first_payment_date,
+        );
         const closedDate = toDateOrNull(member.cancellation_date);
-        const monthsOnBooks = getMonthsOnBooks(initialAddedDate, closedDate || undefined);
+        const monthsOnBooks = getMonthsOnBooks(
+          initialAddedDate,
+          closedDate || undefined,
+        );
 
         return {
           id: member.id,
-          memberId: member.id?.toString() || '',
-          memberPublicId: member.member_public_id || '',
-          customerNumber: member.customer_number || '',
-          firstName: member.first_name || '',
-          lastName: member.last_name || '',
-          email: member.email || '',
-          source: 'individual',
-          businessCategory: String(member.coverage_type || '').toLowerCase().includes('family') || String(member.coverage_type || '').toLowerCase().includes('spouse') || String(member.coverage_type || '').toLowerCase().includes('child') ? 'family' : 'individual',
-          groupName: '',
-          phone: member.phone || '',
-          planName: plan?.name || '',
-          status: member.status || 'inactive',
-          enrolledDate: member.created_at || '',
+          memberId: member.id?.toString() || "",
+          memberPublicId: member.member_public_id || "",
+          customerNumber: member.customer_number || "",
+          firstName: member.first_name || "",
+          lastName: member.last_name || "",
+          email: member.email || "",
+          source: "individual",
+          businessCategory:
+            String(member.coverage_type || "")
+              .toLowerCase()
+              .includes("family") ||
+            String(member.coverage_type || "")
+              .toLowerCase()
+              .includes("spouse") ||
+            String(member.coverage_type || "")
+              .toLowerCase()
+              .includes("child")
+              ? "family"
+              : "individual",
+          groupName: "",
+          phone: member.phone || "",
+          planName: plan?.name || "",
+          status: member.status || "inactive",
+          enrolledDate: member.created_at || "",
           initialAddedDate: toIsoDateString(initialAddedDate),
           monthsOnBooks,
           tenureBucket: getTenureBucket(monthsOnBooks),
-          lastPayment: member.updated_at || '',
+          lastPayment: member.updated_at || "",
           totalPaid: parseFloat(member.total_monthly_price || 0),
-          agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Direct'
+          agentName: agent
+            ? `${agent.first_name || ""} ${agent.last_name || ""}`.trim()
+            : "Direct",
         };
       });
 
@@ -9155,112 +11190,184 @@ export const storage = {
         .map((member) => {
           const assignedAgentId = parseAssignedAgentId(member.group_metadata);
           const agent = allAgents.find((a) => a.id === assignedAgentId);
-          const initialAddedDate = toDateOrNull(member.registered_at || member.group_created_at || member.updated_at);
+          const initialAddedDate = toDateOrNull(
+            member.registered_at ||
+              member.group_created_at ||
+              member.updated_at,
+          );
           const monthsOnBooks = getMonthsOnBooks(initialAddedDate);
 
           return {
             id: `group-${member.group_id}-${member.id}`,
-            memberId: member.member_id?.toString() || '',
-            memberPublicId: member.household_member_number || '',
-            customerNumber: member.household_member_number || '',
-            firstName: member.first_name || '',
-            lastName: member.last_name || '',
-            email: member.email || '',
-            source: 'group',
-            businessCategory: 'group',
-            groupName: member.group_name || '',
-            phone: member.phone || '',
-            planName: member.group_name ? `${member.group_name} (Group)` : 'Group Enrollment',
-            status: member.status || 'draft',
-            enrolledDate: member.registered_at || member.updated_at || member.group_created_at || '',
+            memberId: member.member_id?.toString() || "",
+            memberPublicId: member.household_member_number || "",
+            customerNumber: member.household_member_number || "",
+            firstName: member.first_name || "",
+            lastName: member.last_name || "",
+            email: member.email || "",
+            source: "group",
+            businessCategory: "group",
+            groupName: member.group_name || "",
+            phone: member.phone || "",
+            planName: member.group_name
+              ? `${member.group_name} (Group)`
+              : "Group Enrollment",
+            status: member.status || "draft",
+            enrolledDate:
+              member.registered_at ||
+              member.updated_at ||
+              member.group_created_at ||
+              "",
             initialAddedDate: toIsoDateString(initialAddedDate),
             monthsOnBooks,
             tenureBucket: getTenureBucket(monthsOnBooks),
-            lastPayment: member.updated_at || '',
+            lastPayment: member.updated_at || "",
             totalPaid: parseAmount(member.total_amount),
-            agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'In-house'
+            agentName: agent
+              ? `${agent.first_name || ""} ${agent.last_name || ""}`.trim()
+              : "In-house",
           };
         });
 
       const combinedMemberReports = [...memberReports, ...groupMemberReports];
 
       const groupMembersBySyntheticId = new Map(
-        allGroupMembers.map((gm) => [`group_member:${gm.id}`, gm])
+        allGroupMembers.map((gm) => [`group_member:${gm.id}`, gm]),
       );
 
       // Commission reports
-      const commissionReports = allCommissions.map(commission => {
-        const agent = allAgents.find(a => a.id === commission.agent_id);
-        const commissionMemberId = String(commission.member_id || '');
+      const commissionReports = allCommissions.map((commission) => {
+        const agent = allAgents.find((a) => a.id === commission.agent_id);
+        const commissionMemberId = String(commission.member_id || "");
         const groupMember = groupMembersBySyntheticId.get(commissionMemberId);
-        const member = groupMember ? null : allMembers.find(m => String(m.id) === commissionMemberId);
-        const plan = allPlans.find(p => p.id === commission.plan_id);
-        const groupPlanName = extractNoteToken(commission.notes, 'plan');
-        const groupName = groupMember?.group_name || extractNoteToken(commission.notes, 'groupName') || '';
+        const member = groupMember
+          ? null
+          : allMembers.find((m) => String(m.id) === commissionMemberId);
+        const plan = allPlans.find((p) => p.id === commission.plan_id);
+        const groupPlanName = extractNoteToken(commission.notes, "plan");
+        const groupName =
+          groupMember?.group_name ||
+          extractNoteToken(commission.notes, "groupName") ||
+          "";
         const membershipFee = groupMember
           ? parseAmount(groupMember.total_amount || commission.base_premium)
-          : parseFloat(member?.total_monthly_price || commission.base_premium || 0);
-        const groupMemberType = toCommissionMemberType(groupMember?.tier || groupMember?.relationship);
-        const normalizedGroupPlan = normalizeGroupPlanName(groupPlanName, membershipFee, groupMemberType);
-        const groupRegistrationPayload = groupMember ? toObjectOrNull(groupMember.registration_payload) : null;
-        const groupMetadata = groupMember ? toObjectOrNull(groupMember.metadata) : null;
+          : parseFloat(
+              member?.total_monthly_price || commission.base_premium || 0,
+            );
+        const groupMemberType = toCommissionMemberType(
+          groupMember?.tier || groupMember?.relationship,
+        );
+        const normalizedGroupPlan = normalizeGroupPlanName(
+          groupPlanName,
+          membershipFee,
+          groupMemberType,
+        );
+        const groupRegistrationPayload = groupMember
+          ? toObjectOrNull(groupMember.registration_payload)
+          : null;
+        const groupMetadata = groupMember
+          ? toObjectOrNull(groupMember.metadata)
+          : null;
         const addRxValet = groupMember
-          ? resolvePbmFromNotesAndSources(commission.notes, groupRegistrationPayload, groupMetadata)
+          ? resolvePbmFromNotesAndSources(
+              commission.notes,
+              groupRegistrationPayload,
+              groupMetadata,
+            )
           : false;
-        const splitPercent = parseFloat(extractNoteToken(commission.notes, 'split') || '100');
+        const splitPercent = parseFloat(
+          extractNoteToken(commission.notes, "split") || "100",
+        );
         const memberTypeForCommission = groupMember
           ? groupMemberType
-          : toCommissionMemberType(member?.coverage_type || commission.coverage_type);
-        const normalizedCommissionAmount = resolveCommissionAmountForReport(commission, {
-          planName: groupMember ? normalizedGroupPlan : (plan?.name || 'MyPremierPlan Base'),
-          memberType: memberTypeForCommission,
-          addRxValet,
-          splitPercent,
-          membershipFee,
-          forceCalculated: Boolean(groupMember),
-        });
+          : toCommissionMemberType(
+              member?.coverage_type || commission.coverage_type,
+            );
+        const normalizedCommissionAmount = resolveCommissionAmountForReport(
+          commission,
+          {
+            planName: groupMember
+              ? normalizedGroupPlan
+              : plan?.name || "MyPremierPlan Base",
+            memberType: memberTypeForCommission,
+            addRxValet,
+            splitPercent,
+            membershipFee,
+            forceCalculated: Boolean(groupMember),
+          },
+        );
         const memberName = groupMember
-          ? `${groupMember.first_name || ''} ${groupMember.last_name || ''}`.trim()
-          : (member ? `${member.first_name || ''} ${member.last_name || ''}`.trim() : 'Unknown');
+          ? `${groupMember.first_name || ""} ${groupMember.last_name || ""}`.trim()
+          : member
+            ? `${member.first_name || ""} ${member.last_name || ""}`.trim()
+            : "Unknown";
         const initialAddedDate = groupMember
-          ? toDateOrNull(groupMember.registered_at || groupMember.group_created_at || groupMember.updated_at)
-          : toDateOrNull(member?.created_at || member?.enrollment_date || member?.first_payment_date);
+          ? toDateOrNull(
+              groupMember.registered_at ||
+                groupMember.group_created_at ||
+                groupMember.updated_at,
+            )
+          : toDateOrNull(
+              member?.created_at ||
+                member?.enrollment_date ||
+                member?.first_payment_date,
+            );
         const closedDate = groupMember
           ? toDateOrNull(groupMember.terminated_at)
           : toDateOrNull(member?.cancellation_date);
-        const monthsOnBooks = getMonthsOnBooks(initialAddedDate, closedDate || undefined);
+        const monthsOnBooks = getMonthsOnBooks(
+          initialAddedDate,
+          closedDate || undefined,
+        );
 
         return {
           id: commission.id.toString(),
           memberId: groupMember
-            ? (groupMember.member_id?.toString() || groupMember.household_member_number || '')
-            : (commission.member_id?.toString() || ''),
-          memberPublicId: groupMember ? (groupMember.household_member_number || '') : (member?.member_public_id || ''),
+            ? groupMember.member_id?.toString() ||
+              groupMember.household_member_number ||
+              ""
+            : commission.member_id?.toString() || "",
+          memberPublicId: groupMember
+            ? groupMember.household_member_number || ""
+            : member?.member_public_id || "",
           membershipId: groupMember
-            ? (groupMember.household_member_number || groupMember.member_id?.toString() || '')
-            : (member?.customer_number || ''),
-          agentName: agent ? `${agent.first_name || ''} ${agent.last_name || ''}`.trim() : 'Unknown',
-          agentNumber: agent?.agent_number || '',
+            ? groupMember.household_member_number ||
+              groupMember.member_id?.toString() ||
+              ""
+            : member?.customer_number || "",
+          agentName: agent
+            ? `${agent.first_name || ""} ${agent.last_name || ""}`.trim()
+            : "Unknown",
+          agentNumber: agent?.agent_number || "",
           memberName: groupName ? `${memberName} (${groupName})` : memberName,
           groupName,
-          businessCategory: resolveCommissionBusinessCategory(member || groupMember, commission),
-          planName: groupMember ? normalizedGroupPlan : (plan?.name || ''),
+          businessCategory: resolveCommissionBusinessCategory(
+            member || groupMember,
+            commission,
+          ),
+          planName: groupMember ? normalizedGroupPlan : plan?.name || "",
           commissionAmount: normalizedCommissionAmount,
           totalPlanCost: membershipFee,
-          status: commission.status || 'pending',
-          paymentStatus: commission.payment_status || 'pending',
+          status: commission.status || "pending",
+          paymentStatus: commission.payment_status || "pending",
           initialAddedDate: toIsoDateString(initialAddedDate),
           monthsOnBooks,
           tenureBucket: getTenureBucket(monthsOnBooks),
-          createdDate: commission.created_at || '',
-          paymentDate: commission.paid_date || null
+          createdDate: commission.created_at || "",
+          paymentDate: commission.paid_date || null,
         };
       });
 
       // Revenue breakdown
-      const totalRevenue = allMembers.reduce((total, m) => 
-        total + parseFloat(m.total_monthly_price || 0), 0
-      ) + allGroupMembers.reduce((total, m) => total + parseAmount(m.total_amount), 0);
+      const totalRevenue =
+        allMembers.reduce(
+          (total, m) => total + parseFloat(m.total_monthly_price || 0),
+          0,
+        ) +
+        allGroupMembers.reduce(
+          (total, m) => total + parseAmount(m.total_amount),
+          0,
+        );
       const subscriptionRevenue = monthlyRevenue;
 
       const revenueBreakdown = {
@@ -9273,27 +11380,34 @@ export const storage = {
         refunds: 0, // Add when you track refunds
         netRevenue: totalRevenue,
         projectedAnnualRevenue: subscriptionRevenue * 12,
-        averageRevenuePerUser: totalMembers > 0 ? subscriptionRevenue / totalMembers : 0,
+        averageRevenuePerUser:
+          totalMembers > 0 ? subscriptionRevenue / totalMembers : 0,
         revenueByMonth: [
           {
-            month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+            month: new Date().toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+            }),
             revenue: subscriptionRevenue,
             subscriptions: subscriptionRevenue,
             oneTime: 0,
-            refunds: 0
-          }
-        ]
+            refunds: 0,
+          },
+        ],
       };
 
       // Monthly trends (simplified for now)
       const monthlyTrends = [
         {
-          month: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+          month: new Date().toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+          }),
           enrollments: newEnrollmentsThisMonth,
           cancellations: cancellationsThisMonth,
           netGrowth: newEnrollmentsThisMonth - cancellationsThisMonth,
-          revenue: subscriptionRevenue
-        }
+          revenue: subscriptionRevenue,
+        },
       ];
 
       const analytics = {
@@ -9302,8 +11416,14 @@ export const storage = {
           activeSubscriptions: activeMembers.length + totalGroupMembers,
           monthlyRevenue,
           averageRevenue: totalMembers > 0 ? monthlyRevenue / totalMembers : 0,
-          churnRate: totalMembers > 0 ? (cancellationsThisMonth / totalMembers) * 100 : 0,
-          growthRate: totalMembers > 0 ? (newEnrollmentsThisMonth / totalMembers) * 100 : 0,
+          churnRate:
+            totalMembers > 0
+              ? (cancellationsThisMonth / totalMembers) * 100
+              : 0,
+          growthRate:
+            totalMembers > 0
+              ? (newEnrollmentsThisMonth / totalMembers) * 100
+              : 0,
           newEnrollmentsThisMonth,
           cancellationsThisMonth,
           sourceBreakdown: {
@@ -9317,7 +11437,7 @@ export const storage = {
             newGroupEnrollmentsThisMonth,
             cancelledIndividualsThisMonth,
             cancelledGroupMembersThisMonth,
-          }
+          },
         },
         planBreakdown,
         recentEnrollments: recentEnrollmentsCombined,
@@ -9325,14 +11445,14 @@ export const storage = {
         agentPerformance,
         memberReports: combinedMemberReports,
         commissionReports,
-        revenueBreakdown
+        revenueBreakdown,
       };
 
-      console.log('[Storage] Comprehensive analytics generated');
+      console.log("[Storage] Comprehensive analytics generated");
       return analytics;
     } catch (error: any) {
-      console.error('[Storage] Error fetching comprehensive analytics:', error);
-      console.error('[Storage] Error details:', error.message);
+      console.error("[Storage] Error fetching comprehensive analytics:", error);
+      console.error("[Storage] Error details:", error.message);
       throw error;
     }
   },
@@ -9344,22 +11464,32 @@ export const storage = {
   createMember: async (memberData: Partial<Member>): Promise<Member> => {
     try {
       const normalizeMemberTypeForStorage = (value: unknown): string => {
-        const normalized = String(value || '').trim().toLowerCase();
+        const normalized = String(value || "")
+          .trim()
+          .toLowerCase();
 
         if (!normalized) {
-          return 'member';
+          return "member";
         }
 
-        if (normalized === 'primary' || normalized === 'employee' || normalized === 'member') {
-          return 'employee';
+        if (
+          normalized === "primary" ||
+          normalized === "employee" ||
+          normalized === "member"
+        ) {
+          return "employee";
         }
 
-        if (normalized === 'spouse') {
-          return 'spouse';
+        if (normalized === "spouse") {
+          return "spouse";
         }
 
-        if (normalized === 'child' || normalized === 'dependent' || normalized === 'dep') {
-          return 'child';
+        if (
+          normalized === "child" ||
+          normalized === "dependent" ||
+          normalized === "dep"
+        ) {
+          return "child";
         }
 
         // members.member_type is varchar(8); enforce at write time.
@@ -9367,7 +11497,7 @@ export const storage = {
       };
 
       const toStoredSsnValue = (value: unknown): string | null => {
-        const digits = String(value || '').replace(/\D/g, '');
+        const digits = String(value || "").replace(/\D/g, "");
         if (!digits) {
           return null;
         }
@@ -9375,20 +11505,31 @@ export const storage = {
         try {
           return encryptSSN(digits);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (message.includes('SSN encryption key is not configured')) {
-            console.warn('[Storage] SSN encryption key missing during createMember; storing normalized SSN as fallback.');
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (message.includes("SSN encryption key is not configured")) {
+            console.warn(
+              "[Storage] SSN encryption key missing during createMember; storing normalized SSN as fallback.",
+            );
             return digits;
           }
           throw error;
         }
       };
 
-      const resolvedCustomerNumber = (memberData.customerNumber || '').toString().trim().toUpperCase() ||
-        await generateUniqueMemberIdentifier({ prefix: 'CUST', column: 'customer_number' });
+      const resolvedCustomerNumber =
+        (memberData.customerNumber || "").toString().trim().toUpperCase() ||
+        (await generateUniqueMemberIdentifier({
+          prefix: "CUST",
+          column: "customer_number",
+        }));
 
-      const resolvedMemberPublicId = (memberData as any).memberPublicId?.toString().trim().toUpperCase() ||
-        await generateUniqueMemberIdentifier({ prefix: 'MEMB', column: 'member_public_id' });
+      const resolvedMemberPublicId =
+        (memberData as any).memberPublicId?.toString().trim().toUpperCase() ||
+        (await generateUniqueMemberIdentifier({
+          prefix: "MEMB",
+          column: "member_public_id",
+        }));
 
       // Format fields to match database CHAR requirements
       const formattedData = {
@@ -9397,24 +11538,37 @@ export const storage = {
         memberPublicId: resolvedMemberPublicId,
         // Format phone numbers to 10 digits only (no formatting)
         phone: memberData.phone ? formatPhoneNumber(memberData.phone) : null,
-        emergencyContactPhone: memberData.emergencyContactPhone ? formatPhoneNumber(memberData.emergencyContactPhone) : null,
+        emergencyContactPhone: memberData.emergencyContactPhone
+          ? formatPhoneNumber(memberData.emergencyContactPhone)
+          : null,
         // Format dates to MMDDYYYY (8 chars)
-        dateOfBirth: memberData.dateOfBirth ? formatDateMMDDYYYY(memberData.dateOfBirth) : null,
-        dateOfHire: memberData.dateOfHire ? formatDateMMDDYYYY(memberData.dateOfHire) : null,
-        planStartDate: memberData.planStartDate ? formatDateMMDDYYYY(memberData.planStartDate) : null,
+        dateOfBirth: memberData.dateOfBirth
+          ? formatDateMMDDYYYY(memberData.dateOfBirth)
+          : null,
+        dateOfHire: memberData.dateOfHire
+          ? formatDateMMDDYYYY(memberData.dateOfHire)
+          : null,
+        planStartDate: memberData.planStartDate
+          ? formatDateMMDDYYYY(memberData.planStartDate)
+          : null,
         // Persist SSN without blocking enrollment when encryption key is missing.
         ssn: toStoredSsnValue(memberData.ssn),
         // Format ZIP to 5 digits
         zipCode: memberData.zipCode ? formatZipCode(memberData.zipCode) : null,
         // Ensure state is uppercase 2 chars
-        state: memberData.state ? memberData.state.toUpperCase().slice(0, 2) : null,
+        state: memberData.state
+          ? memberData.state.toUpperCase().slice(0, 2)
+          : null,
         // Gender to uppercase single char
-        gender: memberData.gender ? memberData.gender.toUpperCase().slice(0, 1) : null,
+        gender: memberData.gender
+          ? memberData.gender.toUpperCase().slice(0, 1)
+          : null,
         memberType: normalizeMemberTypeForStorage(memberData.memberType),
       };
 
       // Use database function to generate customer number
-      const result = await query(`
+      const result = await query(
+        `
         INSERT INTO members (
           customer_number, member_public_id, first_name, last_name, middle_name, email,
           phone, date_of_birth, gender, ssn, address, address2, city, state, zip_code,
@@ -9436,55 +11590,64 @@ export const storage = {
           $30, $31,
           $32, $33, $34, $35
         ) RETURNING *
-      `, [
-        formattedData.customerNumber,
-        formattedData.memberPublicId,
-        formattedData.firstName,
-        formattedData.lastName,
-        formattedData.middleName,
-        formattedData.email,
-        formattedData.phone,
-        formattedData.dateOfBirth,
-        formattedData.gender,
-        formattedData.ssn,
-        formattedData.address,
-        formattedData.address2,
-        formattedData.city,
-        formattedData.state,
-        formattedData.zipCode,
-        formattedData.emergencyContactName,
-        formattedData.emergencyContactPhone,
-        formattedData.employerName,
-        formattedData.divisionName,
-        formattedData.memberType,
-        formattedData.dateOfHire,
-        formattedData.planStartDate,
-        formattedData.enrolledByAgentId,
-        formattedData.agentNumber,
-        formattedData.enrollmentDate,
-        formattedData.firstPaymentDate,
-        formattedData.membershipStartDate,
-        formattedData.paymentToken,
-        formattedData.paymentMethodType,
-        formattedData.isActive ?? true,
-        formattedData.status ?? 'active',
-        formattedData.planId,
-        formattedData.coverageType,
-        formattedData.totalMonthlyPrice,
-        formattedData.addRxValet ?? false,
-      ]);
+      `,
+        [
+          formattedData.customerNumber,
+          formattedData.memberPublicId,
+          formattedData.firstName,
+          formattedData.lastName,
+          formattedData.middleName,
+          formattedData.email,
+          formattedData.phone,
+          formattedData.dateOfBirth,
+          formattedData.gender,
+          formattedData.ssn,
+          formattedData.address,
+          formattedData.address2,
+          formattedData.city,
+          formattedData.state,
+          formattedData.zipCode,
+          formattedData.emergencyContactName,
+          formattedData.emergencyContactPhone,
+          formattedData.employerName,
+          formattedData.divisionName,
+          formattedData.memberType,
+          formattedData.dateOfHire,
+          formattedData.planStartDate,
+          formattedData.enrolledByAgentId,
+          formattedData.agentNumber,
+          formattedData.enrollmentDate,
+          formattedData.firstPaymentDate,
+          formattedData.membershipStartDate,
+          formattedData.paymentToken,
+          formattedData.paymentMethodType,
+          formattedData.isActive ?? true,
+          formattedData.status ?? "active",
+          formattedData.planId,
+          formattedData.coverageType,
+          formattedData.totalMonthlyPrice,
+          formattedData.addRxValet ?? false,
+        ],
+      );
 
       const dbMember = result.rows[0];
-      console.log('[Storage] Created member:', dbMember.customer_number, dbMember.member_public_id);
-      console.log('[Storage] Member details:', {
+      console.log(
+        "[Storage] Created member:",
+        dbMember.customer_number,
+        dbMember.member_public_id,
+      );
+      console.log("[Storage] Member details:", {
         id: dbMember.id,
         email: dbMember.email,
         enrolledByAgentId: dbMember.enrolled_by_agent_id,
         agentNumber: dbMember.agent_number,
-        isActive: dbMember.is_active
+        isActive: dbMember.is_active,
       });
-      console.log('[Storage] Database returned columns:', Object.keys(dbMember));
-      
+      console.log(
+        "[Storage] Database returned columns:",
+        Object.keys(dbMember),
+      );
+
       // Map snake_case database columns to camelCase JavaScript properties
       const member = {
         ...dbMember,
@@ -9517,23 +11680,28 @@ export const storage = {
         planId: dbMember.plan_id,
         coverageType: dbMember.coverage_type,
         totalMonthlyPrice: dbMember.total_monthly_price,
-        addRxValet: dbMember.add_rx_valet
+        addRxValet: dbMember.add_rx_valet,
       };
-      
-      console.log('[Storage] Mapped to camelCase, has firstName?', !!member.firstName, 'lastName?', !!member.lastName);
+
+      console.log(
+        "[Storage] Mapped to camelCase, has firstName?",
+        !!member.firstName,
+        "lastName?",
+        !!member.lastName,
+      );
       return member;
     } catch (error: any) {
-      console.error('[Storage] Error creating member:', error);
+      console.error("[Storage] Error creating member:", error);
       throw new Error(`Failed to create member: ${error.message}`);
     }
   },
 
   getMember: async (id: number): Promise<Member | undefined> => {
     try {
-      const result = await query('SELECT * FROM members WHERE id = $1', [id]);
+      const result = await query("SELECT * FROM members WHERE id = $1", [id]);
       const row = result.rows[0];
       if (!row) return undefined;
-      
+
       // Map snake_case to camelCase for consistency
       return {
         ...row,
@@ -9571,20 +11739,22 @@ export const storage = {
         bankAccountNumber: row.bank_account_number,
         bankAccountType: row.bank_account_type,
         bankAccountHolderName: row.bank_account_holder_name,
-        bankAccountLastFour: row.bank_account_last_four
+        bankAccountLastFour: row.bank_account_last_four,
       };
     } catch (error: any) {
-      console.error('[Storage] Error fetching member:', error);
+      console.error("[Storage] Error fetching member:", error);
       throw new Error(`Failed to get member: ${error.message}`);
     }
   },
 
   getMemberByEmail: async (email: string): Promise<Member | undefined> => {
     try {
-      const result = await query('SELECT * FROM members WHERE email = $1', [email]);
+      const result = await query("SELECT * FROM members WHERE email = $1", [
+        email,
+      ]);
       const row = result.rows[0];
       if (!row) return undefined;
-      
+
       // Map snake_case to camelCase for consistency
       return {
         ...row,
@@ -9622,20 +11792,25 @@ export const storage = {
         bankAccountNumber: row.bank_account_number,
         bankAccountType: row.bank_account_type,
         bankAccountHolderName: row.bank_account_holder_name,
-        bankAccountLastFour: row.bank_account_last_four
+        bankAccountLastFour: row.bank_account_last_four,
       };
     } catch (error: any) {
-      console.error('[Storage] Error fetching member by email:', error);
+      console.error("[Storage] Error fetching member by email:", error);
       throw new Error(`Failed to get member: ${error.message}`);
     }
   },
 
-  getMemberByCustomerNumber: async (customerNumber: string): Promise<Member | undefined> => {
+  getMemberByCustomerNumber: async (
+    customerNumber: string,
+  ): Promise<Member | undefined> => {
     try {
-      const result = await query('SELECT * FROM members WHERE customer_number = $1', [customerNumber]);
+      const result = await query(
+        "SELECT * FROM members WHERE customer_number = $1",
+        [customerNumber],
+      );
       const row = result.rows[0];
       if (!row) return undefined;
-      
+
       // Map snake_case to camelCase for consistency
       return {
         ...row,
@@ -9673,30 +11848,36 @@ export const storage = {
         bankAccountNumber: row.bank_account_number,
         bankAccountType: row.bank_account_type,
         bankAccountHolderName: row.bank_account_holder_name,
-        bankAccountLastFour: row.bank_account_last_four
+        bankAccountLastFour: row.bank_account_last_four,
       };
     } catch (error: any) {
-      console.error('[Storage] Error fetching member by customer number:', error);
+      console.error(
+        "[Storage] Error fetching member by customer number:",
+        error,
+      );
       throw new Error(`Failed to get member: ${error.message}`);
     }
   },
 
-  getAllMembers: async (limit: number = 50, offset: number = 0): Promise<{ members: Member[]; totalCount: number }> => {
+  getAllMembers: async (
+    limit: number = 50,
+    offset: number = 0,
+  ): Promise<{ members: Member[]; totalCount: number }> => {
     try {
-      const countResult = await query('SELECT COUNT(*) FROM members');
+      const countResult = await query("SELECT COUNT(*) FROM members");
       const totalCount = parseInt(countResult.rows[0].count);
 
       const result = await query(
-        'SELECT * FROM members ORDER BY created_at DESC LIMIT $1 OFFSET $2',
-        [limit, offset]
+        "SELECT * FROM members ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        [limit, offset],
       );
 
       return {
         members: result.rows,
-        totalCount
+        totalCount,
       };
     } catch (error: any) {
-      console.error('[Storage] Error fetching all members:', error);
+      console.error("[Storage] Error fetching all members:", error);
       throw new Error(`Failed to get members: ${error.message}`);
     }
   },
@@ -9717,7 +11898,7 @@ export const storage = {
           return undefined;
         }
 
-        const digits = String(value || '').replace(/\D/g, '');
+        const digits = String(value || "").replace(/\D/g, "");
         if (!digits) {
           return undefined;
         }
@@ -9725,9 +11906,12 @@ export const storage = {
         try {
           return encryptSSN(digits);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (message.includes('SSN encryption key is not configured')) {
-            console.warn('[Storage] SSN encryption key missing during updateMember; storing normalized SSN as fallback.');
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (message.includes("SSN encryption key is not configured")) {
+            console.warn(
+              "[Storage] SSN encryption key missing during updateMember; storing normalized SSN as fallback.",
+            );
             return digits;
           }
           throw error;
@@ -9742,109 +11926,129 @@ export const storage = {
       // Format fields if provided
       const formattedData = {
         ...sanitizedData,
-        phone: sanitizedData.phone ? formatPhoneNumber(sanitizedData.phone) : undefined,
-        emergencyContactPhone: sanitizedData.emergencyContactPhone ? formatPhoneNumber(sanitizedData.emergencyContactPhone) : undefined,
-        dateOfBirth: sanitizedData.dateOfBirth ? formatDateMMDDYYYY(sanitizedData.dateOfBirth) : undefined,
-        dateOfHire: sanitizedData.dateOfHire ? formatDateMMDDYYYY(sanitizedData.dateOfHire) : undefined,
-        planStartDate: sanitizedData.planStartDate ? formatDateMMDDYYYY(sanitizedData.planStartDate) : undefined,
+        phone: sanitizedData.phone
+          ? formatPhoneNumber(sanitizedData.phone)
+          : undefined,
+        emergencyContactPhone: sanitizedData.emergencyContactPhone
+          ? formatPhoneNumber(sanitizedData.emergencyContactPhone)
+          : undefined,
+        dateOfBirth: sanitizedData.dateOfBirth
+          ? formatDateMMDDYYYY(sanitizedData.dateOfBirth)
+          : undefined,
+        dateOfHire: sanitizedData.dateOfHire
+          ? formatDateMMDDYYYY(sanitizedData.dateOfHire)
+          : undefined,
+        planStartDate: sanitizedData.planStartDate
+          ? formatDateMMDDYYYY(sanitizedData.planStartDate)
+          : undefined,
         ssn: toStoredSsnValue(sanitizedData.ssn),
-        zipCode: sanitizedData.zipCode ? formatZipCode(sanitizedData.zipCode) : undefined,
+        zipCode: sanitizedData.zipCode
+          ? formatZipCode(sanitizedData.zipCode)
+          : undefined,
         state: sanitizedData.state?.toUpperCase().slice(0, 2),
         gender: sanitizedData.gender?.toUpperCase().slice(0, 1),
-        firstPaymentDate: normalizeTimestamp(sanitizedData.firstPaymentDate ?? undefined),
-        membershipStartDate: normalizeTimestamp(sanitizedData.membershipStartDate ?? undefined),
-        enrollmentDate: normalizeTimestamp(sanitizedData.enrollmentDate ?? undefined)
+        firstPaymentDate: normalizeTimestamp(
+          sanitizedData.firstPaymentDate ?? undefined,
+        ),
+        membershipStartDate: normalizeTimestamp(
+          sanitizedData.membershipStartDate ?? undefined,
+        ),
+        enrollmentDate: normalizeTimestamp(
+          sanitizedData.enrollmentDate ?? undefined,
+        ),
       } as Record<string, any>;
 
       const columnMapping: Record<string, string> = {
-        first_name: 'first_name',
-        last_name: 'last_name',
-        middle_name: 'middle_name',
-        email: 'email',
-        phone: 'phone',
-        date_of_birth: 'date_of_birth',
-        gender: 'gender',
-        ssn: 'ssn',
-        address: 'address',
-        address2: 'address2',
-        city: 'city',
-        state: 'state',
-        zip_code: 'zip_code',
-        employer_name: 'employer_name',
-        division_name: 'division_name',
-        date_of_hire: 'date_of_hire',
-        emergency_contact_name: 'emergency_contact_name',
-        emergency_contact_phone: 'emergency_contact_phone',
-        plan_id: 'plan_id',
-        member_type: 'member_type',
-        coverage_type: 'coverage_type',
-        total_monthly_price: 'total_monthly_price',
-        add_rx_valet: 'add_rx_valet',
-        status: 'status',
-        agent_number: 'agent_number',
-        enrolled_by_agent_id: 'enrolled_by_agent_id',
-        customer_number: 'customer_number',
-        member_public_id: 'member_public_id',
-        payment_token: 'payment_token',
-        payment_method_type: 'payment_method_type',
-        bank_routing_number: 'bank_routing_number',
-        bank_account_number: 'bank_account_number',
-        bank_account_type: 'bank_account_type',
-        bank_account_holder_name: 'bank_account_holder_name',
-        bank_account_last_four: 'bank_account_last_four',
-        first_payment_date: 'first_payment_date',
-        membership_start_date: 'membership_start_date',
-        enrollment_date: 'enrollment_date',
-        is_active: 'is_active',
-        is_test_member: 'is_test_member',
-        firstName: 'first_name',
-        lastName: 'last_name',
-        middleName: 'middle_name',
-        email: 'email',
-        phone: 'phone',
-        ssn: 'ssn',
-        address: 'address',
-        address2: 'address2',
-        city: 'city',
-        state: 'state',
-        emergencyContactName: 'emergency_contact_name',
-        emergencyContactPhone: 'emergency_contact_phone',
-        employerName: 'employer_name',
-        divisionName: 'division_name',
-        memberType: 'member_type',
-        dateOfBirth: 'date_of_birth',
-        dateOfHire: 'date_of_hire',
-        planStartDate: 'plan_start_date',
-        planId: 'plan_id',
-        coverageType: 'coverage_type',
-        totalMonthlyPrice: 'total_monthly_price',
-        addRxValet: 'add_rx_valet',
-        agentNumber: 'agent_number',
-        enrolledByAgentId: 'enrolled_by_agent_id',
-        customerNumber: 'customer_number',
-        memberPublicId: 'member_public_id',
-        paymentToken: 'payment_token',
-        paymentMethodType: 'payment_method_type',
-        bankRoutingNumber: 'bank_routing_number',
-        bankAccountNumber: 'bank_account_number',
-        bankAccountType: 'bank_account_type',
-        bankAccountHolderName: 'bank_account_holder_name',
-        bankAccountLastFour: 'bank_account_last_four',
-        firstPaymentDate: 'first_payment_date',
-        membershipStartDate: 'membership_start_date',
-        enrollmentDate: 'enrollment_date',
-        zipCode: 'zip_code',
-        isActive: 'is_active',
-        isTestMember: 'is_test_member'
+        first_name: "first_name",
+        last_name: "last_name",
+        middle_name: "middle_name",
+        email: "email",
+        phone: "phone",
+        date_of_birth: "date_of_birth",
+        gender: "gender",
+        ssn: "ssn",
+        address: "address",
+        address2: "address2",
+        city: "city",
+        state: "state",
+        zip_code: "zip_code",
+        employer_name: "employer_name",
+        division_name: "division_name",
+        date_of_hire: "date_of_hire",
+        emergency_contact_name: "emergency_contact_name",
+        emergency_contact_phone: "emergency_contact_phone",
+        plan_id: "plan_id",
+        member_type: "member_type",
+        coverage_type: "coverage_type",
+        total_monthly_price: "total_monthly_price",
+        add_rx_valet: "add_rx_valet",
+        status: "status",
+        agent_number: "agent_number",
+        enrolled_by_agent_id: "enrolled_by_agent_id",
+        customer_number: "customer_number",
+        member_public_id: "member_public_id",
+        payment_token: "payment_token",
+        payment_method_type: "payment_method_type",
+        bank_routing_number: "bank_routing_number",
+        bank_account_number: "bank_account_number",
+        bank_account_type: "bank_account_type",
+        bank_account_holder_name: "bank_account_holder_name",
+        bank_account_last_four: "bank_account_last_four",
+        first_payment_date: "first_payment_date",
+        membership_start_date: "membership_start_date",
+        enrollment_date: "enrollment_date",
+        is_active: "is_active",
+        is_test_member: "is_test_member",
+        firstName: "first_name",
+        lastName: "last_name",
+        middleName: "middle_name",
+        email: "email",
+        phone: "phone",
+        ssn: "ssn",
+        address: "address",
+        address2: "address2",
+        city: "city",
+        state: "state",
+        emergencyContactName: "emergency_contact_name",
+        emergencyContactPhone: "emergency_contact_phone",
+        employerName: "employer_name",
+        divisionName: "division_name",
+        memberType: "member_type",
+        dateOfBirth: "date_of_birth",
+        dateOfHire: "date_of_hire",
+        planStartDate: "plan_start_date",
+        planId: "plan_id",
+        coverageType: "coverage_type",
+        totalMonthlyPrice: "total_monthly_price",
+        addRxValet: "add_rx_valet",
+        agentNumber: "agent_number",
+        enrolledByAgentId: "enrolled_by_agent_id",
+        customerNumber: "customer_number",
+        memberPublicId: "member_public_id",
+        paymentToken: "payment_token",
+        paymentMethodType: "payment_method_type",
+        bankRoutingNumber: "bank_routing_number",
+        bankAccountNumber: "bank_account_number",
+        bankAccountType: "bank_account_type",
+        bankAccountHolderName: "bank_account_holder_name",
+        bankAccountLastFour: "bank_account_last_four",
+        firstPaymentDate: "first_payment_date",
+        membershipStartDate: "membership_start_date",
+        enrollmentDate: "enrollment_date",
+        zipCode: "zip_code",
+        isActive: "is_active",
+        isTestMember: "is_test_member",
       };
 
-      const nonPersistedAllowedKeys = new Set(['updatedAt', 'createdAt']);
+      const nonPersistedAllowedKeys = new Set(["updatedAt", "createdAt"]);
       const incomingUpdateKeys = Object.keys(data || {});
       const unknownUpdateKeys = incomingUpdateKeys.filter(
         (key) => !(key in columnMapping) && !nonPersistedAllowedKeys.has(key),
       );
       if (unknownUpdateKeys.length > 0) {
-        throw new Error(`Invalid member update fields: ${unknownUpdateKeys.join(', ')}`);
+        throw new Error(
+          `Invalid member update fields: ${unknownUpdateKeys.join(", ")}`,
+        );
       }
 
       // Build dynamic UPDATE query
@@ -9868,18 +12072,18 @@ export const storage = {
       values.push(id);
 
       const result = await query(
-        `UPDATE members SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-        values
+        `UPDATE members SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`,
+        values,
       );
 
       if (result.rows.length === 0) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
-      console.log('[Storage] Updated member:', id);
+      console.log("[Storage] Updated member:", id);
       return result.rows[0];
     } catch (error: any) {
-      console.error('[Storage] Error updating member:', error);
+      console.error("[Storage] Error updating member:", error);
       throw new Error(`Failed to update member: ${error.message}`);
     }
   },
@@ -9887,12 +12091,12 @@ export const storage = {
   getMembersByAgent: async (agentId: string): Promise<Member[]> => {
     try {
       const result = await query(
-        'SELECT * FROM members WHERE enrolled_by_agent_id::uuid = $1::uuid ORDER BY created_at DESC',
-        [agentId]
+        "SELECT * FROM members WHERE enrolled_by_agent_id::uuid = $1::uuid ORDER BY created_at DESC",
+        [agentId],
       );
       return result.rows;
     } catch (error: any) {
-      console.error('[Storage] Error fetching members by agent:', error);
+      console.error("[Storage] Error fetching members by agent:", error);
       throw new Error(`Failed to get members by agent: ${error.message}`);
     }
   },
@@ -9906,14 +12110,14 @@ export const storage = {
             COUNT(*) FILTER (WHERE status != 'archived' AND COALESCE(is_active, true))::int AS active,
             COUNT(*) FILTER (WHERE COALESCE(is_test_member, false))::int AS test,
             COUNT(*) FILTER (WHERE status = 'archived')::int AS archived
-          FROM members`
+          FROM members`,
         ),
         query(
           `SELECT
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE status != 'terminated')::int AS active,
             COUNT(*) FILTER (WHERE status = 'terminated')::int AS terminated
-          FROM group_members`
+          FROM group_members`,
         ),
       ]);
 
@@ -9940,12 +12144,14 @@ export const storage = {
         groupTerminatedMembers: groupTerminated,
       };
     } catch (error: any) {
-      console.error('[Storage] Error fetching membership stats:', error);
+      console.error("[Storage] Error fetching membership stats:", error);
       throw new Error(`Failed to load membership stats: ${error.message}`);
     }
   },
 
-  getDuplicateMembershipGroups: async (limit: number = 10): Promise<DuplicateMembershipGroup[]> => {
+  getDuplicateMembershipGroups: async (
+    limit: number = 10,
+  ): Promise<DuplicateMembershipGroup[]> => {
     try {
       const result = await query(
         `WITH duplicate_groups AS (
@@ -9986,7 +12192,7 @@ export const storage = {
          AND COALESCE(m.date_of_birth, '') = dg.date_of_birth
         GROUP BY dg.first_name, dg.last_name, dg.date_of_birth, dg.group_count
         ORDER BY dg.group_count DESC`,
-        [limit]
+        [limit],
       );
 
       return result.rows.map((row: any) => ({
@@ -9999,7 +12205,7 @@ export const storage = {
         members: Array.isArray(row.members) ? row.members : [],
       }));
     } catch (error: any) {
-      console.error('[Storage] Error fetching duplicate memberships:', error);
+      console.error("[Storage] Error fetching duplicate memberships:", error);
       throw new Error(`Failed to load duplicate memberships: ${error.message}`);
     }
   },
@@ -10007,7 +12213,7 @@ export const storage = {
   setMemberTestFlag: async (
     memberId: number,
     isTestMember: boolean,
-    options: { reason?: string; updatedBy?: string | null } = {}
+    options: { reason?: string; updatedBy?: string | null } = {},
   ): Promise<Member> => {
     try {
       const result = await query(
@@ -10016,11 +12222,11 @@ export const storage = {
              updated_at = NOW()
          WHERE id = $2
          RETURNING *`,
-        [isTestMember, memberId]
+        [isTestMember, memberId],
       );
 
       if (!result.rows.length) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
       if (options.updatedBy) {
@@ -10028,7 +12234,7 @@ export const storage = {
           user_id: memberId,
           modified_by: options.updatedBy,
           changes: {
-            changeType: 'membership_test_flag',
+            changeType: "membership_test_flag",
             isTestMember,
             reason: options.reason || null,
           },
@@ -10037,14 +12243,16 @@ export const storage = {
 
       return result.rows[0];
     } catch (error: any) {
-      console.error('[Storage] Error updating membership test flag:', error);
-      throw new Error(`Failed to update membership test status: ${error.message}`);
+      console.error("[Storage] Error updating membership test flag:", error);
+      throw new Error(
+        `Failed to update membership test status: ${error.message}`,
+      );
     }
   },
 
   archiveMember: async (
     memberId: number,
-    options: { reason?: string; archivedBy?: string | null } = {}
+    options: { reason?: string; archivedBy?: string | null } = {},
   ): Promise<Member> => {
     try {
       const result = await query(
@@ -10057,11 +12265,11 @@ export const storage = {
              updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
-        [memberId, options.archivedBy || null, options.reason || null]
+        [memberId, options.archivedBy || null, options.reason || null],
       );
 
       if (!result.rows.length) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
       if (options.archivedBy) {
@@ -10069,7 +12277,7 @@ export const storage = {
           user_id: memberId,
           modified_by: options.archivedBy,
           changes: {
-            changeType: 'membership_archived',
+            changeType: "membership_archived",
             archivedAt: new Date().toISOString(),
             reason: options.reason || null,
           },
@@ -10078,14 +12286,14 @@ export const storage = {
 
       return result.rows[0];
     } catch (error: any) {
-      console.error('[Storage] Error archiving membership:', error);
+      console.error("[Storage] Error archiving membership:", error);
       throw new Error(`Failed to archive membership: ${error.message}`);
     }
   },
 
   restoreMember: async (
     memberId: number,
-    options: { restoredBy?: string | null; targetStatus?: string } = {}
+    options: { restoredBy?: string | null; targetStatus?: string } = {},
   ): Promise<Member> => {
     try {
       const result = await query(
@@ -10098,11 +12306,11 @@ export const storage = {
              updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
-        [memberId, options.targetStatus || 'pending_activation']
+        [memberId, options.targetStatus || "pending_activation"],
       );
 
       if (!result.rows.length) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
       if (options.restoredBy) {
@@ -10110,23 +12318,23 @@ export const storage = {
           user_id: memberId,
           modified_by: options.restoredBy,
           changes: {
-            changeType: 'membership_restored',
+            changeType: "membership_restored",
             restoredAt: new Date().toISOString(),
-            targetStatus: options.targetStatus || 'pending_activation',
+            targetStatus: options.targetStatus || "pending_activation",
           },
         });
       }
 
       return result.rows[0];
     } catch (error: any) {
-      console.error('[Storage] Error restoring membership:', error);
+      console.error("[Storage] Error restoring membership:", error);
       throw new Error(`Failed to restore membership: ${error.message}`);
     }
   },
 
   hardDeleteMember: async (
     memberId: number,
-    options: { deletedBy?: string | null; reason?: string } = {}
+    options: { deletedBy?: string | null; reason?: string } = {},
   ): Promise<{ memberId: number; deleted: Record<string, number> }> => {
     const deleted: Record<string, number> = {};
 
@@ -10135,10 +12343,10 @@ export const storage = {
       key: string,
       tableName: string,
       sql: string,
-      params: any[]
+      params: any[],
     ) => {
       const existsResult = await client.query(
-        'SELECT to_regclass($1) AS table_name',
+        "SELECT to_regclass($1) AS table_name",
         [tableName],
       );
       if (!existsResult.rows?.[0]?.table_name) {
@@ -10151,81 +12359,83 @@ export const storage = {
     };
 
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
       const lockedMember = await client.query(
-        'SELECT id FROM public.members WHERE id = $1 FOR UPDATE',
+        "SELECT id FROM public.members WHERE id = $1 FOR UPDATE",
         [memberId],
       );
 
       if (!lockedMember.rowCount) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
       await safeDelete(
-        'enrollment_modifications',
-        'public.enrollment_modifications',
-        'DELETE FROM public.enrollment_modifications WHERE user_id::text = $1::text OR member_id::text = $1::text',
+        "enrollment_modifications",
+        "public.enrollment_modifications",
+        "DELETE FROM public.enrollment_modifications WHERE user_id::text = $1::text OR member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'member_payment_tokens',
-        'public.member_payment_tokens',
-        'DELETE FROM public.member_payment_tokens WHERE member_id = $1',
+        "member_payment_tokens",
+        "public.member_payment_tokens",
+        "DELETE FROM public.member_payment_tokens WHERE member_id = $1",
         [memberId],
       );
       await safeDelete(
-        'payment_tokens',
-        'public.payment_tokens',
-        'DELETE FROM public.payment_tokens WHERE member_id::text = $1::text',
+        "payment_tokens",
+        "public.payment_tokens",
+        "DELETE FROM public.payment_tokens WHERE member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'billing_schedule',
-        'public.billing_schedule',
-        'DELETE FROM public.billing_schedule WHERE member_id::text = $1::text',
+        "billing_schedule",
+        "public.billing_schedule",
+        "DELETE FROM public.billing_schedule WHERE member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'recurring_billing_log',
-        'public.recurring_billing_log',
-        'DELETE FROM public.recurring_billing_log WHERE member_id::text = $1::text',
+        "recurring_billing_log",
+        "public.recurring_billing_log",
+        "DELETE FROM public.recurring_billing_log WHERE member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'member_change_requests',
-        'public.member_change_requests',
-        'DELETE FROM public.member_change_requests WHERE member_id::text = $1::text',
+        "member_change_requests",
+        "public.member_change_requests",
+        "DELETE FROM public.member_change_requests WHERE member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'group_members',
-        'public.group_members',
-        'DELETE FROM public.group_members WHERE member_id = $1',
+        "group_members",
+        "public.group_members",
+        "DELETE FROM public.group_members WHERE member_id = $1",
         [memberId],
       );
       await safeDelete(
-        'admin_notifications',
-        'public.admin_notifications',
-        'DELETE FROM public.admin_notifications WHERE member_id = $1',
+        "admin_notifications",
+        "public.admin_notifications",
+        "DELETE FROM public.admin_notifications WHERE member_id = $1",
         [memberId],
       );
       await safeDelete(
-        'payments',
-        'public.payments',
-        'DELETE FROM public.payments WHERE member_id::text = $1::text OR user_id::text = $1::text',
+        "payments",
+        "public.payments",
+        "DELETE FROM public.payments WHERE member_id::text = $1::text OR user_id::text = $1::text",
         [memberId],
       );
 
       const subscriptionsToDelete = await client.query(
-        'SELECT id FROM public.subscriptions WHERE user_id::text = $1::text OR member_id::text = $1::text',
+        "SELECT id FROM public.subscriptions WHERE user_id::text = $1::text OR member_id::text = $1::text",
         [memberId],
       );
-      const subscriptionIds = (subscriptionsToDelete.rows || []).map((row: any) => Number(row.id)).filter((id) => Number.isFinite(id));
+      const subscriptionIds = (subscriptionsToDelete.rows || [])
+        .map((row: any) => Number(row.id))
+        .filter((id) => Number.isFinite(id));
 
       if (subscriptionIds.length > 0) {
         const deletedSubscriptions = await client.query(
-          'DELETE FROM public.subscriptions WHERE id = ANY($1::int[])',
+          "DELETE FROM public.subscriptions WHERE id = ANY($1::int[])",
           [subscriptionIds],
         );
         deleted.subscriptions = Number(deletedSubscriptions?.rowCount || 0);
@@ -10234,39 +12444,43 @@ export const storage = {
       }
 
       await safeDelete(
-        'agent_commissions',
-        'public.agent_commissions',
-        'DELETE FROM public.agent_commissions WHERE member_id::text = $1::text',
+        "agent_commissions",
+        "public.agent_commissions",
+        "DELETE FROM public.agent_commissions WHERE member_id::text = $1::text",
         [memberId],
       );
       await safeDelete(
-        'family_members',
-        'public.family_members',
-        'DELETE FROM public.family_members WHERE primary_member_id = $1',
+        "family_members",
+        "public.family_members",
+        "DELETE FROM public.family_members WHERE primary_member_id = $1",
         [memberId],
       );
 
       const remainingSubscriptions = await client.query(
-        'SELECT id FROM public.subscriptions WHERE member_id::text = $1::text',
+        "SELECT id FROM public.subscriptions WHERE member_id::text = $1::text",
         [memberId],
       );
       if ((remainingSubscriptions.rowCount || 0) > 0) {
-        const ids = remainingSubscriptions.rows.map((row: any) => row.id).join(', ');
-        throw new Error(`Subscription rows still reference member before delete (ids: ${ids})`);
+        const ids = remainingSubscriptions.rows
+          .map((row: any) => row.id)
+          .join(", ");
+        throw new Error(
+          `Subscription rows still reference member before delete (ids: ${ids})`,
+        );
       }
 
       await safeDelete(
-        'members',
-        'public.members',
-        'DELETE FROM public.members WHERE id = $1',
+        "members",
+        "public.members",
+        "DELETE FROM public.members WHERE id = $1",
         [memberId],
       );
 
       if ((deleted.members || 0) === 0) {
-        throw new Error('Member not found');
+        throw new Error("Member not found");
       }
 
-      await client.query('COMMIT');
+      await client.query("COMMIT");
 
       if (options.deletedBy) {
         try {
@@ -10274,24 +12488,27 @@ export const storage = {
             user_id: memberId,
             modified_by: options.deletedBy,
             changes: {
-              changeType: 'membership_hard_deleted',
+              changeType: "membership_hard_deleted",
               reason: options.reason || null,
               deleted,
             },
           });
         } catch (auditError) {
           // Audit logging should never block a completed hard-delete operation.
-          console.warn('[Storage] Hard delete audit logging failed:', auditError);
+          console.warn(
+            "[Storage] Hard delete audit logging failed:",
+            auditError,
+          );
         }
       }
 
       return { memberId, deleted };
     } catch (error: any) {
-      await client.query('ROLLBACK');
-      console.error('[Storage] Error hard deleting membership:', error);
+      await client.query("ROLLBACK");
+      console.error("[Storage] Error hard deleting membership:", error);
       throw new Error(`Failed to hard delete membership: ${error.message}`);
     } finally {
       client.release();
     }
-  }
+  },
 } as any;

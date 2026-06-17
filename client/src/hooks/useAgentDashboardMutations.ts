@@ -28,7 +28,12 @@ interface ResolvePendingArgs {
 interface UseAgentDashboardMutationsParams {
   dateFilter: DateFilter;
   viewingAgentId?: string | null;
-  toast: (args: { title: string; description: string; variant?: "default" | "destructive" }) => void;
+  currentUserId?: string | null;
+  toast: (args: {
+    title: string;
+    description: string;
+    variant?: "default" | "destructive";
+  }) => void;
   onMembershipSuccess: () => void;
   onResolvePendingSuccess: () => void;
 }
@@ -36,6 +41,7 @@ interface UseAgentDashboardMutationsParams {
 export function useAgentDashboardMutations({
   dateFilter,
   viewingAgentId,
+  currentUserId,
   toast,
   onMembershipSuccess,
   onResolvePendingSuccess,
@@ -57,7 +63,12 @@ export function useAgentDashboardMutations({
           Accept: "text/csv",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify(dateFilter),
+        body: JSON.stringify({
+          ...dateFilter,
+          ...(viewingAgentId && viewingAgentId !== currentUserId
+            ? { agentId: viewingAgentId }
+            : {}),
+        }),
       });
 
       if (!response.ok) {
@@ -107,8 +118,16 @@ export function useAgentDashboardMutations({
         title: "Membership updated",
         description: "The membership change has been applied.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter] });
-      queryClient.invalidateQueries({ queryKey: ["/api/agent/stats", viewingAgentId] });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "/api/agent/enrollments",
+          viewingAgentId ?? "__aggregate__",
+          dateFilter,
+        ],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/agent/stats", viewingAgentId ?? "__aggregate__"],
+      });
       onMembershipSuccess();
     },
     onError: (error: any) => {

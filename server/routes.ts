@@ -2,7 +2,7 @@
 import { Router } from "express";
 import { storage, decryptSensitiveData, encryptSensitiveData } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
-import { hasAtLeastRole, isFullAccessEmail } from "./auth/roles";
+import { hasAtLeastRole, isFullAccessEmail, normalizeRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
 import {
   calculateCommission,
@@ -10,8 +10,16 @@ import {
   getPlanTypeFromMemberType,
   RX_VALET_COMMISSION,
 } from "./commissionCalculator"; // FIXED: Using actual commission rates
-import { sendLeadSubmissionEmails, sendManualConfirmationEmail, sendPartnerInquiryEmails } from "./utils/notifications";
-import { sendEmailVerification, sendUserCredentialsEmail, sendAnalyticsReportEmail } from "./email";
+import {
+  sendLeadSubmissionEmails,
+  sendManualConfirmationEmail,
+  sendPartnerInquiryEmails,
+} from "./utils/notifications";
+import {
+  sendEmailVerification,
+  sendUserCredentialsEmail,
+  sendAnalyticsReportEmail,
+} from "./email";
 import { supabase } from "./lib/supabaseClient"; // Use Supabase for everything
 import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
 import {
@@ -27,17 +35,21 @@ import {
   syncCommissionLedgerFromFeed,
 } from "./services/commission-ledger-service";
 import { displaySSN } from "@shared/display-ssn";
-import { addDaysLocal, formatLocalDate, parseLocalDate } from "@shared/localDate";
+import {
+  addDaysLocal,
+  formatLocalDate,
+  parseLocalDate,
+} from "@shared/localDate";
 import supabaseAuthRoutes from "./routes/supabase-auth";
 import adminHierarchyRoutes from "./routes/admin-hierarchy";
 import adminLoginSessionsRoutes from "./routes/admin-login-sessions";
 import adminUsersRoutes from "./routes/admin-users";
 import { requireDevelopmentMode } from "./middleware/debug-route-guard";
-import { 
-  calculateMembershipStartDate, 
+import {
+  calculateMembershipStartDate,
   calculateNextBillingDate,
-  isMembershipActive, 
-  daysUntilMembershipStarts 
+  isMembershipActive,
+  daysUntilMembershipStarts,
 } from "./utils/membership-dates";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
@@ -45,15 +57,15 @@ import {
 const router = Router();
 
 const PERIOD_FILTERS = new Set([
-  'today',
-  'week',
-  'month',
-  'quarter',
-  'year',
-  'last-30',
-  'last-90',
-  'custom',
-  'all-time'
+  "today",
+  "week",
+  "month",
+  "quarter",
+  "year",
+  "last-30",
+  "last-90",
+  "custom",
+  "all-time",
 ]);
 
 const startOfDay = (date: Date) => {
@@ -61,47 +73,69 @@ const startOfDay = (date: Date) => {
   next.setHours(0, 0, 0, 0);
   return next;
 };
-const normalizePaymentStatusLabel = (value: unknown): string => String(value || '').trim().toLowerCase();
+const normalizePaymentStatusLabel = (value: unknown): string =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 const buildPaymentVerificationSummary = (payment: any) => {
-  const metadata = (payment?.metadata && typeof payment.metadata === 'object') ? payment.metadata : {};
+  const metadata =
+    payment?.metadata && typeof payment.metadata === "object"
+      ? payment.metadata
+      : {};
   const status = normalizePaymentStatusLabel(payment?.status);
   const callbackStatus = normalizePaymentStatusLabel(
-    metadata.callbackStatus
-    || metadata.hostedCallbackStatus
-    || metadata.epxCallbackStatus
-    || metadata.Status
+    metadata.callbackStatus ||
+      metadata.hostedCallbackStatus ||
+      metadata.epxCallbackStatus ||
+      metadata.Status,
   );
-  const authResp = normalizePaymentStatusLabel(metadata.AUTH_RESP || metadata.authResp);
+  const authResp = normalizePaymentStatusLabel(
+    metadata.AUTH_RESP || metadata.authResp,
+  );
 
-  const callbackApproved = metadata.callbackApproved === true
-    || metadata.hostedCallbackApproved === true
-    || ['approved', 'success', 'succeeded', 'completed'].includes(callbackStatus)
-    || ['00', '0'].includes(authResp);
+  const callbackApproved =
+    metadata.callbackApproved === true ||
+    metadata.hostedCallbackApproved === true ||
+    ["approved", "success", "succeeded", "completed"].includes(
+      callbackStatus,
+    ) ||
+    ["00", "0"].includes(authResp);
 
-  const processorConfirmed = ['succeeded', 'success', 'completed'].includes(status)
-    || callbackApproved
-    || metadata.processorApproved === true;
+  const processorConfirmed =
+    ["succeeded", "success", "completed"].includes(status) ||
+    callbackApproved ||
+    metadata.processorApproved === true;
 
-  const requiresReview = metadata.requiresReview === true || metadata.reviewRequired === true;
+  const requiresReview =
+    metadata.requiresReview === true || metadata.reviewRequired === true;
 
-  let finalizationState: 'finalized' | 'requires_review' | 'pending' | 'failed' | 'unknown' = 'unknown';
+  let finalizationState:
+    | "finalized"
+    | "requires_review"
+    | "pending"
+    | "failed"
+    | "unknown" = "unknown";
   if (processorConfirmed && requiresReview) {
-    finalizationState = 'requires_review';
+    finalizationState = "requires_review";
   } else if (processorConfirmed) {
-    finalizationState = 'finalized';
-  } else if (['pending', 'processing', 'authorized'].includes(status)) {
-    finalizationState = 'pending';
-  } else if (['failed', 'declined', 'canceled', 'cancelled'].includes(status)) {
-    finalizationState = 'failed';
+    finalizationState = "finalized";
+  } else if (["pending", "processing", "authorized"].includes(status)) {
+    finalizationState = "pending";
+  } else if (["failed", "declined", "canceled", "cancelled"].includes(status)) {
+    finalizationState = "failed";
   }
 
-  const normalizedCommissionStatus = normalizePaymentStatusLabel(payment?.commission_status || payment?.commissionStatus);
-  const commissionState = normalizedCommissionStatus
-    || (metadata.commissionCreated === true || metadata.commissionTriggered === true
-      ? 'created'
+  const normalizedCommissionStatus = normalizePaymentStatusLabel(
+    payment?.commission_status || payment?.commissionStatus,
+  );
+  const commissionState =
+    normalizedCommissionStatus ||
+    (metadata.commissionCreated === true ||
+    metadata.commissionTriggered === true
+      ? "created"
       : processorConfirmed
-        ? 'pending_or_unknown'
-        : 'not_applicable');
+        ? "pending_or_unknown"
+        : "not_applicable");
 
   return {
     processorConfirmed,
@@ -152,7 +186,10 @@ function toIsoDateOrNull(value: unknown): string | null {
   return parsed ? parsed.toISOString() : null;
 }
 
-function calculateMonthsAsMember(anchorDate: Date, reference = new Date()): number {
+function calculateMonthsAsMember(
+  anchorDate: Date,
+  reference = new Date(),
+): number {
   let months = (reference.getFullYear() - anchorDate.getFullYear()) * 12;
   months += reference.getMonth() - anchorDate.getMonth();
   if (reference.getDate() < anchorDate.getDate()) {
@@ -166,18 +203,25 @@ function diffInDays(later: Date, earlier: Date): number {
   return Math.floor((later.getTime() - earlier.getTime()) / msPerDay);
 }
 
-function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?: string) {
-  const normalizedPeriod = typeof period === 'string' && PERIOD_FILTERS.has(period) ? period : undefined;
+function getDateRangeFromQuery(
+  period?: string,
+  customStart?: string,
+  customEnd?: string,
+) {
+  const normalizedPeriod =
+    typeof period === "string" && PERIOD_FILTERS.has(period)
+      ? period
+      : undefined;
   const now = new Date();
   let start: Date | undefined;
   let end: Date | undefined;
 
   switch (normalizedPeriod) {
-    case 'today':
+    case "today":
       start = startOfDay(now);
       end = endOfDay(now);
       break;
-    case 'week': {
+    case "week": {
       const temp = startOfDay(now);
       const weekday = temp.getDay();
       temp.setDate(temp.getDate() - weekday);
@@ -185,41 +229,41 @@ function getDateRangeFromQuery(period?: string, customStart?: string, customEnd?
       end = endOfDay(now);
       break;
     }
-    case 'month':
+    case "month":
       start = new Date(now.getFullYear(), now.getMonth(), 1);
       end = endOfDay(now);
       break;
-    case 'quarter': {
+    case "quarter": {
       const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
       start = new Date(now.getFullYear(), quarterStartMonth, 1);
       end = endOfDay(now);
       break;
     }
-    case 'year':
+    case "year":
       start = new Date(now.getFullYear(), 0, 1);
       end = endOfDay(now);
       break;
-    case 'last-30': {
+    case "last-30": {
       const temp = new Date(now);
       temp.setDate(temp.getDate() - 30);
       start = startOfDay(temp);
       end = endOfDay(now);
       break;
     }
-    case 'last-90': {
+    case "last-90": {
       const temp = new Date(now);
       temp.setDate(temp.getDate() - 90);
       start = startOfDay(temp);
       end = endOfDay(now);
       break;
     }
-    case 'custom':
+    case "custom":
       start = parseDateInput(customStart);
       end = parseDateInput(customEnd);
       if (start) start = startOfDay(start);
       if (end) end = endOfDay(end);
       break;
-    case 'all-time':
+    case "all-time":
     default:
       start = parseDateInput(customStart);
       end = parseDateInput(customEnd);
@@ -255,8 +299,13 @@ function filterRecordsByDate(records: any[] = [], start?: Date, end?: Date) {
 
 function sumEnrollmentRevenue(records: any[] = []) {
   return records.reduce((total, enrollment) => {
-    const raw = enrollment?.totalMonthlyPrice ?? enrollment?.total_monthly_price ?? enrollment?.planPrice ?? enrollment?.plan_price ?? 0;
-    const amount = typeof raw === 'number' ? raw : parseFloat(String(raw));
+    const raw =
+      enrollment?.totalMonthlyPrice ??
+      enrollment?.total_monthly_price ??
+      enrollment?.planPrice ??
+      enrollment?.plan_price ??
+      0;
+    const amount = typeof raw === "number" ? raw : parseFloat(String(raw));
     if (Number.isNaN(amount)) {
       return total;
     }
@@ -266,8 +315,9 @@ function sumEnrollmentRevenue(records: any[] = []) {
 
 function sumCommissionAmounts(records: any[] = []) {
   return records.reduce((total, commission) => {
-    const raw = commission?.commissionAmount ?? commission?.commission_amount ?? 0;
-    const amount = typeof raw === 'number' ? raw : parseFloat(String(raw));
+    const raw =
+      commission?.commissionAmount ?? commission?.commission_amount ?? 0;
+    const amount = typeof raw === "number" ? raw : parseFloat(String(raw));
     if (Number.isNaN(amount)) {
       return total;
     }
@@ -313,21 +363,273 @@ const isAgentRole = (role: string | undefined): boolean => {
 };
 
 const hasAgentOrAdminAccess = (role: string | undefined): boolean => {
-  return role === "agent" || hasAtLeastRole(role, "admin");
+  const normalized = normalizeRole(role);
+  return (
+    normalized === "agent" ||
+    normalized === "agency_admin" ||
+    normalized === "agency_manager" ||
+    hasAtLeastRole(role, "admin")
+  );
+};
+
+const isAgencyScopedRole = (role: string | undefined): boolean => {
+  const normalized = normalizeRole(role);
+  return normalized === "agency_admin" || normalized === "agency_manager";
+};
+
+type ScopeResolution =
+  | { ok: true; allAgents: boolean; agentIds: string[] }
+  | { ok: false; status: number; message: string };
+
+async function resolveScopedAgentIds(
+  user: { id: string; role?: string },
+  requestedAgentIdRaw: unknown,
+  options: { allowAdminAll?: boolean } = {},
+): Promise<ScopeResolution> {
+  const requestedAgentId =
+    typeof requestedAgentIdRaw === "string" &&
+    requestedAgentIdRaw.trim().length > 0
+      ? requestedAgentIdRaw.trim()
+      : undefined;
+
+  const normalized = normalizeRole(user.role);
+
+  if (!normalized) {
+    return { ok: false, status: 403, message: "Role not recognized" };
+  }
+
+  if (hasAtLeastRole(normalized, "admin")) {
+    if (requestedAgentId) {
+      return { ok: true, allAgents: false, agentIds: [requestedAgentId] };
+    }
+
+    if (options.allowAdminAll) {
+      return { ok: true, allAgents: true, agentIds: [] };
+    }
+
+    return { ok: true, allAgents: false, agentIds: [user.id] };
+  }
+
+  if (isAgencyScopedRole(normalized)) {
+    const assignedAgentIds = await storage.getAgencyAssignedAgentIds(user.id);
+    if (assignedAgentIds.length === 0) {
+      return {
+        ok: false,
+        status: 403,
+        message: "No agents are assigned to this agency user",
+      };
+    }
+
+    if (requestedAgentId) {
+      if (!assignedAgentIds.includes(requestedAgentId)) {
+        return {
+          ok: false,
+          status: 403,
+          message: "Requested agent is outside your assigned scope",
+        };
+      }
+      return { ok: true, allAgents: false, agentIds: [requestedAgentId] };
+    }
+
+    return { ok: true, allAgents: false, agentIds: assignedAgentIds };
+  }
+
+  if (normalized === "agent") {
+    if (requestedAgentId && requestedAgentId !== user.id) {
+      return {
+        ok: false,
+        status: 403,
+        message: "Agents may only view their own data",
+      };
+    }
+
+    return { ok: true, allAgents: false, agentIds: [user.id] };
+  }
+
+  return { ok: false, status: 403, message: "Insufficient permissions" };
+}
+
+async function getScopedEnrollments(
+  agentIds: string[],
+  startDate?: string,
+  endDate?: string,
+): Promise<any[]> {
+  const pages = await Promise.all(
+    agentIds.map((id) => storage.getEnrollmentsByAgent(id, startDate, endDate)),
+  );
+
+  const deduped = new Map<string, any>();
+  for (const page of pages) {
+    for (const row of page || []) {
+      const key = String(row?.id || "").trim();
+      if (!key) continue;
+      deduped.set(key, row);
+    }
+  }
+
+  return Array.from(deduped.values()).sort((a: any, b: any) => {
+    const left = new Date(a?.createdAt || a?.created_at || 0).getTime();
+    const right = new Date(b?.createdAt || b?.created_at || 0).getTime();
+    return right - left;
+  });
+}
+
+async function getScopedCommissions(
+  agentIds: string[],
+  startDate?: string,
+  endDate?: string,
+): Promise<any[]> {
+  const pages = await Promise.all(
+    agentIds.map((id) =>
+      storage.getAgentCommissionsNew(id, startDate, endDate),
+    ),
+  );
+
+  const deduped = new Map<string, any>();
+  for (const page of pages) {
+    for (const row of page || []) {
+      const key = String(
+        row?.id ||
+          `${row?.agentId || row?.agent_id || ""}-${row?.memberId || row?.member_id || ""}-${row?.commissionDate || row?.createdAt || ""}`,
+      );
+      deduped.set(key, row);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
+async function getScopedLifecycleSummary(
+  agentIds: string[],
+  horizonDays: number,
+): Promise<any> {
+  const summaries = await Promise.all(
+    agentIds.map((agentId) =>
+      storage.getLifecycleAlertSummary({ agentId, horizonDays }),
+    ),
+  );
+
+  const aggregate = {
+    generatedAt: new Date().toISOString(),
+    horizonDays,
+    billing: {
+      dueSoon: 0,
+      overdue: 0,
+      failed: 0,
+      stalePending: 0,
+      totalAttention: 0,
+      nextCycleDate: null as string | null,
+    },
+    commissions: {
+      dueSoon: 0,
+      overdue: 0,
+      unscheduled: 0,
+      pending: 0,
+      totalAttention: 0,
+      nextEligibleDate: null as string | null,
+    },
+    totals: {
+      totalAttention: 0,
+    },
+    billingItems: [] as any[],
+    commissionItems: [] as any[],
+  };
+
+  const billingItemMap = new Map<string, any>();
+  const commissionItemMap = new Map<string, any>();
+
+  for (const summary of summaries) {
+    if (!summary) continue;
+
+    aggregate.billing.dueSoon += Number(summary?.billing?.dueSoon || 0);
+    aggregate.billing.overdue += Number(summary?.billing?.overdue || 0);
+    aggregate.billing.failed += Number(summary?.billing?.failed || 0);
+    aggregate.billing.stalePending += Number(
+      summary?.billing?.stalePending || 0,
+    );
+    aggregate.billing.totalAttention += Number(
+      summary?.billing?.totalAttention || 0,
+    );
+
+    aggregate.commissions.dueSoon += Number(summary?.commissions?.dueSoon || 0);
+    aggregate.commissions.overdue += Number(summary?.commissions?.overdue || 0);
+    aggregate.commissions.unscheduled += Number(
+      summary?.commissions?.unscheduled || 0,
+    );
+    aggregate.commissions.pending += Number(summary?.commissions?.pending || 0);
+    aggregate.commissions.totalAttention += Number(
+      summary?.commissions?.totalAttention || 0,
+    );
+
+    aggregate.totals.totalAttention += Number(
+      summary?.totals?.totalAttention || 0,
+    );
+
+    const nextCycle = summary?.billing?.nextCycleDate;
+    if (
+      nextCycle &&
+      (!aggregate.billing.nextCycleDate ||
+        new Date(nextCycle).getTime() <
+          new Date(aggregate.billing.nextCycleDate).getTime())
+    ) {
+      aggregate.billing.nextCycleDate = nextCycle;
+    }
+
+    const nextEligible = summary?.commissions?.nextEligibleDate;
+    if (
+      nextEligible &&
+      (!aggregate.commissions.nextEligibleDate ||
+        new Date(nextEligible).getTime() <
+          new Date(aggregate.commissions.nextEligibleDate).getTime())
+    ) {
+      aggregate.commissions.nextEligibleDate = nextEligible;
+    }
+
+    for (const item of summary?.billingItems || []) {
+      const key = `${item?.kind || ""}-${item?.subscriptionId || ""}-${item?.memberId || ""}-${item?.referenceDate || ""}`;
+      if (!billingItemMap.has(key)) {
+        billingItemMap.set(key, item);
+      }
+    }
+
+    for (const item of summary?.commissionItems || []) {
+      const key = `${item?.kind || ""}-${item?.commissionId || ""}-${item?.memberId || ""}`;
+      if (!commissionItemMap.has(key)) {
+        commissionItemMap.set(key, item);
+      }
+    }
+  }
+
+  aggregate.billingItems = Array.from(billingItemMap.values());
+  aggregate.commissionItems = Array.from(commissionItemMap.values());
+
+  return aggregate;
+}
+
+const hasEnrollmentAttributionAccess = (role: string | undefined): boolean => {
+  const normalized = (role || "").toLowerCase().trim();
+  return (
+    normalized === "agent" ||
+    normalized === "staff" ||
+    normalized === "user" ||
+    hasAtLeastRole(role, "admin")
+  );
 };
 
 function getCurrentAssignedAgentId(groupMetadata: unknown): string | null {
-  if (!groupMetadata || typeof groupMetadata !== 'object') {
+  if (!groupMetadata || typeof groupMetadata !== "object") {
     return null;
   }
 
   const metadata = groupMetadata as Record<string, any>;
-  const assignment = metadata.assignment && typeof metadata.assignment === 'object'
-    ? metadata.assignment
-    : {};
-  const candidate = assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
+  const assignment =
+    metadata.assignment && typeof metadata.assignment === "object"
+      ? metadata.assignment
+      : {};
+  const candidate =
+    assignment.currentAssignedAgentId ?? metadata.assignedAgentId;
 
-  if (typeof candidate !== 'string') {
+  if (typeof candidate !== "string") {
     return null;
   }
 
@@ -335,7 +637,9 @@ function getCurrentAssignedAgentId(groupMetadata: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-async function getGroupEnrollmentRecordsForAgent(agentId: string): Promise<any[]> {
+async function getGroupEnrollmentRecordsForAgent(
+  agentId: string,
+): Promise<any[]> {
   const groups: any[] = [];
   const pageSize = 200;
   let offset = 0;
@@ -357,7 +661,7 @@ async function getGroupEnrollmentRecordsForAgent(agentId: string): Promise<any[]
   }
 
   const ownedGroups = groups.filter((group) => {
-    if (!group || !['registered', 'active'].includes(group.status)) {
+    if (!group || !["registered", "active"].includes(group.status)) {
       return false;
     }
 
@@ -365,28 +669,30 @@ async function getGroupEnrollmentRecordsForAgent(agentId: string): Promise<any[]
   });
 
   const memberPages = await Promise.all(
-    ownedGroups.map((group) => storage.listGroupMembers({ groupId: group.id }))
+    ownedGroups.map((group) => storage.listGroupMembers({ groupId: group.id })),
   );
 
   const records: any[] = [];
   ownedGroups.forEach((group, idx) => {
     const members = Array.isArray(memberPages[idx]) ? memberPages[idx] : [];
     members
-      .filter((member: any) => member?.status !== 'terminated')
+      .filter((member: any) => member?.status !== "terminated")
       .forEach((member: any) => {
         const total = parseFloat(String(member?.totalAmount ?? 0));
         records.push({
           id: `group-${group.id}-${member.id}`,
-          createdAt: member?.registeredAt || member?.updatedAt || group?.createdAt,
+          createdAt:
+            member?.registeredAt || member?.updatedAt || group?.createdAt,
           totalMonthlyPrice: Number.isFinite(total) ? total : 0,
-          isActive: member?.status === 'active' || member?.status === 'registered',
-          status: member?.status || 'draft',
-          source: 'group',
+          isActive:
+            member?.status === "active" || member?.status === "registered",
+          status: member?.status || "draft",
+          source: "group",
           groupId: group.id,
           groupName: group.name,
-          firstName: member?.firstName || '',
-          lastName: member?.lastName || '',
-          email: member?.email || '',
+          firstName: member?.firstName || "",
+          lastName: member?.lastName || "",
+          email: member?.email || "",
         });
       });
   });
@@ -403,7 +709,7 @@ const shouldRevealEnrollmentSsn = (req: AuthRequest): boolean => {
     return false;
   }
 
-  if (req.query?.revealSsn === 'false' || req.body?.revealSsn === false) {
+  if (req.query?.revealSsn === "false" || req.body?.revealSsn === false) {
     return false;
   }
 
@@ -411,25 +717,27 @@ const shouldRevealEnrollmentSsn = (req: AuthRequest): boolean => {
 };
 
 const isTruthyFlag = (value: unknown): boolean => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return false;
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
   const normalized = value.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+  return normalized === "1" || normalized === "true" || normalized === "yes";
 };
 
 const maskLastFour = (value?: string | null): string | null => {
   if (!value) return null;
   const trimmed = String(value).trim();
   if (!trimmed) return null;
-  const digits = trimmed.replace(/\D/g, '');
+  const digits = trimmed.replace(/\D/g, "");
   if (digits.length >= 4) {
     return `****${digits.slice(-4)}`;
   }
-  return '****';
+  return "****";
 };
 
-const resolveRawOrDecryptedBankValue = (value?: string | null): string | null => {
-  if (!value || typeof value !== 'string') {
+const resolveRawOrDecryptedBankValue = (
+  value?: string | null,
+): string | null => {
+  if (!value || typeof value !== "string") {
     return null;
   }
 
@@ -438,7 +746,7 @@ const resolveRawOrDecryptedBankValue = (value?: string | null): string | null =>
     return null;
   }
 
-  if (!trimmed.includes(':')) {
+  if (!trimmed.includes(":")) {
     return trimmed;
   }
 
@@ -475,7 +783,10 @@ async function canManageMemberForUser(
     return true;
   }
 
-  const commissionAccess = await storage.getCommissionByUserId(memberId, user.id);
+  const commissionAccess = await storage.getCommissionByUserId(
+    memberId,
+    user.id,
+  );
   return Boolean(commissionAccess);
 }
 
@@ -484,17 +795,18 @@ async function canManageMemberForUser(
 router.get("/api/check-ip", async (req, res) => {
   try {
     const response = await fetch("https://api.ipify.org?format=json");
-    const data = await response.json() as { ip: string };
-    res.json({ 
+    const data = (await response.json()) as { ip: string };
+    res.json({
       outboundIP: data.ip,
       timestamp: new Date().toISOString(),
-      message: "This is the IP address that DigitalOcean uses for outbound requests (needed for EPX ACL)"
+      message:
+        "This is the IP address that DigitalOcean uses for outbound requests (needed for EPX ACL)",
     });
   } catch (error) {
-    console.error('[IP Check] Failed to fetch IP:', error);
-    res.status(500).json({ 
+    console.error("[IP Check] Failed to fetch IP:", error);
+    res.status(500).json({
       error: "Failed to check IP",
-      details: error instanceof Error ? error.message : "Unknown error"
+      details: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -502,22 +814,22 @@ router.get("/api/check-ip", async (req, res) => {
 // Diagnostic endpoint for CORS testing
 router.get("/api/test-cors", requireDevelopmentMode, (req, res) => {
   const origin = req.headers.origin;
-  console.log('[CORS Test] Request from origin:', origin);
+  console.log("[CORS Test] Request from origin:", origin);
 
   // Set CORS headers
   const allowedOrigins = [
-    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
-    'https://enrollment.getmydpc.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000'
+    "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
+    "https://enrollment.getmydpc.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5000",
   ];
 
   if (allowedOrigins.includes(origin as string)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
   } else {
-    res.header('Access-Control-Allow-Origin', '*');
+    res.header("Access-Control-Allow-Origin", "*");
   }
 
   res.json({
@@ -525,190 +837,262 @@ router.get("/api/test-cors", requireDevelopmentMode, (req, res) => {
     timestamp: new Date().toISOString(),
     origin: origin,
     corsAllowed: allowedOrigins.includes(origin as string),
-    headers: req.headers
+    headers: req.headers,
   });
 });
 
 // DIAGNOSTIC: Direct database query to check users (NO AUTH - for debugging)
-router.get("/api/debug/users-count", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log("[DEBUG] Direct database query for users...");
-    const result = await storage.getAllUsers();
-    const users = result.users || [];
-    
-    const roleBreakdown = users.reduce((acc: any, user: any) => {
-      acc[user.role] = (acc[user.role] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    res.json({
-      timestamp: new Date().toISOString(),
-      totalUsers: users.length,
-      roleBreakdown,
-      allEmails: users.map((u: any) => ({ email: u.email, role: u.role, isActive: u.isActive })),
-      rawCount: result.totalCount
-    });
-  } catch (error) {
-    console.error("[DEBUG] Error:", error);
-    res.status(500).json({ error: error instanceof Error ? error.message : "Unknown error" });
-  }
-});
+router.get(
+  "/api/debug/users-count",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log("[DEBUG] Direct database query for users...");
+      const result = await storage.getAllUsers();
+      const users = result.users || [];
+
+      const roleBreakdown = users.reduce(
+        (acc: any, user: any) => {
+          acc[user.role] = (acc[user.role] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+
+      res.json({
+        timestamp: new Date().toISOString(),
+        totalUsers: users.length,
+        roleBreakdown,
+        allEmails: users.map((u: any) => ({
+          email: u.email,
+          role: u.role,
+          isActive: u.isActive,
+        })),
+        rawCount: result.totalCount,
+      });
+    } catch (error) {
+      console.error("[DEBUG] Error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
 
 // DIAGNOSTIC: Check Supabase connection details (NO AUTH - for debugging)
-router.get("/api/debug/supabase-config", requireDevelopmentMode, async (req, res) => {
-  try {
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    res.json({
-      supabaseUrlConfigured: !!supabaseUrl,
-      supabaseUrlPreview: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'NOT SET',
-      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      hasAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : "Unknown error" });
-  }
-});
-
-router.get("/api/health/supabase-auth-context", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: "Admin access required" });
+router.get(
+  "/api/debug/supabase-config",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      const supabaseUrl =
+        process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+      res.json({
+        supabaseUrlConfigured: !!supabaseUrl,
+        supabaseUrlPreview: supabaseUrl
+          ? supabaseUrl.substring(0, 30) + "..."
+          : "NOT SET",
+        hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        hasAnonKey: !!process.env.VITE_SUPABASE_ANON_KEY,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
+  },
+);
 
-    return res.json({
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      diagnostics: getSupabaseClientDiagnostics(),
-    });
-  } catch (error) {
-    return res.status(500).json({
-      message: "Failed to read Supabase auth context",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
+router.get(
+  "/api/health/supabase-auth-context",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      return res.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        diagnostics: getSupabaseClientDiagnostics(),
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Failed to read Supabase auth context",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  },
+);
 
 // Public test endpoint (NO AUTH - for debugging only)
-router.get("/api/public/test-leads-noauth", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log("[Public Test] Fetching leads WITHOUT authentication...");
-    const leads = await storage.getAllLeads();
-    console.log(`[Public Test] Found ${leads.length} leads`);
-    res.json({
-      success: true,
-      totalLeads: leads.length,
-      leads: leads,
-    });
-  } catch (error: any) {
-    console.error("[Public Test] Error:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to fetch leads", error: error.message });
-  }
-});
-
-// TEST ENDPOINTS for new commission system
-router.post("/api/test-commission", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log('[Test Commission] Creating test commission directly in Supabase...');
-    
-    const testCommission = {
-      agent_id: 'test-agent-' + Date.now(),
-      member_id: 'test-member-' + Date.now(),
-      commission_amount: 125.50,
-      coverage_type: 'aca',
-      status: 'pending',
-      payment_status: 'unpaid',
-      notes: 'Test commission from API - ' + new Date().toISOString()
-    };
-
-    // Insert directly into Supabase using service role
-    const { data: newCommission, error: commissionError } = await supabase
-      .from('agent_commissions')
-      .insert(testCommission)
-      .select()
-      .single();
-    
-    if (commissionError) {
-      console.error('[Test Commission] ERROR:', commissionError);
-      res.status(500).json({ 
-        success: false, 
-        error: commissionError.message,
-        details: commissionError.details
-      });
-    } else {
-      console.log('[Test Commission] ✅ SUCCESS:', newCommission);
+router.get(
+  "/api/public/test-leads-noauth",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log("[Public Test] Fetching leads WITHOUT authentication...");
+      const leads = await storage.getAllLeads();
+      console.log(`[Public Test] Found ${leads.length} leads`);
       res.json({
         success: true,
-        message: 'NEW COMMISSION SYSTEM WORKING!',
-        commission: newCommission,
-        timestamp: new Date().toISOString()
+        totalLeads: leads.length,
+        leads: leads,
       });
+    } catch (error: any) {
+      console.error("[Public Test] Error:", error);
+      res
+        .status(500)
+        .json({ message: "Failed to fetch leads", error: error.message });
     }
-  } catch (error) {
-    console.error('[Test Commission] ERROR:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+  },
+);
 
-router.get("/api/test-commission-count", requireDevelopmentMode, async (req, res) => {
-  try {
-    const { data, error, count } = await supabase
-      .from('agent_commissions')
-      .select('*', { count: 'exact' });
+// TEST ENDPOINTS for new commission system
+router.post(
+  "/api/test-commission",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log(
+        "[Test Commission] Creating test commission directly in Supabase...",
+      );
 
-    if (error) throw new Error(`Query failed: ${error.message}`);
-    
-    res.json({
-      success: true,
-      message: `Found ${count} commissions in new table`,
-      count: count,
-      records: data?.length || 0,
-      sampleRecord: data?.[0] || null,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+      const testCommission = {
+        agent_id: "test-agent-" + Date.now(),
+        member_id: "test-member-" + Date.now(),
+        commission_amount: 125.5,
+        coverage_type: "aca",
+        status: "pending",
+        payment_status: "unpaid",
+        notes: "Test commission from API - " + new Date().toISOString(),
+      };
+
+      // Insert directly into Supabase using service role
+      const { data: newCommission, error: commissionError } = await supabase
+        .from("agent_commissions")
+        .insert(testCommission)
+        .select()
+        .single();
+
+      if (commissionError) {
+        console.error("[Test Commission] ERROR:", commissionError);
+        res.status(500).json({
+          success: false,
+          error: commissionError.message,
+          details: commissionError.details,
+        });
+      } else {
+        console.log("[Test Commission] ✅ SUCCESS:", newCommission);
+        res.json({
+          success: true,
+          message: "NEW COMMISSION SYSTEM WORKING!",
+          commission: newCommission,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      console.error("[Test Commission] ERROR:", error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+);
+
+router.get(
+  "/api/test-commission-count",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      const { data, error, count } = await supabase
+        .from("agent_commissions")
+        .select("*", { count: "exact" });
+
+      if (error) throw new Error(`Query failed: ${error.message}`);
+
+      res.json({
+        success: true,
+        message: `Found ${count} commissions in new table`,
+        count: count,
+        records: data?.length || 0,
+        sampleRecord: data?.[0] || null,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+);
 
 // 🔍 DEBUG: Test commission calculation endpoint
-router.get("/api/test-commission-calc", requireDevelopmentMode, async (req, res) => {
-  try {
-    const { calculateCommission } = await import('./commissionCalculator');
-    
-    const testCases = [
-      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: false },
-      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false },
-      // Test with RX Valet add-on (+$2.50 commission)
-      { plan: 'MyPremierPlan Elite - Member Only', coverage: 'Member Only', rxValet: true },
-      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: true },
-      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: true }
-    ];
-    
-    const results = testCases.map(test => {
-      const result = calculateCommission(test.plan, test.coverage, test.rxValet);
-      return {
-        input: test,
-        output: result,
-        expectedCommission: result?.commission || 0
-      };
-    });
-    
-    res.json({
-      success: true,
-      testCases: results,
-      message: 'Commission calculations tested'
-    });
-  } catch (error: any) {
-    console.error('Test commission calc error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'Failed to test commission calculations'
-    });
-  }
-});
+router.get(
+  "/api/test-commission-calc",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      const { calculateCommission } = await import("./commissionCalculator");
+
+      const testCases = [
+        {
+          plan: "MyPremierPlan Elite - Member Only",
+          coverage: "Member Only",
+          rxValet: false,
+        },
+        {
+          plan: "MyPremierPlan+ - Member Only",
+          coverage: "Member Only",
+          rxValet: false,
+        },
+        {
+          plan: "MyPremierPlan Base - Member Only",
+          coverage: "Member Only",
+          rxValet: false,
+        },
+        // Test with RX Valet add-on (+$2.50 commission)
+        {
+          plan: "MyPremierPlan Elite - Member Only",
+          coverage: "Member Only",
+          rxValet: true,
+        },
+        {
+          plan: "MyPremierPlan+ - Member Only",
+          coverage: "Member Only",
+          rxValet: true,
+        },
+        {
+          plan: "MyPremierPlan Base - Member Only",
+          coverage: "Member Only",
+          rxValet: true,
+        },
+      ];
+
+      const results = testCases.map((test) => {
+        const result = calculateCommission(
+          test.plan,
+          test.coverage,
+          test.rxValet,
+        );
+        return {
+          input: test,
+          output: result,
+          expectedCommission: result?.commission || 0,
+        };
+      });
+
+      res.json({
+        success: true,
+        testCases: results,
+        message: "Commission calculations tested",
+      });
+    } catch (error: any) {
+      console.error("Test commission calc error:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message || "Failed to test commission calculations",
+      });
+    }
+  },
+);
 
 // Test endpoint for leads system
 router.get("/api/test-leads", requireDevelopmentMode, async (req, res) => {
@@ -771,286 +1155,436 @@ router.get("/api/test-leads", requireDevelopmentMode, async (req, res) => {
 });
 
 // 🔍 DIAGNOSTIC: Check all plans in database with exact names
-router.get("/api/debug/plans-diagnostic", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log("[Plans Diagnostic] Fetching ALL plans from database...");
-    
-    const { data: allPlans, error } = await supabase
-      .from('plans')
-      .select('*')
-      .order('price', { ascending: true });
-    
-    if (error) {
-      console.error("[Plans Diagnostic] Error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-    
-    console.log("[Plans Diagnostic] Found", allPlans?.length || 0, "plans");
-    
-    const diagnostic = {
-      totalPlans: allPlans?.length || 0,
-      plans: (allPlans || []).map((plan: any) => ({
-        id: plan.id,
-        name: plan.name,
-        exactName: `'${plan.name}'`,
-        nameLength: plan.name.length,
-        price: plan.price,
-        isActive: plan.is_active,
-        matchesBase: plan.name === 'MyPremierPlan Base',
-        matchesPlus: plan.name === 'MyPremierPlan+',
-        matchesElite: plan.name === 'MyPremierPlan Elite',
-      })),
-      commissionCalculatorExpects: [
-        'MyPremierPlan Base',
-        'MyPremierPlan+',
-        'MyPremierPlan Elite'
-      ],
-      warnings: []
-    };
-    
-    // Check for mismatches
-    (allPlans || []).forEach((plan: { id: number; name: string }) => {
-      if (!['MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'].includes(plan.name)) {
-        diagnostic.warnings.push(`Plan "${plan.name}" (ID: ${plan.id}) does NOT match any expected name in commissionCalculator`);
+router.get(
+  "/api/debug/plans-diagnostic",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log("[Plans Diagnostic] Fetching ALL plans from database...");
+
+      const { data: allPlans, error } = await supabase
+        .from("plans")
+        .select("*")
+        .order("price", { ascending: true });
+
+      if (error) {
+        console.error("[Plans Diagnostic] Error:", error);
+        return res.status(500).json({ error: error.message });
       }
-    });
-    
-    console.log("[Plans Diagnostic] Warnings:", diagnostic.warnings.length);
-    console.log("[Plans Diagnostic] Results:", JSON.stringify(diagnostic, null, 2));
-    
-    res.json(diagnostic);
-  } catch (error) {
-    console.error("[Plans Diagnostic] Exception:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+
+      console.log("[Plans Diagnostic] Found", allPlans?.length || 0, "plans");
+
+      const diagnostic = {
+        totalPlans: allPlans?.length || 0,
+        plans: (allPlans || []).map((plan: any) => ({
+          id: plan.id,
+          name: plan.name,
+          exactName: `'${plan.name}'`,
+          nameLength: plan.name.length,
+          price: plan.price,
+          isActive: plan.is_active,
+          matchesBase: plan.name === "MyPremierPlan Base",
+          matchesPlus: plan.name === "MyPremierPlan+",
+          matchesElite: plan.name === "MyPremierPlan Elite",
+        })),
+        commissionCalculatorExpects: [
+          "MyPremierPlan Base",
+          "MyPremierPlan+",
+          "MyPremierPlan Elite",
+        ],
+        warnings: [],
+      };
+
+      // Check for mismatches
+      (allPlans || []).forEach((plan: { id: number; name: string }) => {
+        if (
+          ![
+            "MyPremierPlan Base",
+            "MyPremierPlan+",
+            "MyPremierPlan Elite",
+          ].includes(plan.name)
+        ) {
+          diagnostic.warnings.push(
+            `Plan "${plan.name}" (ID: ${plan.id}) does NOT match any expected name in commissionCalculator`,
+          );
+        }
+      });
+
+      console.log("[Plans Diagnostic] Warnings:", diagnostic.warnings.length);
+      console.log(
+        "[Plans Diagnostic] Results:",
+        JSON.stringify(diagnostic, null, 2),
+      );
+
+      res.json(diagnostic);
+    } catch (error) {
+      console.error("[Plans Diagnostic] Exception:", error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
 // 🔍 DIAGNOSTIC: Test commission calculation with various inputs
-router.get("/api/debug/commission-diagnostic", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log("[Commission Diagnostic] Testing commission calculations...");
-    
-    const testCases = [
-      // Test with ACTUAL database plan names (with coverage suffix)
-      { plan: 'MyPremierPlan Base - Member Only', coverage: 'Member Only', rxValet: false, note: 'Real DB name' },
-      { plan: 'MyPremierPlan Base - Family', coverage: 'Family', rxValet: false, note: 'Real DB name' },
-      { plan: 'MyPremierPlan+ - Member Only', coverage: 'Member Only', rxValet: true, note: 'Real DB name + RxValet' },
-      { plan: 'MyPremierPlan Elite - Family', coverage: 'Family', rxValet: false, note: 'Real DB name' },
-      
-      // Test with extracted plan names (what calculator expects)
-      { plan: 'MyPremierPlan Base', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan Base', coverage: 'Member/Spouse', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan Base', coverage: 'Member/Child', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan Base', coverage: 'Family', rxValet: true, note: 'Extracted tier + RxValet' },
-      
-      // Plus plan tests
-      { plan: 'MyPremierPlan+', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan+', coverage: 'Family', rxValet: false, note: 'Extracted tier' },
-      
-      // Elite plan tests
-      { plan: 'MyPremierPlan Elite', coverage: 'Member Only', rxValet: false, note: 'Extracted tier' },
-      { plan: 'MyPremierPlan Elite', coverage: 'Family', rxValet: true, note: 'Extracted tier + RxValet' },
-      
-      // Test old incorrect names (should fail)
-      { plan: 'Base', coverage: 'Member Only', rxValet: false, note: 'Old broken name' },
-      { plan: 'Plus', coverage: 'Family', rxValet: false, note: 'Old broken name' },
-      { plan: 'Elite', coverage: 'Family', rxValet: false, note: 'Old broken name' },
-    ];
-    
-    const results = testCases.map(test => {
-      // Apply the same extraction logic as registration
-      let planNameForCalculation = test.plan;
-      if (planNameForCalculation.includes(' - ')) {
-        planNameForCalculation = planNameForCalculation.split(' - ')[0].trim();
-      }
-      
-      const result = calculateCommission(planNameForCalculation, test.coverage, test.rxValet);
-      const planType = getPlanTypeFromMemberType(test.coverage);
-      
-      return {
-        input: test,
-        extractedPlan: planNameForCalculation !== test.plan ? planNameForCalculation : null,
-        planType: planType,
-        success: result !== null,
-        commission: result?.commission || null,
-        totalCost: result?.totalCost || null,
-        calculatedCorrectly: result !== null,
+router.get(
+  "/api/debug/commission-diagnostic",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log("[Commission Diagnostic] Testing commission calculations...");
+
+      const testCases = [
+        // Test with ACTUAL database plan names (with coverage suffix)
+        {
+          plan: "MyPremierPlan Base - Member Only",
+          coverage: "Member Only",
+          rxValet: false,
+          note: "Real DB name",
+        },
+        {
+          plan: "MyPremierPlan Base - Family",
+          coverage: "Family",
+          rxValet: false,
+          note: "Real DB name",
+        },
+        {
+          plan: "MyPremierPlan+ - Member Only",
+          coverage: "Member Only",
+          rxValet: true,
+          note: "Real DB name + RxValet",
+        },
+        {
+          plan: "MyPremierPlan Elite - Family",
+          coverage: "Family",
+          rxValet: false,
+          note: "Real DB name",
+        },
+
+        // Test with extracted plan names (what calculator expects)
+        {
+          plan: "MyPremierPlan Base",
+          coverage: "Member Only",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan Base",
+          coverage: "Member/Spouse",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan Base",
+          coverage: "Member/Child",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan Base",
+          coverage: "Family",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan Base",
+          coverage: "Family",
+          rxValet: true,
+          note: "Extracted tier + RxValet",
+        },
+
+        // Plus plan tests
+        {
+          plan: "MyPremierPlan+",
+          coverage: "Member Only",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan+",
+          coverage: "Family",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+
+        // Elite plan tests
+        {
+          plan: "MyPremierPlan Elite",
+          coverage: "Member Only",
+          rxValet: false,
+          note: "Extracted tier",
+        },
+        {
+          plan: "MyPremierPlan Elite",
+          coverage: "Family",
+          rxValet: true,
+          note: "Extracted tier + RxValet",
+        },
+
+        // Test old incorrect names (should fail)
+        {
+          plan: "Base",
+          coverage: "Member Only",
+          rxValet: false,
+          note: "Old broken name",
+        },
+        {
+          plan: "Plus",
+          coverage: "Family",
+          rxValet: false,
+          note: "Old broken name",
+        },
+        {
+          plan: "Elite",
+          coverage: "Family",
+          rxValet: false,
+          note: "Old broken name",
+        },
+      ];
+
+      const results = testCases.map((test) => {
+        // Apply the same extraction logic as registration
+        let planNameForCalculation = test.plan;
+        if (planNameForCalculation.includes(" - ")) {
+          planNameForCalculation = planNameForCalculation
+            .split(" - ")[0]
+            .trim();
+        }
+
+        const result = calculateCommission(
+          planNameForCalculation,
+          test.coverage,
+          test.rxValet,
+        );
+        const planType = getPlanTypeFromMemberType(test.coverage);
+
+        return {
+          input: test,
+          extractedPlan:
+            planNameForCalculation !== test.plan
+              ? planNameForCalculation
+              : null,
+          planType: planType,
+          success: result !== null,
+          commission: result?.commission || null,
+          totalCost: result?.totalCost || null,
+          calculatedCorrectly: result !== null,
+        };
+      });
+
+      const diagnostic = {
+        timestamp: new Date().toISOString(),
+        testCases: results.length,
+        successful: results.filter((r) => r.success).length,
+        failed: results.filter((r) => !r.success).length,
+        results: results,
+        summary: {
+          realDatabaseNamesWork: results.slice(0, 4).every((r) => r.success),
+          extractedNamesWork: results.slice(4, 13).every((r) => r.success),
+          oldIncorrectNamesFail: results.slice(13).every((r) => !r.success),
+          readyForProduction:
+            results.slice(0, 13).every((r) => r.success) &&
+            results.slice(13).every((r) => !r.success),
+        },
       };
-    });
-    
-    const diagnostic = {
-      timestamp: new Date().toISOString(),
-      testCases: results.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
-      results: results,
-      summary: {
-        realDatabaseNamesWork: results.slice(0, 4).every(r => r.success),
-        extractedNamesWork: results.slice(4, 13).every(r => r.success),
-        oldIncorrectNamesFail: results.slice(13).every(r => !r.success),
-        readyForProduction: results.slice(0, 13).every(r => r.success) && results.slice(13).every(r => !r.success)
-      }
-    };
-    
-    console.log("[Commission Diagnostic] Summary:", diagnostic.summary);
-    res.json(diagnostic);
-  } catch (error) {
-    console.error("[Commission Diagnostic] Exception:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+
+      console.log("[Commission Diagnostic] Summary:", diagnostic.summary);
+      res.json(diagnostic);
+    } catch (error) {
+      console.error("[Commission Diagnostic] Exception:", error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
 // 🔍 DIAGNOSTIC: Check recent commissions for labeling issues
-router.get("/api/debug/recent-commissions", requireDevelopmentMode, async (req, res) => {
-  try {
-    console.log("[Recent Commissions] Fetching last 20 commissions...");
-    
-    const { data: commissions, error } = await supabase
-      .from('agent_commissions')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    
-    if (error) {
-      console.error("[Recent Commissions] Error:", error);
-      return res.status(500).json({ error: error.message });
-    }
-    
-    const diagnostic = {
-      totalCommissions: commissions?.length || 0,
-      commissions: (commissions || []).map(comm => ({
-        id: comm.id,
-        createdAt: comm.created_at,
-        commissionAmount: comm.commission_amount,
-        basePremium: comm.base_premium,
-        coverageType: comm.coverage_type,
-        status: comm.status,
-        paymentStatus: comm.payment_status,
-        notes: comm.notes,
-        // Parse notes to extract plan info
-        notesIncludePlanTier: comm.notes?.includes('(Base)') || comm.notes?.includes('(Plus)') || comm.notes?.includes('(Elite)'),
-        notesIncludeCoverageType: comm.notes?.includes('(EE)') || comm.notes?.includes('(ESP)') || comm.notes?.includes('(ECH)') || comm.notes?.includes('(FAM)'),
-        hasNewFormat: comm.notes?.includes('Plan:') && comm.notes?.includes('Coverage:'),
-      })),
-      formatAnalysis: {
-        total: commissions?.length || 0,
-        withNewFormat: (commissions || []).filter(c => c.notes?.includes('Plan:') && c.notes?.includes('Coverage:')).length,
-        withOldFormat: (commissions || []).filter(c => c.notes && !c.notes.includes('Plan:') && !c.notes.includes('Coverage:')).length,
+router.get(
+  "/api/debug/recent-commissions",
+  requireDevelopmentMode,
+  async (req, res) => {
+    try {
+      console.log("[Recent Commissions] Fetching last 20 commissions...");
+
+      const { data: commissions, error } = await supabase
+        .from("agent_commissions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error("[Recent Commissions] Error:", error);
+        return res.status(500).json({ error: error.message });
       }
-    };
-    
-    console.log("[Recent Commissions] Format analysis:", diagnostic.formatAnalysis);
-    res.json(diagnostic);
-  } catch (error) {
-    console.error("[Recent Commissions] Exception:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+
+      const diagnostic = {
+        totalCommissions: commissions?.length || 0,
+        commissions: (commissions || []).map((comm) => ({
+          id: comm.id,
+          createdAt: comm.created_at,
+          commissionAmount: comm.commission_amount,
+          basePremium: comm.base_premium,
+          coverageType: comm.coverage_type,
+          status: comm.status,
+          paymentStatus: comm.payment_status,
+          notes: comm.notes,
+          // Parse notes to extract plan info
+          notesIncludePlanTier:
+            comm.notes?.includes("(Base)") ||
+            comm.notes?.includes("(Plus)") ||
+            comm.notes?.includes("(Elite)"),
+          notesIncludeCoverageType:
+            comm.notes?.includes("(EE)") ||
+            comm.notes?.includes("(ESP)") ||
+            comm.notes?.includes("(ECH)") ||
+            comm.notes?.includes("(FAM)"),
+          hasNewFormat:
+            comm.notes?.includes("Plan:") && comm.notes?.includes("Coverage:"),
+        })),
+        formatAnalysis: {
+          total: commissions?.length || 0,
+          withNewFormat: (commissions || []).filter(
+            (c) => c.notes?.includes("Plan:") && c.notes?.includes("Coverage:"),
+          ).length,
+          withOldFormat: (commissions || []).filter(
+            (c) =>
+              c.notes &&
+              !c.notes.includes("Plan:") &&
+              !c.notes.includes("Coverage:"),
+          ).length,
+        },
+      };
+
+      console.log(
+        "[Recent Commissions] Format analysis:",
+        diagnostic.formatAnalysis,
+      );
+      res.json(diagnostic);
+    } catch (error) {
+      console.error("[Recent Commissions] Exception:", error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
 
 // ============================================
 // ADMIN: Orphaned Supabase Auth User Management
 // ============================================
 
 // Find orphaned Supabase Auth users (in Auth but not in database)
-router.get('/api/admin/orphaned-auth-users', authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const user = req.user;
-    if (!user || !isAdmin(user.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+router.get(
+  "/api/admin/orphaned-auth-users",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || !isAdmin(user.role)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
 
-    console.log('[Admin] Checking for orphaned Supabase Auth users...');
-    
-    // Get all Supabase Auth users
-    const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
-    if (authError) {
-      throw new Error(`Auth error: ${authError.message}`);
-    }
-    
-    // Get all database users
-    const dbUsers = await storage.getAllUsers();
-    const dbUserIds = new Set(dbUsers.map(u => u.id));
-    
-    // Find auth users not in database
-    const orphanedUsers = authData?.users?.filter(authUser => 
-      !dbUserIds.has(authUser.id)
-    ) || [];
-    
-    console.log(`[Admin] Found ${orphanedUsers.length} orphaned auth users`);
-    
-    res.json({
-      totalAuthUsers: authData?.users?.length || 0,
-      totalDbUsers: dbUsers.length,
-      orphanedCount: orphanedUsers.length,
-      orphanedUsers: orphanedUsers.map(u => ({
-        id: u.id,
-        email: u.email,
-        createdAt: u.created_at,
-        emailConfirmed: u.email_confirmed_at ? true : false,
-        metadata: u.user_metadata
-      }))
-    });
-  } catch (error: any) {
-    console.error('[Admin] Error checking orphaned users:', error);
-    res.status(500).json({ 
-      message: 'Failed to check orphaned users',
-      error: error.message 
-    });
-  }
-});
+      console.log("[Admin] Checking for orphaned Supabase Auth users...");
 
-// Delete orphaned Supabase Auth user
-router.delete('/api/admin/orphaned-auth-user/:email', authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const user = req.user;
-    if (!user || !isAdmin(user.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+      // Get all Supabase Auth users
+      const { data: authData, error: authError } =
+        await supabase.auth.admin.listUsers();
+      if (authError) {
+        throw new Error(`Auth error: ${authError.message}`);
+      }
 
-    const { email } = req.params;
-    console.log(`[Admin] ${user.email} deleting orphaned auth user: ${email}`);
-    
-    // Find user in Supabase Auth
-    const { data: authData } = await supabase.auth.admin.listUsers();
-    const authUser = authData?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase());
-    
-    if (!authUser) {
-      return res.status(404).json({ message: 'Auth user not found' });
-    }
-    
-    // Check if user exists in database (should NOT exist for orphaned users)
-    const dbUser = await storage.getUserByEmail(email);
-    if (dbUser) {
-      return res.status(400).json({ 
-        message: 'User exists in database - not orphaned. Use regular user deletion.' 
+      // Get all database users
+      const dbUsers = await storage.getAllUsers();
+      const dbUserIds = new Set(dbUsers.map((u) => u.id));
+
+      // Find auth users not in database
+      const orphanedUsers =
+        authData?.users?.filter((authUser) => !dbUserIds.has(authUser.id)) ||
+        [];
+
+      console.log(`[Admin] Found ${orphanedUsers.length} orphaned auth users`);
+
+      res.json({
+        totalAuthUsers: authData?.users?.length || 0,
+        totalDbUsers: dbUsers.length,
+        orphanedCount: orphanedUsers.length,
+        orphanedUsers: orphanedUsers.map((u) => ({
+          id: u.id,
+          email: u.email,
+          createdAt: u.created_at,
+          emailConfirmed: u.email_confirmed_at ? true : false,
+          metadata: u.user_metadata,
+        })),
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error checking orphaned users:", error);
+      res.status(500).json({
+        message: "Failed to check orphaned users",
+        error: error.message,
       });
     }
-    
-    // Delete from Supabase Auth
-    const { error: deleteError } = await supabase.auth.admin.deleteUser(authUser.id);
-    if (deleteError) {
-      throw new Error(`Failed to delete auth user: ${deleteError.message}`);
-    }
-    
-    console.log(`[Admin] ✅ ${user.email} deleted orphaned auth user: ${email}`);
-    
-    res.json({
-      success: true,
-      message: `Orphaned auth user "${email}" deleted successfully`,
-      deletedUser: {
-        id: authUser.id,
-        email: authUser.email
+  },
+);
+
+// Delete orphaned Supabase Auth user
+router.delete(
+  "/api/admin/orphaned-auth-user/:email",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user || !isAdmin(user.role)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
-    });
-  } catch (error: any) {
-    console.error('[Admin] Error deleting orphaned user:', error);
-    res.status(500).json({ 
-      message: 'Failed to delete orphaned user',
-      error: error.message 
-    });
-  }
-});
+
+      const { email } = req.params;
+      console.log(
+        `[Admin] ${user.email} deleting orphaned auth user: ${email}`,
+      );
+
+      // Find user in Supabase Auth
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      const authUser = authData?.users?.find(
+        (u) => u.email?.toLowerCase() === email.toLowerCase(),
+      );
+
+      if (!authUser) {
+        return res.status(404).json({ message: "Auth user not found" });
+      }
+
+      // Check if user exists in database (should NOT exist for orphaned users)
+      const dbUser = await storage.getUserByEmail(email);
+      if (dbUser) {
+        return res.status(400).json({
+          message:
+            "User exists in database - not orphaned. Use regular user deletion.",
+        });
+      }
+
+      // Delete from Supabase Auth
+      const { error: deleteError } = await supabase.auth.admin.deleteUser(
+        authUser.id,
+      );
+      if (deleteError) {
+        throw new Error(`Failed to delete auth user: ${deleteError.message}`);
+      }
+
+      console.log(
+        `[Admin] ✅ ${user.email} deleted orphaned auth user: ${email}`,
+      );
+
+      res.json({
+        success: true,
+        message: `Orphaned auth user "${email}" deleted successfully`,
+        deletedUser: {
+          id: authUser.id,
+          email: authUser.email,
+        },
+      });
+    } catch (error: any) {
+      console.error("[Admin] Error deleting orphaned user:", error);
+      res.status(500).json({
+        message: "Failed to delete orphaned user",
+        error: error.message,
+      });
+    }
+  },
+);
 
 router.get("/api/plans", async (req, res) => {
   try {
@@ -1084,24 +1618,23 @@ router.get("/api/plans", async (req, res) => {
 
 // Auth routes (public - no authentication required)
 router.post("/api/auth/login", async (req, res) => {
-
   try {
     const { email, password } = req.body;
-    console.log('[Login] Starting login attempt for:', email);
+    console.log("[Login] Starting login attempt for:", email);
 
     // Sign in with Supabase
-    console.log('[Login] Calling Supabase auth.signInWithPassword');
+    console.log("[Login] Calling Supabase auth.signInWithPassword");
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      console.error('[Login] Supabase auth error:', error);
-      console.error('[Login] Supabase auth error details:', {
+      console.error("[Login] Supabase auth error:", error);
+      console.error("[Login] Supabase auth error details:", {
         code: error.code,
         message: error.message,
-        status: error.status
+        status: error.status,
       });
       return res
         .status(401)
@@ -1109,11 +1642,11 @@ router.post("/api/auth/login", async (req, res) => {
     }
 
     if (!data.session) {
-      console.error('[Login] No session returned from Supabase');
+      console.error("[Login] No session returned from Supabase");
       return res.status(401).json({ message: "Failed to create session" });
     }
 
-    console.log('[Login] Supabase auth successful, session created');
+    console.log("[Login] Supabase auth successful, session created");
 
     // Get or create user in our database
     console.log("[Login] Checking for existing user:", email);
@@ -1161,7 +1694,9 @@ router.post("/api/auth/login", async (req, res) => {
       // Update role if it doesn't match the expected role for this email
       const expectedRole = determineUserRole(data.user.email!);
       if (user.role !== expectedRole) {
-        console.log(`[Login] Updating user role from ${user.role} to ${expectedRole}`);
+        console.log(
+          `[Login] Updating user role from ${user.role} to ${expectedRole}`,
+        );
         await storage.updateUser(user.id, { role: expectedRole });
         user.role = expectedRole; // Update the local user object
       }
@@ -1170,12 +1705,15 @@ router.post("/api/auth/login", async (req, res) => {
     // Update last login using Supabase service role (bypasses RLS)
     try {
       const { error: lastLoginError } = await supabase
-        .from('users')
+        .from("users")
         .update({ last_login_at: new Date().toISOString() })
-        .eq('id', user.id);
-      
+        .eq("id", user.id);
+
       if (lastLoginError) {
-        console.warn("[Login] Could not update last login time:", lastLoginError);
+        console.warn(
+          "[Login] Could not update last login time:",
+          lastLoginError,
+        );
       } else {
         console.log("[Login] ✅ Updated last_login_at for user:", user.email);
       }
@@ -1242,15 +1780,18 @@ router.post("/api/auth/login", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ [Login] Fatal error:", error);
-    console.error("❌ [Login] Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error(
+      "❌ [Login] Error stack:",
+      error instanceof Error ? error.stack : "No stack trace",
+    );
     console.error("❌ [Login] Error details:", {
       message: error instanceof Error ? error.message : String(error),
       name: error instanceof Error ? error.name : typeof error,
     });
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       message: "Login failed",
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -1276,14 +1817,17 @@ router.post("/api/auth/register", async (req, res) => {
 
     if (error) {
       console.error("[Register] Supabase signup error:", error);
-      return res
-        .status(400)
-        .json({ success: false, message: error.message || "Registration failed" });
+      return res.status(400).json({
+        success: false,
+        message: error.message || "Registration failed",
+      });
     }
 
     if (!data.user) {
       console.error("[Register] No user returned from Supabase");
-      return res.status(400).json({ success: false, message: "Failed to create user" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Failed to create user" });
     }
 
     console.log("[Register] Supabase user created:", data.user.id);
@@ -1305,22 +1849,30 @@ router.post("/api/auth/register", async (req, res) => {
       updatedAt: new Date(),
     });
 
-    console.log("[Registration] User created, pending admin approval:", user.id);
+    console.log(
+      "[Registration] User created, pending admin approval:",
+      user.id,
+    );
 
     // ============================================
     // SEND EMAIL VERIFICATION
     // ============================================
-    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${data.user.id}&email=${encodeURIComponent(data.user.email!)}`;
-    
+    const verificationUrl = `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/api/auth/verify-email?token=${data.user.id}&email=${encodeURIComponent(data.user.email!)}`;
+
     try {
       await sendEmailVerification({
         email: data.user.email!,
-        firstName: firstName || 'User',
-        verificationUrl
+        firstName: firstName || "User",
+        verificationUrl,
       });
-      console.log(`[Registration] Verification email sent to ${data.user.email}`);
+      console.log(
+        `[Registration] Verification email sent to ${data.user.email}`,
+      );
     } catch (emailError) {
-      console.error(`[Registration] Failed to send verification email:`, emailError);
+      console.error(
+        `[Registration] Failed to send verification email:`,
+        emailError,
+      );
       // Continue anyway - user can request resend
     }
 
@@ -1372,45 +1924,51 @@ router.post("/api/auth/logout", async (req, res) => {
 });
 
 // Mark password change as completed (remove requirement flag)
-router.post("/api/auth/password-change-completed", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const user = req.user;
-    if (!user?.id) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+router.post(
+  "/api/auth/password-change-completed",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      const user = req.user;
+      if (!user?.id) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
-    // Update the user record to remove password change requirement
-    const { data, error } = await supabase
-      .from("users")
-      .update({
-        passwordChangeRequired: false,
-        lastPasswordChangeAt: new Date().toISOString()
-      })
-      .eq("id", user.id)
-      .select()
-      .single();
+      // Update the user record to remove password change requirement
+      const { data, error } = await supabase
+        .from("users")
+        .update({
+          passwordChangeRequired: false,
+          lastPasswordChangeAt: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+        .select()
+        .single();
 
-    if (error) {
-      console.error("[Password Change] Failed to update user:", error);
-      return res.status(500).json({ 
-        message: "Failed to update password change status",
-        error: error.message 
+      if (error) {
+        console.error("[Password Change] Failed to update user:", error);
+        return res.status(500).json({
+          message: "Failed to update password change status",
+          error: error.message,
+        });
+      }
+
+      console.log(
+        `[Password Change] User ${user.email} completed password change`,
+      );
+      res.json({
+        message: "Password change completed successfully",
+        user: data,
+      });
+    } catch (error) {
+      console.error("[Password Change] Error:", error);
+      res.status(500).json({
+        message: "Failed to complete password change",
+        error: error instanceof Error ? error.message : "Unknown error",
       });
     }
-
-    console.log(`[Password Change] User ${user.email} completed password change`);
-    res.json({ 
-      message: "Password change completed successfully",
-      user: data
-    });
-  } catch (error) {
-    console.error("[Password Change] Error:", error);
-    res.status(500).json({ 
-      message: "Failed to complete password change",
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
+  },
+);
 
 // Email verification endpoint - verify user's email via token
 router.get("/api/auth/verify-email", async (req, res) => {
@@ -1418,8 +1976,8 @@ router.get("/api/auth/verify-email", async (req, res) => {
     const { token, email } = req.query;
 
     if (!token || !email) {
-      return res.status(400).json({ 
-        message: "Missing verification token or email" 
+      return res.status(400).json({
+        message: "Missing verification token or email",
       });
     }
 
@@ -1429,21 +1987,23 @@ router.get("/api/auth/verify-email", async (req, res) => {
     const user = await storage.getUserByEmail(email as string);
 
     if (!user) {
-      return res.status(404).json({ 
-        message: "User not found" 
+      return res.status(404).json({
+        message: "User not found",
       });
     }
 
     // Verify token matches user ID
     if (user.id !== token) {
-      return res.status(400).json({ 
-        message: "Invalid verification token" 
+      return res.status(400).json({
+        message: "Invalid verification token",
       });
     }
 
     // Check if already verified
     if (user.emailVerified) {
-      return res.redirect(`${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login?verified=already`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/login?verified=already`,
+      );
     }
 
     // Update user to mark email as verified
@@ -1457,55 +2017,69 @@ router.get("/api/auth/verify-email", async (req, res) => {
 
     if (error) {
       console.error("[Email Verification] Failed to update user:", error);
-      return res.status(500).json({ 
+      return res.status(500).json({
         message: "Failed to verify email",
-        error: error.message 
+        error: error.message,
       });
     }
 
     // Also confirm email in Supabase Auth
     try {
       await supabase.auth.admin.updateUserById(user.id, {
-        email_confirm: true
+        email_confirm: true,
       });
     } catch (authError) {
-      console.warn("[Email Verification] Failed to confirm in Supabase Auth:", authError);
+      console.warn(
+        "[Email Verification] Failed to confirm in Supabase Auth:",
+        authError,
+      );
       // Continue anyway - database is source of truth
     }
 
-    console.log(`[Email Verification] Email verified successfully for: ${email}`);
+    console.log(
+      `[Email Verification] Email verified successfully for: ${email}`,
+    );
 
     // Generate password setup link and send credentials email
     try {
-      const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
-        type: 'recovery',
-        email: user.email,
-        options: {
-          redirectTo: `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/reset-password?source=welcome`
-        }
-      });
+      const { data: linkData, error: linkError } =
+        await supabase.auth.admin.generateLink({
+          type: "recovery",
+          email: user.email,
+          options: {
+            redirectTo: `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/reset-password?source=welcome`,
+          },
+        });
 
       if (linkError) {
-        console.error('[Email Verification] Failed to generate password setup link:', linkError);
+        console.error(
+          "[Email Verification] Failed to generate password setup link:",
+          linkError,
+        );
       } else if (linkData?.action_link) {
         await sendUserCredentialsEmail({
           email: user.email,
           firstName: user.firstName,
-          loginUrl: `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login`,
-          setPasswordUrl: linkData.action_link
+          loginUrl: `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/login`,
+          setPasswordUrl: linkData.action_link,
         });
       }
     } catch (linkErr) {
-      console.error('[Email Verification] Error while sending credential email:', linkErr);
+      console.error(
+        "[Email Verification] Error while sending credential email:",
+        linkErr,
+      );
     }
-    
+
     // Redirect to login page with success message
-    res.redirect(`${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login?verified=success`);
+    res.redirect(
+      `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/login?verified=success`,
+    );
   } catch (error) {
     console.error("[Email Verification] Error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Email verification failed",
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -1516,50 +2090,53 @@ router.post("/api/auth/resend-verification", async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ 
-        message: "Email is required" 
+      return res.status(400).json({
+        message: "Email is required",
       });
     }
 
-    console.log(`[Resend Verification] Resending verification email to: ${email}`);
+    console.log(
+      `[Resend Verification] Resending verification email to: ${email}`,
+    );
 
     // Get user from database
     const user = await storage.getUserByEmail(email);
 
     if (!user) {
       // Don't reveal whether user exists or not for security
-      return res.json({ 
-        message: "If an account exists with this email, a verification link has been sent." 
+      return res.json({
+        message:
+          "If an account exists with this email, a verification link has been sent.",
       });
     }
 
     // Check if already verified
     if (user.emailVerified) {
-      return res.json({ 
-        message: "Email is already verified. You can log in now." 
+      return res.json({
+        message: "Email is already verified. You can log in now.",
       });
     }
 
     // Generate verification URL
-    const verificationUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/api/auth/verify-email?token=${user.id}&email=${encodeURIComponent(email)}`;
-    
+    const verificationUrl = `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/api/auth/verify-email?token=${user.id}&email=${encodeURIComponent(email)}`;
+
     // Send verification email
     await sendEmailVerification({
       email,
       firstName: user.firstName,
-      verificationUrl
+      verificationUrl,
     });
 
     console.log(`[Resend Verification] Verification email resent to: ${email}`);
-    
-    res.json({ 
-      message: "Verification email sent. Please check your inbox." 
+
+    res.json({
+      message: "Verification email sent. Please check your inbox.",
     });
   } catch (error) {
     console.error("[Resend Verification] Error:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Failed to send verification email",
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
@@ -1652,19 +2229,22 @@ router.get(
         return res.status(401).json({ message: "User not found" });
       }
 
-      console.log('[Profile GET] Fetching profile for user:', req.user.email);
-      
+      console.log("[Profile GET] Fetching profile for user:", req.user.email);
+
       // Get the full user profile including banking information
       const userProfile = await storage.getUser(req.user.id, {
         fallbackEmail: req.user.email,
       });
-      
+
       if (!userProfile) {
         return res.status(404).json({ message: "Profile not found" });
       }
 
-      console.log('[Profile GET] Profile data retrieved:', userProfile ? 'found' : 'null');
-      
+      console.log(
+        "[Profile GET] Profile data retrieved:",
+        userProfile ? "found" : "null",
+      );
+
       res.json(userProfile);
     } catch (error) {
       console.error("Error fetching profile:", error);
@@ -1678,9 +2258,15 @@ router.put(
   authenticateToken,
   async (req: AuthRequest, res) => {
     try {
-      console.log('[Profile Update] Starting profile update for user:', req.user?.email);
-      console.log('[Profile Update] Request body:', JSON.stringify(req.body, null, 2));
-      
+      console.log(
+        "[Profile Update] Starting profile update for user:",
+        req.user?.email,
+      );
+      console.log(
+        "[Profile Update] Request body:",
+        JSON.stringify(req.body, null, 2),
+      );
+
       const updateData = req.body;
       delete updateData.id; // Prevent ID modification
       delete updateData.role; // Prevent role modification via profile update
@@ -1688,7 +2274,10 @@ router.put(
       delete updateData.approvalStatus; // Prevent approval status modification
       delete updateData.agentNumber; // Prevent agent number modification via profile update
 
-      console.log('[Profile Update] Cleaned update data:', JSON.stringify(updateData, null, 2));
+      console.log(
+        "[Profile Update] Cleaned update data:",
+        JSON.stringify(updateData, null, 2),
+      );
 
       // Validate phone number format if provided
       if (updateData.phone) {
@@ -1715,7 +2304,10 @@ router.put(
         }
       }
 
-      console.log('[Profile Update] Calling storage.updateUser with user ID:', req.user!.id);
+      console.log(
+        "[Profile Update] Calling storage.updateUser with user ID:",
+        req.user!.id,
+      );
       const updatedUser = await storage.updateUser(
         req.user!.id,
         {
@@ -1727,9 +2319,15 @@ router.put(
         },
       );
 
-      console.log('[Profile Update] Update successful, returning user:', updatedUser ? 'found' : 'null');
-      console.log('[Profile Update] Updated user data:', JSON.stringify(updatedUser, null, 2));
-      
+      console.log(
+        "[Profile Update] Update successful, returning user:",
+        updatedUser ? "found" : "null",
+      );
+      console.log(
+        "[Profile Update] Updated user data:",
+        JSON.stringify(updatedUser, null, 2),
+      );
+
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating profile:", error);
@@ -1760,16 +2358,16 @@ router.post("/api/user/activity-ping", async (req: any, res: any) => {
   // Add CORS headers
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
-    'https://enrollment.getmydpc.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000'
+    "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
+    "https://enrollment.getmydpc.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5000",
   ];
 
   if (allowedOrigins.includes(origin as string)) {
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
   }
 
   try {
@@ -1804,10 +2402,17 @@ router.get(
     try {
       const { limit = "10" } = req.query;
       console.log("✅ Calling getUserLoginSessions for user:", req.user!.id);
-      
-      const loginSessions = await storage.getUserLoginSessions(req.user!.id, parseInt(limit as string));
-      console.log("✅ Got", loginSessions?.length || 0, "login sessions for user");
-      
+
+      const loginSessions = await storage.getUserLoginSessions(
+        req.user!.id,
+        parseInt(limit as string),
+      );
+      console.log(
+        "✅ Got",
+        loginSessions?.length || 0,
+        "login sessions for user",
+      );
+
       res.json(loginSessions);
     } catch (error: any) {
       console.error("❌ Error fetching user login sessions:", error);
@@ -1821,43 +2426,59 @@ router.get(
   "/api/user/enrollments",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    console.log("🔍 USER ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-    
+    console.log(
+      "🔍 USER ENROLLMENTS ROUTE HIT - User:",
+      req.user?.email,
+      "Role:",
+      req.user?.role,
+    );
+
     // Only agents (and super admins acting as agents) can access their enrollments
     if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ 
-        message: "Access denied. Only agents can view their enrollment activity." 
+      return res.status(403).json({
+        message:
+          "Access denied. Only agents can view their enrollment activity.",
       });
     }
-    
+
     try {
       const { startDate, endDate, limit = "20" } = req.query;
       console.log("✅ Calling getEnrollmentsByAgent for agent:", req.user!.id);
-      
+
       const enrollments = await storage.getEnrollmentsByAgent(
-        req.user!.id, 
-        startDate as string, 
-        endDate as string
+        req.user!.id,
+        startDate as string,
+        endDate as string,
       );
-      
+
       // Limit the results if specified
-      const limitedEnrollments = enrollments.slice(0, parseInt(limit as string));
+      const limitedEnrollments = enrollments.slice(
+        0,
+        parseInt(limit as string),
+      );
       const revealSsn = shouldRevealEnrollmentSsn(req);
-      const revealRole = req.user?.role || '';
+      const revealRole = req.user?.role || "";
 
       // Reveal SSN by default for authorized enrollment viewers unless explicitly masked.
-      const { decryptSSN } = await import('./utils/encryption');
+      const { decryptSSN } = await import("./utils/encryption");
       const maskedEnrollments = limitedEnrollments.map((enrollment) => {
         return {
           ...enrollment,
           ssn: enrollment.ssn
-            ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
+            ? displaySSN(decryptSSN(enrollment.ssn), {
+                reveal: revealSsn,
+                role: revealRole,
+              })
             : null,
         };
       });
 
-      console.log("✅ Got", maskedEnrollments?.length || 0, "enrollments for agent");
-      
+      console.log(
+        "✅ Got",
+        maskedEnrollments?.length || 0,
+        "enrollments for agent",
+      );
+
       res.json(maskedEnrollments);
     } catch (error) {
       console.error("❌ Error fetching user enrollments:", error);
@@ -1898,7 +2519,7 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
       message: message || "",
       source: source || "contact_form",
       status: "new",
-      assignedAgentId: (req.user!.role === "agent") ? req.user!.id : null,
+      assignedAgentId: req.user!.role === "agent" ? req.user!.id : null,
     });
 
     res.status(201).json(lead);
@@ -1909,50 +2530,61 @@ router.post("/api/leads", authenticateToken, async (req: AuthRequest, res) => {
 });
 
 // Update lead (status, notes, assignment, etc.)
-router.put("/api/leads/:leadId", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const leadId = parseInt(req.params.leadId);
-    const updates = req.body;
+router.put(
+  "/api/leads/:leadId",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      const leadId = parseInt(req.params.leadId);
+      const updates = req.body;
 
-    console.log(`[Leads API] Updating lead ${leadId} with:`, updates);
+      console.log(`[Leads API] Updating lead ${leadId} with:`, updates);
 
-    const updatedLead = await storage.updateLead(leadId, updates);
-    
-    res.json(updatedLead);
-  } catch (error: any) {
-    console.error("[Leads API] Error updating lead:", error);
-    res.status(500).json({
-      message: "Failed to update lead",
-      error: error.message,
-    });
-  }
-});
+      const updatedLead = await storage.updateLead(leadId, updates);
+
+      res.json(updatedLead);
+    } catch (error: any) {
+      console.error("[Leads API] Error updating lead:", error);
+      res.status(500).json({
+        message: "Failed to update lead",
+        error: error.message,
+      });
+    }
+  },
+);
 
 // Add activity to lead
-router.post("/api/leads/:leadId/activities", authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const leadId = parseInt(req.params.leadId);
-    const { activityType, notes } = req.body;
+router.post(
+  "/api/leads/:leadId/activities",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    try {
+      const leadId = parseInt(req.params.leadId);
+      const { activityType, notes } = req.body;
 
-    console.log(`[Leads API] Adding activity to lead ${leadId}:`, { activityType, notes });
+      console.log(`[Leads API] Adding activity to lead ${leadId}:`, {
+        activityType,
+        notes,
+      });
 
-    const activity = await storage.addLeadActivity({
-      leadId,
-      agentId: req.user!.id,
-      activityType,
-      notes,
-      createdAt: new Date()
-    });
+      const activity = await storage.addLeadActivity({
+        leadId,
+        agentId: req.user!.id,
+        activityType,
+        notes,
+        createdAt: new Date(),
+      });
 
-    res.json(activity);
-  } catch (error: any) {
-    console.error("[Leads API] Error adding activity:", error);
-    res.status(500).json({
-      message: "Failed to add activity",
-      error: error.message,
-    });
-  }
-});
+      res.json(activity);
+    } catch (error: any) {
+      console.error("[Leads API] Error adding activity:", error);
+      res.status(500).json({
+        message: "Failed to add activity",
+        error: error.message,
+      });
+    }
+  },
+);
 
 // Payment processing endpoint with error handling
 router.post(
@@ -2010,36 +2642,53 @@ router.post("/api/public/leads", async (req: any, res) => {
   console.log(`[${timestamp}] [Public Leads] === ENDPOINT HIT ===`);
   console.log(`[${timestamp}] [Public Leads] Method:`, req.method);
   console.log(`[${timestamp}] [Public Leads] Origin:`, req.headers.origin);
-  console.log(`[${timestamp}] [Public Leads] Headers:`, JSON.stringify(req.headers, null, 2));
+  console.log(
+    `[${timestamp}] [Public Leads] Headers:`,
+    JSON.stringify(req.headers, null, 2),
+  );
 
   // Set CORS headers FIRST before any other processing
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
-    'https://enrollment.getmydpc.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000'
+    "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
+    "https://enrollment.getmydpc.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5000",
   ];
 
   const regexPatterns = [/\.ondigitalocean\.app$/];
-  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+  const isAllowedByRegex =
+    origin && regexPatterns.some((pattern) => pattern.test(origin));
 
   // Always set CORS headers for this public endpoint
   if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
-    res.header('Access-Control-Allow-Origin', origin);
-    console.log(`[${timestamp}] [Public Leads] CORS allowed for origin: ${origin}`);
+    res.header("Access-Control-Allow-Origin", origin);
+    console.log(
+      `[${timestamp}] [Public Leads] CORS allowed for origin: ${origin}`,
+    );
   } else {
-    res.header('Access-Control-Allow-Origin', '*');
-    console.log(`[${timestamp}] [Public Leads] CORS wildcard for origin: ${origin}`);
+    res.header("Access-Control-Allow-Origin", "*");
+    console.log(
+      `[${timestamp}] [Public Leads] CORS wildcard for origin: ${origin}`,
+    );
   }
 
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,OPTIONS,HEAD",
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name",
+  );
 
   console.log(`[${timestamp}] [Public Leads] Body type:`, typeof req.body);
-  console.log(`[${timestamp}] [Public Leads] Raw body:`, JSON.stringify(req.body, null, 2));
+  console.log(
+    `[${timestamp}] [Public Leads] Raw body:`,
+    JSON.stringify(req.body, null, 2),
+  );
 
   try {
     // Check if body exists and is parsed
@@ -2120,7 +2769,7 @@ router.post("/api/public/leads", async (req: any, res) => {
     try {
       // CREATE LEAD DIRECTLY IN SUPABASE (NO AUTH REQUIRED - PUBLIC ENDPOINT)
       const { data: newLead, error: leadError } = await supabase
-        .from('leads')
+        .from("leads")
         .insert({
           first_name: leadData.firstName,
           last_name: leadData.lastName,
@@ -2128,13 +2777,16 @@ router.post("/api/public/leads", async (req: any, res) => {
           phone: leadData.phone,
           message: leadData.message,
           source: leadData.source,
-          status: leadData.status
+          status: leadData.status,
         })
         .select()
         .single();
 
       if (leadError) {
-        console.error(`[${timestamp}] [Public Leads] Supabase error:`, leadError);
+        console.error(
+          `[${timestamp}] [Public Leads] Supabase error:`,
+          leadError,
+        );
         throw new Error(`Failed to create lead: ${leadError.message}`);
       }
 
@@ -2142,15 +2794,18 @@ router.post("/api/public/leads", async (req: any, res) => {
         id: newLead.id,
         email: newLead.email,
         status: newLead.status,
-        source: newLead.source
+        source: newLead.source,
       };
 
-      console.log(`[${timestamp}] [Public Leads] Lead created successfully in Supabase:`, {
-        id: lead.id,
-        email: lead.email,
-        status: lead.status,
-        source: lead.source,
-      });
+      console.log(
+        `[${timestamp}] [Public Leads] Lead created successfully in Supabase:`,
+        {
+          id: lead.id,
+          email: lead.email,
+          status: lead.status,
+          source: lead.source,
+        },
+      );
 
       // Send email notification (don't fail if email fails)
       try {
@@ -2162,9 +2817,14 @@ router.post("/api/public/leads", async (req: any, res) => {
           message: leadData.message,
           source: leadData.source,
         });
-        console.log(`[${timestamp}] [Public Leads] Email notification sent successfully`);
+        console.log(
+          `[${timestamp}] [Public Leads] Email notification sent successfully`,
+        );
       } catch (emailError: any) {
-        console.error(`[${timestamp}] [Public Leads] Email notification failed:`, emailError.message);
+        console.error(
+          `[${timestamp}] [Public Leads] Email notification failed:`,
+          emailError.message,
+        );
         // Don't throw - we still want to return success even if email fails
       }
     } catch (storageError: any) {
@@ -2224,27 +2884,34 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
 
   const origin = req.headers.origin;
   const allowedOrigins = [
-    'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
-    'https://enrollment.getmydpc.com',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5000'
+    "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
+    "https://enrollment.getmydpc.com",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:5000",
   ];
   const regexPatterns = [/\.ondigitalocean\.app$/];
-  const isAllowedByRegex = origin && regexPatterns.some(pattern => pattern.test(origin));
+  const isAllowedByRegex =
+    origin && regexPatterns.some((pattern) => pattern.test(origin));
 
   if (allowedOrigins.includes(origin as string) || isAllowedByRegex) {
-    res.header('Access-Control-Allow-Origin', origin);
+    res.header("Access-Control-Allow-Origin", origin);
   } else {
-    res.header('Access-Control-Allow-Origin', '*');
+    res.header("Access-Control-Allow-Origin", "*");
   }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name');
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,OPTIONS,HEAD",
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,X-File-Name",
+  );
 
   try {
     if (!req.body) {
-      return res.status(400).json({ error: 'No data received', timestamp });
+      return res.status(400).json({ error: "No data received", timestamp });
     }
 
     const {
@@ -2257,32 +2924,34 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
       statesServed,
       experienceLevel,
       volumeEstimate,
-      message
+      message,
     } = req.body;
 
     const missingFields = [] as string[];
-    if (!firstName) missingFields.push('firstName');
-    if (!lastName) missingFields.push('lastName');
-    if (!email) missingFields.push('email');
-    if (!phone) missingFields.push('phone');
-    if (!agencyName) missingFields.push('agencyName');
-    if (!statesServed) missingFields.push('statesServed');
+    if (!firstName) missingFields.push("firstName");
+    if (!lastName) missingFields.push("lastName");
+    if (!email) missingFields.push("email");
+    if (!phone) missingFields.push("phone");
+    if (!agencyName) missingFields.push("agencyName");
+    if (!statesServed) missingFields.push("statesServed");
 
     if (missingFields.length) {
       return res.status(400).json({
-        error: 'Missing required fields',
+        error: "Missing required fields",
         missingFields,
-        timestamp
+        timestamp,
       });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: 'Invalid email format', timestamp });
+      return res.status(400).json({ error: "Invalid email format", timestamp });
     }
 
-    if (typeof phone !== 'string' || phone.replace(/[^0-9]/g, '').length < 10) {
-      return res.status(400).json({ error: 'Invalid phone number format', timestamp });
+    if (typeof phone !== "string" || phone.replace(/[^0-9]/g, "").length < 10) {
+      return res
+        .status(400)
+        .json({ error: "Invalid phone number format", timestamp });
     }
 
     const normalized = {
@@ -2295,7 +2964,7 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
       statesServed: statesServed.trim(),
       experienceLevel: experienceLevel?.trim(),
       volumeEstimate: volumeEstimate?.trim(),
-      message: (message || '').trim()
+      message: (message || "").trim(),
     };
 
     const metadata = {
@@ -2303,7 +2972,7 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
       agencyWebsite: normalized.agencyWebsite,
       statesServed: normalized.statesServed,
       experienceLevel: normalized.experienceLevel,
-      volumeEstimate: normalized.volumeEstimate
+      volumeEstimate: normalized.volumeEstimate,
     };
 
     const notesPayload = {
@@ -2312,16 +2981,16 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
     };
 
     const { data: newLead, error: leadError } = await supabase
-      .from('leads')
+      .from("leads")
       .insert({
         first_name: normalized.firstName,
         last_name: normalized.lastName,
         email: normalized.email,
         phone: normalized.phone,
         message: normalized.message,
-        source: 'partner_lead',
-        status: 'new',
-        notes: JSON.stringify(notesPayload)
+        source: "partner_lead",
+        status: "new",
+        notes: JSON.stringify(notesPayload),
       })
       .select()
       .single();
@@ -2341,24 +3010,27 @@ router.post("/api/public/partner-leads", async (req: any, res) => {
         statesServed: normalized.statesServed,
         experienceLevel: normalized.experienceLevel,
         volumeEstimate: normalized.volumeEstimate,
-        message: normalized.message
+        message: normalized.message,
       });
     } catch (emailError) {
-      console.error(`[${timestamp}] [Partner Leads] Email notification failed:`, emailError);
+      console.error(
+        `[${timestamp}] [Partner Leads] Email notification failed:`,
+        emailError,
+      );
     }
 
     res.json({
       success: true,
       leadId: newLead?.id,
-      message: 'Partner inquiry submitted successfully',
-      timestamp
+      message: "Partner inquiry submitted successfully",
+      timestamp,
     });
   } catch (error: any) {
     console.error(`[${timestamp}] [Partner Leads] Error:`, error);
     res.status(500).json({
-      error: 'Failed to submit partner inquiry',
+      error: "Failed to submit partner inquiry",
       details: error.message,
-      timestamp
+      timestamp,
     });
   }
 });
@@ -2391,7 +3063,6 @@ router.get(
   },
 );
 
-
 router.get(
   "/api/admin/partner-leads",
   authenticateToken,
@@ -2401,19 +3072,23 @@ router.get(
     }
 
     try {
-      const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+      const status =
+        typeof req.query.status === "string" ? req.query.status : undefined;
       const leads = await storage.getPartnerLeads(status);
       res.json({
         leads,
         total: leads.length,
-        filter: status || 'all',
+        filter: status || "all",
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error('[Admin Partner Leads] Failed to fetch leads:', error);
-      res.status(500).json({ message: 'Failed to fetch partner leads', error: error.message });
+      console.error("[Admin Partner Leads] Failed to fetch leads:", error);
+      res.status(500).json({
+        message: "Failed to fetch partner leads",
+        error: error.message,
+      });
     }
-  }
+  },
 );
 
 router.put(
@@ -2426,16 +3101,12 @@ router.put(
 
     const leadId = Number(req.params.leadId);
     if (!Number.isFinite(leadId)) {
-      return res.status(400).json({ message: 'Invalid lead ID' });
+      return res.status(400).json({ message: "Invalid lead ID" });
     }
 
     const { status, adminNote, assignedAgentId } = req.body || {};
-    if (
-      !status &&
-      !adminNote &&
-      typeof assignedAgentId === 'undefined'
-    ) {
-      return res.status(400).json({ message: 'No updates provided' });
+    if (!status && !adminNote && typeof assignedAgentId === "undefined") {
+      return res.status(400).json({ message: "No updates provided" });
     }
 
     try {
@@ -2451,10 +3122,13 @@ router.put(
         lead: updatedLead,
       });
     } catch (error: any) {
-      console.error('[Admin Partner Leads] Failed to update lead:', error);
-      res.status(500).json({ message: 'Failed to update partner lead', error: error.message });
+      console.error("[Admin Partner Leads] Failed to update lead:", error);
+      res.status(500).json({
+        message: "Failed to update partner lead",
+        error: error.message,
+      });
     }
-  }
+  },
 );
 
 // Admin endpoint to view all user banking information
@@ -2463,9 +3137,12 @@ router.get(
   authenticateToken,
   async (req: AuthRequest, res) => {
     console.log("🔍 ADMIN USER BANKING ROUTE HIT - Admin:", req.user?.email);
-    
+
     if (!isAdmin(req.user!.role)) {
-      console.log("[Admin Banking API] Access denied - user role:", req.user!.role);
+      console.log(
+        "[Admin Banking API] Access denied - user role:",
+        req.user!.role,
+      );
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2474,21 +3151,30 @@ router.get(
       res.header("Access-Control-Allow-Credentials", "true");
       res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
 
-      console.log("[Admin Banking API] Fetching banking info for admin:", req.user!.email);
-      
+      console.log(
+        "[Admin Banking API] Fetching banking info for admin:",
+        req.user!.email,
+      );
+
       // Get all users with banking information
       const usersResult = await storage.getAllUsers();
-      
+
       if (!usersResult || !usersResult.users) {
-        console.error("[Admin Banking API] No users data returned from storage");
+        console.error(
+          "[Admin Banking API] No users data returned from storage",
+        );
         return res.status(500).json({ message: "Failed to fetch users" });
       }
 
       // Filter users who have banking information and format the data
       const usersWithBanking = usersResult.users
-        .filter((user: any) => 
-          user.bankName || user.routingNumber || user.accountNumber || 
-          user.accountType || user.accountHolderName
+        .filter(
+          (user: any) =>
+            user.bankName ||
+            user.routingNumber ||
+            user.accountNumber ||
+            user.accountType ||
+            user.accountHolderName,
         )
         .map((user: any) => ({
           id: user.id,
@@ -2512,21 +3198,27 @@ router.get(
           routingNumberMasked: user.routingNumber
             ? `****${String(user.routingNumber).slice(-4)}`
             : null,
-          updatedAt: user.updatedAt
+          updatedAt: user.updatedAt,
         }));
 
-      console.log("[Admin Banking API] Users with banking info count:", usersWithBanking.length);
+      console.log(
+        "[Admin Banking API] Users with banking info count:",
+        usersWithBanking.length,
+      );
 
       res.json({
         users: usersWithBanking,
         totalCount: usersWithBanking.length,
-        message: usersWithBanking.length === 0 ? "No users have banking information on file" : undefined
+        message:
+          usersWithBanking.length === 0
+            ? "No users have banking information on file"
+            : undefined,
       });
     } catch (error) {
       console.error("[Admin Banking API] Error fetching banking info:", error);
-      res.status(500).json({ 
-        message: "Failed to fetch banking information", 
-        error: error.message 
+      res.status(500).json({
+        message: "Failed to fetch banking information",
+        error: error.message,
       });
     }
   },
@@ -2538,9 +3230,12 @@ router.get(
   authenticateToken,
   async (req: AuthRequest, res) => {
     console.log("🔍 ADMIN BANKING CHANGES ROUTE HIT - Admin:", req.user?.email);
-    
+
     if (!isAdmin(req.user!.role)) {
-      console.log("[Admin Banking Changes API] Access denied - user role:", req.user!.role);
+      console.log(
+        "[Admin Banking Changes API] Access denied - user role:",
+        req.user!.role,
+      );
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -2550,7 +3245,12 @@ router.get(
       res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
 
       const { userId, limit = "50" } = req.query;
-      console.log("[Admin Banking Changes API] Fetching banking changes, userId:", userId, "limit:", limit);
+      console.log(
+        "[Admin Banking Changes API] Fetching banking changes, userId:",
+        userId,
+        "limit:",
+        limit,
+      );
 
       let changeHistory = [];
 
@@ -2576,10 +3276,10 @@ router.get(
            WHERE em.change_type = 'banking_info_update' 
            ORDER BY em.created_at DESC
            LIMIT $1`,
-          [parseInt(limit as string)]
+          [parseInt(limit as string)],
         );
-        
-        changeHistory = result.rows.map(row => ({
+
+        changeHistory = result.rows.map((row) => ({
           id: row.id,
           userId: row.user_id,
           modifiedBy: row.modified_by,
@@ -2589,29 +3289,37 @@ router.get(
             email: row.email,
             firstName: row.first_name,
             lastName: row.last_name,
-            agentNumber: row.agent_number
-          }
+            agentNumber: row.agent_number,
+          },
         }));
       }
 
-      console.log("[Admin Banking Changes API] Retrieved changes count:", changeHistory.length);
+      console.log(
+        "[Admin Banking Changes API] Retrieved changes count:",
+        changeHistory.length,
+      );
 
       res.json({
         changes: changeHistory,
         totalCount: changeHistory.length,
         userId: userId || null,
-        message: changeHistory.length === 0 ? "No banking information changes found" : undefined
+        message:
+          changeHistory.length === 0
+            ? "No banking information changes found"
+            : undefined,
       });
     } catch (error) {
-      console.error("[Admin Banking Changes API] Error fetching banking changes:", error);
-      res.status(500).json({ 
-        message: "Failed to fetch banking change history", 
-        error: error.message 
+      console.error(
+        "[Admin Banking Changes API] Error fetching banking changes:",
+        error,
+      );
+      res.status(500).json({
+        message: "Failed to fetch banking change history",
+        error: error.message,
       });
     }
   },
 );
-
 
 // Get all DPC members from Neon database
 router.get(
@@ -2623,15 +3331,22 @@ router.get(
     }
 
     try {
-      console.log("[Admin DPC Members API] Fetching DPC members from Neon database");
+      console.log(
+        "[Admin DPC Members API] Fetching DPC members from Neon database",
+      );
       const members = await storage.getAllDPCMembers();
-      console.log(`[Admin DPC Members API] Retrieved ${members.length} members`);
+      console.log(
+        `[Admin DPC Members API] Retrieved ${members.length} members`,
+      );
       res.json({
         members: members,
         totalCount: members.length,
       });
     } catch (error: any) {
-      console.error("[Admin DPC Members API] Error fetching DPC members:", error);
+      console.error(
+        "[Admin DPC Members API] Error fetching DPC members:",
+        error,
+      );
       res.status(500).json({
         message: "Failed to fetch DPC members",
         error: error.message,
@@ -2652,20 +3367,20 @@ router.put(
     try {
       const { customerId } = req.params;
       const { reason } = req.body;
-      
+
       console.log(`[Admin] Suspending DPC member: ${customerId}`);
       const updatedMember = await storage.suspendDPCMember(customerId, reason);
-      
+
       res.json({
         success: true,
         message: "Member suspended successfully",
-        member: updatedMember
+        member: updatedMember,
       });
     } catch (error: any) {
       console.error("[Admin] Error suspending DPC member:", error);
       res.status(500).json({
         message: "Failed to suspend member",
-        error: error.message
+        error: error.message,
       });
     }
   },
@@ -2682,20 +3397,20 @@ router.put(
 
     try {
       const { customerId } = req.params;
-      
+
       console.log(`[Admin] Reactivating DPC member: ${customerId}`);
       const updatedMember = await storage.reactivateDPCMember(customerId);
-      
+
       res.json({
         success: true,
         message: "Member reactivated successfully",
-        member: updatedMember
+        member: updatedMember,
       });
     } catch (error: any) {
       console.error("[Admin] Error reactivating DPC member:", error);
       res.status(500).json({
         message: "Failed to reactivate member",
-        error: error.message
+        error: error.message,
       });
     }
   },
@@ -2741,12 +3456,10 @@ router.put(
       // Users table should ONLY contain 'admin' and 'agent' roles
       // 'member' is NOT a user role - members are enrolled customers in separate members table
       if (!["agent", "admin"].includes(role)) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Invalid role. Must be 'agent' (enrollment agent) or 'admin' (system administrator). Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
-          });
+        return res.status(400).json({
+          message:
+            "Invalid role. Must be 'agent' (enrollment agent) or 'admin' (system administrator). Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
+        });
       }
 
       const updatedUser = await storage.updateUser(userId, {
@@ -2821,7 +3534,8 @@ router.put(
           });
         }
 
-        const existingUser = await storage.getUserByAgentNumber(trimmedAgentNumber);
+        const existingUser =
+          await storage.getUserByAgentNumber(trimmedAgentNumber);
         if (existingUser && existingUser.id !== userId) {
           return res.status(400).json({
             success: false,
@@ -2960,13 +3674,15 @@ router.put(
         userId,
       );
       if (inUseByActiveAgent) {
-        return res
-          .status(400)
-          .json({ message: "Agent number already assigned to an active agent" });
+        return res.status(400).json({
+          message: "Agent number already assigned to an active agent",
+        });
       }
 
       // Check if agent number is already taken
-      const existingUser = await storage.getUserByAgentNumber(normalizedAgentNumber);
+      const existingUser = await storage.getUserByAgentNumber(
+        normalizedAgentNumber,
+      );
       if (existingUser && existingUser.id !== userId) {
         return res
           .status(400)
@@ -3073,25 +3789,39 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       return res.status(401).json({ message: "Authentication required" });
     }
 
-    const agents = await storage.getAgents();
-    
+    const includeAssignable =
+      req.query.includeAssignable === "true" ||
+      req.query.includeAssignable === "1";
+
+    const sourceUsers = includeAssignable
+      ? (await storage.getAllUsers())?.users || []
+      : await storage.getAgents();
+
     // Return basic agent info for selection dropdowns
-    const agentList = agents
-      .map((agent: any) => ({
-        id: agent.id,
-        firstName: agent.firstName ?? agent.first_name ?? "",
-        lastName: agent.lastName ?? agent.last_name ?? "",
-        role: agent.role,
-        agentNumber: agent.agentNumber ?? agent.agent_number ?? null,
-        email: agent.email ?? null,
-        isActive: agent.isActive ?? agent.is_active ?? true,
+    const agentList = sourceUsers
+      .map((user: any) => ({
+        id: user.id,
+        firstName: user.firstName ?? user.first_name ?? "",
+        lastName: user.lastName ?? user.last_name ?? "",
+        role: user.role,
+        agentNumber: user.agentNumber ?? user.agent_number ?? null,
+        email: user.email ?? null,
+        isActive: user.isActive ?? user.is_active ?? true,
       }))
-      .filter((agent) => agent.isActive); // Only return active agents
+      .filter((user) => {
+        if (!user.isActive) return false;
+        if (includeAssignable) {
+          return hasEnrollmentAttributionAccess(user.role);
+        }
+        return user.role === "agent" || hasAtLeastRole(user.role, "admin");
+      });
 
     res.json(agentList);
   } catch (error: any) {
     console.error("Error fetching agents:", error);
-    res.status(500).json({ message: "Failed to fetch agents", error: error.message });
+    res
+      .status(500)
+      .json({ message: "Failed to fetch agents", error: error.message });
   }
 });
 
@@ -3145,7 +3875,7 @@ router.get(
       const safeEnrollments = Array.isArray(enrollments) ? enrollments : [];
 
       // Decrypt SSN for admin view (full SSN)
-      const { decryptSSN, formatSSN } = await import('./utils/encryption');
+      const { decryptSSN, formatSSN } = await import("./utils/encryption");
       const enrichedEnrollments = safeEnrollments.map((enrollment) => {
         const decrypted = enrollment.ssn ? decryptSSN(enrollment.ssn) : null;
         return {
@@ -3183,18 +3913,22 @@ router.get(
         return res.status(404).json({ message: "Enrollment not found" });
       }
 
-      const { decryptSSN, formatSSN, isValidSSN } = await import('./utils/encryption');
+      const { decryptSSN, formatSSN, isValidSSN } =
+        await import("./utils/encryption");
 
       const safeDecodeSSN = (raw?: string | null) => {
         if (!raw) return null;
 
         const decryptedCandidate = decryptSSN(String(raw));
-        const decryptedDigits = String(decryptedCandidate || '').replace(/\D/g, '');
+        const decryptedDigits = String(decryptedCandidate || "").replace(
+          /\D/g,
+          "",
+        );
         if (isValidSSN(decryptedDigits)) {
           return formatSSN(decryptedDigits);
         }
 
-        const storedDigits = String(raw).replace(/\D/g, '');
+        const storedDigits = String(raw).replace(/\D/g, "");
         if (isValidSSN(storedDigits)) {
           return formatSSN(storedDigits);
         }
@@ -3203,10 +3937,12 @@ router.get(
       };
 
       const decryptedSSN = safeDecodeSSN(enrollment.ssn);
-      const familyWithMaskedSSN = (enrollment.familyMembers || []).map((fm: any) => ({
-        ...fm,
-        ssn: safeDecodeSSN(fm.ssn),
-      }));
+      const familyWithMaskedSSN = (enrollment.familyMembers || []).map(
+        (fm: any) => ({
+          ...fm,
+          ssn: safeDecodeSSN(fm.ssn),
+        }),
+      );
 
       let paymentHistory: any[] = [];
       try {
@@ -3233,35 +3969,46 @@ router.get(
           [enrollmentId],
         );
 
-        paymentHistory = (paymentHistoryResult.rows || []).map((payment: any) => ({
-          id: payment.id,
-          memberId: payment.member_id,
-          subscriptionId: payment.subscription_id,
-          amount: payment.amount,
-          status: payment.status,
-          paymentMethod: payment.payment_method,
-          transactionId: payment.transaction_id,
-          commissionStatus: payment.commission_status,
-          epxAuthGuid: payment.epx_auth_guid,
-          createdAt: payment.created_at,
-          updatedAt: payment.updated_at,
-          verification: buildPaymentVerificationSummary(payment),
-        }));
+        paymentHistory = (paymentHistoryResult.rows || []).map(
+          (payment: any) => ({
+            id: payment.id,
+            memberId: payment.member_id,
+            subscriptionId: payment.subscription_id,
+            amount: payment.amount,
+            status: payment.status,
+            paymentMethod: payment.payment_method,
+            transactionId: payment.transaction_id,
+            commissionStatus: payment.commission_status,
+            epxAuthGuid: payment.epx_auth_guid,
+            createdAt: payment.created_at,
+            updatedAt: payment.updated_at,
+            verification: buildPaymentVerificationSummary(payment),
+          }),
+        );
       } catch (paymentHistoryError: any) {
-        console.warn('[Enrollment Details] Payment history enrichment failed, returning base enrollment only:', {
-          enrollmentId,
-          error: paymentHistoryError?.message || String(paymentHistoryError),
-        });
+        console.warn(
+          "[Enrollment Details] Payment history enrichment failed, returning base enrollment only:",
+          {
+            enrollmentId,
+            error: paymentHistoryError?.message || String(paymentHistoryError),
+          },
+        );
       }
 
-      const successfulPayments = paymentHistory.filter((payment: any) => payment.verification?.processorConfirmed === true);
+      const successfulPayments = paymentHistory.filter(
+        (payment: any) => payment.verification?.processorConfirmed === true,
+      );
       const failedPayments = paymentHistory.filter((payment: any) => {
-        const state = String(payment.verification?.finalizationState || '').toLowerCase();
-        return state === 'failed';
+        const state = String(
+          payment.verification?.finalizationState || "",
+        ).toLowerCase();
+        return state === "failed";
       });
       const pendingPayments = paymentHistory.filter((payment: any) => {
-        const state = String(payment.verification?.finalizationState || '').toLowerCase();
-        return state === 'pending' || state === 'requires_review';
+        const state = String(
+          payment.verification?.finalizationState || "",
+        ).toLowerCase();
+        return state === "pending" || state === "requires_review";
       });
 
       const now = new Date();
@@ -3270,23 +4017,35 @@ router.get(
 
       const recentPayments = paymentHistory.filter((payment: any) => {
         const createdAt = parseFlexibleMemberDate(payment.createdAt);
-        return Boolean(createdAt && createdAt.getTime() >= ninetyDaysAgo.getTime());
+        return Boolean(
+          createdAt && createdAt.getTime() >= ninetyDaysAgo.getTime(),
+        );
       });
 
       const lastAttemptDate = toIsoDateOrNull(paymentHistory[0]?.createdAt);
-      const lastSuccessfulDate = toIsoDateOrNull(successfulPayments[0]?.createdAt);
+      const lastSuccessfulDate = toIsoDateOrNull(
+        successfulPayments[0]?.createdAt,
+      );
 
-      const memberSinceRaw = enrollment.enrollmentDate || enrollment.createdAt || enrollment.firstPaymentDate;
+      const memberSinceRaw =
+        enrollment.enrollmentDate ||
+        enrollment.createdAt ||
+        enrollment.firstPaymentDate;
       const memberSinceDateParsed = parseFlexibleMemberDate(memberSinceRaw);
-      const memberSinceDate = memberSinceDateParsed ? memberSinceDateParsed.toISOString() : null;
-      const membershipStartDate = toIsoDateOrNull(enrollment.membershipStartDate);
+      const memberSinceDate = memberSinceDateParsed
+        ? memberSinceDateParsed.toISOString()
+        : null;
+      const membershipStartDate = toIsoDateOrNull(
+        enrollment.membershipStartDate,
+      );
       const nextPaymentRunDate = toIsoDateOrNull(enrollment.nextBillingDate);
 
       const monthsAsMember = memberSinceDateParsed
         ? calculateMonthsAsMember(memberSinceDateParsed, now)
         : null;
 
-      const lastSuccessfulDateParsed = parseFlexibleMemberDate(lastSuccessfulDate);
+      const lastSuccessfulDateParsed =
+        parseFlexibleMemberDate(lastSuccessfulDate);
       const nextRunDateParsed = parseFlexibleMemberDate(nextPaymentRunDate);
 
       const daysSinceLastSuccess = lastSuccessfulDateParsed
@@ -3296,37 +4055,49 @@ router.get(
         ? diffInDays(now, nextRunDateParsed)
         : null;
 
-      const memberStatus = String(enrollment.status || '').toLowerCase();
-      const subscriptionStatus = String(enrollment.subscriptionStatus || '').toLowerCase();
-      const memberIsActive = memberStatus === 'active';
-      const subscriptionIsActive = subscriptionStatus === 'active';
+      const memberStatus = String(enrollment.status || "").toLowerCase();
+      const subscriptionStatus = String(
+        enrollment.subscriptionStatus || "",
+      ).toLowerCase();
+      const memberIsActive = memberStatus === "active";
+      const subscriptionIsActive = subscriptionStatus === "active";
 
-      const hasBillingGap = Boolean(memberIsActive && daysPastNextRun !== null && daysPastNextRun > 3);
+      const hasBillingGap = Boolean(
+        memberIsActive && daysPastNextRun !== null && daysPastNextRun > 3,
+      );
       const hasMembershipGap = Boolean(
-        memberIsActive
-          && (
-            (daysSinceLastSuccess !== null && daysSinceLastSuccess > 45)
-            || (lastSuccessfulDateParsed === undefined && monthsAsMember !== null && monthsAsMember >= 1)
-          ),
+        memberIsActive &&
+        ((daysSinceLastSuccess !== null && daysSinceLastSuccess > 45) ||
+          (lastSuccessfulDateParsed === undefined &&
+            monthsAsMember !== null &&
+            monthsAsMember >= 1)),
       );
 
-      const latestPaymentState = String(paymentHistory[0]?.verification?.finalizationState || '').toLowerCase();
-      const statusMismatch = (memberIsActive && !subscriptionIsActive) || (!memberIsActive && subscriptionIsActive);
+      const latestPaymentState = String(
+        paymentHistory[0]?.verification?.finalizationState || "",
+      ).toLowerCase();
+      const statusMismatch =
+        (memberIsActive && !subscriptionIsActive) ||
+        (!memberIsActive && subscriptionIsActive);
       const billingAtRisk = Boolean(
-        hasBillingGap
-          || hasMembershipGap
-          || !subscriptionIsActive
-          || latestPaymentState === 'failed'
-          || latestPaymentState === 'pending'
-          || latestPaymentState === 'requires_review',
+        hasBillingGap ||
+        hasMembershipGap ||
+        !subscriptionIsActive ||
+        latestPaymentState === "failed" ||
+        latestPaymentState === "pending" ||
+        latestPaymentState === "requires_review",
       );
 
-      const memberSinceDay = memberSinceDate ? memberSinceDate.slice(0, 10) : null;
-      const membershipStartDay = membershipStartDate ? membershipStartDate.slice(0, 10) : null;
+      const memberSinceDay = memberSinceDate
+        ? memberSinceDate.slice(0, 10)
+        : null;
+      const membershipStartDay = membershipStartDate
+        ? membershipStartDate.slice(0, 10)
+        : null;
       const anchorVsEffectiveMismatch = Boolean(
-        memberSinceDay
-          && membershipStartDay
-          && memberSinceDay !== membershipStartDay,
+        memberSinceDay &&
+        membershipStartDay &&
+        memberSinceDay !== membershipStartDay,
       );
 
       const paymentHistorySummary = {
@@ -3335,12 +4106,14 @@ router.get(
         failedPayments: failedPayments.length,
         pendingPayments: pendingPayments.length,
         last90DaysAttempts: recentPayments.length,
-        last90DaysSuccesses: recentPayments.filter((payment: any) => payment.verification?.processorConfirmed === true).length,
+        last90DaysSuccesses: recentPayments.filter(
+          (payment: any) => payment.verification?.processorConfirmed === true,
+        ).length,
       };
 
       const lifecycleTimeline = {
         memberSinceDate,
-        memberSinceSource: memberSinceDate ? 'enrollment_date' : 'unknown',
+        memberSinceSource: memberSinceDate ? "enrollment_date" : "unknown",
         membershipStartDate,
         effectiveDate: membershipStartDate,
         monthsAsMember,
@@ -3378,7 +4151,9 @@ router.get(
       });
     } catch (error: any) {
       console.error("Error fetching enrollment details:", error);
-      res.status(500).json({ message: "Failed to load enrollment", error: error.message });
+      res
+        .status(500)
+        .json({ message: "Failed to load enrollment", error: error.message });
     }
   },
 );
@@ -3396,7 +4171,8 @@ router.patch(
       return res.status(400).json({ message: "Invalid enrollment ID" });
     }
 
-    const { email, phone, emergencyContactName, emergencyContactPhone } = req.body || {};
+    const { email, phone, emergencyContactName, emergencyContactPhone } =
+      req.body || {};
     const updates: Record<string, any> = {};
 
     if (typeof email === "string") {
@@ -3422,7 +4198,9 @@ router.patch(
       res.json({ success: true, enrollment });
     } catch (error: any) {
       console.error("Error updating enrollment contact:", error);
-      res.status(500).json({ message: "Failed to update contact", error: error.message });
+      res
+        .status(500)
+        .json({ message: "Failed to update contact", error: error.message });
     }
   },
 );
@@ -3446,8 +4224,8 @@ router.patch(
     }
 
     try {
-      const { isValidSSN, formatSSN } = await import('./utils/encryption');
-      const normalized = ssn.replace(/\D/g, '');
+      const { isValidSSN, formatSSN } = await import("./utils/encryption");
+      const normalized = ssn.replace(/\D/g, "");
 
       if (!isValidSSN(normalized)) {
         return res.status(400).json({ message: "Invalid SSN format" });
@@ -3456,15 +4234,18 @@ router.patch(
       try {
         await storage.updateMember(enrollmentId, { ssn: normalized });
       } catch (updateError: any) {
-        const message = updateError instanceof Error ? updateError.message : String(updateError);
-        if (!message.includes('SSN encryption key is not configured')) {
+        const message =
+          updateError instanceof Error
+            ? updateError.message
+            : String(updateError);
+        if (!message.includes("SSN encryption key is not configured")) {
           throw updateError;
         }
 
         const { error: fallbackError } = await storage.supabase
-          .from('members')
+          .from("members")
           .update({ ssn: normalized, updated_at: new Date().toISOString() })
-          .eq('id', enrollmentId);
+          .eq("id", enrollmentId);
 
         if (fallbackError) {
           throw fallbackError;
@@ -3473,22 +4254,25 @@ router.patch(
 
       // Log sensitive update for audit trail
       try {
-        await storage.supabase.from('admin_logs').insert({
-          log_type: 'sensitive_data_update',
+        await storage.supabase.from("admin_logs").insert({
+          log_type: "sensitive_data_update",
           admin_id: req.user?.id,
           admin_email: req.user?.email,
           member_id: enrollmentId,
-          action: 'update_member_ssn',
-          reason: typeof reason === 'string' ? reason : null,
+          action: "update_member_ssn",
+          reason: typeof reason === "string" ? reason : null,
           metadata: {
-            updated_field: 'ssn',
+            updated_field: "ssn",
           },
           ip_address: req.ip,
-          user_agent: req.get('user-agent'),
-          created_at: new Date().toISOString()
+          user_agent: req.get("user-agent"),
+          created_at: new Date().toISOString(),
         });
       } catch (logError) {
-        console.warn('[Admin] Could not save SSN update audit log to database', logError);
+        console.warn(
+          "[Admin] Could not save SSN update audit log to database",
+          logError,
+        );
       }
 
       const enrollment = await storage.getEnrollmentDetails(enrollmentId);
@@ -3497,7 +4281,7 @@ router.patch(
       res.json({
         success: true,
         ssn: {
-          masked: displaySSN(normalized, { reveal: false, role: '' }),
+          masked: displaySSN(normalized, { reveal: false, role: "" }),
           formatted: decryptedSSN,
         },
       });
@@ -3569,7 +4353,10 @@ router.patch(
       res.json({ success: true, enrollment });
     } catch (error: any) {
       console.error("Error updating enrollment personal info:", error);
-      res.status(500).json({ message: "Failed to update personal info", error: error.message });
+      res.status(500).json({
+        message: "Failed to update personal info",
+        error: error.message,
+      });
     }
   },
 );
@@ -3587,62 +4374,77 @@ router.patch(
       return res.status(400).json({ message: "Invalid enrollment ID" });
     }
 
-    const { routingNumber, accountNumber, accountType, accountHolderName, reason } = req.body || {};
+    const {
+      routingNumber,
+      accountNumber,
+      accountType,
+      accountHolderName,
+      reason,
+    } = req.body || {};
     const updates: Record<string, any> = {};
 
-    if (typeof routingNumber === 'string' && routingNumber.trim().length > 0) {
-      const normalizedRouting = routingNumber.replace(/\D/g, '');
+    if (typeof routingNumber === "string" && routingNumber.trim().length > 0) {
+      const normalizedRouting = routingNumber.replace(/\D/g, "");
       if (!/^\d{9}$/.test(normalizedRouting)) {
-        return res.status(400).json({ message: 'Routing number must be exactly 9 digits' });
+        return res
+          .status(400)
+          .json({ message: "Routing number must be exactly 9 digits" });
       }
       updates.bankRoutingNumber = normalizedRouting;
     }
 
-    if (typeof accountNumber === 'string' && accountNumber.trim().length > 0) {
-      const normalizedAccount = accountNumber.replace(/\D/g, '');
+    if (typeof accountNumber === "string" && accountNumber.trim().length > 0) {
+      const normalizedAccount = accountNumber.replace(/\D/g, "");
       if (!/^\d{4,17}$/.test(normalizedAccount)) {
-        return res.status(400).json({ message: 'Account number must be 4-17 digits' });
+        return res
+          .status(400)
+          .json({ message: "Account number must be 4-17 digits" });
       }
       updates.bankAccountNumber = encryptSensitiveData(normalizedAccount);
       updates.bankAccountLastFour = normalizedAccount.slice(-4);
     }
 
-    if (typeof accountType === 'string' && accountType.trim().length > 0) {
+    if (typeof accountType === "string" && accountType.trim().length > 0) {
       const normalizedType = accountType.trim();
-      if (!['Checking', 'Savings'].includes(normalizedType)) {
-        return res.status(400).json({ message: 'Account type must be Checking or Savings' });
+      if (!["Checking", "Savings"].includes(normalizedType)) {
+        return res
+          .status(400)
+          .json({ message: "Account type must be Checking or Savings" });
       }
       updates.bankAccountType = normalizedType;
     }
 
-    if (typeof accountHolderName === 'string') {
+    if (typeof accountHolderName === "string") {
       updates.bankAccountHolderName = accountHolderName.trim();
     }
 
     if (!Object.keys(updates).length) {
-      return res.status(400).json({ message: 'No bank fields provided' });
+      return res.status(400).json({ message: "No bank fields provided" });
     }
 
     try {
       await storage.updateMember(enrollmentId, updates);
 
       try {
-        await storage.supabase.from('admin_logs').insert({
-          log_type: 'sensitive_data_update',
+        await storage.supabase.from("admin_logs").insert({
+          log_type: "sensitive_data_update",
           admin_id: req.user?.id,
           admin_email: req.user?.email,
           member_id: enrollmentId,
-          action: 'update_member_bank_info',
-          reason: typeof reason === 'string' ? reason : null,
+          action: "update_member_bank_info",
+          reason: typeof reason === "string" ? reason : null,
           metadata: {
             updated_fields: Object.keys(updates),
           },
           ip_address: req.ip,
-          user_agent: req.get('user-agent'),
-          created_at: new Date().toISOString()
+          user_agent: req.get("user-agent"),
+          created_at: new Date().toISOString(),
         });
       } catch (logError) {
-        console.warn('[Admin] Could not save bank info update audit log to database', logError);
+        console.warn(
+          "[Admin] Could not save bank info update audit log to database",
+          logError,
+        );
       }
 
       res.json({
@@ -3652,11 +4454,11 @@ router.patch(
           accountLastFour: updates.bankAccountLastFour || null,
           accountType: updates.bankAccountType || null,
           accountHolderName: updates.bankAccountHolderName || null,
-        }
+        },
       });
     } catch (error: any) {
-      console.error('Error updating enrollment bank info:', error);
-      res.status(500).json({ message: 'Failed to update bank info' });
+      console.error("Error updating enrollment bank info:", error);
+      res.status(500).json({ message: "Failed to update bank info" });
     }
   },
 );
@@ -3703,7 +4505,9 @@ router.patch(
       res.json({ success: true, enrollment });
     } catch (error: any) {
       console.error("Error updating enrollment address:", error);
-      res.status(500).json({ message: "Failed to update address", error: error.message });
+      res
+        .status(500)
+        .json({ message: "Failed to update address", error: error.message });
     }
   },
 );
@@ -3713,7 +4517,9 @@ router.patch(
   authenticateToken,
   async (req: AuthRequest, res) => {
     if (!hasAgentOrAdminAccess(req.user?.role)) {
-      return res.status(403).json({ message: "Agent or admin access required" });
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     const { memberId } = req.params;
@@ -3727,12 +4533,7 @@ router.patch(
       return res.status(403).json({ message: "Access denied to this member" });
     }
 
-    const {
-      action = "change",
-      planId,
-      memberType,
-      reason,
-    } = req.body || {};
+    const { action = "change", planId, memberType, reason } = req.body || {};
 
     const normalizedAction = String(action || "change").toLowerCase();
     if (!["change", "cancel", "reactivate"].includes(normalizedAction)) {
@@ -3748,7 +4549,8 @@ router.patch(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const existingSubscription = await storage.getSubscriptionByMemberId(parsedMemberId);
+      const existingSubscription =
+        await storage.getSubscriptionByMemberId(parsedMemberId);
 
       if (normalizedAction === "cancel") {
         const cancellationReason =
@@ -3758,7 +4560,7 @@ router.patch(
 
         const immediateCancel = Boolean(
           req.body?.immediate === true &&
-            ["admin", "super_admin"].includes(req.user.role)
+          ["admin", "super_admin"].includes(req.user.role),
         );
 
         if (!existingSubscription) {
@@ -3774,18 +4576,21 @@ router.patch(
           });
 
           if (existingSubscription.status !== "cancelled") {
-            subscription = await storage.updateSubscription(existingSubscription.id, {
-              status: "cancelled",
-              pendingReason: "member_cancelled",
-              pendingDetails: JSON.stringify({
-                reason: cancellationReason,
-                immediate: true,
-                requestedByUserId: req.user.id,
-                requestedByRole: req.user.role,
-                requestedAt: new Date().toISOString(),
-              }),
-              updatedAt: new Date(),
-            });
+            subscription = await storage.updateSubscription(
+              existingSubscription.id,
+              {
+                status: "cancelled",
+                pendingReason: "member_cancelled",
+                pendingDetails: JSON.stringify({
+                  reason: cancellationReason,
+                  immediate: true,
+                  requestedByUserId: req.user.id,
+                  requestedByRole: req.user.role,
+                  requestedAt: new Date().toISOString(),
+                }),
+                updatedAt: new Date(),
+              },
+            );
           }
 
           try {
@@ -3801,38 +4606,51 @@ router.patch(
               created_at: new Date().toISOString(),
             });
           } catch (logError) {
-            console.warn("[Membership Action] Failed to write admin_override_cancel log", logError);
+            console.warn(
+              "[Membership Action] Failed to write admin_override_cancel log",
+              logError,
+            );
           }
         } else {
           if (!existingSubscription.nextBillingDate) {
             return res.status(409).json({
-              message: "Unable to schedule cancellation: next billing date is missing",
+              message:
+                "Unable to schedule cancellation: next billing date is missing",
             });
           }
 
-          const nextBillingDate = new Date(existingSubscription.nextBillingDate);
+          const nextBillingDate = new Date(
+            existingSubscription.nextBillingDate,
+          );
           if (Number.isNaN(nextBillingDate.getTime())) {
             return res.status(409).json({
-              message: "Unable to schedule cancellation: invalid next billing date",
+              message:
+                "Unable to schedule cancellation: invalid next billing date",
             });
           }
 
-          const paidThroughDate = addDaysLocal(formatLocalDate(nextBillingDate), -1);
+          const paidThroughDate = addDaysLocal(
+            formatLocalDate(nextBillingDate),
+            -1,
+          );
 
-          subscription = await storage.updateSubscription(existingSubscription.id, {
-            status: "active",
-            endDate: paidThroughDate,
-            pendingReason: "member_cancelled",
-            pendingDetails: JSON.stringify({
-              reason: cancellationReason,
-              immediate: false,
-              requestedByUserId: req.user.id,
-              requestedByRole: req.user.role,
-              requestedAt: new Date().toISOString(),
-              paidThroughDate,
-            }),
-            updatedAt: new Date(),
-          });
+          subscription = await storage.updateSubscription(
+            existingSubscription.id,
+            {
+              status: "active",
+              endDate: paidThroughDate,
+              pendingReason: "member_cancelled",
+              pendingDetails: JSON.stringify({
+                reason: cancellationReason,
+                immediate: false,
+                requestedByUserId: req.user.id,
+                requestedByRole: req.user.role,
+                requestedAt: new Date().toISOString(),
+                paidThroughDate,
+              }),
+              updatedAt: new Date(),
+            },
+          );
 
           const { data: memberData, error: memberUpdateError } = await supabase
             .from("members")
@@ -3873,7 +4691,10 @@ router.patch(
               created_at: new Date().toISOString(),
             });
           } catch (logError) {
-            console.warn("[Membership Action] Failed to write member_cancel_requested log", logError);
+            console.warn(
+              "[Membership Action] Failed to write member_cancel_requested log",
+              logError,
+            );
           }
         }
 
@@ -3882,7 +4703,9 @@ router.patch(
         if (immediateCancel) {
           await applyCancellationToLedger({
             memberId: String(parsedMemberId),
-            cancellationDate: formatLocalDate(member?.cancellation_date || new Date()),
+            cancellationDate: formatLocalDate(
+              member?.cancellation_date || new Date(),
+            ),
             cancellationReason,
             createReversalForPaid: true,
           });
@@ -3919,15 +4742,24 @@ router.patch(
           // Clear any stale pending plan change — do not auto-reapply on reactivation.
 
           if (existingSubscription.nextBillingDate) {
-            const currentNextBilling = new Date(existingSubscription.nextBillingDate);
-            if (!Number.isNaN(currentNextBilling.getTime()) && currentNextBilling < now) {
-              subscriptionUpdates.nextBillingDate = calculateNextBillingDate(now);
+            const currentNextBilling = new Date(
+              existingSubscription.nextBillingDate,
+            );
+            if (
+              !Number.isNaN(currentNextBilling.getTime()) &&
+              currentNextBilling < now
+            ) {
+              subscriptionUpdates.nextBillingDate =
+                calculateNextBillingDate(now);
             }
           } else {
             subscriptionUpdates.nextBillingDate = calculateNextBillingDate(now);
           }
 
-          subscription = await storage.updateSubscription(existingSubscription.id, subscriptionUpdates);
+          subscription = await storage.updateSubscription(
+            existingSubscription.id,
+            subscriptionUpdates,
+          );
         }
 
         const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
@@ -3951,7 +4783,8 @@ router.patch(
 
       if (!parsedPlanId && !normalizedMemberType) {
         return res.status(400).json({
-          message: "Provide at least one of planId or memberType for membership changes",
+          message:
+            "Provide at least one of planId or memberType for membership changes",
         });
       }
 
@@ -4000,7 +4833,8 @@ router.patch(
           if (!nextBillingDate || Number.isNaN(nextBillingDate.getTime())) {
             return res.status(422).json({
               success: false,
-              message: "Cannot schedule plan change: subscription is missing a valid next_billing_date. Please resolve billing date first.",
+              message:
+                "Cannot schedule plan change: subscription is missing a valid next_billing_date. Please resolve billing date first.",
             });
           }
 
@@ -4019,11 +4853,14 @@ router.patch(
             effective_date: effectiveDateIso,
           };
 
-          subscription = await storage.updateSubscription(existingSubscription.id, {
-            pendingReason: "plan_change",
-            pendingDetails: JSON.stringify(pendingDetails),
-            updatedAt: new Date(),
-          });
+          subscription = await storage.updateSubscription(
+            existingSubscription.id,
+            {
+              pendingReason: "plan_change",
+              pendingDetails: JSON.stringify(pendingDetails),
+              updatedAt: new Date(),
+            },
+          );
 
           try {
             await supabase.from("admin_logs").insert({
@@ -4037,7 +4874,10 @@ router.patch(
               created_at: new Date().toISOString(),
             });
           } catch (logError) {
-            console.warn("[Membership Action] Failed to write plan_change_scheduled log", logError);
+            console.warn(
+              "[Membership Action] Failed to write plan_change_scheduled log",
+              logError,
+            );
           }
 
           resolvedPlanChangeMessage = `Plan ${pendingDetails.type} scheduled. New plan takes effect on ${effectiveDateIso}.`;
@@ -4046,14 +4886,23 @@ router.patch(
           memberUpdates.planId = resolvedPlan.id;
           memberUpdates.totalMonthlyPrice = resolvedPlan.price;
 
-          subscription = await storage.updateSubscription(existingSubscription.id, {
-            planId: resolvedPlan.id,
-            amount: resolvedPlan.price,
-            // Clear any stale pending plan_change if admin is forcing immediate
-            pendingReason: existingSubscription.pendingReason === "plan_change" ? null : existingSubscription.pendingReason,
-            pendingDetails: existingSubscription.pendingReason === "plan_change" ? null : existingSubscription.pendingDetails,
-            updatedAt: new Date(),
-          });
+          subscription = await storage.updateSubscription(
+            existingSubscription.id,
+            {
+              planId: resolvedPlan.id,
+              amount: resolvedPlan.price,
+              // Clear any stale pending plan_change if admin is forcing immediate
+              pendingReason:
+                existingSubscription.pendingReason === "plan_change"
+                  ? null
+                  : existingSubscription.pendingReason,
+              pendingDetails:
+                existingSubscription.pendingReason === "plan_change"
+                  ? null
+                  : existingSubscription.pendingDetails,
+              updatedAt: new Date(),
+            },
+          );
 
           try {
             await supabase.from("admin_logs").insert({
@@ -4068,7 +4917,10 @@ router.patch(
               created_at: new Date().toISOString(),
             });
           } catch (logError) {
-            console.warn("[Membership Action] Failed to write plan_change_immediate log", logError);
+            console.warn(
+              "[Membership Action] Failed to write plan_change_immediate log",
+              logError,
+            );
           }
         }
       } else if (resolvedPlan) {
@@ -4191,7 +5043,9 @@ router.patch(
     }
 
     if (typeof isTestMember !== "boolean") {
-      return res.status(400).json({ message: "isTestMember must be a boolean" });
+      return res
+        .status(400)
+        .json({ message: "isTestMember must be a boolean" });
     }
 
     try {
@@ -4267,7 +5121,8 @@ router.post(
     try {
       const member = await storage.restoreMember(memberId, {
         restoredBy: req.user?.id || null,
-        targetStatus: typeof targetStatus === "string" ? targetStatus : undefined,
+        targetStatus:
+          typeof targetStatus === "string" ? targetStatus : undefined,
       });
 
       res.json({
@@ -4305,11 +5160,17 @@ router.delete(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const normalizedStatus = String(existingMember.status || "").toLowerCase();
-      const canDeleteByStatus = normalizedStatus === 'archived' || normalizedStatus === 'cancelled' || normalizedStatus === 'inactive';
+      const normalizedStatus = String(
+        existingMember.status || "",
+      ).toLowerCase();
+      const canDeleteByStatus =
+        normalizedStatus === "archived" ||
+        normalizedStatus === "cancelled" ||
+        normalizedStatus === "inactive";
       if (!canDeleteByStatus && force !== true) {
         return res.status(400).json({
-          message: "Archive, cancel, or inactivate the membership before hard delete (or pass force=true)",
+          message:
+            "Archive, cancel, or inactivate the membership before hard delete (or pass force=true)",
           status: existingMember.status,
         });
       }
@@ -4349,33 +5210,52 @@ router.get(
 
       // Fallback for environments where newer optional membership columns may not exist yet.
       try {
-        const [totalResult, activeResult, archivedResult, groupTotalResult, groupActiveResult, groupTerminatedResult] = await Promise.all([
+        const [
+          totalResult,
+          activeResult,
+          archivedResult,
+          groupTotalResult,
+          groupActiveResult,
+          groupTerminatedResult,
+        ] = await Promise.all([
+          supabase.from("members").select("id", { count: "exact", head: true }),
           supabase
-            .from('members')
-            .select('id', { count: 'exact', head: true }),
+            .from("members")
+            .select("id", { count: "exact", head: true })
+            .neq("status", "archived"),
           supabase
-            .from('members')
-            .select('id', { count: 'exact', head: true })
-            .neq('status', 'archived'),
+            .from("members")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "archived"),
           supabase
-            .from('members')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'archived'),
+            .from("group_members")
+            .select("id", { count: "exact", head: true }),
           supabase
-            .from('group_members')
-            .select('id', { count: 'exact', head: true }),
+            .from("group_members")
+            .select("id", { count: "exact", head: true })
+            .neq("status", "terminated"),
           supabase
-            .from('group_members')
-            .select('id', { count: 'exact', head: true })
-            .neq('status', 'terminated'),
-          supabase
-            .from('group_members')
-            .select('id', { count: 'exact', head: true })
-            .eq('status', 'terminated'),
+            .from("group_members")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "terminated"),
         ]);
 
-        if (totalResult.error || activeResult.error || archivedResult.error || groupTotalResult.error || groupActiveResult.error || groupTerminatedResult.error) {
-          throw totalResult.error || activeResult.error || archivedResult.error || groupTotalResult.error || groupActiveResult.error || groupTerminatedResult.error;
+        if (
+          totalResult.error ||
+          activeResult.error ||
+          archivedResult.error ||
+          groupTotalResult.error ||
+          groupActiveResult.error ||
+          groupTerminatedResult.error
+        ) {
+          throw (
+            totalResult.error ||
+            activeResult.error ||
+            archivedResult.error ||
+            groupTotalResult.error ||
+            groupActiveResult.error ||
+            groupTerminatedResult.error
+          );
         }
 
         const individualTotal = Number(totalResult.count) || 0;
@@ -4437,9 +5317,11 @@ router.get(
           : 10;
 
         const { data, error: fallbackError } = await supabase
-          .from('members')
-          .select('id, first_name, last_name, date_of_birth, email, customer_number, member_public_id, status, is_active, created_at')
-          .order('created_at', { ascending: false })
+          .from("members")
+          .select(
+            "id, first_name, last_name, date_of_birth, email, customer_number, member_public_id, status, is_active, created_at",
+          )
+          .order("created_at", { ascending: false })
           .limit(2000);
 
         if (fallbackError) {
@@ -4448,7 +5330,7 @@ router.get(
 
         const grouped = new Map<string, any[]>();
         for (const row of data || []) {
-          const key = `${row.first_name || ''}|${row.last_name || ''}|${row.date_of_birth || ''}`;
+          const key = `${row.first_name || ""}|${row.last_name || ""}|${row.date_of_birth || ""}`;
           if (!grouped.has(key)) {
             grouped.set(key, []);
           }
@@ -4460,7 +5342,7 @@ router.get(
           .sort((a, b) => b[1].length - a[1].length)
           .slice(0, limit)
           .map(([key, members]) => {
-            const [firstName, lastName, dateOfBirth] = key.split('|');
+            const [firstName, lastName, dateOfBirth] = key.split("|");
             return {
               matchFields: {
                 firstName,
@@ -4541,27 +5423,46 @@ router.get(
       const months = Number.isFinite(monthsRaw)
         ? Math.min(Math.max(Math.trunc(monthsRaw), 1), 24)
         : 6;
-      const sinceRaw = typeof req.query.since === "string" ? req.query.since : undefined;
+      const sinceRaw =
+        typeof req.query.since === "string" ? req.query.since : undefined;
       const sinceDate = parseDateInput(sinceRaw);
       const download = String(req.query.download || "").toLowerCase() === "csv";
-      const downloadFormatRaw = String(req.query.format || "summary-csv").toLowerCase();
-      const downloadFormat = downloadFormatRaw === "ops-csv" ? "ops-csv" : "summary-csv";
+      const downloadFormatRaw = String(
+        req.query.format || "summary-csv",
+      ).toLowerCase();
+      const downloadFormat =
+        downloadFormatRaw === "ops-csv" ? "ops-csv" : "summary-csv";
 
-      const analytics = await storage.getComprehensiveAnalytics(Math.max(months * 40, 365));
+      const analytics = await storage.getComprehensiveAnalytics(
+        Math.max(months * 40, 365),
+      );
       const payoutDashboard = await getPayoutDashboardData();
 
-      const members = Array.isArray(analytics?.memberReports) ? analytics.memberReports : [];
-      const commissions = Array.isArray(analytics?.commissionReports) ? analytics.commissionReports : [];
+      const members = Array.isArray(analytics?.memberReports)
+        ? analytics.memberReports
+        : [];
+      const commissions = Array.isArray(analytics?.commissionReports)
+        ? analytics.commissionReports
+        : [];
 
-      const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
-      const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      const monthLabel = (date: Date) => date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      const monthStart = (date: Date) =>
+        new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthKey = (date: Date) =>
+        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const monthLabel = (date: Date) =>
+        date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 
       const now = new Date();
       const currentMonthStart = monthStart(now);
       const targetStarts: Date[] = [];
       for (let idx = months - 1; idx >= 0; idx -= 1) {
-        targetStarts.push(new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - idx, 1));
+        targetStarts.push(
+          new Date(
+            currentMonthStart.getFullYear(),
+            currentMonthStart.getMonth() - idx,
+            1,
+          ),
+        );
       }
       const targetMap = new Map(targetStarts.map((d) => [monthKey(d), d]));
 
@@ -4576,7 +5477,9 @@ router.get(
         commissionsPaidCount: 0,
         commissionsPaidAmount: 0,
       }));
-      const monthlyByKey = new Map(monthlyRows.map((row) => [row.monthKey, row]));
+      const monthlyByKey = new Map(
+        monthlyRows.map((row) => [row.monthKey, row]),
+      );
 
       const toDateSafe = (value: any): Date | null => {
         if (!value) return null;
@@ -4606,7 +5509,9 @@ router.get(
           const createdRow = monthlyByKey.get(createdKey);
           if (createdRow) {
             createdRow.commissionRecords += 1;
-            createdRow.commissionAmount += Number(commission?.commissionAmount || 0);
+            createdRow.commissionAmount += Number(
+              commission?.commissionAmount || 0,
+            );
           }
         }
 
@@ -4616,7 +5521,9 @@ router.get(
           const paidRow = monthlyByKey.get(paidKey);
           if (paidRow) {
             paidRow.commissionsPaidCount += 1;
-            paidRow.commissionsPaidAmount += Number(commission?.commissionAmount || 0);
+            paidRow.commissionsPaidAmount += Number(
+              commission?.commissionAmount || 0,
+            );
           }
         }
       }
@@ -4628,16 +5535,24 @@ router.get(
       });
 
       const currentKey = monthKey(currentMonthStart);
-      const previousStart = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() - 1, 1);
+      const previousStart = new Date(
+        currentMonthStart.getFullYear(),
+        currentMonthStart.getMonth() - 1,
+        1,
+      );
       const previousKey = monthKey(previousStart);
-      const currentRow = monthlyByKey.get(currentKey) || monthlyRows[monthlyRows.length - 1];
+      const currentRow =
+        monthlyByKey.get(currentKey) || monthlyRows[monthlyRows.length - 1];
       const previousRow = monthlyByKey.get(previousKey) || null;
 
       const calcDelta = (current: number, previous: number) => ({
         current,
         previous,
         delta: current - previous,
-        deltaPct: previous === 0 ? null : round2(((current - previous) / previous) * 100),
+        deltaPct:
+          previous === 0
+            ? null
+            : round2(((current - previous) / previous) * 100),
       });
 
       const sinceMemberships = sinceDate
@@ -4704,7 +5619,7 @@ router.get(
 
       const csvEscape = (value: unknown): string => {
         const text = value === null || value === undefined ? "" : String(value);
-        if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+        if (text.includes(",") || text.includes('"') || text.includes("\n")) {
           return `"${text.replace(/"/g, '""')}"`;
         }
         return text;
@@ -4723,19 +5638,27 @@ router.get(
           return true;
         });
 
-        const byAgent = new Map<string, {
-          agentName: string;
-          agentNumber: string;
-          rows: any[];
-          totalAmount: number;
-          unpaidAmount: number;
-          unpaidCount: number;
-          paidAmount: number;
-          paidCount: number;
-        }>();
+        const byAgent = new Map<
+          string,
+          {
+            agentName: string;
+            agentNumber: string;
+            rows: any[];
+            totalAmount: number;
+            unpaidAmount: number;
+            unpaidCount: number;
+            paidAmount: number;
+            paidCount: number;
+          }
+        >();
 
         for (const commission of filteredCommissions) {
-          const agentIdKey = String(commission?.agentNumber || commission?.agentName || commission?.id || "unknown-agent");
+          const agentIdKey = String(
+            commission?.agentNumber ||
+              commission?.agentName ||
+              commission?.id ||
+              "unknown-agent",
+          );
           const existing = byAgent.get(agentIdKey) || {
             agentName: String(commission?.agentName || "Unknown Agent"),
             agentNumber: String(commission?.agentNumber || ""),
@@ -4748,7 +5671,9 @@ router.get(
           };
 
           const amount = Number(commission?.commissionAmount || 0);
-          const paymentStatus = String(commission?.paymentStatus || "pending").toLowerCase();
+          const paymentStatus = String(
+            commission?.paymentStatus || "pending",
+          ).toLowerCase();
           existing.rows.push(commission);
           existing.totalAmount += amount;
           if (paymentStatus === "paid") {
@@ -4788,7 +5713,9 @@ router.get(
         const agentKeys = Array.from(byAgent.keys()).sort((a, b) => {
           const left = byAgent.get(a);
           const right = byAgent.get(b);
-          return String(left?.agentName || "").localeCompare(String(right?.agentName || ""));
+          return String(left?.agentName || "").localeCompare(
+            String(right?.agentName || ""),
+          );
         });
 
         for (const key of agentKeys) {
@@ -4801,7 +5728,10 @@ router.get(
             return left.localeCompare(right);
           });
 
-          const carryForwardFlag = agent.unpaidAmount > 0 && agent.unpaidAmount < carryForwardThreshold ? "Y" : "N";
+          const carryForwardFlag =
+            agent.unpaidAmount > 0 && agent.unpaidAmount < carryForwardThreshold
+              ? "Y"
+              : "N";
 
           rows.push([
             agent.agentName,
@@ -4819,7 +5749,9 @@ router.get(
             String(round2(agent.totalAmount)),
             String(round2(agent.unpaidAmount)),
             carryForwardFlag,
-            carryForwardFlag === "Y" ? `Unpaid subtotal below $${carryForwardThreshold}` : "",
+            carryForwardFlag === "Y"
+              ? `Unpaid subtotal below $${carryForwardThreshold}`
+              : "",
           ]);
 
           for (const commission of sortedRows) {
@@ -4853,9 +5785,18 @@ router.get(
         rows.push(["Generated At", responsePayload.generatedAt]);
         rows.push(["Months", String(months)]);
         rows.push(["Since", responsePayload.since || ""]);
-        rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
-        rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
-        rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
+        rows.push([
+          "Payout Next Date",
+          String(responsePayload.payoutReadiness.nextPayoutDate || ""),
+        ]);
+        rows.push([
+          "Payout Total Payable",
+          String(responsePayload.payoutReadiness.totalPayableAmount),
+        ]);
+        rows.push([
+          "Payout Total Agents",
+          String(responsePayload.payoutReadiness.totalAgents),
+        ]);
       } else {
         rows.push([
           "Month",
@@ -4884,26 +5825,65 @@ router.get(
         rows.push([]);
         rows.push(["Generated At", responsePayload.generatedAt]);
         rows.push(["Since", responsePayload.since || ""]);
-        rows.push(["MoM Membership Delta", String(responsePayload.membership.monthOverMonth.delta)]);
-        rows.push(["MoM Commission Count Delta", String(responsePayload.commissions.monthOverMonthCount.delta)]);
-        rows.push(["MoM Commission Amount Delta", String(responsePayload.commissions.monthOverMonthAmount.delta)]);
-        rows.push(["Added Since (Memberships)", String(responsePayload.membership.addedSince ?? "")]);
-        rows.push(["Added Since (Commissions Count)", String(responsePayload.commissions.addedSinceCount ?? "")]);
-        rows.push(["Added Since (Commissions Amount)", String(responsePayload.commissions.addedSinceAmount ?? "")]);
-        rows.push(["Payout Next Date", String(responsePayload.payoutReadiness.nextPayoutDate || "")]);
-        rows.push(["Payout Total Payable", String(responsePayload.payoutReadiness.totalPayableAmount)]);
-        rows.push(["Payout Total Agents", String(responsePayload.payoutReadiness.totalAgents)]);
-        rows.push(["Payout Draft Batches", String(responsePayload.payoutReadiness.draftBatchCount)]);
+        rows.push([
+          "MoM Membership Delta",
+          String(responsePayload.membership.monthOverMonth.delta),
+        ]);
+        rows.push([
+          "MoM Commission Count Delta",
+          String(responsePayload.commissions.monthOverMonthCount.delta),
+        ]);
+        rows.push([
+          "MoM Commission Amount Delta",
+          String(responsePayload.commissions.monthOverMonthAmount.delta),
+        ]);
+        rows.push([
+          "Added Since (Memberships)",
+          String(responsePayload.membership.addedSince ?? ""),
+        ]);
+        rows.push([
+          "Added Since (Commissions Count)",
+          String(responsePayload.commissions.addedSinceCount ?? ""),
+        ]);
+        rows.push([
+          "Added Since (Commissions Amount)",
+          String(responsePayload.commissions.addedSinceAmount ?? ""),
+        ]);
+        rows.push([
+          "Payout Next Date",
+          String(responsePayload.payoutReadiness.nextPayoutDate || ""),
+        ]);
+        rows.push([
+          "Payout Total Payable",
+          String(responsePayload.payoutReadiness.totalPayableAmount),
+        ]);
+        rows.push([
+          "Payout Total Agents",
+          String(responsePayload.payoutReadiness.totalAgents),
+        ]);
+        rows.push([
+          "Payout Draft Batches",
+          String(responsePayload.payoutReadiness.draftBatchCount),
+        ]);
       }
 
       const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      const filenamePrefix = downloadFormat === "ops-csv" ? "commission-run-ops" : "commission-run-summary";
-      res.setHeader("Content-Disposition", `attachment; filename="${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv"`);
+      const filenamePrefix =
+        downloadFormat === "ops-csv"
+          ? "commission-run-ops"
+          : "commission-run-summary";
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
       return res.status(200).send(csv);
     } catch (error: any) {
       console.error("Error building commission run summary report:", error);
-      return res.status(500).json({ message: "Failed to build commission run summary report", error: error?.message || "unknown" });
+      return res.status(500).json({
+        message: "Failed to build commission run summary report",
+        error: error?.message || "unknown",
+      });
     }
   },
 );
@@ -4918,8 +5898,14 @@ router.post(
 
     try {
       const { reportType, format, timeRange, email, data } = req.body;
-      const normalizedFormat = ["csv", "xlsx", "pdf"].includes(String(format)) ? String(format) : "csv";
-      const fileBuffer = await generateReportFile(reportType, data, normalizedFormat);
+      const normalizedFormat = ["csv", "xlsx", "pdf"].includes(String(format))
+        ? String(format)
+        : "csv";
+      const fileBuffer = await generateReportFile(
+        reportType,
+        data,
+        normalizedFormat,
+      );
 
       if (email) {
         const sent = await sendAnalyticsReportEmail({
@@ -4931,7 +5917,9 @@ router.post(
         });
 
         if (!sent) {
-          return res.status(500).json({ message: "Failed to send report email" });
+          return res
+            .status(500)
+            .json({ message: "Failed to send report email" });
         }
 
         res.json({ message: "Report sent successfully" });
@@ -4980,12 +5968,26 @@ function generateCSV(reportType: string, data: any): Buffer {
     return `"${text}"`;
   };
 
-  const addRow = (cells: unknown[]): string => `${cells.map(csvEscape).join(",")}\n`;
+  const addRow = (cells: unknown[]): string =>
+    `${cells.map(csvEscape).join(",")}\n`;
 
   let csvContent = "";
 
   if (reportType === "members" && Array.isArray(data)) {
-    csvContent = addRow(["Name", "Email", "Phone", "Plan", "Business Segment", "Status", "Enrolled Date", "Initial Added Date", "Months On Books", "Tenure Bucket", "Total Paid", "Agent"]);
+    csvContent = addRow([
+      "Name",
+      "Email",
+      "Phone",
+      "Plan",
+      "Business Segment",
+      "Status",
+      "Enrolled Date",
+      "Initial Added Date",
+      "Months On Books",
+      "Tenure Bucket",
+      "Total Paid",
+      "Agent",
+    ]);
     data.forEach((member: any) => {
       csvContent += addRow([
         `${member.firstName || ""} ${member.lastName || ""}`.trim(),
@@ -5067,19 +6069,36 @@ function generateCSV(reportType: string, data: any): Buffer {
   } else if (reportType === "revenue" && data && typeof data === "object") {
     csvContent += addRow(["Metric", "Value"]);
     csvContent += addRow(["Total Revenue", data.totalRevenue || 0]);
-    csvContent += addRow(["Subscription Revenue", data.subscriptionRevenue || 0]);
+    csvContent += addRow([
+      "Subscription Revenue",
+      data.subscriptionRevenue || 0,
+    ]);
     csvContent += addRow(["Individual Revenue", data.individualRevenue || 0]);
     csvContent += addRow(["Family Revenue", data.familyRevenue || 0]);
     csvContent += addRow(["Group Revenue", data.groupRevenue || 0]);
     csvContent += addRow(["One-Time Revenue", data.oneTimeRevenue || 0]);
     csvContent += addRow(["Refunds", data.refunds || 0]);
     csvContent += addRow(["Net Revenue", data.netRevenue || 0]);
-    csvContent += addRow(["Projected Annual Revenue", data.projectedAnnualRevenue || 0]);
-    csvContent += addRow(["Average Revenue Per User", data.averageRevenuePerUser || 0]);
+    csvContent += addRow([
+      "Projected Annual Revenue",
+      data.projectedAnnualRevenue || 0,
+    ]);
+    csvContent += addRow([
+      "Average Revenue Per User",
+      data.averageRevenuePerUser || 0,
+    ]);
 
-    const monthlyRows = Array.isArray(data.revenueByMonth) ? data.revenueByMonth : [];
+    const monthlyRows = Array.isArray(data.revenueByMonth)
+      ? data.revenueByMonth
+      : [];
     csvContent += "\n";
-    csvContent += addRow(["Month", "Revenue", "Subscriptions", "One-Time", "Refunds"]);
+    csvContent += addRow([
+      "Month",
+      "Revenue",
+      "Subscriptions",
+      "One-Time",
+      "Refunds",
+    ]);
     monthlyRows.forEach((row: any) => {
       csvContent += addRow([
         row.month,
@@ -5094,21 +6113,48 @@ function generateCSV(reportType: string, data: any): Buffer {
     const sourceBreakdown = overview.sourceBreakdown || {};
     csvContent += addRow(["Metric", "Value"]);
     csvContent += addRow(["Total Members", overview.totalMembers || 0]);
-    csvContent += addRow(["Active Subscriptions", overview.activeSubscriptions || 0]);
+    csvContent += addRow([
+      "Active Subscriptions",
+      overview.activeSubscriptions || 0,
+    ]);
     csvContent += addRow(["Monthly Revenue", overview.monthlyRevenue || 0]);
     csvContent += addRow(["Average Revenue", overview.averageRevenue || 0]);
     csvContent += addRow(["Churn Rate", overview.churnRate || 0]);
     csvContent += addRow(["Growth Rate", overview.growthRate || 0]);
-    csvContent += addRow(["New Enrollments", overview.newEnrollmentsThisMonth || 0]);
-    csvContent += addRow(["Cancellations", overview.cancellationsThisMonth || 0]);
-    csvContent += addRow(["Individual Members", sourceBreakdown.individualMembers || 0]);
-    csvContent += addRow(["Family Members", sourceBreakdown.familyMembers || 0]);
+    csvContent += addRow([
+      "New Enrollments",
+      overview.newEnrollmentsThisMonth || 0,
+    ]);
+    csvContent += addRow([
+      "Cancellations",
+      overview.cancellationsThisMonth || 0,
+    ]);
+    csvContent += addRow([
+      "Individual Members",
+      sourceBreakdown.individualMembers || 0,
+    ]);
+    csvContent += addRow([
+      "Family Members",
+      sourceBreakdown.familyMembers || 0,
+    ]);
     csvContent += addRow(["Group Members", sourceBreakdown.groupMembers || 0]);
-    csvContent += addRow(["Individual Revenue", sourceBreakdown.individualMonthlyRevenue || 0]);
-    csvContent += addRow(["Family Revenue", sourceBreakdown.familyMonthlyRevenue || 0]);
-    csvContent += addRow(["Group Revenue", sourceBreakdown.groupMonthlyRevenue || 0]);
+    csvContent += addRow([
+      "Individual Revenue",
+      sourceBreakdown.individualMonthlyRevenue || 0,
+    ]);
+    csvContent += addRow([
+      "Family Revenue",
+      sourceBreakdown.familyMonthlyRevenue || 0,
+    ]);
+    csvContent += addRow([
+      "Group Revenue",
+      sourceBreakdown.groupMonthlyRevenue || 0,
+    ]);
   } else {
-    csvContent = addRow(["message", "No export data found for selected report type"]);
+    csvContent = addRow([
+      "message",
+      "No export data found for selected report type",
+    ]);
   }
 
   return Buffer.from(csvContent);
@@ -5153,49 +6199,9 @@ router.put(
 router.get(
   "/api/agent/enrollments",
   authenticateToken,
-  async (req: AuthRequest, res) => {
-    console.log("🔍 AGENT ENROLLMENTS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-
-    if (!hasAgentOrAdminAccess(req.user!.role)) {
-      console.log("❌ Access denied - not agent or admin");
-      return res.status(403).json({ message: "Agent or admin access required" });
-    }
-
-    try {
-      const { startDate, endDate } = req.query;
-      let enrollments;
-
-      if (isAdmin(req.user!.role)) {
-        // Admin and super_admin see all enrollments
-        enrollments = await storage.getAllEnrollments(
-          startDate as string, 
-          endDate as string
-        );
-      } else {
-        // Agent sees only their enrollments
-        enrollments = await storage.getAgentEnrollments(
-          req.user!.id,
-          startDate as string,
-          endDate as string
-        );
-      }
-
-      const revealSsn = shouldRevealEnrollmentSsn(req);
-      const revealRole = req.user?.role || '';
-      const { decryptSSN } = await import('./utils/encryption');
-      const enrollmentsWithSsn = (enrollments || []).map((enrollment: any) => ({
-        ...enrollment,
-        ssn: enrollment?.ssn
-          ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
-          : null,
-      }));
-
-      console.log("✅ Got", enrollmentsWithSsn?.length || 0, "enrollments");
-      res.json(enrollmentsWithSsn);
-    } catch (error) {
-      console.error("❌ Error fetching agent enrollments:", error);
-      res.status(500).json({ message: "Failed to fetch enrollments" });
-    }
+  (_req: AuthRequest, _res: any, next: any) => {
+    // Defer to the scoped app-level handler registered later in this file.
+    return next();
   },
 );
 
@@ -5221,10 +6227,10 @@ router.get(
 
       // Get users from commissions in Supabase
       const { data: agentCommissions } = await supabase
-        .from('agent_commissions')
-        .select('member_id')
-        .eq('agent_id', req.user!.id);
-      
+        .from("agent_commissions")
+        .select("member_id")
+        .eq("agent_id", req.user!.id);
+
       const commissionUserIds = agentCommissions?.map((c) => c.member_id) || [];
 
       // Fetch additional users from commissions that weren't directly enrolled
@@ -5238,33 +6244,27 @@ router.get(
 
       const allMembers = [...enrolledUsers, ...additionalUsers];
       const revealSsn = shouldRevealEnrollmentSsn(req);
-      const revealRole = req.user?.role || '';
-
-      // Get subscription info for each member
-      const { decryptSSN } = await import('./utils/encryption');
+      const revealRole = req.user?.role || "";
+      const { decryptSSN } = await import("./utils/encryption");
 
       const membersWithDetails = await Promise.all(
-        allMembers.map(async (member) => {
+        allMembers.map(async (member: any) => {
           const subscription = await storage.getUserSubscription(member.id);
           const familyMembers = await storage.getFamilyMembers(member.id);
 
-          // Reveal SSN by default for authorized enrollment viewers unless explicitly masked.
-          const memberSSN = member.ssn
-            ? displaySSN(decryptSSN(member.ssn), { reveal: revealSsn, role: revealRole })
-            : null;
-          const maskedFamily = familyMembers.map((fm: any) => ({
-            ...fm,
-            ssn: fm.ssn
-              ? displaySSN(decryptSSN(fm.ssn), { reveal: revealSsn, role: revealRole })
-              : null,
-          }));
-
           return {
             ...member,
-            ssn: memberSSN,
+            ssn: member?.ssn
+              ? displaySSN(decryptSSN(member.ssn), {
+                  reveal: revealSsn,
+                  role: revealRole,
+                })
+              : null,
             subscription,
-            familyMembers: maskedFamily,
-            totalFamilyMembers: familyMembers.length,
+            familyMembers,
+            familyCount: Array.isArray(familyMembers)
+              ? familyMembers.length
+              : 0,
           };
         }),
       );
@@ -5272,130 +6272,10 @@ router.get(
       res.json(membersWithDetails);
     } catch (error) {
       console.error("Error fetching agent members:", error);
-      res.status(500).json({ message: "Failed to fetch agent members" });
+      res.status(500).json({ message: "Failed to fetch members" });
     }
   },
 );
-
-// Agent failed payments route - allows agents to see and retry failed payments for their members
-router.get(
-  "/api/agent/failed-payments",
-  authenticateToken,
-  async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
-    }
-
-    try {
-      const includeArchived = ['1', 'true', 'yes'].includes(String(req.query.includeArchived || '').toLowerCase());
-      const failedPayments = await storage.getAgentFailedPayments(req.user!.id, { includeArchived });
-
-      // Format and enrich the response
-      const formattedPayments = failedPayments.map((payment) => {
-        const hostedCallback = payment.metadata?.hostedCallback && typeof payment.metadata.hostedCallback === 'object'
-          ? payment.metadata.hostedCallback
-          : null;
-
-        const persistedFailureReason =
-          (typeof payment.failure_reason === 'string' && payment.failure_reason.trim())
-          || (typeof payment.failureReason === 'string' && payment.failureReason.trim())
-          || '';
-
-        let normalizedFailureReason = persistedFailureReason || null;
-        let normalizedDeclineCode: string | null = null;
-
-        if (persistedFailureReason.startsWith('{') && persistedFailureReason.endsWith('}')) {
-          try {
-            const parsed = JSON.parse(persistedFailureReason);
-            const rawStatusMessage =
-              (typeof parsed?.StatusMessage === 'string' && parsed.StatusMessage.trim())
-              || (typeof parsed?.statusMessage === 'string' && parsed.statusMessage.trim())
-              || null;
-            const parsedCode =
-              (typeof parsed?.StatusCode === 'string' && parsed.StatusCode.trim())
-              || (typeof parsed?.statusCode === 'string' && parsed.statusCode.trim())
-              || null;
-            const codeFromMessage = rawStatusMessage?.match(/\b(\d{2,3})\b/)?.[1] || null;
-            normalizedDeclineCode = (parsedCode || codeFromMessage || null);
-
-            if (rawStatusMessage) {
-              const upper = rawStatusMessage.toUpperCase();
-              if (upper.includes('INSUFF') || upper.includes('INSUFFICIENT') || upper.includes('NSF') || normalizedDeclineCode === '51') {
-                normalizedFailureReason = 'Insufficient funds';
-              } else if (upper.includes('DECLINED') || upper.includes('DO NOT HONOR') || normalizedDeclineCode === '05') {
-                normalizedFailureReason = 'Card declined by issuer';
-              } else if (upper.includes('INVALID') || upper.includes('EXPIRED') || normalizedDeclineCode === '14' || normalizedDeclineCode === '54') {
-                normalizedFailureReason = 'Card information invalid or expired';
-              } else {
-                normalizedFailureReason = rawStatusMessage;
-              }
-            }
-          } catch {
-            // Keep persisted failure reason as-is when blob parsing fails.
-          }
-        }
-
-        const failureReason =
-          hostedCallback?.declineReason
-          || hostedCallback?.message
-          || normalizedFailureReason
-          || payment.metadata?.StatusMessage
-          || 'Payment declined';
-        const declineCode =
-          hostedCallback?.declineCode
-          || payment.metadata?.StatusCode
-          || payment.metadata?.statusCode
-          || normalizedDeclineCode
-          || null;
-
-        return {
-          id: payment.id,
-          transactionId: payment.transaction_id,
-          amount: parseFloat(payment.amount),
-          status: payment.status,
-          paymentMethod: payment.payment_method,
-          failureReason,
-          declineCode,
-          createdAt: payment.created_at,
-          updatedAt: payment.updated_at,
-          member: {
-            id: payment.member_id,
-            firstName: payment.member_first_name,
-            lastName: payment.member_last_name,
-            email: payment.member_email,
-            phone: payment.member_phone,
-            customerNumber: payment.member_customer_number,
-            monthlyPrice: parseFloat(payment.member_monthly_price || payment.plan_monthly_price || '0')
-          },
-          plan: {
-            name: payment.plan_name,
-            monthlyPrice: parseFloat(payment.plan_monthly_price || '0')
-          },
-          commission: {
-            amount: payment.commission_amount ? parseFloat(payment.commission_amount) : null,
-            status: payment.commission_status
-          },
-          verification: buildPaymentVerificationSummary(payment),
-          canRetry: payment.status === 'failed' || payment.status === 'declined',
-          metadata: payment.metadata
-        };
-      });
-
-      res.json({
-        success: true,
-        payments: formattedPayments,
-        total: formattedPayments.length
-      });
-    } catch (error) {
-      console.error("Error fetching agent failed payments:", error);
-      res.status(500).json({ 
-        success: false,
-        message: "Failed to fetch failed payments" 
-      });
-    }
-  },
-);
-
 
 router.get(
   "/api/agent/members/:memberId",
@@ -5408,13 +6288,11 @@ router.get(
     try {
       const { memberId } = req.params;
 
-      // Verify agent has access to this member
       const member = await storage.getUser(memberId);
       if (!member) {
         return res.status(404).json({ message: "Member not found" });
       }
 
-      // Check if agent enrolled this user or has commissions for them
       const hasAccess =
         member.enrolledByAgentId === req.user!.id ||
         (await storage.getCommissionByUserId(memberId, req.user!.id));
@@ -5425,16 +6303,29 @@ router.get(
           .json({ message: "Access denied to this member" });
       }
 
-      // Get complete member details
-      const subscription = await storage.getUserSubscription(memberId);
-      const familyMembers = await storage.getFamilyMembers(memberId);
-      const payments = await storage.getUserPayments(memberId);
+      const [subscription, familyMembers, latestPayment] = await Promise.all([
+        storage.getUserSubscription(memberId),
+        storage.getFamilyMembers(memberId),
+        Number.isFinite(Number(memberId))
+          ? storage.getLatestEnrollmentPayment(Number(memberId))
+          : Promise.resolve(undefined),
+      ]);
 
-      res.json({
+      const revealSsn = shouldRevealEnrollmentSsn(req);
+      const revealRole = req.user?.role || "";
+      const { decryptSSN } = await import("./utils/encryption");
+
+      return res.json({
         ...member,
+        ssn: member?.ssn
+          ? displaySSN(decryptSSN(member.ssn), {
+              reveal: revealSsn,
+              role: revealRole,
+            })
+          : null,
         subscription,
         familyMembers,
-        payments: payments.slice(0, 10), // Last 10 payments
+        payments: latestPayment ? [latestPayment] : [],
       });
     } catch (error) {
       console.error("Error fetching member details:", error);
@@ -5645,214 +6536,9 @@ router.post(
 router.get(
   "/api/agent/stats",
   authenticateToken,
-  async (req: AuthRequest, res) => {
-    console.log("🔍 AGENT STATS ROUTE HIT - User:", req.user?.email, "Role:", req.user?.role);
-
-    if (!hasAgentOrAdminAccess(req.user!.role)) {
-      console.log("❌ Access denied - not agent/admin/super_admin");
-      return res.status(403).json({ message: "Agent or admin access required" });
-    }
-
-    try {
-      const period = typeof req.query.period === 'string' ? req.query.period : undefined;
-      const customStart = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
-      const customEnd = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
-      const requestedAgentIdRaw = req.query.agentId;
-      const requestedAgentId = typeof requestedAgentIdRaw === 'string' ? requestedAgentIdRaw : undefined;
-
-      const { start, end } = getDateRangeFromQuery(period, customStart, customEnd);
-
-      let targetAgentId = req.user!.id;
-      let targetAgentNumber = req.user!.agentNumber || null;
-
-      if (requestedAgentId && requestedAgentId !== targetAgentId) {
-        if (!isAdmin(req.user!.role)) {
-          return res.status(403).json({ message: "Admin access required to view other agents" });
-        }
-
-        const targetAgent = await storage.getUser(requestedAgentId);
-        if (!targetAgent) {
-          return res.status(404).json({ message: "Requested agent not found" });
-        }
-
-        targetAgentId = targetAgent.id;
-        targetAgentNumber = targetAgent.agentNumber || null;
-      }
-
-      console.log('[Agent Stats] Fetching stats for user:', {
-        userId: targetAgentId,
-        email: req.user?.email,
-        role: req.user?.role,
-        agentNumber: targetAgentNumber,
-        period,
-        start: start?.toISOString() || null,
-        end: end?.toISOString() || null,
-      });
-
-      let memberQuery = supabase.from('members').select('*');
-      if (targetAgentId && targetAgentNumber) {
-        memberQuery = memberQuery.or(`enrolled_by_agent_id.eq.${targetAgentId},agent_number.eq.${targetAgentNumber}`);
-      } else if (targetAgentId) {
-        memberQuery = memberQuery.eq('enrolled_by_agent_id', targetAgentId);
-      } else if (targetAgentNumber) {
-        memberQuery = memberQuery.eq('agent_number', targetAgentNumber);
-      }
-
-      const { data: agentMembers, error: memberError } = await memberQuery;
-      if (memberError) {
-        console.error('[Agent Stats] Failed to fetch members:', memberError);
-        return res.status(500).json({ message: 'Failed to fetch agent members' });
-      }
-
-      const allMembers = agentMembers || [];
-      const groupEnrollments = await getGroupEnrollmentRecordsForAgent(targetAgentId);
-      const individualEnrollmentRecords = allMembers.map((member: any) => ({ ...member, source: 'individual' }));
-      const combinedEnrollments = [...individualEnrollmentRecords, ...groupEnrollments];
-      const filteredEnrollments = filterRecordsByDate(combinedEnrollments, start, end);
-
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      monthStart.setHours(0, 0, 0, 0);
-      const yearStart = new Date(now.getFullYear(), 0, 1);
-
-      const membersThisMonth = filterRecordsByDate(combinedEnrollments, monthStart, now);
-      const membersThisYear = filterRecordsByDate(combinedEnrollments, yearStart, now);
-
-      const activeMembers = combinedEnrollments.filter((member: any) =>
-        member.status === 'active' || member.status === 'pending_activation' || member.status === 'registered' || member.isActive
-      ).length;
-
-      const pendingEnrollments = filteredEnrollments.filter((member: any) =>
-        member.status && member.status.toLowerCase().includes('pending')
-      ).length;
-
-      const isFamilyRecord = (record: any): boolean => {
-        const value = String(record?.memberType || record?.coverageType || record?.coverage_type || '').toLowerCase();
-        return value.includes('family') || value.includes('spouse') || value.includes('child');
-      };
-
-      const filteredIndividualRecords = filteredEnrollments.filter((record: any) => record.source !== 'group' && !isFamilyRecord(record));
-      const filteredFamilyRecords = filteredEnrollments.filter((record: any) => record.source !== 'group' && isFamilyRecord(record));
-      const filteredGroupRecords = filteredEnrollments.filter((record: any) => record.source === 'group');
-
-      const monthIndividualRecords = membersThisMonth.filter((record: any) => record.source !== 'group' && !isFamilyRecord(record));
-      const monthFamilyRecords = membersThisMonth.filter((record: any) => record.source !== 'group' && isFamilyRecord(record));
-      const monthGroupRecords = membersThisMonth.filter((record: any) => record.source === 'group');
-
-      const { data: agentCommissions, error: commissionError } = await supabase
-        .from('agent_commissions')
-        .select('*')
-        .eq('agent_id', targetAgentId);
-
-      if (commissionError) {
-        console.error('[Agent Stats] Failed to fetch commissions:', commissionError);
-        return res.status(500).json({ message: 'Failed to fetch agent commissions' });
-      }
-
-      const allCommissions = agentCommissions || [];
-      const filteredCommissions = filterRecordsByDate(allCommissions, start, end);
-      const commissionsThisMonth = allCommissions.filter((commission: any) => new Date(commission.created_at) >= monthStart);
-      const commissionsThisYear = allCommissions.filter((commission: any) => new Date(commission.created_at) >= yearStart);
-
-      const roundCurrency = (value: number) => Number((value || 0).toFixed(2));
-
-      const totalRevenue = roundCurrency(sumEnrollmentRevenue(filteredEnrollments));
-      const totalRevenueAllTime = roundCurrency(sumEnrollmentRevenue(combinedEnrollments));
-      const monthlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisMonth));
-      const monthlyIndividualRevenue = roundCurrency(sumEnrollmentRevenue(monthIndividualRecords));
-      const monthlyFamilyRevenue = roundCurrency(sumEnrollmentRevenue(monthFamilyRecords));
-      const monthlyGroupRevenue = roundCurrency(sumEnrollmentRevenue(monthGroupRecords));
-      const yearlyRevenue = roundCurrency(sumEnrollmentRevenue(membersThisYear));
-      const averageRevenuePerMember = filteredEnrollments.length > 0
-        ? roundCurrency(totalRevenue / filteredEnrollments.length)
-        : 0;
-
-      const totalCommissionsAmount = roundCurrency(sumCommissionAmounts(filteredCommissions));
-      const totalCommissionsAllTime = roundCurrency(sumCommissionAmounts(allCommissions));
-      const monthlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisMonth));
-      const yearlyCommissionsAmount = roundCurrency(sumCommissionAmounts(commissionsThisYear));
-      const paidCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status === 'paid')));
-      const pendingCommissionsAmount = roundCurrency(sumCommissionAmounts(allCommissions.filter((c: any) => c.payment_status !== 'paid')));
-
-      // Get plan distribution for this agent's enrollments
-      const planDistribution: { [key: string]: number } = {};
-      const coverageDistribution: { [key: string]: number } = {};
-      
-      // Get plan names from plan_id lookup
-      for (const member of allMembers.filter((m: any) => m.status === 'active' || m.status === 'pending_activation')) {
-        if (member.plan_id) {
-          try {
-            const { data: planData } = await supabase
-              .from('plans')
-              .select('name')
-              .eq('id', member.plan_id)
-              .single();
-            
-            if (planData?.name) {
-              planDistribution[planData.name] = (planDistribution[planData.name] || 0) + 1;
-            }
-          } catch (err) {
-            console.warn('[Agent Stats] Could not fetch plan name for plan_id:', member.plan_id);
-          }
-        }
-        
-        // Coverage type distribution
-        if (member.coverage_type) {
-          coverageDistribution[member.coverage_type] = (coverageDistribution[member.coverage_type] || 0) + 1;
-        }
-      }
-      
-      const planDistributionArray = Object.entries(planDistribution).map(([plan_name, member_count]) => ({
-        plan_name,
-        member_count
-      }));
-      
-      const coverageDistributionArray = Object.entries(coverageDistribution).map(([coverage_type, count]) => ({
-        coverage_type,
-        count
-      }));
-
-      res.json({
-        totalRevenue,
-        totalRevenueAllTime,
-        monthlyRevenue,
-        individualMonthlyRevenue: monthlyIndividualRevenue,
-        familyMonthlyRevenue: monthlyFamilyRevenue,
-        groupMonthlyRevenue: monthlyGroupRevenue,
-        yearlyRevenue,
-        averageRevenuePerMember,
-        totalEnrollments: filteredEnrollments.length,
-        totalMembers: combinedEnrollments.length,
-        individualEnrollments: filteredIndividualRecords.length,
-        familyEnrollments: filteredFamilyRecords.length,
-        groupEnrollments: filteredGroupRecords.length,
-        monthlyEnrollments: membersThisMonth.length,
-        yearlyEnrollments: membersThisYear.length,
-        pendingEnrollments,
-        activeMembers,
-        totalCommissions: totalCommissionsAmount,
-        totalCommission: totalCommissionsAllTime,
-        monthlyCommissions: monthlyCommissionsAmount,
-        monthlyCommission: monthlyCommissionsAmount,
-        yearlyCommissions: yearlyCommissionsAmount,
-        totalEarned: totalCommissionsAllTime,
-        paidCommissions: paidCommissionsAmount,
-        pendingCommissions: pendingCommissionsAmount,
-        memberGrowth: 0,
-        revenueGrowth: 0,
-        commissionGrowth: 0,
-        activeLeads: 0,
-        conversionRate: 0,
-        leads: [],
-        periodStart: start ? start.toISOString() : null,
-        periodEnd: end ? end.toISOString() : null,
-        planDistribution: planDistributionArray,
-        coverageDistribution: coverageDistributionArray,
-      });
-    } catch (error) {
-      console.error("❌ Error fetching agent stats:", error);
-      res.status(500).json({ message: "Failed to fetch agent stats" });
-    }
+  (_req: AuthRequest, _res: any, next: any) => {
+    // Defer to the scoped app-level handler registered later in this file.
+    return next();
   },
 );
 
@@ -5881,12 +6567,10 @@ router.post(
       } = req.body;
 
       if (!subscriptionId || !userId || !planName || !memberType) {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Missing required fields: subscriptionId, userId, planName, memberType",
-          });
+        return res.status(400).json({
+          message:
+            "Missing required fields: subscriptionId, userId, planName, memberType",
+        });
       }
 
       // Use the helper function to create commission with admin check
@@ -5899,26 +6583,20 @@ router.post(
       );
 
       if (commissionResult.skipped) {
-        return res
-          .status(200)
-          .json({
-            message: "Commission generation skipped",
-            ...commissionResult,
-          });
+        return res.status(200).json({
+          message: "Commission generation skipped",
+          ...commissionResult,
+        });
       } else if (commissionResult.error) {
-        return res
-          .status(500)
-          .json({
-            message: "Failed to generate commission",
-            ...commissionResult,
-          });
+        return res.status(500).json({
+          message: "Failed to generate commission",
+          ...commissionResult,
+        });
       } else {
-        return res
-          .status(201)
-          .json({
-            message: "Commission generated successfully",
-            commission: commissionResult.commission,
-          });
+        return res.status(201).json({
+          message: "Commission generated successfully",
+          commission: commissionResult.commission,
+        });
       }
     } catch (error) {
       console.error("Error initiating commission generation:", error);
@@ -5931,7 +6609,7 @@ router.post(
 async function createCommissionWithCheck(
   agentId: string | null,
   subscriptionId: number,
-  memberId: number,  // Changed from userId to memberId to match schema
+  memberId: number, // Changed from userId to memberId to match schema
   planName: string,
   memberType: string,
   addRxValet: boolean = false,
@@ -5944,7 +6622,11 @@ async function createCommissionWithCheck(
     // All roles (agent, admin, super_admin) with agent numbers can earn commissions
 
     // Calculate commission using existing logic
-    const commissionResult = calculateCommission(planName, memberType, addRxValet);
+    const commissionResult = calculateCommission(
+      planName,
+      memberType,
+      addRxValet,
+    );
     if (!commissionResult) {
       console.warn(
         `No commission rate found for plan: ${planName}, member type: ${memberType}`,
@@ -5953,17 +6635,19 @@ async function createCommissionWithCheck(
     }
 
     // Get agent number from agent profile
-    const agentNumber = agent?.agentNumber || 'HOUSE';
+    const agentNumber = agent?.agentNumber || "HOUSE";
     console.log(`[Commission] Agent number for commission: ${agentNumber}`);
 
     // Determine coverage type from plan name/type
     const planType = getPlanTypeFromMemberType(memberType);
-    let coverageType: AgentCommission['coverage_type'] = 'other';
-    
-    if (planType === 'ACA') coverageType = 'aca';
-    else if (planType === 'Medicare Advantage') coverageType = 'medicare_advantage';
-    else if (planType === 'Medicare Supplement') coverageType = 'medicare_supplement';
-    
+    let coverageType: AgentCommission["coverage_type"] = "other";
+
+    if (planType === "ACA") coverageType = "aca";
+    else if (planType === "Medicare Advantage")
+      coverageType = "medicare_advantage";
+    else if (planType === "Medicare Supplement")
+      coverageType = "medicare_supplement";
+
     // Prepare commission data for dual-write
     const commissionData: AgentCommission = {
       agent_id: agentId || "HOUSE",
@@ -5976,54 +6660,57 @@ async function createCommissionWithCheck(
       carrier: undefined, // To be updated when available
       commission_percentage: undefined, // Calculate from commission amount and base premium if needed
       base_premium: commissionResult.totalCost,
-      status: 'pending',
-      payment_status: 'unpaid'
+      status: "pending",
+      payment_status: "unpaid",
     };
 
-    console.log('[Commission Dual-Write] Creating commission with data:', commissionData);
+    console.log(
+      "[Commission Dual-Write] Creating commission with data:",
+      commissionData,
+    );
 
     const existingCommission = await findExistingCommissionUnit({
       memberId: commissionData.member_id,
       enrollmentId: commissionData.enrollment_id || null,
       agentId: commissionData.agent_id,
-      commissionType: 'direct',
+      commissionType: "direct",
     });
 
     if (existingCommission) {
       return {
         skipped: true,
-        reason: 'commission_unit_exists',
+        reason: "commission_unit_exists",
         existingCommissionId: existingCommission.id,
       };
     }
 
     // Create commission directly in Supabase
     const { data: newCommission, error: commissionError } = await supabase
-      .from('agent_commissions')
+      .from("agent_commissions")
       .insert(commissionData)
       .select()
       .single();
 
-    const result = commissionError ? 
-      { success: false, error: commissionError.message } : 
-      { success: true, agentCommissionId: newCommission.id };
-    
+    const result = commissionError
+      ? { success: false, error: commissionError.message }
+      : { success: true, agentCommissionId: newCommission.id };
+
     if (result.success) {
-      console.log('[Commission Dual-Write] Success:', result);
-      return { 
-        success: true, 
-        commission: { 
+      console.log("[Commission Dual-Write] Success:", result);
+      return {
+        success: true,
+        commission: {
           id: result.agentCommissionId,
-          ...commissionData 
-        }
+          ...commissionData,
+        },
       };
     } else {
-      console.error('[Commission Dual-Write] Failed:', result.error);
+      console.error("[Commission Dual-Write] Failed:", result.error);
       return { error: result.error };
     }
   } catch (error) {
     console.error("Error creating commission:", error);
-    return { error: error instanceof Error ? error.message : 'Unknown error' };
+    return { error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
 
@@ -6031,45 +6718,49 @@ async function findExistingCommissionUnit(options: {
   memberId: string;
   enrollmentId: string | null;
   agentId: string;
-  commissionType: 'direct' | 'override';
+  commissionType: "direct" | "override";
   overrideForAgentId?: string | null;
 }): Promise<{ id: string; commission_amount: number } | null> {
   let query = supabase
-    .from('agent_commissions')
-    .select('id, commission_amount')
-    .eq('member_id', options.memberId)
-    .eq('agent_id', options.agentId)
+    .from("agent_commissions")
+    .select("id, commission_amount")
+    .eq("member_id", options.memberId)
+    .eq("agent_id", options.agentId)
     .limit(1);
 
   if (options.enrollmentId) {
-    query = query.eq('enrollment_id', options.enrollmentId);
+    query = query.eq("enrollment_id", options.enrollmentId);
   } else {
-    query = query.is('enrollment_id', null);
+    query = query.is("enrollment_id", null);
   }
 
-  if (options.commissionType === 'override') {
-    query = query.eq('commission_type', 'override');
+  if (options.commissionType === "override") {
+    query = query.eq("commission_type", "override");
     if (options.overrideForAgentId) {
-      query = query.eq('override_for_agent_id', options.overrideForAgentId);
+      query = query.eq("override_for_agent_id", options.overrideForAgentId);
     }
   } else {
-    query = query.or('commission_type.is.null,commission_type.eq.direct');
+    query = query.or("commission_type.is.null,commission_type.eq.direct");
   }
 
   const { data, error } = await query.maybeSingle();
 
   if (error) {
-    throw new Error(`Failed to inspect existing commission unit: ${error.message}`);
+    throw new Error(
+      `Failed to inspect existing commission unit: ${error.message}`,
+    );
   }
 
   return data || null;
 }
 
 export async function registerRoutes(app: any) {
-
   // Auth middleware - must be after session middleware
   const authMiddleware = async (req: any, res: any, next: any) => {
-    if ((req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") || req.path === "/api/plans") {
+    if (
+      (req.path.startsWith("/api/auth/") && req.path !== "/api/auth/user") ||
+      req.path === "/api/plans"
+    ) {
       return next();
     }
 
@@ -6117,15 +6808,17 @@ export async function registerRoutes(app: any) {
       }
 
       // DEBUG: Log user role for troubleshooting
-      console.log('[Auth] User authenticated:', {
+      console.log("[Auth] User authenticated:", {
         id: userData.id,
         email: userData.email,
         role: userData.role,
         roleType: typeof userData.role,
         roleLength: userData.role?.length,
-        roleBytes: userData.role ? Buffer.from(userData.role).toString('hex') : 'null',
+        roleBytes: userData.role
+          ? Buffer.from(userData.role).toString("hex")
+          : "null",
         agentNumber: userData.agentNumber,
-        path: req.path
+        path: req.path,
       });
 
       // Check approval status
@@ -6180,22 +6873,28 @@ export async function registerRoutes(app: any) {
   // ============================================================
   app.post("/api/registration", async (req: any, res: any) => {
     console.log("[Registration] Member registration attempt");
-    console.log("[Registration] Request body keys:", Object.keys(req.body || {}));
-    console.log("[Registration] FULL REQUEST BODY:", JSON.stringify(req.body, null, 2));
+    console.log(
+      "[Registration] Request body keys:",
+      Object.keys(req.body || {}),
+    );
+    console.log(
+      "[Registration] FULL REQUEST BODY:",
+      JSON.stringify(req.body, null, 2),
+    );
 
     // Add CORS headers for registration endpoint
     const origin = req.headers.origin;
     const allowedOrigins = [
-      'https://getmydpc-enrollment-gjk6m.ondigitalocean.app',
-      'https://enrollment.getmydpc.com',
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:5000'
+      "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
+      "https://enrollment.getmydpc.com",
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:5000",
     ];
 
     if (allowedOrigins.includes(origin as string)) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Access-Control-Allow-Credentials", "true");
     }
 
     try {
@@ -6231,12 +6930,13 @@ export async function registerRoutes(app: any) {
         communicationsConsent,
         faqDownloaded,
         enrolledByAgentId: requestedEnrolledByAgentId,
-        overrideEnrollmentDate  // Admin-only: backdate enrollment (e.g., March 4 → March 1)
+        overrideEnrollmentDate, // Admin-only: backdate enrollment (e.g., March 4 → March 1)
       } = req.body;
 
       const authenticatedUser = await getOptionalAuthenticatedUser(req);
       const normalizedRequestedEnrolledByAgentId =
-        typeof requestedEnrolledByAgentId === 'string' && requestedEnrolledByAgentId.trim().length > 0
+        typeof requestedEnrolledByAgentId === "string" &&
+        requestedEnrolledByAgentId.trim().length > 0
           ? requestedEnrolledByAgentId.trim()
           : null;
 
@@ -6248,7 +6948,10 @@ export async function registerRoutes(app: any) {
         }
 
         const requesterIsAdmin = isAdmin(authenticatedUser.role);
-        if (!requesterIsAdmin && authenticatedUser.id !== normalizedRequestedEnrolledByAgentId) {
+        if (
+          !requesterIsAdmin &&
+          authenticatedUser.id !== normalizedRequestedEnrolledByAgentId
+        ) {
           return res.status(403).json({
             error: "Only admins can assign enrollment to another agent",
           });
@@ -6271,13 +6974,18 @@ export async function registerRoutes(app: any) {
 
       const enrolledByAgentId = normalizedRequestedEnrolledByAgentId;
 
-      const rawSSN = (ssn ?? req.body?.socialSecurityNumber ?? req.body?.social_security_number ?? '').toString();
-      const normalizedSSN = rawSSN.replace(/\D/g, '');
+      const rawSSN = (
+        ssn ??
+        req.body?.socialSecurityNumber ??
+        req.body?.social_security_number ??
+        ""
+      ).toString();
+      const normalizedSSN = rawSSN.replace(/\D/g, "");
 
       // SERVER-SIDE AGENT NUMBER LOOKUP (don't trust client data)
       let agentNumber: string | null = null;
       let agentUser: any = null;
-      
+
       if (enrolledByAgentId) {
         try {
           agentUser = await storage.getUser(enrolledByAgentId);
@@ -6288,27 +6996,41 @@ export async function registerRoutes(app: any) {
               });
             }
 
-            if (!hasAgentOrAdminAccess(agentUser.role)) {
+            if (!hasEnrollmentAttributionAccess(agentUser.role)) {
               return res.status(400).json({
-                error: "Assigned enrolling user must be an agent or admin",
+                error: "Assigned enrolling user must be agent, admin, or staff",
               });
             }
 
-            agentNumber = agentUser.agentNumber || agentUser.agent_number || null;
-            console.log(`[Registration] ✅ Agent lookup: ${agentUser.email} → Agent #${agentNumber || 'NONE'}`);
-            
+            agentNumber =
+              agentUser.agentNumber || agentUser.agent_number || null;
+            console.log(
+              `[Registration] ✅ Agent lookup: ${agentUser.email} → Agent #${agentNumber || "NONE"}`,
+            );
+
             if (!agentNumber) {
-              console.error(`[Registration] ❌ CRITICAL: Agent ${enrolledByAgentId} (${agentUser.email}) has NO agent_number assigned!`);
-              console.error(`[Registration] Commission will NOT be created without agent number!`);
+              console.error(
+                `[Registration] ❌ CRITICAL: Agent ${enrolledByAgentId} (${agentUser.email}) has NO agent_number assigned!`,
+              );
+              console.error(
+                `[Registration] Commission will NOT be created without agent number!`,
+              );
             }
           } else {
-            console.error(`[Registration] ❌ Agent ${enrolledByAgentId} not found in database!`);
+            console.error(
+              `[Registration] ❌ Agent ${enrolledByAgentId} not found in database!`,
+            );
           }
         } catch (agentLookupError: any) {
-          console.error(`[Registration] ❌ Error looking up agent:`, agentLookupError.message);
+          console.error(
+            `[Registration] ❌ Error looking up agent:`,
+            agentLookupError.message,
+          );
         }
       } else {
-        console.warn("[Registration] ⚠️  No enrolledByAgentId provided - enrollment will have no agent association");
+        console.warn(
+          "[Registration] ⚠️  No enrolledByAgentId provided - enrollment will have no agent association",
+        );
       }
 
       console.log("[Registration] Email:", email);
@@ -6319,9 +7041,9 @@ export async function registerRoutes(app: any) {
         memberType: memberType,
         totalMonthlyPrice: totalMonthlyPrice,
         agentNumber: agentNumber,
-        agentEmail: agentUser?.email || 'N/A',
+        agentEmail: agentUser?.email || "N/A",
         enrolledByAgentId: enrolledByAgentId,
-        addRxValet: addRxValet
+        addRxValet: addRxValet,
       });
 
       // Basic validation
@@ -6335,7 +7057,7 @@ export async function registerRoutes(app: any) {
         return res.status(400).json({
           error: "Missing required fields",
           required: ["email", "firstName", "lastName"],
-          missing: missingFields
+          missing: missingFields,
         });
       }
 
@@ -6351,19 +7073,29 @@ export async function registerRoutes(app: any) {
       if (!emailRegex.test(email)) {
         console.error("[Registration] Invalid email format:", email);
         return res.status(400).json({
-          error: "Invalid email format"
+          error: "Invalid email format",
         });
       }
 
       // Check if member already exists
       const normalizedEmail = email.trim().toLowerCase();
-      console.log("[Registration] Checking for existing member with email:", normalizedEmail);
+      console.log(
+        "[Registration] Checking for existing member with email:",
+        normalizedEmail,
+      );
       const existingMember = await storage.getMemberByEmail(normalizedEmail);
-      console.log("[Registration] Existing member check result:", existingMember ? `Found ID ${existingMember.id}` : "Not found");
+      console.log(
+        "[Registration] Existing member check result:",
+        existingMember ? `Found ID ${existingMember.id}` : "Not found",
+      );
       if (existingMember) {
-        console.log("[Registration] Member already exists:", existingMember.id, existingMember.customerNumber);
+        console.log(
+          "[Registration] Member already exists:",
+          existingMember.id,
+          existingMember.customerNumber,
+        );
         return res.status(400).json({
-          error: "Member already exists with this email"
+          error: "Member already exists with this email",
         });
       }
 
@@ -6375,57 +7107,70 @@ export async function registerRoutes(app: any) {
       // Calculate membership dates
       // Admin/Super Admin can override enrollment date for backdating
       let enrollmentDate = new Date();
-      
+
       if (overrideEnrollmentDate) {
         // Validate that only admin/super_admin can use override (by requester identity)
         if (authenticatedUser && isAdmin(authenticatedUser.role)) {
           const overrideDate = new Date(overrideEnrollmentDate);
           const now = new Date();
-          
+
           // Validate override date is valid and not in the future
           if (isNaN(overrideDate.getTime())) {
-            console.error("[Registration] Invalid override date format:", overrideEnrollmentDate);
+            console.error(
+              "[Registration] Invalid override date format:",
+              overrideEnrollmentDate,
+            );
             return res.status(400).json({
-              error: "Invalid override enrollment date format"
+              error: "Invalid override enrollment date format",
             });
           }
-          
+
           if (overrideDate > now) {
-            console.error("[Registration] Override date cannot be in the future:", overrideDate);
+            console.error(
+              "[Registration] Override date cannot be in the future:",
+              overrideDate,
+            );
             return res.status(400).json({
-              error: "Override enrollment date cannot be in the future"
+              error: "Override enrollment date cannot be in the future",
             });
           }
-          
+
           // Use override date
           enrollmentDate = overrideDate;
-          console.log(`[Registration] ✅ ADMIN OVERRIDE: Enrollment date set to ${enrollmentDate.toISOString()} (by ${authenticatedUser.email})`);
+          console.log(
+            `[Registration] ✅ ADMIN OVERRIDE: Enrollment date set to ${enrollmentDate.toISOString()} (by ${authenticatedUser.email})`,
+          );
         } else {
-          console.warn(`[Registration] ⚠️  Ignoring overrideEnrollmentDate - requester is not admin/super_admin`);
+          console.warn(
+            `[Registration] ⚠️  Ignoring overrideEnrollmentDate - requester is not admin/super_admin`,
+          );
         }
       }
-      
+
       const firstPaymentDate = enrollmentDate; // Same as enrollment date
       const membershipStartDate = calculateMembershipStartDate(enrollmentDate);
-      
+
       console.log("[Registration] Date calculations:", {
         enrollmentDate: enrollmentDate.toISOString(),
         firstPaymentDate: firstPaymentDate.toISOString(),
         membershipStartDate: membershipStartDate.toISOString(),
         enrollDay: enrollmentDate.getDate(),
         membershipDay: membershipStartDate.getDate(),
-        daysUntilActive: daysUntilMembershipStarts(enrollmentDate, membershipStartDate)
+        daysUntilActive: daysUntilMembershipStarts(
+          enrollmentDate,
+          membershipStartDate,
+        ),
       });
 
       // New enrollments remain pending until hosted checkout callback confirms payment.
-      const initialStatus = 'pending_payment';
+      const initialStatus = "pending_payment";
       console.log("[Registration] Initial member status:", initialStatus);
 
       // CREATE MEMBER IN MEMBERS TABLE (NOT USERS TABLE!)
       // Users table is for Supabase Auth (agents/admins)
       // Members table is for DPC enrollees (no login access)
       console.log("[Registration] Creating member in members table...");
-      
+
       const member = await storage.createMember({
         email: email.trim().toLowerCase(),
         firstName: firstName?.trim() || "",
@@ -6455,7 +7200,9 @@ export async function registerRoutes(app: any) {
         status: initialStatus,
         planId: planId ? parseInt(planId) : null,
         coverageType: coverageType || memberType || "member-only",
-        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
+        totalMonthlyPrice: totalMonthlyPrice
+          ? parseFloat(totalMonthlyPrice)
+          : null,
         addRxValet: addRxValet || false, // ProChoice Rx add-on ($21/month)
       });
 
@@ -6464,7 +7211,11 @@ export async function registerRoutes(app: any) {
         throw new Error(`Member creation failed`);
       }
 
-      console.log("[Registration] Member created:", member.id, member.customerNumber);
+      console.log(
+        "[Registration] Member created:",
+        member.id,
+        member.customerNumber,
+      );
       console.log("[Registration] Member object keys:", Object.keys(member));
       console.log("[Registration] Member name fields:", {
         firstName: member.firstName,
@@ -6473,47 +7224,75 @@ export async function registerRoutes(app: any) {
         hasFirstName: !!member.firstName,
         hasLastName: !!member.lastName,
         firstNameValue: JSON.stringify(member.firstName),
-        lastNameValue: JSON.stringify(member.lastName)
+        lastNameValue: JSON.stringify(member.lastName),
       });
-      console.log("[Registration] Full member object:", JSON.stringify(member, null, 2));
+      console.log(
+        "[Registration] Full member object:",
+        JSON.stringify(member, null, 2),
+      );
 
       // Create subscription if plan is selected
       let subscriptionId = null;
-      console.log("[Subscription Check] planId:", planId, "totalMonthlyPrice:", totalMonthlyPrice);
-      console.log("[Subscription Check] Will create subscription:", !!(planId && totalMonthlyPrice));
-      
+      console.log(
+        "[Subscription Check] planId:",
+        planId,
+        "totalMonthlyPrice:",
+        totalMonthlyPrice,
+      );
+      console.log(
+        "[Subscription Check] Will create subscription:",
+        !!(planId && totalMonthlyPrice),
+      );
+
       if (planId && totalMonthlyPrice) {
         try {
-          console.log("[Registration] Creating subscription with planId:", planId);
-          
+          console.log(
+            "[Registration] Creating subscription with planId:",
+            planId,
+          );
+
           const subscriptionData = {
             member_id: member.id, // Use member_id, not user_id (subscriptions reference members table)
             plan_id: parseInt(planId),
             status: "pending_payment",
             amount: totalMonthlyPrice,
             start_date: new Date().toISOString(),
-            next_billing_date: calculateNextBillingDate(new Date()).toISOString()
+            next_billing_date: calculateNextBillingDate(
+              new Date(),
+            ).toISOString(),
           };
 
-          const { data: subscription, error: subscriptionError } = await supabase
-            .from('subscriptions')
-            .insert(subscriptionData)
-            .select()
-            .single();
+          const { data: subscription, error: subscriptionError } =
+            await supabase
+              .from("subscriptions")
+              .insert(subscriptionData)
+              .select()
+              .single();
 
           if (subscriptionError) {
-            console.error("[Registration] Subscription creation failed:", subscriptionError);
+            console.error(
+              "[Registration] Subscription creation failed:",
+              subscriptionError,
+            );
             // Continue with registration even if subscription fails
           } else {
             subscriptionId = subscription.id;
-            console.log("[Registration] Subscription created:", subscription.id);
+            console.log(
+              "[Registration] Subscription created:",
+              subscription.id,
+            );
           }
         } catch (subError) {
-          console.error("[Registration] Error creating subscription:", subError);
+          console.error(
+            "[Registration] Error creating subscription:",
+            subError,
+          );
           // Continue with registration even if subscription fails
         }
       } else {
-        console.warn("[Registration] ⚠️  Subscription NOT created - missing planId or totalMonthlyPrice");
+        console.warn(
+          "[Registration] ⚠️  Subscription NOT created - missing planId or totalMonthlyPrice",
+        );
       }
 
       // Create commission if enrolled by agent
@@ -6524,140 +7303,215 @@ export async function registerRoutes(app: any) {
       console.log("[Commission Check] coverageType:", coverageType);
       console.log("[Commission Check] memberType:", memberType);
       console.log("[Commission Check] totalMonthlyPrice:", totalMonthlyPrice);
-      
+
       // Commission creation is deferred until payment callback confirms activation.
       // Keep this path disabled to avoid pre-payment commission creation.
-      if (false && agentNumber && enrolledByAgentId && (coverageType || memberType)) {
+      if (
+        false &&
+        agentNumber &&
+        enrolledByAgentId &&
+        (coverageType || memberType)
+      ) {
         try {
-          console.log("[Registration] Creating commission for agent:", agentNumber);
-          
+          console.log(
+            "[Registration] Creating commission for agent:",
+            agentNumber,
+          );
+
           // LOOK UP AGENT IN SUPABASE DIRECTLY
-          console.log("[Commission] Looking up agent by UUID in Supabase:", enrolledByAgentId);
-          
+          console.log(
+            "[Commission] Looking up agent by UUID in Supabase:",
+            enrolledByAgentId,
+          );
+
           const { data: agentUser, error: agentError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', enrolledByAgentId)
+            .from("users")
+            .select("*")
+            .eq("id", enrolledByAgentId)
             .single();
-          
+
           if (agentError || !agentUser) {
-            console.error("[Commission] ❌ Agent not found in Supabase:", enrolledByAgentId, agentError);
-            console.warn("[Registration] Commission NOT created - agent user not found");
+            console.error(
+              "[Commission] ❌ Agent not found in Supabase:",
+              enrolledByAgentId,
+              agentError,
+            );
+            console.warn(
+              "[Registration] Commission NOT created - agent user not found",
+            );
           } else {
-            console.log("[Commission] ✅ Agent found - UUID:", agentUser.id, "Email:", agentUser.email);
-            
+            console.log(
+              "[Commission] ✅ Agent found - UUID:",
+              agentUser.id,
+              "Email:",
+              agentUser.email,
+            );
+
             let plan = null;
-            let planName = 'MyPremierPlan Base'; // Default to full Base plan name
-            let planTier = 'Base';
-            
+            let planName = "MyPremierPlan Base"; // Default to full Base plan name
+            let planTier = "Base";
+
             // Try to get plan details if planId is provided
             if (planId) {
               try {
                 const { data: planData, error: planError } = await supabase
-                  .from('plans')
-                  .select('*')
-                  .eq('id', parseInt(planId))
+                  .from("plans")
+                  .select("*")
+                  .eq("id", parseInt(planId))
                   .single();
-                
+
                 if (planData && !planError) {
                   plan = planData;
                   // CRITICAL FIX: Extract plan tier from full plan name
                   // Database has: "MyPremierPlan Base - Member Only"
                   // Calculator expects: "MyPremierPlan Base"
-                  let rawPlanName = planData.name || 'MyPremierPlan Base';
-                  
+                  let rawPlanName = planData.name || "MyPremierPlan Base";
+
                   // Extract tier by removing coverage type suffix (e.g. " - Member Only")
-                  if (rawPlanName.includes(' - ')) {
-                    planName = rawPlanName.split(' - ')[0].trim();
-                    console.log("[Commission] 🔧 Extracted plan tier from:", rawPlanName, "→", planName);
+                  if (rawPlanName.includes(" - ")) {
+                    planName = rawPlanName.split(" - ")[0].trim();
+                    console.log(
+                      "[Commission] 🔧 Extracted plan tier from:",
+                      rawPlanName,
+                      "→",
+                      planName,
+                    );
                   } else {
                     planName = rawPlanName;
                   }
-                  
-                  planTier = planName.includes('Elite') ? 'Elite' : planName.includes('Plus') ? 'Plus' : 'Base';
-                  console.log("[Commission] ✅ Plan found from planId:", planName, "(Tier:", planTier + ")");
+
+                  planTier = planName.includes("Elite")
+                    ? "Elite"
+                    : planName.includes("Plus")
+                      ? "Plus"
+                      : "Base";
+                  console.log(
+                    "[Commission] ✅ Plan found from planId:",
+                    planName,
+                    "(Tier:",
+                    planTier + ")",
+                  );
                 } else {
-                  console.warn("[Commission] ⚠️ Could not fetch plan from Supabase, using defaults");
+                  console.warn(
+                    "[Commission] ⚠️ Could not fetch plan from Supabase, using defaults",
+                  );
                 }
               } catch (planError) {
-                console.warn("[Commission] ⚠️ Could not fetch plan by ID, using defaults");
+                console.warn(
+                  "[Commission] ⚠️ Could not fetch plan by ID, using defaults",
+                );
               }
             } else {
               // Infer plan from price if planId not provided (USE FULL PLAN NAMES)
-              console.log("[Commission] No planId provided, inferring from totalMonthlyPrice:", totalMonthlyPrice);
+              console.log(
+                "[Commission] No planId provided, inferring from totalMonthlyPrice:",
+                totalMonthlyPrice,
+              );
               if (totalMonthlyPrice) {
                 const basePrice = totalMonthlyPrice / 1.04; // Remove 4% admin fee
-                console.log("[Commission] Base price (minus 4% fee):", basePrice);
-                
+                console.log(
+                  "[Commission] Base price (minus 4% fee):",
+                  basePrice,
+                );
+
                 if (basePrice >= 70) {
-                  planName = 'MyPremierPlan Elite';
-                  planTier = 'Elite';
+                  planName = "MyPremierPlan Elite";
+                  planTier = "Elite";
                 } else if (basePrice >= 50) {
-                  planName = 'MyPremierPlan+';
-                  planTier = 'Plus';
+                  planName = "MyPremierPlan+";
+                  planTier = "Plus";
                 } else {
-                  planName = 'MyPremierPlan Base';
-                  planTier = 'Base';
+                  planName = "MyPremierPlan Base";
+                  planTier = "Base";
                 }
-                console.log("[Commission] ✅ Inferred plan from price:", planName, "(Tier:", planTier + ")");
+                console.log(
+                  "[Commission] ✅ Inferred plan from price:",
+                  planName,
+                  "(Tier:",
+                  planTier + ")",
+                );
               }
             }
-            
+
             // Calculate commission using proper commission structure
-            const coverage = coverageType || memberType || 'Member Only';
+            const coverage = coverageType || memberType || "Member Only";
             console.log("[Commission] Coverage input:", coverage);
-            
+
             const hasRxValet = addRxValet || false;
-            const commissionResult = calculateCommission(planName, coverage, hasRxValet);
-            
+            const commissionResult = calculateCommission(
+              planName,
+              coverage,
+              hasRxValet,
+            );
+
             if (commissionResult) {
               // Map coverage to plan type for better tracking (EE, ESP, ECH, FAM)
               const planType = getPlanTypeFromMemberType(coverage);
-              console.log("[Commission] ✅ Mapped coverage '" + coverage + "' to plan type:", planType);
-              
+              console.log(
+                "[Commission] ✅ Mapped coverage '" +
+                  coverage +
+                  "' to plan type:",
+                planType,
+              );
+
               // CREATE COMMISSION DIRECTLY IN SUPABASE (NEW SYSTEM ONLY)
-              console.log('[Registration] Creating commission directly in agent_commissions table...');
-              
+              console.log(
+                "[Registration] Creating commission directly in agent_commissions table...",
+              );
+
               // Determine coverage type from plan name/type
               // For DPC plans, we use 'other' - in future could add specific DPC enum values
-              let coverageTypeEnum: 'aca' | 'medicare_advantage' | 'medicare_supplement' | 'other' = 'other';
-              
+              let coverageTypeEnum:
+                | "aca"
+                | "medicare_advantage"
+                | "medicare_supplement"
+                | "other" = "other";
+
               const commissionData = {
                 agent_id: agentUser.id, // UUID string from users table
                 member_id: member.id.toString(), // Store integer ID as string (agent_commissions.member_id is TEXT)
-                enrollment_id: subscriptionId ? subscriptionId.toString() : null, // Store subscription ID as string
+                enrollment_id: subscriptionId
+                  ? subscriptionId.toString()
+                  : null, // Store subscription ID as string
                 commission_amount: commissionResult.commission,
                 coverage_type: coverageTypeEnum,
-                status: 'pending',
-                payment_status: 'unpaid',
+                status: "pending",
+                payment_status: "unpaid",
                 base_premium: commissionResult.totalCost,
-                notes: `Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Base Premium: $${commissionResult.totalCost}${hasRxValet ? ', RxValet: +$' + RX_VALET_COMMISSION : ''}, Total Commission: $${commissionResult.commission}`
+                notes: `Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Base Premium: $${commissionResult.totalCost}${hasRxValet ? ", RxValet: +$" + RX_VALET_COMMISSION : ""}, Total Commission: $${commissionResult.commission}`,
               };
-              
-              console.log('[Registration] Commission data:', JSON.stringify(commissionData, null, 2));
-              
+
+              console.log(
+                "[Registration] Commission data:",
+                JSON.stringify(commissionData, null, 2),
+              );
+
               try {
-                const existingDirectCommission = await findExistingCommissionUnit({
-                  memberId: commissionData.member_id,
-                  enrollmentId: commissionData.enrollment_id || null,
-                  agentId: commissionData.agent_id,
-                  commissionType: 'direct',
-                });
+                const existingDirectCommission =
+                  await findExistingCommissionUnit({
+                    memberId: commissionData.member_id,
+                    enrollmentId: commissionData.enrollment_id || null,
+                    agentId: commissionData.agent_id,
+                    commissionType: "direct",
+                  });
 
                 let newCommission = existingDirectCommission;
                 let commissionError: any = null;
 
                 if (existingDirectCommission) {
-                  console.log('[Registration] Existing commission unit found; skipping duplicate direct commission row', {
-                    commissionId: existingDirectCommission.id,
-                    memberId: commissionData.member_id,
-                    enrollmentId: commissionData.enrollment_id,
-                    agentId: commissionData.agent_id,
-                  });
+                  console.log(
+                    "[Registration] Existing commission unit found; skipping duplicate direct commission row",
+                    {
+                      commissionId: existingDirectCommission.id,
+                      memberId: commissionData.member_id,
+                      enrollmentId: commissionData.enrollment_id,
+                      agentId: commissionData.agent_id,
+                    },
+                  );
                 } else {
                   // Insert directly into Supabase agent_commissions table using service role
                   const insertResult = await supabase
-                    .from('agent_commissions')
+                    .from("agent_commissions")
                     .insert(commissionData)
                     .select()
                     .single();
@@ -6665,93 +7519,157 @@ export async function registerRoutes(app: any) {
                   newCommission = insertResult.data;
                   commissionError = insertResult.error;
                 }
-                
+
                 if (commissionError) {
-                  console.error("[Registration] ❌ Commission creation failed:", commissionError);
-                  console.error("[Registration] Commission error details:", commissionError.details);
+                  console.error(
+                    "[Registration] ❌ Commission creation failed:",
+                    commissionError,
+                  );
+                  console.error(
+                    "[Registration] Commission error details:",
+                    commissionError.details,
+                  );
                 } else {
-                  const rxValetNote = hasRxValet ? ' (includes $2.50 RxValet commission)' : '';
-                  console.log("[Registration] ✅ Commission created: $" + commissionResult.commission.toFixed(2) + " (Plan: " + planName + ", Coverage: " + coverage + ")" + rxValetNote);
-                  console.log("[Registration] Commission ID:", newCommission.id);
-                  
+                  const rxValetNote = hasRxValet
+                    ? " (includes $2.50 RxValet commission)"
+                    : "";
+                  console.log(
+                    "[Registration] ✅ Commission created: $" +
+                      commissionResult.commission.toFixed(2) +
+                      " (Plan: " +
+                      planName +
+                      ", Coverage: " +
+                      coverage +
+                      ")" +
+                      rxValetNote,
+                  );
+                  console.log(
+                    "[Registration] Commission ID:",
+                    newCommission.id,
+                  );
+
                   // Check if agent has an upline and create override commission
                   try {
-                    const { data: agentData, error: agentError } = await supabase
-                      .from('users')
-                      .select('upline_agent_id, override_commission_rate, agent_number')
-                      .eq('id', agentUser.id)
-                      .single();
-                    
-                    if (agentError) {
-                      console.error("[Registration] Could not fetch agent upline data:", agentError);
-                    } else if (agentData?.upline_agent_id && agentData.override_commission_rate > 0) {
-                      // Fetch the upline's role — admins/super_admins are structural only, no override pay
-                      const { data: uplineData } = await supabase
-                        .from('users')
-                        .select('role')
-                        .eq('id', agentData.upline_agent_id)
+                    const { data: agentData, error: agentError } =
+                      await supabase
+                        .from("users")
+                        .select(
+                          "upline_agent_id, override_commission_rate, agent_number",
+                        )
+                        .eq("id", agentUser.id)
                         .single();
 
-                      const uplineIsAdmin = uplineData?.role === 'admin' || uplineData?.role === 'super_admin';
-                      if (uplineIsAdmin) {
-                        console.log("[Registration] Upline is admin/super_admin — override commission suppressed (no payout to admins)");
-                      } else {
-                      const existingOverrideCommission = await findExistingCommissionUnit({
-                        memberId: member.id.toString(),
-                        enrollmentId: subscriptionId ? subscriptionId.toString() : null,
-                        agentId: agentData.upline_agent_id,
-                        commissionType: 'override',
-                        overrideForAgentId: agentUser.id,
-                      });
+                    if (agentError) {
+                      console.error(
+                        "[Registration] Could not fetch agent upline data:",
+                        agentError,
+                      );
+                    } else if (
+                      agentData?.upline_agent_id &&
+                      agentData.override_commission_rate > 0
+                    ) {
+                      // Fetch the upline's role — admins/super_admins are structural only, no override pay
+                      const { data: uplineData } = await supabase
+                        .from("users")
+                        .select("role")
+                        .eq("id", agentData.upline_agent_id)
+                        .single();
 
-                      if (existingOverrideCommission) {
-                        console.log('[Registration] Existing override commission unit found; skipping duplicate override row', {
-                          commissionId: existingOverrideCommission.id,
-                          memberId: member.id,
-                          enrollmentId: subscriptionId,
-                          uplineAgentId: agentData.upline_agent_id,
-                          overrideForAgentId: agentUser.id,
-                        });
+                      const uplineIsAdmin =
+                        uplineData?.role === "admin" ||
+                        uplineData?.role === "super_admin";
+                      if (uplineIsAdmin) {
+                        console.log(
+                          "[Registration] Upline is admin/super_admin — override commission suppressed (no payout to admins)",
+                        );
                       } else {
-                        // Create override commission for upline agent
-                        const overrideCommissionData = {
-                          agent_id: agentData.upline_agent_id,
-                          member_id: member.id.toString(),
-                          enrollment_id: subscriptionId ? subscriptionId.toString() : null,
-                          commission_amount: agentData.override_commission_rate,
-                          coverage_type: coverageTypeEnum,
-                          status: 'pending',
-                          payment_status: 'unpaid',
-                          commission_type: 'override',
-                          override_for_agent_id: agentUser.id,
-                          base_premium: commissionResult.totalCost,
-                          notes: `Override for Agent #${agentData.agent_number || agentUser.id} - Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Override Rate: $${agentData.override_commission_rate}`
-                        };
-                        
-                        const { data: overrideCommission, error: overrideError } = await supabase
-                          .from('agent_commissions')
-                          .insert(overrideCommissionData)
-                          .select()
-                          .single();
-                        
-                        if (overrideError) {
-                          console.error("[Registration] ❌ Override commission creation failed:", overrideError);
+                        const existingOverrideCommission =
+                          await findExistingCommissionUnit({
+                            memberId: member.id.toString(),
+                            enrollmentId: subscriptionId
+                              ? subscriptionId.toString()
+                              : null,
+                            agentId: agentData.upline_agent_id,
+                            commissionType: "override",
+                            overrideForAgentId: agentUser.id,
+                          });
+
+                        if (existingOverrideCommission) {
+                          console.log(
+                            "[Registration] Existing override commission unit found; skipping duplicate override row",
+                            {
+                              commissionId: existingOverrideCommission.id,
+                              memberId: member.id,
+                              enrollmentId: subscriptionId,
+                              uplineAgentId: agentData.upline_agent_id,
+                              overrideForAgentId: agentUser.id,
+                            },
+                          );
                         } else {
-                          console.log("[Registration] ✅ Override commission created: $" + agentData.override_commission_rate.toFixed(2) + " for upline agent " + agentData.upline_agent_id);
-                          console.log("[Registration] Override Commission ID:", overrideCommission.id);
+                          // Create override commission for upline agent
+                          const overrideCommissionData = {
+                            agent_id: agentData.upline_agent_id,
+                            member_id: member.id.toString(),
+                            enrollment_id: subscriptionId
+                              ? subscriptionId.toString()
+                              : null,
+                            commission_amount:
+                              agentData.override_commission_rate,
+                            coverage_type: coverageTypeEnum,
+                            status: "pending",
+                            payment_status: "unpaid",
+                            commission_type: "override",
+                            override_for_agent_id: agentUser.id,
+                            base_premium: commissionResult.totalCost,
+                            notes: `Override for Agent #${agentData.agent_number || agentUser.id} - Plan: ${planName} (${planTier}), Coverage: ${coverage} (${planType}), Override Rate: $${agentData.override_commission_rate}`,
+                          };
+
+                          const {
+                            data: overrideCommission,
+                            error: overrideError,
+                          } = await supabase
+                            .from("agent_commissions")
+                            .insert(overrideCommissionData)
+                            .select()
+                            .single();
+
+                          if (overrideError) {
+                            console.error(
+                              "[Registration] ❌ Override commission creation failed:",
+                              overrideError,
+                            );
+                          } else {
+                            console.log(
+                              "[Registration] ✅ Override commission created: $" +
+                                agentData.override_commission_rate.toFixed(2) +
+                                " for upline agent " +
+                                agentData.upline_agent_id,
+                            );
+                            console.log(
+                              "[Registration] Override Commission ID:",
+                              overrideCommission.id,
+                            );
+                          }
                         }
-                      }
                       } // end else (upline is not admin)
                     } else {
-                      console.log("[Registration] No override commission - agent has no upline or override rate is $0");
+                      console.log(
+                        "[Registration] No override commission - agent has no upline or override rate is $0",
+                      );
                     }
                   } catch (overrideError) {
-                    console.error("[Registration] Exception creating override commission:", overrideError);
+                    console.error(
+                      "[Registration] Exception creating override commission:",
+                      overrideError,
+                    );
                     // Don't fail registration if override commission fails
                   }
                 }
               } catch (commError) {
-                console.error("[Registration] Exception creating commission:", commError);
+                console.error(
+                  "[Registration] Exception creating commission:",
+                  commError,
+                );
               }
             } else {
               // ENHANCED ERROR LOGGING: Show exactly why commission calculation failed
@@ -6759,41 +7677,64 @@ export async function registerRoutes(app: any) {
               console.error("[Registration]   Plan Name Sent:", planName);
               console.error("[Registration]   Coverage Sent:", coverage);
               console.error("[Registration]   RxValet:", hasRxValet);
-              console.error("[Registration]   Expected Plan Names: 'MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'");
-              console.error("[Registration]   Expected Coverage Types: 'Member Only', 'Member/Spouse', 'Member/Child', 'Family' (case-insensitive)");
-              console.error("[Registration]   Check commissionCalculator.ts for exact matching logic");
-              console.warn("[Registration] ⚠️  Commission NOT created - calculateCommission returned null");
+              console.error(
+                "[Registration]   Expected Plan Names: 'MyPremierPlan Base', 'MyPremierPlan+', 'MyPremierPlan Elite'",
+              );
+              console.error(
+                "[Registration]   Expected Coverage Types: 'Member Only', 'Member/Spouse', 'Member/Child', 'Family' (case-insensitive)",
+              );
+              console.error(
+                "[Registration]   Check commissionCalculator.ts for exact matching logic",
+              );
+              console.warn(
+                "[Registration] ⚠️  Commission NOT created - calculateCommission returned null",
+              );
             }
           }
         } catch (commError) {
           console.error("[Registration] Error creating commission:", commError);
-          console.error("[Registration] Commission error details:", commError instanceof Error ? commError.stack : 'No stack trace');
+          console.error(
+            "[Registration] Commission error details:",
+            commError instanceof Error ? commError.stack : "No stack trace",
+          );
           // Continue with registration even if commission creation fails
         }
       } else {
-          console.error("[Registration] ❌❌❌ COMMISSION NOT CREATED ❌❌❌");
-          console.error("[Registration] Missing required values:");
-          if (!agentNumber) {
-            console.error(`[Registration]   ❌ Missing: agentNumber`);
-            if (enrolledByAgentId && agentUser) {
-              console.error(`[Registration]      Agent ${agentUser.email} (${enrolledByAgentId}) exists but has no agent_number in database!`);
-              console.error(`[Registration]      ACTION REQUIRED: Assign agent number to this user in admin panel`);
-            }
+        console.error("[Registration] ❌❌❌ COMMISSION NOT CREATED ❌❌❌");
+        console.error("[Registration] Missing required values:");
+        if (!agentNumber) {
+          console.error(`[Registration]   ❌ Missing: agentNumber`);
+          if (enrolledByAgentId && agentUser) {
+            console.error(
+              `[Registration]      Agent ${agentUser.email} (${enrolledByAgentId}) exists but has no agent_number in database!`,
+            );
+            console.error(
+              `[Registration]      ACTION REQUIRED: Assign agent number to this user in admin panel`,
+            );
           }
-          if (!enrolledByAgentId) console.error("[Registration]   ❌ Missing: enrolledByAgentId");
-          if (!coverageType && !memberType) console.error("[Registration]   ❌ Missing: coverageType/memberType");
-          console.error("[Registration]   📊 Member Info:", {
-            memberId: member.id,
-            memberEmail: email,
-            memberName: `${firstName} ${lastName}`,
-            totalMonthlyPrice: totalMonthlyPrice
-          });
-          console.error("[Registration]   ⚠️  This enrollment will NOT generate commission revenue!");
+        }
+        if (!enrolledByAgentId)
+          console.error("[Registration]   ❌ Missing: enrolledByAgentId");
+        if (!coverageType && !memberType)
+          console.error("[Registration]   ❌ Missing: coverageType/memberType");
+        console.error("[Registration]   📊 Member Info:", {
+          memberId: member.id,
+          memberEmail: email,
+          memberName: `${firstName} ${lastName}`,
+          totalMonthlyPrice: totalMonthlyPrice,
+        });
+        console.error(
+          "[Registration]   ⚠️  This enrollment will NOT generate commission revenue!",
+        );
       }
 
       // Add family members if provided
       if (familyMembers && Array.isArray(familyMembers)) {
-        console.log("[Registration] Processing", familyMembers.length, "family members");
+        console.log(
+          "[Registration] Processing",
+          familyMembers.length,
+          "family members",
+        );
         for (const familyMember of familyMembers) {
           if (familyMember.firstName && familyMember.lastName) {
             try {
@@ -6801,9 +7742,16 @@ export async function registerRoutes(app: any) {
                 ...familyMember,
                 primaryMemberId: member.id, // Use primaryMemberId for members (not primaryUserId)
               });
-              console.log("[Registration] Added family member:", familyMember.firstName, familyMember.lastName);
+              console.log(
+                "[Registration] Added family member:",
+                familyMember.firstName,
+                familyMember.lastName,
+              );
             } catch (familyError) {
-              console.error("[Registration] Error adding family member:", familyError);
+              console.error(
+                "[Registration] Error adding family member:",
+                familyError,
+              );
               // Continue with other family members
             }
           }
@@ -6822,18 +7770,26 @@ export async function registerRoutes(app: any) {
           email: member.email,
           firstName: member.firstName || member.first_name,
           lastName: member.lastName || member.last_name,
-          memberType: member.memberType || member.member_type
+          memberType: member.memberType || member.member_type,
         },
         enrollment: {
           planId: planId,
           coverageType: coverageType,
           totalMonthlyPrice: totalMonthlyPrice,
-          addRxValet: addRxValet
-        }
+          addRxValet: addRxValet,
+        },
       };
 
-      console.log("[Registration] Response member object:", responsePayload.member);
-      console.log("[Registration] Has firstName?", !!responsePayload.member.firstName, "Has lastName?", !!responsePayload.member.lastName);
+      console.log(
+        "[Registration] Response member object:",
+        responsePayload.member,
+      );
+      console.log(
+        "[Registration] Has firstName?",
+        !!responsePayload.member.firstName,
+        "Has lastName?",
+        !!responsePayload.member.lastName,
+      );
 
       res.json(responsePayload);
     } catch (error: any) {
@@ -6844,10 +7800,10 @@ export async function registerRoutes(app: any) {
       let errorMessage = "Registration failed";
       let statusCode = 500;
 
-      if (error.message && error.message.includes('duplicate key')) {
+      if (error.message && error.message.includes("duplicate key")) {
         errorMessage = "Member with this information already exists";
         statusCode = 409;
-      } else if (error.message && error.message.includes('constraint')) {
+      } else if (error.message && error.message.includes("constraint")) {
         errorMessage = "Invalid data provided for registration";
         statusCode = 400;
       }
@@ -6855,7 +7811,7 @@ export async function registerRoutes(app: any) {
       res.status(statusCode).json({
         error: errorMessage,
         message: error.message,
-        details: "Internal error"
+        details: "Internal error",
       });
     }
   });
@@ -6864,208 +7820,245 @@ export async function registerRoutes(app: any) {
   // AGENT ENROLLMENT ENDPOINT
   // Agents create members and earn commissions
   // ============================================================
-  app.post("/api/agent/enrollment", authMiddleware, async (req: any, res: any) => {
-    try {
-      console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
+  app.post(
+    "/api/agent/enrollment",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        console.log("[Agent Enrollment] Enrollment by agent:", req.user?.email);
 
-      // Validate agent has permission
-      if (!hasAgentOrAdminAccess(req.user?.role)) {
-        return res.status(403).json({
-          error: "Agent or admin access required"
-        });
-      }
-
-      const {
-        email,
-        firstName,
-        lastName,
-        middleName,
-        phone,
-        dateOfBirth,
-        gender,
-        ssn,
-        address,
-        address2,
-        city,
-        state,
-        zipCode,
-        employerName,
-        dateOfHire,
-        emergencyContactName,
-        emergencyContactPhone,
-        memberType,
-        planStartDate,
-        planId,
-        planName,
-        coverageType,
-        addRxValet,
-        totalMonthlyPrice,
-        familyMembers
-      } = req.body;
-
-      const rawSSN = (ssn ?? req.body?.socialSecurityNumber ?? req.body?.social_security_number ?? '').toString();
-      const normalizedSSN = rawSSN.replace(/\D/g, '');
-
-      // Basic validation
-      const missingFields = [];
-      if (!email) missingFields.push("email");
-      if (!firstName) missingFields.push("firstName");
-      if (!lastName) missingFields.push("lastName");
-      if (!planId) missingFields.push("planId");
-      if (!normalizedSSN) missingFields.push("ssn");
-
-      if (missingFields.length > 0) {
-        console.log("[Agent Enrollment] Missing fields:", missingFields);
-        return res.status(400).json({
-          error: "Missing required fields",
-          required: ["email", "firstName", "lastName", "planId", "ssn"],
-          missing: missingFields
-        });
-      }
-
-      if (!/^\d{9}$/.test(normalizedSSN)) {
-        return res.status(400).json({
-          error: "Invalid SSN format",
-          message: "SSN must be exactly 9 digits",
-        });
-      }
-
-      // Email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({
-          error: "Invalid email format"
-        });
-      }
-
-      // Check if member already exists
-      const existingMember = await storage.getMemberByEmail(email.trim().toLowerCase());
-      if (existingMember) {
-        return res.status(400).json({
-          error: "Member already exists with this email"
-        });
-      }
-
-      console.log("[Agent Enrollment] Creating member for agent:", req.user.agentNumber);
-      console.log("[Agent Enrollment] Agent user details:", {
-        id: req.user.id,
-        email: req.user.email,
-        agentNumber: req.user.agentNumber,
-        role: req.user.role
-      });
-
-      // Create member with agent tracking
-      // enrolledByAgentId and agentNumber capture who enrolled them
-      const member = await storage.createMember({
-        email: email.trim().toLowerCase(),
-        firstName: firstName?.trim() || "",
-        lastName: lastName?.trim() || "",
-        middleName: middleName?.trim() || null,
-        phone: phone || null,
-        dateOfBirth: dateOfBirth || null,
-        gender: gender || null,
-        ssn: normalizedSSN,
-        address: address?.trim() || null,
-        address2: address2?.trim() || null,
-        city: city?.trim() || null,
-        state: state || null,
-        zipCode: zipCode || null,
-        employerName: employerName?.trim() || null,
-        dateOfHire: dateOfHire || null,
-        emergencyContactName: emergencyContactName?.trim() || null,
-        emergencyContactPhone: emergencyContactPhone || null,
-        memberType: memberType || "member-only",
-        planStartDate: planStartDate || null,
-        enrolledByAgentId: req.user.id,
-        agentNumber: req.user.agentNumber,
-        isActive: false,
-        status: 'pending_payment',
-        emailVerified: false,
-        // Confirmation page fields
-        planId: planId ? parseInt(planId) : null,
-        coverageType: coverageType || memberType || "member-only",
-        totalMonthlyPrice: totalMonthlyPrice ? parseFloat(totalMonthlyPrice) : null,
-        addRxValet: addRxValet || false
-      });
-
-      console.log("[Agent Enrollment] Member created:", member.id, member.customerNumber);
-
-      // Create subscription if plan selected
-      let subscription = null;
-      if (planId && totalMonthlyPrice) {
-        try {
-          console.log("[Agent Enrollment] Creating subscription...");
-          subscription = await storage.createSubscription({
-            userId: null,
-            memberId: member.id,
-            planId: parseInt(planId),
-            status: "pending_payment",
-            amount: totalMonthlyPrice,
-            currentPeriodStart: new Date(),
-            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            createdAt: new Date(),
-            updatedAt: new Date()
+        // Validate agent has permission
+        if (!hasAgentOrAdminAccess(req.user?.role)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
           });
-          console.log("[Agent Enrollment] Subscription created:", subscription.id);
-        } catch (subError) {
-          console.error("[Agent Enrollment] Error creating subscription:", subError);
         }
-      }
 
-      // Commission creation is deferred until payment callback confirms activation.
-      if (subscription && subscription.id) {
-        console.log("[Agent Enrollment] Commission creation deferred until payment callback confirms activation");
-      }
+        const {
+          email,
+          firstName,
+          lastName,
+          middleName,
+          phone,
+          dateOfBirth,
+          gender,
+          ssn,
+          address,
+          address2,
+          city,
+          state,
+          zipCode,
+          employerName,
+          dateOfHire,
+          emergencyContactName,
+          emergencyContactPhone,
+          memberType,
+          planStartDate,
+          planId,
+          planName,
+          coverageType,
+          addRxValet,
+          totalMonthlyPrice,
+          familyMembers,
+        } = req.body;
 
-      // Add family members if provided
-      if (familyMembers && Array.isArray(familyMembers)) {
-        console.log("[Agent Enrollment] Processing", familyMembers.length, "family members");
-        for (const familyMember of familyMembers) {
-          if (familyMember.firstName && familyMember.lastName) {
-            try {
-              await storage.addFamilyMember({
-                ...familyMember,
-                primaryMemberId: member.id, // Use primaryMemberId for members (not primaryUserId)
-              });
-              console.log("[Agent Enrollment] Added family member:", familyMember.firstName);
-            } catch (familyError) {
-              console.error("[Agent Enrollment] Error adding family member:", familyError);
+        const rawSSN = (
+          ssn ??
+          req.body?.socialSecurityNumber ??
+          req.body?.social_security_number ??
+          ""
+        ).toString();
+        const normalizedSSN = rawSSN.replace(/\D/g, "");
+
+        // Basic validation
+        const missingFields = [];
+        if (!email) missingFields.push("email");
+        if (!firstName) missingFields.push("firstName");
+        if (!lastName) missingFields.push("lastName");
+        if (!planId) missingFields.push("planId");
+        if (!normalizedSSN) missingFields.push("ssn");
+
+        if (missingFields.length > 0) {
+          console.log("[Agent Enrollment] Missing fields:", missingFields);
+          return res.status(400).json({
+            error: "Missing required fields",
+            required: ["email", "firstName", "lastName", "planId", "ssn"],
+            missing: missingFields,
+          });
+        }
+
+        if (!/^\d{9}$/.test(normalizedSSN)) {
+          return res.status(400).json({
+            error: "Invalid SSN format",
+            message: "SSN must be exactly 9 digits",
+          });
+        }
+
+        // Email validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          return res.status(400).json({
+            error: "Invalid email format",
+          });
+        }
+
+        // Check if member already exists
+        const existingMember = await storage.getMemberByEmail(
+          email.trim().toLowerCase(),
+        );
+        if (existingMember) {
+          return res.status(400).json({
+            error: "Member already exists with this email",
+          });
+        }
+
+        console.log(
+          "[Agent Enrollment] Creating member for agent:",
+          req.user.agentNumber,
+        );
+        console.log("[Agent Enrollment] Agent user details:", {
+          id: req.user.id,
+          email: req.user.email,
+          agentNumber: req.user.agentNumber,
+          role: req.user.role,
+        });
+
+        // Create member with agent tracking
+        // enrolledByAgentId and agentNumber capture who enrolled them
+        const member = await storage.createMember({
+          email: email.trim().toLowerCase(),
+          firstName: firstName?.trim() || "",
+          lastName: lastName?.trim() || "",
+          middleName: middleName?.trim() || null,
+          phone: phone || null,
+          dateOfBirth: dateOfBirth || null,
+          gender: gender || null,
+          ssn: normalizedSSN,
+          address: address?.trim() || null,
+          address2: address2?.trim() || null,
+          city: city?.trim() || null,
+          state: state || null,
+          zipCode: zipCode || null,
+          employerName: employerName?.trim() || null,
+          dateOfHire: dateOfHire || null,
+          emergencyContactName: emergencyContactName?.trim() || null,
+          emergencyContactPhone: emergencyContactPhone || null,
+          memberType: memberType || "member-only",
+          planStartDate: planStartDate || null,
+          enrolledByAgentId: req.user.id,
+          agentNumber: req.user.agentNumber,
+          isActive: false,
+          status: "pending_payment",
+          emailVerified: false,
+          // Confirmation page fields
+          planId: planId ? parseInt(planId) : null,
+          coverageType: coverageType || memberType || "member-only",
+          totalMonthlyPrice: totalMonthlyPrice
+            ? parseFloat(totalMonthlyPrice)
+            : null,
+          addRxValet: addRxValet || false,
+        });
+
+        console.log(
+          "[Agent Enrollment] Member created:",
+          member.id,
+          member.customerNumber,
+        );
+
+        // Create subscription if plan selected
+        let subscription = null;
+        if (planId && totalMonthlyPrice) {
+          try {
+            console.log("[Agent Enrollment] Creating subscription...");
+            subscription = await storage.createSubscription({
+              userId: null,
+              memberId: member.id,
+              planId: parseInt(planId),
+              status: "pending_payment",
+              amount: totalMonthlyPrice,
+              currentPeriodStart: new Date(),
+              currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            console.log(
+              "[Agent Enrollment] Subscription created:",
+              subscription.id,
+            );
+          } catch (subError) {
+            console.error(
+              "[Agent Enrollment] Error creating subscription:",
+              subError,
+            );
+          }
+        }
+
+        // Commission creation is deferred until payment callback confirms activation.
+        if (subscription && subscription.id) {
+          console.log(
+            "[Agent Enrollment] Commission creation deferred until payment callback confirms activation",
+          );
+        }
+
+        // Add family members if provided
+        if (familyMembers && Array.isArray(familyMembers)) {
+          console.log(
+            "[Agent Enrollment] Processing",
+            familyMembers.length,
+            "family members",
+          );
+          for (const familyMember of familyMembers) {
+            if (familyMember.firstName && familyMember.lastName) {
+              try {
+                await storage.addFamilyMember({
+                  ...familyMember,
+                  primaryMemberId: member.id, // Use primaryMemberId for members (not primaryUserId)
+                });
+                console.log(
+                  "[Agent Enrollment] Added family member:",
+                  familyMember.firstName,
+                );
+              } catch (familyError) {
+                console.error(
+                  "[Agent Enrollment] Error adding family member:",
+                  familyError,
+                );
+              }
             }
           }
         }
+
+        console.log("[Agent Enrollment] Enrollment completed successfully");
+
+        res.json({
+          success: true,
+          message: "Member enrolled successfully",
+          member: {
+            id: member.id,
+            customerNumber: member.customerNumber,
+            memberPublicId: member.memberPublicId,
+            email: member.email,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            enrolledByAgent: req.user.agentNumber,
+          },
+          enrollment: {
+            planId: planId,
+            coverageType: coverageType,
+            totalMonthlyPrice: totalMonthlyPrice,
+            subscriptionId: subscription?.id,
+          },
+        });
+      } catch (error: any) {
+        console.error("[Agent Enrollment] Error:", error);
+        res.status(500).json({
+          error: "Agent enrollment failed",
+          message: error.message,
+          details: "Internal error",
+        });
       }
-
-      console.log("[Agent Enrollment] Enrollment completed successfully");
-
-      res.json({
-        success: true,
-        message: "Member enrolled successfully",
-        member: {
-          id: member.id,
-          customerNumber: member.customerNumber,
-          memberPublicId: member.memberPublicId,
-          email: member.email,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          enrolledByAgent: req.user.agentNumber
-        },
-        enrollment: {
-          planId: planId,
-          coverageType: coverageType,
-          totalMonthlyPrice: totalMonthlyPrice,
-          subscriptionId: subscription?.id
-        }
-      });
-
-    } catch (error: any) {
-      console.error("[Agent Enrollment] Error:", error);
-      res.status(500).json({
-        error: "Agent enrollment failed",
-        message: error.message,
-        details: "Internal error"
-      });
-    }
-  });
+    },
+  );
 
   // ============================================================
   // FAMILY ENROLLMENT ENDPOINT
@@ -7074,23 +8067,23 @@ export async function registerRoutes(app: any) {
   app.post("/api/family-enrollment", async (req: any, res: any) => {
     try {
       const { members, primaryMemberId } = req.body;
-      
+
       console.log("[Family Enrollment] Request received:", {
         memberCount: members?.length,
         providedPrimaryMemberId: primaryMemberId,
-        hasSessionStorage: !!req.session
+        hasSessionStorage: !!req.session,
       });
 
       if (!members || !Array.isArray(members) || members.length === 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Members array required",
-          details: "Please provide an array of family members to enroll"
+          details: "Please provide an array of family members to enroll",
         });
       }
 
       // Try to get primary member ID from request body first, then from session
       let resolvedPrimaryMemberId = primaryMemberId;
-      
+
       // If not in body, try to get from most recently created member in session
       if (!resolvedPrimaryMemberId && req.session?.memberId) {
         resolvedPrimaryMemberId = req.session.memberId;
@@ -7098,30 +8091,35 @@ export async function registerRoutes(app: any) {
 
       // Last resort: query for most recent member by email if available
       if (!resolvedPrimaryMemberId && members[0]?.email) {
-        console.log("[Family Enrollment] Attempting to find primary member from recent registrations");
+        console.log(
+          "[Family Enrollment] Attempting to find primary member from recent registrations",
+        );
         // This is a fallback - normally primaryMemberId should be passed
       }
 
       if (!resolvedPrimaryMemberId) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: "Primary member ID required",
-          details: "Unable to determine primary member. Please complete primary enrollment first."
+          details:
+            "Unable to determine primary member. Please complete primary enrollment first.",
         });
       }
 
       // Verify primary member exists
-      const primaryMember = await storage.getMember(parseInt(resolvedPrimaryMemberId));
+      const primaryMember = await storage.getMember(
+        parseInt(resolvedPrimaryMemberId),
+      );
       if (!primaryMember) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: "Primary member not found",
-          details: `No member found with ID ${resolvedPrimaryMemberId}`
+          details: `No member found with ID ${resolvedPrimaryMemberId}`,
         });
       }
 
       console.log("[Family Enrollment] Adding family members for primary:", {
         primaryMemberId: resolvedPrimaryMemberId,
         primaryMemberEmail: primaryMember.email,
-        familyMemberCount: members.length
+        familyMemberCount: members.length,
       });
 
       // Add all family members
@@ -7130,12 +8128,12 @@ export async function registerRoutes(app: any) {
 
       for (let i = 0; i < members.length; i++) {
         const member = members[i];
-        
+
         if (!member.firstName || !member.lastName) {
           errors.push({
             index: i,
             error: "First name and last name are required",
-            member: member
+            member: member,
           });
           continue;
         }
@@ -7151,29 +8149,32 @@ export async function registerRoutes(app: any) {
             ssn: member.ssn || null,
             email: member.email || null,
             phone: member.phone || null,
-            relationship: member.relationship || 'dependent',
-            memberType: member.memberType || 'dependent',
+            relationship: member.relationship || "dependent",
+            memberType: member.memberType || "dependent",
             address: member.address || null,
             address2: member.address2 || null,
             city: member.city || null,
             state: member.state || null,
             zipCode: member.zipCode || null,
             planStartDate: member.planStartDate || null,
-            isActive: true
+            isActive: true,
           });
-          
+
           addedMembers.push(familyMember);
           console.log("[Family Enrollment] Added family member:", {
             name: `${member.firstName} ${member.lastName}`,
             relationship: member.relationship,
-            memberType: member.memberType
+            memberType: member.memberType,
           });
         } catch (familyError: any) {
-          console.error("[Family Enrollment] Error adding family member:", familyError);
+          console.error(
+            "[Family Enrollment] Error adding family member:",
+            familyError,
+          );
           errors.push({
             index: i,
             error: familyError.message,
-            member: member
+            member: member,
           });
         }
       }
@@ -7181,32 +8182,45 @@ export async function registerRoutes(app: any) {
       console.log("[Family Enrollment] Completed:", {
         requested: members.length,
         succeeded: addedMembers.length,
-        failed: errors.length
+        failed: errors.length,
       });
 
       // Update primary member's coverage type if needed
-      if (addedMembers.length > 0 && primaryMember.coverageType === 'member-only') {
+      if (
+        addedMembers.length > 0 &&
+        primaryMember.coverageType === "member-only"
+      ) {
         try {
-          const hasSpouse = addedMembers.some(m => m.relationship === 'spouse');
-          const hasChildren = addedMembers.some(m => m.relationship === 'child' || m.relationship === 'dependent');
-          
+          const hasSpouse = addedMembers.some(
+            (m) => m.relationship === "spouse",
+          );
+          const hasChildren = addedMembers.some(
+            (m) => m.relationship === "child" || m.relationship === "dependent",
+          );
+
           let newCoverageType = primaryMember.coverageType;
           if (hasSpouse && hasChildren) {
-            newCoverageType = 'Family';
+            newCoverageType = "Family";
           } else if (hasSpouse) {
-            newCoverageType = 'Member/Spouse';
+            newCoverageType = "Member/Spouse";
           } else if (hasChildren) {
-            newCoverageType = 'Member/Child';
+            newCoverageType = "Member/Child";
           }
 
           if (newCoverageType !== primaryMember.coverageType) {
             await storage.updateMember(parseInt(resolvedPrimaryMemberId), {
-              coverageType: newCoverageType
+              coverageType: newCoverageType,
             });
-            console.log("[Family Enrollment] Updated primary member coverage type:", newCoverageType);
+            console.log(
+              "[Family Enrollment] Updated primary member coverage type:",
+              newCoverageType,
+            );
           }
         } catch (updateError: any) {
-          console.error("[Family Enrollment] Failed to update coverage type:", updateError);
+          console.error(
+            "[Family Enrollment] Failed to update coverage type:",
+            updateError,
+          );
           // Non-fatal - continue
         }
       }
@@ -7216,149 +8230,223 @@ export async function registerRoutes(app: any) {
         message: `Successfully added ${addedMembers.length} family member(s)`,
         familyMembers: addedMembers,
         errors: errors.length > 0 ? errors : undefined,
-        primaryMemberId: resolvedPrimaryMemberId
+        primaryMemberId: resolvedPrimaryMemberId,
       });
-
     } catch (error: any) {
       console.error("[Family Enrollment] Error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Family enrollment failed",
         message: error.message,
-        details: "Internal server error"
+        details: "Internal server error",
       });
     }
   });
 
   // Fix: /api/agent/enrollments (404)
   // NOTE: Specific routes MUST come before dynamic routes like /api/agent/:agentId
-  app.get('/api/agent/enrollments', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      
-      if (!hasAgentOrAdminAccess(userRole)) {
-        console.log('[Agent Enrollments] Permission denied:', {
-          userRole,
-          rawRole: req.user?.role,
-          userId: req.user?.id
+  app.get(
+    "/api/agent/enrollments",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
+        if (!hasAgentOrAdminAccess(userRole)) {
+          console.log("[Agent Enrollments] Permission denied:", {
+            userRole,
+            rawRole: req.user?.role,
+            userId: req.user?.id,
+          });
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
+
+        const scope = await resolveScopedAgentIds(req.user, req.query.agentId, {
+          allowAdminAll: true,
         });
-        return res.status(403).json({ 
-          error: 'Agent or admin access required',
-          currentRole: userRole
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        const { startDate, endDate } = req.query;
+
+        console.log("[Agent Enrollments] Fetching enrollments for:", {
+          allAgents: scope.allAgents,
+          agentIds: scope.agentIds,
+          agentEmail: req.user?.email,
+          agentNumber: req.user?.agentNumber,
+          role: req.user?.role,
+          startDate,
+          endDate,
         });
+
+        const enrollments = scope.allAgents
+          ? await storage.getAllEnrollments(
+              startDate as string,
+              endDate as string,
+            )
+          : await getScopedEnrollments(
+              scope.agentIds,
+              startDate as string,
+              endDate as string,
+            );
+
+        const revealSsn = shouldRevealEnrollmentSsn(req as AuthRequest);
+        const revealRole = req.user?.role || "";
+        const { decryptSSN } = await import("./utils/encryption");
+        const enrollmentsWithSsn = (enrollments || []).map(
+          (enrollment: any) => ({
+            ...enrollment,
+            ssn: enrollment?.ssn
+              ? displaySSN(decryptSSN(enrollment.ssn), {
+                  reveal: revealSsn,
+                  role: revealRole,
+                })
+              : null,
+          }),
+        );
+
+        console.log(
+          "[Agent Enrollments] Found",
+          enrollmentsWithSsn?.length || 0,
+          "enrollments",
+        );
+        if (enrollmentsWithSsn && enrollmentsWithSsn.length > 0) {
+          console.log("[Agent Enrollments] Sample enrollment:", {
+            id: enrollmentsWithSsn[0].id,
+            email: enrollmentsWithSsn[0].email,
+            name: `${enrollmentsWithSsn[0].firstName} ${enrollmentsWithSsn[0].lastName}`,
+            planName: enrollmentsWithSsn[0].planName,
+            commissionAmount: enrollmentsWithSsn[0].commissionAmount,
+            enrolledByAgentId: enrollmentsWithSsn[0].enrolledByAgentId,
+          });
+        }
+
+        res.json({
+          success: true,
+          enrollments: enrollmentsWithSsn,
+          total: enrollmentsWithSsn?.length || 0,
+          agentIds: scope.agentIds,
+          allAgents: scope.allAgents,
+        });
+      } catch (error: any) {
+        console.error("Agent enrollments error:", error);
+        res.status(500).json({ error: "Failed to fetch enrollments" });
       }
-
-      // Allow admin/super_admin to view any agent's enrollments via query param
-      const requestedAgentId = req.query.agentId;
-      const isAdminViewingOther = isAdmin(userRole) && requestedAgentId;
-      const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
-      const { startDate, endDate } = req.query;
-      
-      console.log('[Agent Enrollments] Fetching enrollments for:', {
-        agentId,
-        agentEmail: req.user?.email,
-        agentNumber: req.user?.agentNumber,
-        role: req.user?.role,
-        isAdminViewingOther,
-        startDate,
-        endDate
-      });
-
-      const enrollments = await storage.getEnrollmentsByAgent(
-        agentId,
-        startDate as string,
-        endDate as string
-      );
-
-      const revealSsn = shouldRevealEnrollmentSsn(req as AuthRequest);
-      const revealRole = req.user?.role || '';
-      const { decryptSSN } = await import('./utils/encryption');
-      const enrollmentsWithSsn = (enrollments || []).map((enrollment: any) => ({
-        ...enrollment,
-        ssn: enrollment?.ssn
-          ? displaySSN(decryptSSN(enrollment.ssn), { reveal: revealSsn, role: revealRole })
-          : null,
-      }));
-      
-      console.log('[Agent Enrollments] Found', enrollmentsWithSsn?.length || 0, 'enrollments');
-      if (enrollmentsWithSsn && enrollmentsWithSsn.length > 0) {
-        console.log('[Agent Enrollments] Sample enrollment:', {
-          id: enrollmentsWithSsn[0].id,
-          email: enrollmentsWithSsn[0].email,
-          name: `${enrollmentsWithSsn[0].firstName} ${enrollmentsWithSsn[0].lastName}`,
-          planName: enrollmentsWithSsn[0].planName,
-          commissionAmount: enrollmentsWithSsn[0].commissionAmount,
-          enrolledByAgentId: enrollmentsWithSsn[0].enrolledByAgentId
-        });
-      }
-
-      res.json({
-        success: true,
-        enrollments: enrollmentsWithSsn,
-        total: enrollmentsWithSsn?.length || 0,
-        agentId: agentId
-      });
-    } catch (error: any) {
-      console.error('Agent enrollments error:', error);
-      res.status(500).json({ error: 'Failed to fetch enrollments' });
-    }
-  });
+    },
+  );
 
   // Fix: /api/agent/stats (403) - permission issue
-  app.get('/api/agent/stats', authMiddleware, async (req: any, res: any) => {
+  app.get("/api/agent/stats", authMiddleware, async (req: any, res: any) => {
     try {
       const userRole = req.user?.role?.trim();
 
-      console.log('[Agent Stats] Permission check:', {
+      console.log("[Agent Stats] Permission check:", {
         userRole,
         rawRole: req.user?.role,
         isAllowed: hasAgentOrAdminAccess(userRole),
-        userId: req.user?.id
+        userId: req.user?.id,
       });
 
       if (!hasAgentOrAdminAccess(userRole)) {
         return res.status(403).json({
-          message: 'Agent or admin access required',
+          message: "Agent or admin access required",
           currentRole: userRole,
-          allowedRoles: ['agent', 'admin', 'super_admin']
+          allowedRoles: ["agent", "admin", "super_admin"],
         });
       }
 
       const requestedAgentId = req.query.agentId;
-      const period = typeof req.query.period === 'string' ? req.query.period : undefined;
-      const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
-      const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
-      const isAdminViewingOther = isAdmin(userRole) && requestedAgentId;
-      const agentId = isAdminViewingOther ? requestedAgentId : req.user.id;
+      const period =
+        typeof req.query.period === "string" ? req.query.period : undefined;
+      const startDate =
+        typeof req.query.startDate === "string"
+          ? req.query.startDate
+          : undefined;
+      const endDate =
+        typeof req.query.endDate === "string" ? req.query.endDate : undefined;
+      const scope = await resolveScopedAgentIds(req.user, requestedAgentId, {
+        allowAdminAll: false,
+      });
+      if (!scope.ok) {
+        return res.status(scope.status).json({ error: scope.message });
+      }
+      const scopedAgentIds = scope.agentIds;
+      const primaryAgentId = scopedAgentIds[0] || req.user.id;
 
-      const { start: periodStart, end: periodEnd } = getDateRangeFromQuery(period, startDate, endDate);
+      const { start: periodStart, end: periodEnd } = getDateRangeFromQuery(
+        period,
+        startDate,
+        endDate,
+      );
 
-      console.log('[Agent Stats] Fetching stats for agent:', agentId, {
-        isAdminViewingOther,
+      console.log("[Agent Stats] Fetching stats for scoped agents:", {
+        scopedAgentIds,
         period,
         periodStart: periodStart?.toISOString() || null,
-        periodEnd: periodEnd?.toISOString() || null
+        periodEnd: periodEnd?.toISOString() || null,
       });
 
-      const [individualEnrollments, groupEnrollments] = await Promise.all([
-        storage.getEnrollmentsByAgent(agentId),
-        getGroupEnrollmentRecordsForAgent(agentId),
-      ]);
+      const enrollmentPages = await Promise.all(
+        scopedAgentIds.map(async (agentId) => {
+          const [individualEnrollments, groupEnrollments] = await Promise.all([
+            storage.getEnrollmentsByAgent(agentId),
+            getGroupEnrollmentRecordsForAgent(agentId),
+          ]);
+          return [...individualEnrollments, ...groupEnrollments];
+        }),
+      );
 
-      const allEnrollments = [...individualEnrollments, ...groupEnrollments];
-      const reportingEnrollments = filterRecordsByDate(allEnrollments, periodStart, periodEnd);
+      const enrollmentMap = new Map<string, any>();
+      for (const page of enrollmentPages) {
+        for (const enrollment of page || []) {
+          const key = String(enrollment?.id || "").trim();
+          if (!key) continue;
+          enrollmentMap.set(key, enrollment);
+        }
+      }
+      const allEnrollments = Array.from(enrollmentMap.values());
+      const reportingEnrollments = filterRecordsByDate(
+        allEnrollments,
+        periodStart,
+        periodEnd,
+      );
       const lifetimeTotal = allEnrollments.length;
       const totalMembers = reportingEnrollments.length;
-      const activeMembers = reportingEnrollments.filter((e) => e.isActive || e.status === 'active').length;
-      const pendingEnrollments = reportingEnrollments.filter((e) => e.approvalStatus === 'pending' || e.status === 'pending_activation').length;
+      const activeMembers = reportingEnrollments.filter(
+        (e) => e.isActive || e.status === "active",
+      ).length;
+      const pendingEnrollments = reportingEnrollments.filter(
+        (e) =>
+          e.approvalStatus === "pending" || e.status === "pending_activation",
+      ).length;
 
-      const reportingIndividualEnrollments = reportingEnrollments.filter((e) => e.source !== 'group');
+      const reportingIndividualEnrollments = reportingEnrollments.filter(
+        (e) => e.source !== "group",
+      );
       const isFamilyRecord = (record: any): boolean => {
-        const value = String(record?.memberType || record?.coverageType || record?.coverage_type || '').toLowerCase();
-        return value.includes('family') || value.includes('spouse') || value.includes('child');
+        const value = String(
+          record?.memberType ||
+            record?.coverageType ||
+            record?.coverage_type ||
+            "",
+        ).toLowerCase();
+        return (
+          value.includes("family") ||
+          value.includes("spouse") ||
+          value.includes("child")
+        );
       };
-      const reportingFamilyEnrollments = reportingIndividualEnrollments.filter((record) => isFamilyRecord(record));
-      const reportingSoloEnrollments = reportingIndividualEnrollments.filter((record) => !isFamilyRecord(record));
-      const reportingGroupEnrollments = reportingEnrollments.filter((e) => e.source === 'group');
+      const reportingFamilyEnrollments = reportingIndividualEnrollments.filter(
+        (record) => isFamilyRecord(record),
+      );
+      const reportingSoloEnrollments = reportingIndividualEnrollments.filter(
+        (record) => !isFamilyRecord(record),
+      );
+      const reportingGroupEnrollments = reportingEnrollments.filter(
+        (e) => e.source === "group",
+      );
 
       const revenueTotal = sumEnrollmentRevenue(reportingEnrollments);
 
@@ -7367,36 +8455,80 @@ export async function registerRoutes(app: any) {
       const startOfMonthDate = new Date(now.getFullYear(), now.getMonth(), 1);
       const startOfYearDate = new Date(now.getFullYear(), 0, 1);
 
-      const monthlyEnrollmentRecords = filterRecordsByDate(allEnrollments, startOfMonthDate, endOfTodayDate);
-      const yearlyEnrollmentRecords = filterRecordsByDate(allEnrollments, startOfYearDate, endOfTodayDate);
+      const monthlyEnrollmentRecords = filterRecordsByDate(
+        allEnrollments,
+        startOfMonthDate,
+        endOfTodayDate,
+      );
+      const yearlyEnrollmentRecords = filterRecordsByDate(
+        allEnrollments,
+        startOfYearDate,
+        endOfTodayDate,
+      );
 
       const monthlyEnrollments = monthlyEnrollmentRecords.length;
       const yearlyEnrollments = yearlyEnrollmentRecords.length;
 
       const monthlyRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords);
-      const monthlyIndividualRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords.filter((record) => record.source !== 'group' && !isFamilyRecord(record)));
-      const monthlyFamilyRevenue = sumEnrollmentRevenue(monthlyEnrollmentRecords.filter((record) => record.source !== 'group' && isFamilyRecord(record)));
+      const monthlyIndividualRevenue = sumEnrollmentRevenue(
+        monthlyEnrollmentRecords.filter(
+          (record) => record.source !== "group" && !isFamilyRecord(record),
+        ),
+      );
+      const monthlyFamilyRevenue = sumEnrollmentRevenue(
+        monthlyEnrollmentRecords.filter(
+          (record) => record.source !== "group" && isFamilyRecord(record),
+        ),
+      );
       const monthlyGroupRevenue = sumEnrollmentRevenue(
-        monthlyEnrollmentRecords.filter((record) => record.source === 'group')
+        monthlyEnrollmentRecords.filter((record) => record.source === "group"),
       );
       const yearlyRevenue = sumEnrollmentRevenue(yearlyEnrollmentRecords);
-      const averageRevenuePerMember = activeMembers > 0 ? revenueTotal / activeMembers : 0;
+      const averageRevenuePerMember =
+        activeMembers > 0 ? revenueTotal / activeMembers : 0;
 
       const startOfMonthIso = startOfMonthDate.toISOString();
       const startOfYearIso = startOfYearDate.toISOString();
       const todayIso = endOfTodayDate.toISOString();
 
-      const commissionStats = await storage.getCommissionStatsNew(agentId);
+      const commissionStatsList = await Promise.all(
+        scopedAgentIds.map((agentId) => storage.getCommissionStatsNew(agentId)),
+      );
+      const commissionStats = commissionStatsList.reduce(
+        (acc: any, item: any) => ({
+          totalEarned: (acc.totalEarned || 0) + Number(item?.totalEarned || 0),
+          totalPending:
+            (acc.totalPending || 0) + Number(item?.totalPending || 0),
+          totalPaid: (acc.totalPaid || 0) + Number(item?.totalPaid || 0),
+        }),
+        { totalEarned: 0, totalPending: 0, totalPaid: 0 },
+      );
 
-      const monthlyCommissions = await storage.getAgentCommissionsNew(agentId, startOfMonthIso, todayIso);
-      const yearlyCommissions = await storage.getAgentCommissionsNew(agentId, startOfYearIso, todayIso);
+      const monthlyCommissions = await getScopedCommissions(
+        scopedAgentIds,
+        startOfMonthIso,
+        todayIso,
+      );
+      const yearlyCommissions = await getScopedCommissions(
+        scopedAgentIds,
+        startOfYearIso,
+        todayIso,
+      );
 
-      const monthlyCommissionTotal = parseFloat(sumCommissionAmounts(monthlyCommissions).toFixed(2));
-      const yearlyCommissionTotal = parseFloat(sumCommissionAmounts(yearlyCommissions).toFixed(2));
-      const performanceGoalData = await storage.resolvePerformanceGoalsForAgent(agentId);
+      const monthlyCommissionTotal = parseFloat(
+        sumCommissionAmounts(monthlyCommissions).toFixed(2),
+      );
+      const yearlyCommissionTotal = parseFloat(
+        sumCommissionAmounts(yearlyCommissions).toFixed(2),
+      );
+      const performanceGoalData =
+        scopedAgentIds.length === 1
+          ? await storage.resolvePerformanceGoalsForAgent(primaryAgentId)
+          : await storage.resolvePerformanceGoalsForAgent(undefined);
 
       const responsePayload = {
         success: true,
+        scopedAgentIds,
         totalEnrollments: lifetimeTotal,
         totalMembers,
         activeMembers,
@@ -7406,7 +8538,9 @@ export async function registerRoutes(app: any) {
         groupEnrollments: reportingGroupEnrollments.length,
         totalRevenue: parseFloat(revenueTotal.toFixed(2)),
         monthlyRevenue: parseFloat(monthlyRevenue.toFixed(2)),
-        individualMonthlyRevenue: parseFloat(monthlyIndividualRevenue.toFixed(2)),
+        individualMonthlyRevenue: parseFloat(
+          monthlyIndividualRevenue.toFixed(2),
+        ),
         familyMonthlyRevenue: parseFloat(monthlyFamilyRevenue.toFixed(2)),
         groupMonthlyRevenue: parseFloat(monthlyGroupRevenue.toFixed(2)),
         yearlyRevenue: parseFloat(yearlyRevenue.toFixed(2)),
@@ -7432,590 +8566,1052 @@ export async function registerRoutes(app: any) {
         performanceGoalsMeta: {
           hasOverride: Boolean(performanceGoalData.override),
         },
-        ...commissionStats
+        ...commissionStats,
       };
 
-      console.log('[Agent Stats] Final stats being sent:', responsePayload);
+      console.log("[Agent Stats] Final stats being sent:", responsePayload);
       res.json(responsePayload);
     } catch (error: any) {
-      console.error('Agent stats error:', error);
-      res.status(500).json({ error: 'Failed to fetch stats' });
+      console.error("Agent stats error:", error);
+      res.status(500).json({ error: "Failed to fetch stats" });
     }
   });
 
   // Fix: /api/agent/commission-stats (404)
-  app.get('/api/agent/commission-stats', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
-      
-      console.log("🔍 COMMISSION STATS ROUTE HIT - User:", req.user?.email, "Role:", userRole);
+  app.get(
+    "/api/agent/commission-stats",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
 
-      if (!allowedRoles.includes(userRole)) {
-        console.log("❌ Access denied - not agent or admin", { userRole, rawRole: req.user?.role });
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+        console.log(
+          "🔍 COMMISSION STATS ROUTE HIT - User:",
+          req.user?.email,
+          "Role:",
+          userRole,
+        );
+
+        if (!hasAgentOrAdminAccess(userRole)) {
+          console.log("❌ Access denied - not agent or admin", {
+            userRole,
+            rawRole: req.user?.role,
+          });
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
+
+        const scope = await resolveScopedAgentIds(
+          req.user,
+          req.query?.agentId,
+          {
+            allowAdminAll: false,
+          },
+        );
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        const statsList = await Promise.all(
+          scope.agentIds.map((agentId: string) =>
+            storage.getCommissionStats(agentId),
+          ),
+        );
+        const stats = statsList.reduce(
+          (acc: any, item: any) => ({
+            totalEarned:
+              (acc.totalEarned || 0) + Number(item?.totalEarned || 0),
+            totalPending:
+              (acc.totalPending || 0) + Number(item?.totalPending || 0),
+            totalPaid: (acc.totalPaid || 0) + Number(item?.totalPaid || 0),
+          }),
+          { totalEarned: 0, totalPending: 0, totalPaid: 0 },
+        );
+
+        console.log("✅ Got commission stats:", stats);
+
+        // Return stats in the format expected by frontend
+        res.json(stats);
+      } catch (error: any) {
+        console.error("❌ Commission stats error:", error);
+        res.status(500).json({
+          error: "Failed to fetch commission stats",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      // Get actual commission stats for the agent
-      const agentId = req.user.id;
-      const stats = await storage.getCommissionStats(agentId);
+  // Fix: /api/agent/commissions (403) - permission issue
+  app.get(
+    "/api/agent/commissions",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
 
-      console.log("✅ Got commission stats:", stats);
-      
-      // Return stats in the format expected by frontend
-      res.json(stats);
-    } catch (error: any) {
-      console.error('❌ Commission stats error:', error);
-      res.status(500).json({ error: 'Failed to fetch commission stats', details: error.message });
-    }
-  });
+        console.log(
+          "🔍 AGENT COMMISSIONS ROUTE HIT - User:",
+          req.user?.email,
+          "Role:",
+          userRole,
+        );
 
-  // Fix: /api/agent/commissions (403) - permission issue  
-  app.get('/api/agent/commissions', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
-      
-      console.log("🔍 AGENT COMMISSIONS ROUTE HIT - User:", req.user?.email, "Role:", userRole);
+        if (!hasAgentOrAdminAccess(userRole)) {
+          console.log("❌ Access denied - not agent or admin", {
+            userRole,
+            rawRole: req.user?.role,
+          });
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
 
-      if (!allowedRoles.includes(userRole)) {
-        console.log("❌ Access denied - not agent or admin", { userRole, rawRole: req.user?.role });
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+        const { startDate, endDate, agentId } = req.query as {
+          startDate?: string;
+          endDate?: string;
+          agentId?: string;
+        };
+
+        const scope = await resolveScopedAgentIds(req.user, agentId, {
+          allowAdminAll: false,
+        });
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        const commissions = await getScopedCommissions(
+          scope.agentIds,
+          startDate as string,
+          endDate as string,
+        );
+
+        console.log(
+          "✅ Got",
+          commissions?.length || 0,
+          "commissions for scoped agents:",
+          scope.agentIds,
+        );
+
+        // Return the commissions array directly (already formatted by storage function)
+        res.json(commissions || []);
+      } catch (error: any) {
+        console.error("❌ Agent commissions error:", error);
+        res.status(500).json({
+          error: "Failed to fetch commissions",
+          details: error.message,
+        });
       }
-
-      const { startDate, endDate, agentId } = req.query as {
-        startDate?: string;
-        endDate?: string;
-        agentId?: string;
-      };
-      const scopedAgentId = isAdmin(userRole) && agentId ? agentId : req.user.id;
-      
-      // USE NEW AGENT_COMMISSIONS TABLE (Supabase)
-      const commissions = await storage.getAgentCommissionsNew(
-        scopedAgentId,
-        startDate as string,
-        endDate as string
-      );
-
-      console.log("✅ Got", commissions?.length || 0, "commissions for agent:", scopedAgentId);
-      
-      // Return the commissions array directly (already formatted by storage function)
-      res.json(commissions || []);
-    } catch (error: any) {
-      console.error('❌ Agent commissions error:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
-    }
-  });
+    },
+  );
 
   // Agent: Get commission totals (MTD, YTD, Lifetime)
-  app.get('/api/agent/commission-totals', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      const allowedRoles = ['agent', 'admin', 'super_admin'];
-      
-      if (!allowedRoles.includes(userRole)) {
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+  app.get(
+    "/api/agent/commission-totals",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
+
+        if (!hasAgentOrAdminAccess(userRole)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
+
+        const scope = await resolveScopedAgentIds(
+          req.user,
+          req.query?.agentId,
+          {
+            allowAdminAll: false,
+          },
+        );
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        const totalsList = await Promise.all(
+          scope.agentIds.map((agentId: string) =>
+            storage.getCommissionTotals(agentId),
+          ),
+        );
+
+        const aggregate = totalsList.reduce(
+          (acc: any, row: any) => ({
+            mtd: {
+              earned:
+                Number(acc.mtd.earned || 0) + Number(row?.mtd?.earned || 0),
+              paid: Number(acc.mtd.paid || 0) + Number(row?.mtd?.paid || 0),
+              pending:
+                Number(acc.mtd.pending || 0) + Number(row?.mtd?.pending || 0),
+            },
+            ytd: {
+              earned:
+                Number(acc.ytd.earned || 0) + Number(row?.ytd?.earned || 0),
+              paid: Number(acc.ytd.paid || 0) + Number(row?.ytd?.paid || 0),
+              pending:
+                Number(acc.ytd.pending || 0) + Number(row?.ytd?.pending || 0),
+            },
+            lifetime: {
+              earned:
+                Number(acc.lifetime.earned || 0) +
+                Number(row?.lifetime?.earned || 0),
+              paid:
+                Number(acc.lifetime.paid || 0) +
+                Number(row?.lifetime?.paid || 0),
+              pending:
+                Number(acc.lifetime.pending || 0) +
+                Number(row?.lifetime?.pending || 0),
+            },
+          }),
+          {
+            mtd: { earned: 0, paid: 0, pending: 0 },
+            ytd: { earned: 0, paid: 0, pending: 0 },
+            lifetime: { earned: 0, paid: 0, pending: 0 },
+          },
+        );
+
+        res.json({
+          ...aggregate,
+          scopedAgentIds: scope.agentIds,
+        });
+      } catch (error: any) {
+        console.error("Error fetching commission totals:", error);
+        res.status(500).json({
+          error: "Failed to fetch commission totals",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const requestedAgentId = typeof req.query?.agentId === 'string' ? req.query.agentId.trim() : '';
-      const scopedAgentId = isAdmin(userRole) && requestedAgentId ? requestedAgentId : req.user.id;
-      const totals = await storage.getCommissionTotals(scopedAgentId);
-      
-      res.json(totals);
-    } catch (error: any) {
-      console.error('Error fetching commission totals:', error);
-      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
-    }
-  });
-
-  const toCommissionDisplayStatus = (status: string): 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed' => {
-    const normalized = String(status || '').toLowerCase();
-    if (normalized === 'earned') return 'pending';
-    if (normalized === 'queued') return 'scheduled';
-    if (normalized === 'carry_forward') return 'carry_forward';
-    if (normalized === 'paid') return 'paid';
-    if (normalized === 'held') return 'held';
-    return 'reversed';
+  const toCommissionDisplayStatus = (
+    status: string,
+  ):
+    | "pending"
+    | "scheduled"
+    | "carry_forward"
+    | "paid"
+    | "held"
+    | "reversed" => {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized === "earned") return "pending";
+    if (normalized === "queued") return "scheduled";
+    if (normalized === "carry_forward") return "carry_forward";
+    if (normalized === "paid") return "paid";
+    if (normalized === "held") return "held";
+    return "reversed";
   };
 
-  app.get('/api/agent/commission-ledger', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      if (!hasAgentOrAdminAccess(userRole)) {
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
-      }
-
-      const {
-        status = 'all',
-        payoutPeriod = 'all',
-        startDate,
-        endDate,
-        memberName,
-        agentId,
-      } = req.query as {
-        status?: string;
-        payoutPeriod?: string;
-        startDate?: string;
-        endDate?: string;
-        memberName?: string;
-        agentId?: string;
-      };
-
-      const scopedAgentId = isAdmin(userRole) && agentId ? agentId : req.user.id;
-
-      let ledgerQuery = supabase
-        .from('commission_ledger')
-        .select('*')
-        .eq('agent_id', scopedAgentId)
-        .order('created_at', { ascending: false });
-
-      if (startDate) {
-        ledgerQuery = ledgerQuery.gte('created_at', startDate);
-      }
-      if (endDate) {
-        const endExclusive = addDaysLocal(String(endDate), 1);
-        ledgerQuery = ledgerQuery.lt('created_at', formatLocalDate(endExclusive));
-      }
-      if (memberName) {
-        ledgerQuery = ledgerQuery.ilike('member_name', `%${memberName}%`);
-      }
-      if (status !== 'all') {
-        const statusMap: Record<string, string[]> = {
-          pending: ['earned'],
-          scheduled: ['queued'],
-          carry_forward: ['carry_forward'],
-          paid: ['paid'],
-          held: ['held'],
-          reversed: ['reversed'],
-        };
-        const rawStatuses = statusMap[String(status).toLowerCase()] || [];
-        if (rawStatuses.length > 0) {
-          ledgerQuery = ledgerQuery.in('status', rawStatuses);
-        }
-      }
-
-      const { data: rows, error: ledgerError } = await ledgerQuery;
-      if (ledgerError) {
-        throw new Error(`Failed to fetch commission ledger: ${ledgerError.message}`);
-      }
-
-      const batchIds = [...new Set((rows || []).map((row: any) => row.payout_batch_id).filter(Boolean))];
-      let batchMap = new Map<string, any>();
-
-      if (batchIds.length > 0) {
-        const { data: batches, error: batchesError } = await supabase
-          .from('commission_payout_batches')
-          .select('id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at')
-          .in('id', batchIds);
-
-        if (batchesError) {
-          throw new Error(`Failed to fetch payout batch details: ${batchesError.message}`);
+  app.get(
+    "/api/agent/commission-ledger",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
+        if (!hasAgentOrAdminAccess(userRole)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
         }
 
-        batchMap = new Map((batches || []).map((batch: any) => [batch.id, batch]));
-      }
-
-      const filteredByPeriod = (rows || []).filter((row: any) => {
-        if (payoutPeriod === 'all') return true;
-        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
-        return batch?.batch_type === payoutPeriod;
-      });
-
-      const normalized = filteredByPeriod.map((row: any) => {
-        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
-        const displayStatus = toCommissionDisplayStatus(row.status);
-        return {
-          id: row.id,
-          agentId: row.agent_id,
-          agentName: row.agent_name,
-          writingNumber: row.writing_number,
-          memberId: row.member_id,
-          memberName: row.member_name,
-          membershipTier: row.membership_tier,
-          coverageType: row.coverage_type,
-          effectiveDate: row.effective_date,
-          commissionPeriodStart: row.commission_period_start,
-          commissionPeriodEnd: row.commission_period_end,
-          commissionAmount: Number(row.commission_amount || 0),
-          commissionType: row.commission_type,
-          status: row.status,
-          displayStatus,
-          payoutBatchId: row.payout_batch_id,
-          payoutBatchName: batch?.batch_name || null,
-          payoutBatchType: batch?.batch_type || null,
-          scheduledPayDate: batch?.scheduled_pay_date || null,
-          paidAt: batch?.paid_at || null,
-          statementNumber: row.statement_number,
-          cancellationDate: row.cancellation_date,
-          cancellationReason: row.cancellation_reason,
-          notes: row.notes,
-          createdAt: row.created_at,
+        const {
+          status = "all",
+          payoutPeriod = "all",
+          startDate,
+          endDate,
+          memberName,
+          agentId,
+        } = req.query as {
+          status?: string;
+          payoutPeriod?: string;
+          startDate?: string;
+          endDate?: string;
+          memberName?: string;
+          agentId?: string;
         };
-      });
 
-      const summary = {
-        pendingTotal: normalized
-          .filter((row: any) => row.displayStatus === 'pending')
-          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
-        scheduledTotal: normalized
-          .filter((row: any) => row.displayStatus === 'scheduled')
-          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
-        carryForwardTotal: normalized
-          .filter((row: any) => row.displayStatus === 'carry_forward')
-          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
-        paidTotal: normalized
-          .filter((row: any) => row.displayStatus === 'paid')
-          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
-        reversalsAdjustmentsTotal: normalized
-          .filter((row: any) => row.commissionType === 'adjustment' || row.commissionType === 'reversal')
-          .reduce((sum: number, row: any) => sum + Number(row.commissionAmount || 0), 0),
-      };
-
-      return res.json({ rows: normalized, summary });
-    } catch (error: any) {
-      console.error('Error fetching agent commission ledger:', error);
-      return res.status(500).json({ error: 'Failed to fetch commission ledger', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commission-ledger', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const {
-        agentId,
-        status = 'all',
-        payoutPeriod = 'all',
-        startDate,
-        endDate,
-        memberName,
-      } = req.query as {
-        agentId?: string;
-        status?: string;
-        payoutPeriod?: string;
-        startDate?: string;
-        endDate?: string;
-        memberName?: string;
-      };
-
-      let ledgerQuery = supabase
-        .from('commission_ledger')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (agentId) {
-        ledgerQuery = ledgerQuery.eq('agent_id', agentId);
-      }
-      if (startDate) {
-        ledgerQuery = ledgerQuery.gte('created_at', startDate);
-      }
-      if (endDate) {
-        const endExclusive = addDaysLocal(String(endDate), 1);
-        ledgerQuery = ledgerQuery.lt('created_at', formatLocalDate(endExclusive));
-      }
-      if (memberName) {
-        ledgerQuery = ledgerQuery.ilike('member_name', `%${memberName}%`);
-      }
-      if (status !== 'all') {
-        const statusMap: Record<string, string[]> = {
-          pending: ['earned'],
-          scheduled: ['queued'],
-          carry_forward: ['carry_forward'],
-          paid: ['paid'],
-          held: ['held'],
-          reversed: ['reversed'],
-        };
-        const rawStatuses = statusMap[String(status).toLowerCase()] || [];
-        if (rawStatuses.length > 0) {
-          ledgerQuery = ledgerQuery.in('status', rawStatuses);
-        }
-      }
-
-      const { data: rows, error: ledgerError } = await ledgerQuery;
-      if (ledgerError) {
-        throw new Error(`Failed to fetch admin commission ledger: ${ledgerError.message}`);
-      }
-
-      const batchIds = [...new Set((rows || []).map((row: any) => row.payout_batch_id).filter(Boolean))];
-      let batchMap = new Map<string, any>();
-
-      if (batchIds.length > 0) {
-        const { data: batches, error: batchesError } = await supabase
-          .from('commission_payout_batches')
-          .select('id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at')
-          .in('id', batchIds);
-
-        if (batchesError) {
-          throw new Error(`Failed to fetch payout batches for admin ledger: ${batchesError.message}`);
+        const scope = await resolveScopedAgentIds(req.user, agentId, {
+          allowAdminAll: false,
+        });
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
         }
 
-        batchMap = new Map((batches || []).map((batch: any) => [batch.id, batch]));
-      }
+        let ledgerQuery = supabase
+          .from("commission_ledger")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      const filteredByPeriod = (rows || []).filter((row: any) => {
-        if (payoutPeriod === 'all') return true;
-        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
-        return batch?.batch_type === payoutPeriod;
-      });
+        if (scope.agentIds.length === 1) {
+          ledgerQuery = ledgerQuery.eq("agent_id", scope.agentIds[0]);
+        } else {
+          ledgerQuery = ledgerQuery.in("agent_id", scope.agentIds);
+        }
 
-      const normalized = filteredByPeriod.map((row: any) => {
-        const batch = row.payout_batch_id ? batchMap.get(row.payout_batch_id) : null;
-        return {
-          ...row,
-          commissionAmount: Number(row.commission_amount || 0),
-          displayStatus: toCommissionDisplayStatus(row.status),
-          payoutBatchName: batch?.batch_name || null,
-          payoutBatchType: batch?.batch_type || null,
-          scheduledPayDate: batch?.scheduled_pay_date || null,
-          paidAt: batch?.paid_at || null,
+        if (startDate) {
+          ledgerQuery = ledgerQuery.gte("created_at", startDate);
+        }
+        if (endDate) {
+          const endExclusive = addDaysLocal(String(endDate), 1);
+          ledgerQuery = ledgerQuery.lt(
+            "created_at",
+            formatLocalDate(endExclusive),
+          );
+        }
+        if (memberName) {
+          ledgerQuery = ledgerQuery.ilike("member_name", `%${memberName}%`);
+        }
+        if (status !== "all") {
+          const statusMap: Record<string, string[]> = {
+            pending: ["earned"],
+            scheduled: ["queued"],
+            carry_forward: ["carry_forward"],
+            paid: ["paid"],
+            held: ["held"],
+            reversed: ["reversed"],
+          };
+          const rawStatuses = statusMap[String(status).toLowerCase()] || [];
+          if (rawStatuses.length > 0) {
+            ledgerQuery = ledgerQuery.in("status", rawStatuses);
+          }
+        }
+
+        const { data: rows, error: ledgerError } = await ledgerQuery;
+        if (ledgerError) {
+          throw new Error(
+            `Failed to fetch commission ledger: ${ledgerError.message}`,
+          );
+        }
+
+        const batchIds = [
+          ...new Set(
+            (rows || []).map((row: any) => row.payout_batch_id).filter(Boolean),
+          ),
+        ];
+        let batchMap = new Map<string, any>();
+
+        if (batchIds.length > 0) {
+          const { data: batches, error: batchesError } = await supabase
+            .from("commission_payout_batches")
+            .select(
+              "id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at",
+            )
+            .in("id", batchIds);
+
+          if (batchesError) {
+            throw new Error(
+              `Failed to fetch payout batch details: ${batchesError.message}`,
+            );
+          }
+
+          batchMap = new Map(
+            (batches || []).map((batch: any) => [batch.id, batch]),
+          );
+        }
+
+        const filteredByPeriod = (rows || []).filter((row: any) => {
+          if (payoutPeriod === "all") return true;
+          const batch = row.payout_batch_id
+            ? batchMap.get(row.payout_batch_id)
+            : null;
+          return batch?.batch_type === payoutPeriod;
+        });
+
+        const normalized = filteredByPeriod.map((row: any) => {
+          const batch = row.payout_batch_id
+            ? batchMap.get(row.payout_batch_id)
+            : null;
+          const displayStatus = toCommissionDisplayStatus(row.status);
+          return {
+            id: row.id,
+            agentId: row.agent_id,
+            agentName: row.agent_name,
+            writingNumber: row.writing_number,
+            memberId: row.member_id,
+            memberName: row.member_name,
+            membershipTier: row.membership_tier,
+            coverageType: row.coverage_type,
+            effectiveDate: row.effective_date,
+            commissionPeriodStart: row.commission_period_start,
+            commissionPeriodEnd: row.commission_period_end,
+            commissionAmount: Number(row.commission_amount || 0),
+            commissionType: row.commission_type,
+            status: row.status,
+            displayStatus,
+            payoutBatchId: row.payout_batch_id,
+            payoutBatchName: batch?.batch_name || null,
+            payoutBatchType: batch?.batch_type || null,
+            scheduledPayDate: batch?.scheduled_pay_date || null,
+            paidAt: batch?.paid_at || null,
+            statementNumber: row.statement_number,
+            cancellationDate: row.cancellation_date,
+            cancellationReason: row.cancellation_reason,
+            notes: row.notes,
+            createdAt: row.created_at,
+          };
+        });
+
+        const summary = {
+          pendingTotal: normalized
+            .filter((row: any) => row.displayStatus === "pending")
+            .reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commissionAmount || 0),
+              0,
+            ),
+          scheduledTotal: normalized
+            .filter((row: any) => row.displayStatus === "scheduled")
+            .reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commissionAmount || 0),
+              0,
+            ),
+          carryForwardTotal: normalized
+            .filter((row: any) => row.displayStatus === "carry_forward")
+            .reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commissionAmount || 0),
+              0,
+            ),
+          paidTotal: normalized
+            .filter((row: any) => row.displayStatus === "paid")
+            .reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commissionAmount || 0),
+              0,
+            ),
+          reversalsAdjustmentsTotal: normalized
+            .filter(
+              (row: any) =>
+                row.commissionType === "adjustment" ||
+                row.commissionType === "reversal",
+            )
+            .reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commissionAmount || 0),
+              0,
+            ),
         };
-      });
 
-      return res.json({ rows: normalized });
-    } catch (error: any) {
-      console.error('Error fetching admin commission ledger:', error);
-      return res.status(500).json({ error: 'Failed to fetch admin commission ledger', details: error.message });
-    }
-  });
+        return res.json({
+          rows: normalized,
+          summary,
+          scopedAgentIds: scope.agentIds,
+        });
+      } catch (error: any) {
+        console.error("Error fetching agent commission ledger:", error);
+        return res.status(500).json({
+          error: "Failed to fetch commission ledger",
+          details: error.message,
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/commission-ledger",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const {
+          agentId,
+          status = "all",
+          payoutPeriod = "all",
+          startDate,
+          endDate,
+          memberName,
+        } = req.query as {
+          agentId?: string;
+          status?: string;
+          payoutPeriod?: string;
+          startDate?: string;
+          endDate?: string;
+          memberName?: string;
+        };
+
+        let ledgerQuery = supabase
+          .from("commission_ledger")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (agentId) {
+          ledgerQuery = ledgerQuery.eq("agent_id", agentId);
+        }
+        if (startDate) {
+          ledgerQuery = ledgerQuery.gte("created_at", startDate);
+        }
+        if (endDate) {
+          const endExclusive = addDaysLocal(String(endDate), 1);
+          ledgerQuery = ledgerQuery.lt(
+            "created_at",
+            formatLocalDate(endExclusive),
+          );
+        }
+        if (memberName) {
+          ledgerQuery = ledgerQuery.ilike("member_name", `%${memberName}%`);
+        }
+        if (status !== "all") {
+          const statusMap: Record<string, string[]> = {
+            pending: ["earned"],
+            scheduled: ["queued"],
+            carry_forward: ["carry_forward"],
+            paid: ["paid"],
+            held: ["held"],
+            reversed: ["reversed"],
+          };
+          const rawStatuses = statusMap[String(status).toLowerCase()] || [];
+          if (rawStatuses.length > 0) {
+            ledgerQuery = ledgerQuery.in("status", rawStatuses);
+          }
+        }
+
+        const { data: rows, error: ledgerError } = await ledgerQuery;
+        if (ledgerError) {
+          throw new Error(
+            `Failed to fetch admin commission ledger: ${ledgerError.message}`,
+          );
+        }
+
+        const batchIds = [
+          ...new Set(
+            (rows || []).map((row: any) => row.payout_batch_id).filter(Boolean),
+          ),
+        ];
+        let batchMap = new Map<string, any>();
+
+        if (batchIds.length > 0) {
+          const { data: batches, error: batchesError } = await supabase
+            .from("commission_payout_batches")
+            .select(
+              "id, batch_name, batch_type, cutoff_date, scheduled_pay_date, status, paid_at",
+            )
+            .in("id", batchIds);
+
+          if (batchesError) {
+            throw new Error(
+              `Failed to fetch payout batches for admin ledger: ${batchesError.message}`,
+            );
+          }
+
+          batchMap = new Map(
+            (batches || []).map((batch: any) => [batch.id, batch]),
+          );
+        }
+
+        const filteredByPeriod = (rows || []).filter((row: any) => {
+          if (payoutPeriod === "all") return true;
+          const batch = row.payout_batch_id
+            ? batchMap.get(row.payout_batch_id)
+            : null;
+          return batch?.batch_type === payoutPeriod;
+        });
+
+        const normalized = filteredByPeriod.map((row: any) => {
+          const batch = row.payout_batch_id
+            ? batchMap.get(row.payout_batch_id)
+            : null;
+          return {
+            ...row,
+            commissionAmount: Number(row.commission_amount || 0),
+            displayStatus: toCommissionDisplayStatus(row.status),
+            payoutBatchName: batch?.batch_name || null,
+            payoutBatchType: batch?.batch_type || null,
+            scheduledPayDate: batch?.scheduled_pay_date || null,
+            paidAt: batch?.paid_at || null,
+          };
+        });
+
+        return res.json({ rows: normalized });
+      } catch (error: any) {
+        console.error("Error fetching admin commission ledger:", error);
+        return res.status(500).json({
+          error: "Failed to fetch admin commission ledger",
+          details: error.message,
+        });
+      }
+    },
+  );
 
   // Agent/Admin: recurring billing + commission lifecycle alerts
-  app.get('/api/agent/lifecycle-alerts', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      if (!hasAgentOrAdminAccess(userRole)) {
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
+  app.get(
+    "/api/agent/lifecycle-alerts",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
+        if (!hasAgentOrAdminAccess(userRole)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
+
+        const days = Number.isFinite(Number(req.query.days))
+          ? Math.max(1, Math.min(60, Number(req.query.days)))
+          : 7;
+
+        const scope = await resolveScopedAgentIds(req.user, req.query.agentId, {
+          allowAdminAll: false,
+        });
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        const summary =
+          scope.agentIds.length === 1
+            ? await storage.getLifecycleAlertSummary({
+                agentId: scope.agentIds[0],
+                horizonDays: days,
+              })
+            : await getScopedLifecycleSummary(scope.agentIds, days);
+
+        res.json(summary);
+      } catch (error: any) {
+        console.error("Error fetching agent lifecycle alerts:", error);
+        res.status(500).json({
+          error: "Failed to fetch lifecycle alerts",
+          details: error.message,
+        });
       }
-
-      const requestedAgentId = typeof req.query.agentId === 'string' ? req.query.agentId.trim() : '';
-      const days = Number.isFinite(Number(req.query.days))
-        ? Math.max(1, Math.min(60, Number(req.query.days)))
-        : 7;
-
-      const scopedAgentId = isAdmin(userRole) && requestedAgentId
-        ? requestedAgentId
-        : req.user.id;
-
-      const summary = await storage.getLifecycleAlertSummary({
-        agentId: scopedAgentId,
-        horizonDays: days,
-      });
-
-      res.json(summary);
-    } catch (error: any) {
-      console.error('Error fetching agent lifecycle alerts:', error);
-      res.status(500).json({ error: 'Failed to fetch lifecycle alerts', details: error.message });
-    }
-  });
+    },
+  );
 
   // Admin: Get all commission totals with agent breakdown
-  app.get('/api/admin/commission-totals', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
+  app.get(
+    "/api/admin/commission-totals",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      const totals = await storage.getCommissionTotals(); // No agent ID = get all
-      
-      res.json(totals);
-    } catch (error: any) {
-      console.error('Error fetching admin commission totals:', error);
-      res.status(500).json({ error: 'Failed to fetch commission totals', details: error.message });
-    }
-  });
+        const totals = await storage.getCommissionTotals(); // No agent ID = get all
+
+        res.json(totals);
+      } catch (error: any) {
+        console.error("Error fetching admin commission totals:", error);
+        res.status(500).json({
+          error: "Failed to fetch commission totals",
+          details: error.message,
+        });
+      }
+    },
+  );
 
   // Admin: recurring billing + commission lifecycle alerts (global or agent scoped)
-  app.get('/api/admin/lifecycle-alerts', authMiddleware, async (req: any, res: any) => {
-    try {
+  app.get(
+    "/api/admin/lifecycle-alerts",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const requestedAgentId =
+          typeof req.query.agentId === "string" ? req.query.agentId.trim() : "";
+        const days = Number.isFinite(Number(req.query.days))
+          ? Math.max(1, Math.min(60, Number(req.query.days)))
+          : 7;
+
+        const summary = await storage.getLifecycleAlertSummary({
+          agentId: requestedAgentId || undefined,
+          horizonDays: days,
+        });
+
+        res.json(summary);
+      } catch (error: any) {
+        console.error("Error fetching admin lifecycle alerts:", error);
+        res.status(500).json({
+          error: "Failed to fetch lifecycle alerts",
+          details: error.message,
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/performance-goals",
+    authMiddleware,
+    async (req: any, res: any) => {
       if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
+        return res.status(403).json({ error: "Admin access required" });
       }
 
-      const requestedAgentId = typeof req.query.agentId === 'string' ? req.query.agentId.trim() : '';
-      const days = Number.isFinite(Number(req.query.days))
-        ? Math.max(1, Math.min(60, Number(req.query.days)))
-        : 7;
+      try {
+        const [defaults, overrides, plans, agents] = await Promise.all([
+          storage.getPerformanceGoalDefaults(),
+          storage.listAgentPerformanceGoalOverrides(),
+          storage.getPlans(),
+          storage.getAgents(),
+        ]);
 
-      const summary = await storage.getLifecycleAlertSummary({
-        agentId: requestedAgentId || undefined,
-        horizonDays: days,
-      });
+        const agentIndex = new Map(
+          (Array.isArray(agents) ? agents : []).map((agent: any) => [
+            agent.id,
+            agent,
+          ]),
+        );
 
-      res.json(summary);
-    } catch (error: any) {
-      console.error('Error fetching admin lifecycle alerts:', error);
-      res.status(500).json({ error: 'Failed to fetch lifecycle alerts', details: error.message });
-    }
-  });
+        const enrichedOverrides = overrides.map((record) => ({
+          ...record,
+          agent: agentIndex.get(record.agentId) || null,
+        }));
 
-  app.get('/api/admin/performance-goals', authMiddleware, async (req: any, res: any) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+        res.json({
+          defaults,
+          overrides: enrichedOverrides,
+          plans,
+        });
+      } catch (error: any) {
+        console.error("[Admin Performance Goals] Failed to load:", error);
+        res.status(500).json({
+          error: "Failed to load performance goals",
+          message: error.message,
+        });
+      }
+    },
+  );
 
-    try {
-      const [defaults, overrides, plans, agents] = await Promise.all([
-        storage.getPerformanceGoalDefaults(),
-        storage.listAgentPerformanceGoalOverrides(),
-        storage.getPlans(),
-        storage.getAgents(),
-      ]);
-
-      const agentIndex = new Map(
-        (Array.isArray(agents) ? agents : []).map((agent: any) => [agent.id, agent])
-      );
-
-      const enrichedOverrides = overrides.map((record) => ({
-        ...record,
-        agent: agentIndex.get(record.agentId) || null,
-      }));
-
-      res.json({
-        defaults,
-        overrides: enrichedOverrides,
-        plans,
-      });
-    } catch (error: any) {
-      console.error('[Admin Performance Goals] Failed to load:', error);
-      res.status(500).json({ error: 'Failed to load performance goals', message: error.message });
-    }
-  });
-
-  app.put('/api/admin/performance-goals/defaults', authMiddleware, async (req: any, res: any) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    try {
-      const goalsPayload = req.body?.goals ?? req.body;
-      if (!goalsPayload) {
-        return res.status(400).json({ error: 'Goals payload is required' });
+  app.put(
+    "/api/admin/performance-goals/defaults",
+    authMiddleware,
+    async (req: any, res: any) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: "Admin access required" });
       }
 
-      const goals = await storage.updatePerformanceGoalDefaults(goalsPayload, req.user?.id);
-      res.json({ success: true, goals });
-    } catch (error: any) {
-      console.error('[Admin Performance Goals] Failed to update defaults:', error);
-      res.status(500).json({ error: 'Failed to update default goals', message: error.message });
-    }
-  });
+      try {
+        const goalsPayload = req.body?.goals ?? req.body;
+        if (!goalsPayload) {
+          return res.status(400).json({ error: "Goals payload is required" });
+        }
 
-  app.put('/api/admin/performance-goals/agent/:agentId', authMiddleware, async (req: any, res: any) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+        const goals = await storage.updatePerformanceGoalDefaults(
+          goalsPayload,
+          req.user?.id,
+        );
+        res.json({ success: true, goals });
+      } catch (error: any) {
+        console.error(
+          "[Admin Performance Goals] Failed to update defaults:",
+          error,
+        );
+        res.status(500).json({
+          error: "Failed to update default goals",
+          message: error.message,
+        });
+      }
+    },
+  );
 
-    const { agentId } = req.params;
-
-    try {
-      if (!agentId) {
-        return res.status(400).json({ error: 'Agent ID is required' });
+  app.put(
+    "/api/admin/performance-goals/agent/:agentId",
+    authMiddleware,
+    async (req: any, res: any) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: "Admin access required" });
       }
 
-      const goalsPayload = req.body?.goals ?? req.body;
-      if (!goalsPayload) {
-        return res.status(400).json({ error: 'Goals payload is required' });
+      const { agentId } = req.params;
+
+      try {
+        if (!agentId) {
+          return res.status(400).json({ error: "Agent ID is required" });
+        }
+
+        const goalsPayload = req.body?.goals ?? req.body;
+        if (!goalsPayload) {
+          return res.status(400).json({ error: "Goals payload is required" });
+        }
+
+        const goals = await storage.upsertAgentPerformanceGoalOverride(
+          agentId,
+          goalsPayload,
+          req.user?.id,
+        );
+        res.json({ success: true, agentId, goals });
+      } catch (error: any) {
+        console.error(
+          "[Admin Performance Goals] Failed to update override:",
+          error,
+        );
+        res.status(500).json({
+          error: "Failed to update agent goals",
+          message: error.message,
+        });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/admin/performance-goals/agent/:agentId",
+    authMiddleware,
+    async (req: any, res: any) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ error: "Admin access required" });
       }
 
-      const goals = await storage.upsertAgentPerformanceGoalOverride(agentId, goalsPayload, req.user?.id);
-      res.json({ success: true, agentId, goals });
-    } catch (error: any) {
-      console.error('[Admin Performance Goals] Failed to update override:', error);
-      res.status(500).json({ error: 'Failed to update agent goals', message: error.message });
-    }
-  });
+      const { agentId } = req.params;
 
-  app.delete('/api/admin/performance-goals/agent/:agentId', authMiddleware, async (req: any, res: any) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+      try {
+        if (!agentId) {
+          return res.status(400).json({ error: "Agent ID is required" });
+        }
 
-    const { agentId } = req.params;
-
-    try {
-      if (!agentId) {
-        return res.status(400).json({ error: 'Agent ID is required' });
+        await storage.deleteAgentPerformanceGoalOverride(agentId);
+        res.json({ success: true });
+      } catch (error: any) {
+        console.error(
+          "[Admin Performance Goals] Failed to delete override:",
+          error,
+        );
+        res.status(500).json({
+          error: "Failed to delete agent goals",
+          message: error.message,
+        });
       }
+    },
+  );
 
-      await storage.deleteAgentPerformanceGoalOverride(agentId);
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error('[Admin Performance Goals] Failed to delete override:', error);
-      res.status(500).json({ error: 'Failed to delete agent goals', message: error.message });
-    }
-  });
+  // Agent: Export enrollments as CSV
+  app.post(
+    "/api/agent/export-enrollments",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
 
-  // Agent: Export commissions as CSV
-  app.get('/api/agent/export-commissions', authMiddleware, async (req: any, res: any) => {
-    try {
-      const userRole = req.user?.role?.trim();
-      
-      if (!hasAgentOrAdminAccess(userRole)) {
-        return res.status(403).json({ error: 'Agent or admin access required', currentRole: userRole });
-      }
+        if (!hasAgentOrAdminAccess(userRole)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
 
-      const { startDate, endDate } = req.query;
-      
-      // Fetch commissions for the agent
-      const commissions = await storage.getAgentCommissionsNew(
-        req.user.id,
-        startDate as string,
-        endDate as string
-      );
+        const startDate =
+          typeof req.body?.startDate === "string"
+            ? req.body.startDate
+            : typeof req.query?.startDate === "string"
+              ? req.query.startDate
+              : "";
+        const endDate =
+          typeof req.body?.endDate === "string"
+            ? req.body.endDate
+            : typeof req.query?.endDate === "string"
+              ? req.query.endDate
+              : "";
+        const requestedAgentId =
+          typeof req.body?.agentId === "string"
+            ? req.body.agentId
+            : typeof req.query?.agentId === "string"
+              ? req.query.agentId
+              : undefined;
 
-      if (!commissions || commissions.length === 0) {
-        // Return empty CSV with headers
-        const csv = 'Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status\n';
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
-        return res.send(csv);
-      }
+        const scope = await resolveScopedAgentIds(req.user, requestedAgentId, {
+          allowAdminAll: false,
+        });
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
 
-      // Build CSV header
-      const csv = [
-        'Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status',
-        ...commissions.map(c => {
-          const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '';
-          const member = c.userName || c.userId || 'Unknown';
-          const plan = c.planName || 'Unknown';
-          const type = c.planType || 'Unknown';
-          const businessSegment = c.businessCategory || 'individual';
-          const commission = c.commissionAmount?.toFixed(2) || '0.00';
-          const cost = c.totalPlanCost?.toFixed(2) || '0.00';
-          const status = c.status || 'Unknown';
-          const paymentStatus = c.paymentStatus || 'Unknown';
-          
-          // Escape CSV values that contain commas or quotes
-          const escapeCSV = (val: string) => {
-            if (val.includes(',') || val.includes('"')) {
-              return `"${val.replace(/"/g, '""')}"`;
-            }
-            return val;
-          };
-          
+        const enrollments = await getScopedEnrollments(
+          scope.agentIds,
+          startDate,
+          endDate,
+        );
+
+        const escapeCsv = (value: unknown): string => {
+          const stringValue = String(value ?? "");
+          if (
+            stringValue.includes(",") ||
+            stringValue.includes('"') ||
+            stringValue.includes("\n")
+          ) {
+            return `"${stringValue.replace(/"/g, '""')}"`;
+          }
+          return stringValue;
+        };
+
+        const header =
+          "date,member_id,member_name,email,plan,type,monthly,commission,enrolled_by,status,payment_status,subscription_status,next_billing_date\n";
+
+        const rows = (enrollments || []).map((row: any) => {
+          const date = row?.createdAt
+            ? new Date(row.createdAt).toLocaleDateString()
+            : "";
+          const memberId =
+            row?.memberPublicId || row?.customerNumber || row?.id || "";
+          const memberName =
+            `${row?.firstName || ""} ${row?.lastName || ""}`.trim();
+          const email = row?.email || "";
+          const plan = row?.planName || "";
+          const memberType = row?.memberType || row?.coverageType || "";
+          const monthly = Number(row?.totalMonthlyPrice || 0).toFixed(2);
+          const commission = Number(row?.commissionAmount || 0).toFixed(2);
+          const enrolledBy = row?.enrolledBy || row?.enrolledByAgentId || "";
+          const status = row?.status || "";
+          const paymentStatus =
+            row?.lifecycleSummary?.paymentRiskStatus ||
+            row?.payment_status ||
+            "";
+          const subscriptionStatus =
+            row?.lifecycleSummary?.subscriptionStatus ||
+            row?.subscriptionStatus ||
+            "";
+          const nextBillingDate =
+            row?.lifecycleSummary?.nextBillingDate ||
+            row?.nextBillingDate ||
+            "";
+
           return [
             date,
-            escapeCSV(member),
-            escapeCSV(plan),
-            escapeCSV(type),
-            businessSegment,
+            memberId,
+            memberName,
+            email,
+            plan,
+            memberType,
+            monthly,
             commission,
-            cost,
+            enrolledBy,
             status,
-            paymentStatus
-          ].join(',');
-        })
-      ].join('\n');
+            paymentStatus,
+            subscriptionStatus,
+            nextBillingDate,
+          ]
+            .map(escapeCsv)
+            .join(",");
+        });
 
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`);
-      res.send(csv);
-    } catch (error: any) {
-      console.error('Error exporting commissions:', error);
-      res.status(500).json({ error: 'Failed to export commissions', details: error.message });
-    }
-  });
+        const csv = header + rows.join("\n");
+
+        const safeStartDate = String(startDate || "all").replace(
+          /[^0-9-]/g,
+          "",
+        );
+        const safeEndDate = String(endDate || "all").replace(/[^0-9-]/g, "");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="enrollments-${safeStartDate || "all"}-to-${safeEndDate || "all"}.csv"`,
+        );
+        return res.send(csv);
+      } catch (error: any) {
+        console.error("Error exporting enrollments:", error);
+        return res.status(500).json({
+          error: "Failed to export enrollments",
+          details: error.message,
+        });
+      }
+    },
+  );
+
+  // Agent: Export commissions as CSV
+  app.get(
+    "/api/agent/export-commissions",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        const userRole = req.user?.role?.trim();
+
+        if (!hasAgentOrAdminAccess(userRole)) {
+          return res.status(403).json({
+            error: "Agent or admin access required",
+            currentRole: userRole,
+          });
+        }
+
+        const { startDate, endDate } = req.query;
+        const scope = await resolveScopedAgentIds(req.user, req.query.agentId, {
+          allowAdminAll: false,
+        });
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+
+        // Fetch commissions for scoped agents
+        const commissions = await getScopedCommissions(
+          scope.agentIds,
+          startDate as string,
+          endDate as string,
+        );
+
+        if (!commissions || commissions.length === 0) {
+          // Return empty CSV with headers
+          const csv =
+            "Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status\n";
+          res.setHeader("Content-Type", "text/csv");
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`,
+          );
+          return res.send(csv);
+        }
+
+        // Build CSV header
+        const csv = [
+          "Date,Member,Plan,Type,Business Segment,Commission Amount,Plan Cost,Status,Payment Status",
+          ...commissions.map((c) => {
+            const date = c.createdAt
+              ? new Date(c.createdAt).toLocaleDateString()
+              : "";
+            const member = c.userName || c.userId || "Unknown";
+            const plan = c.planName || "Unknown";
+            const type = c.planType || "Unknown";
+            const businessSegment = c.businessCategory || "individual";
+            const commission = c.commissionAmount?.toFixed(2) || "0.00";
+            const cost = c.totalPlanCost?.toFixed(2) || "0.00";
+            const status = c.status || "Unknown";
+            const paymentStatus = c.paymentStatus || "Unknown";
+
+            // Escape CSV values that contain commas or quotes
+            const escapeCSV = (val: string) => {
+              if (val.includes(",") || val.includes('"')) {
+                return `"${val.replace(/"/g, '""')}"`;
+              }
+              return val;
+            };
+
+            return [
+              date,
+              escapeCSV(member),
+              escapeCSV(plan),
+              escapeCSV(type),
+              businessSegment,
+              commission,
+              cost,
+              status,
+              paymentStatus,
+            ].join(",");
+          }),
+        ].join("\n");
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="commissions-${startDate}-to-${endDate}.csv"`,
+        );
+        res.send(csv);
+      } catch (error: any) {
+        console.error("Error exporting commissions:", error);
+        res.status(500).json({
+          error: "Failed to export commissions",
+          details: error.message,
+        });
+      }
+    },
+  );
 
   // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
   // Dynamic routes like :agentId catch everything if they come first
@@ -8036,7 +9632,7 @@ export async function registerRoutes(app: any) {
       if (!agent) {
         return res.status(404).json({
           error: "Agent not found",
-          agentId: agentId
+          agentId: agentId,
         });
       }
 
@@ -8044,7 +9640,7 @@ export async function registerRoutes(app: any) {
       if (!hasAgentOrAdminAccess(agent.role)) {
         return res.status(404).json({
           error: "Agent not found",
-          agentId: agentId
+          agentId: agentId,
         });
       }
 
@@ -8057,972 +9653,1289 @@ export async function registerRoutes(app: any) {
           lastName: agent.lastName,
           email: agent.email,
           isActive: agent.isActive,
-          role: agent.role
-        }
+          role: agent.role,
+        },
       });
-
     } catch (error: any) {
       console.error("[Agent Lookup] Error:", error);
       res.status(500).json({
         error: "Agent lookup failed",
-        details: "Internal error"
+        details: "Internal error",
       });
     }
   });
-
 
   // Admin: Get all commissions (admin/super_admin can see ALL, agents see only their own via /api/agent/commissions)
-  app.get('/api/admin/commissions', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { startDate, endDate } = req.query;
-      const commissions = await storage.getAllCommissionsNew(
-        startDate as string,
-        endDate as string
-      );
-
-      console.log('[Admin Commissions] Successfully fetched', commissions?.length || 0, 'total commissions');
-      res.json(commissions);
-    } catch (error: any) {
-      console.error('[Admin Commissions] Error:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commissions/statement', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      return res.status(410).json({
-        error: 'Legacy statement workflow disabled',
-        message: 'Use ledger payout batch statement endpoint: GET /api/admin/commissions/payout-batches/:batchId/statement',
-      });
-
-      const { startDate, endDate, agentId, status = 'all' } = req.query as {
-        startDate?: string;
-        endDate?: string;
-        agentId?: string;
-        status?: 'all' | 'paid' | 'scheduled' | 'unpaid';
-      };
-
-      if (!startDate || !endDate) {
-        return res.status(400).json({ error: 'startDate and endDate are required' });
-      }
-
-      const allCommissions = await storage.getAllCommissionsNew(startDate, endDate);
-      const now = new Date();
-      const statusOf = (commission: any): 'paid' | 'scheduled' | 'unpaid' => {
-        if (commission.paymentStatus === 'paid') {
-          if (commission.paymentDate && parseLocalDate(String(commission.paymentDate)) > parseLocalDate(now)) {
-            return 'scheduled';
-          }
-          return 'paid';
+  app.get(
+    "/api/admin/commissions",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
         }
-        return 'unpaid';
-      };
 
-      const filtered = (Array.isArray(allCommissions) ? allCommissions : []).filter((commission: any) => {
-        const agentMatches = agentId ? String(commission.agentId || '') === String(agentId) : true;
-        const statusMatches = status && status !== 'all' ? statusOf(commission) === status : true;
-        return agentMatches && statusMatches;
-      });
+        const { startDate, endDate } = req.query;
+        const commissions = await storage.getAllCommissionsNew(
+          startDate as string,
+          endDate as string,
+        );
 
-      if (filtered.length === 0) {
-        return res.json({
-          statementDate: new Date().toISOString(),
+        console.log(
+          "[Admin Commissions] Successfully fetched",
+          commissions?.length || 0,
+          "total commissions",
+        );
+        res.json(commissions);
+      } catch (error: any) {
+        console.error("[Admin Commissions] Error:", error);
+        res.status(500).json({
+          error: "Failed to fetch commissions",
+          details: error.message,
+        });
+      }
+    },
+  );
+
+  app.get(
+    "/api/admin/commissions/statement",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        return res.status(410).json({
+          error: "Legacy statement workflow disabled",
+          message:
+            "Use ledger payout batch statement endpoint: GET /api/admin/commissions/payout-batches/:batchId/statement",
+        });
+
+        const {
+          startDate,
+          endDate,
+          agentId,
+          status = "all",
+        } = req.query as {
+          startDate?: string;
+          endDate?: string;
+          agentId?: string;
+          status?: "all" | "paid" | "scheduled" | "unpaid";
+        };
+
+        if (!startDate || !endDate) {
+          return res
+            .status(400)
+            .json({ error: "startDate and endDate are required" });
+        }
+
+        const allCommissions = await storage.getAllCommissionsNew(
+          startDate,
+          endDate,
+        );
+        const now = new Date();
+        const statusOf = (commission: any): "paid" | "scheduled" | "unpaid" => {
+          if (commission.paymentStatus === "paid") {
+            if (
+              commission.paymentDate &&
+              parseLocalDate(String(commission.paymentDate)) >
+                parseLocalDate(now)
+            ) {
+              return "scheduled";
+            }
+            return "paid";
+          }
+          return "unpaid";
+        };
+
+        const filtered = (
+          Array.isArray(allCommissions) ? allCommissions : []
+        ).filter((commission: any) => {
+          const agentMatches = agentId
+            ? String(commission.agentId || "") === String(agentId)
+            : true;
+          const statusMatches =
+            status && status !== "all" ? statusOf(commission) === status : true;
+          return agentMatches && statusMatches;
+        });
+
+        if (filtered.length === 0) {
+          return res.json({
+            statementDate: new Date().toISOString(),
+            payoutPeriod: { startDate, endDate },
+            fromCompany: {
+              name: "MyPremierPlans LLC",
+              address:
+                process.env.COMPANY_ADDRESS || "Company Address Not Configured",
+            },
+            agent: null,
+            lineItems: [],
+            subtotal: 0,
+            adjustments: 0,
+            totalPayout: 0,
+            statementNumber: null,
+            payoutBatchId: null,
+            status,
+          });
+        }
+
+        const agentSeed = filtered[0];
+        const statementDate = new Date();
+        const periodStamp =
+          String(startDate).replace(/-/g, "") +
+          String(endDate).replace(/-/g, "");
+        const agentStamp = String(
+          agentSeed.agentNumber || agentSeed.agentId || "AGENT",
+        )
+          .replace(/[^A-Za-z0-9]/g, "")
+          .slice(0, 16);
+        const statementNumber = `ACS-${periodStamp}-${agentStamp}`;
+        const payoutBatchId = `PB-${periodStamp}`;
+
+        const lineItems = filtered.map((commission: any) => {
+          const amount = Number(commission.commissionAmount || 0);
+          const isAdjustment = Boolean(commission.isClawedBack) || amount < 0;
+          return {
+            commissionId: commission.id,
+            memberName:
+              commission.memberName || commission.userName || "Unknown Member",
+            memberId: commission.memberId || null,
+            effectiveDate:
+              commission.effectiveDate || commission.createdAt || null,
+            membershipTier: commission.planTier || null,
+            coverageType:
+              commission.planType || commission.coverageType || null,
+            commissionAmount: amount,
+            description:
+              commission.planName || commission.coverageType || "Commission",
+            statementStatus: statusOf(commission),
+            isAdjustment,
+            adjustmentReason:
+              commission.clawbackReason || commission.notes || null,
+          };
+        });
+
+        const subtotal = lineItems
+          .filter((item: any) => !item.isAdjustment)
+          .reduce(
+            (sum: number, item: any) =>
+              sum + Number(item.commissionAmount || 0),
+            0,
+          );
+        const adjustments = lineItems
+          .filter((item: any) => item.isAdjustment)
+          .reduce(
+            (sum: number, item: any) =>
+              sum + Number(item.commissionAmount || 0),
+            0,
+          );
+        const totalPayout = subtotal + adjustments;
+
+        res.json({
+          statementDate: statementDate.toISOString(),
           payoutPeriod: { startDate, endDate },
           fromCompany: {
-            name: 'MyPremierPlans LLC',
-            address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
+            name: "MyPremierPlans LLC",
+            address:
+              process.env.COMPANY_ADDRESS || "Company Address Not Configured",
           },
-          agent: null,
-          lineItems: [],
-          subtotal: 0,
-          adjustments: 0,
-          totalPayout: 0,
-          statementNumber: null,
-          payoutBatchId: null,
+          agent: {
+            id: agentSeed.agentId,
+            fullName:
+              agentSeed.agentName ||
+              `${agentSeed.agentFirstName || ""} ${agentSeed.agentLastName || ""}`.trim(),
+            writingNumber: agentSeed.agentNumber || null,
+            email: agentSeed.agentEmail || null,
+            phone: agentSeed.agentPhone || null,
+            address: [
+              agentSeed.agentAddress,
+              agentSeed.agentAddress2,
+              [
+                agentSeed.agentCity,
+                agentSeed.agentState,
+                agentSeed.agentZipCode,
+              ]
+                .filter(Boolean)
+                .join(" "),
+            ]
+              .filter(Boolean)
+              .join(", "),
+          },
+          lineItems,
+          subtotal,
+          adjustments,
+          totalPayout,
+          statementNumber,
+          payoutBatchId,
           status,
         });
+      } catch (error: any) {
+        console.error("Error generating commission statement:", error);
+        res.status(500).json({
+          error: "Failed to generate commission statement",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const agentSeed = filtered[0];
-      const statementDate = new Date();
-      const periodStamp = String(startDate).replace(/-/g, '') + String(endDate).replace(/-/g, '');
-      const agentStamp = String(agentSeed.agentNumber || agentSeed.agentId || 'AGENT').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      const statementNumber = `ACS-${periodStamp}-${agentStamp}`;
-      const payoutBatchId = `PB-${periodStamp}`;
-
-      const lineItems = filtered.map((commission: any) => {
-        const amount = Number(commission.commissionAmount || 0);
-        const isAdjustment = Boolean(commission.isClawedBack) || amount < 0;
-        return {
-          commissionId: commission.id,
-          memberName: commission.memberName || commission.userName || 'Unknown Member',
-          memberId: commission.memberId || null,
-          effectiveDate: commission.effectiveDate || commission.createdAt || null,
-          membershipTier: commission.planTier || null,
-          coverageType: commission.planType || commission.coverageType || null,
-          commissionAmount: amount,
-          description: commission.planName || commission.coverageType || 'Commission',
-          statementStatus: statusOf(commission),
-          isAdjustment,
-          adjustmentReason: commission.clawbackReason || commission.notes || null,
-        };
-      });
-
-      const subtotal = lineItems
-        .filter((item: any) => !item.isAdjustment)
-        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
-      const adjustments = lineItems
-        .filter((item: any) => item.isAdjustment)
-        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
-      const totalPayout = subtotal + adjustments;
-
-      res.json({
-        statementDate: statementDate.toISOString(),
-        payoutPeriod: { startDate, endDate },
-        fromCompany: {
-          name: 'MyPremierPlans LLC',
-          address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
-        },
-        agent: {
-          id: agentSeed.agentId,
-          fullName: agentSeed.agentName || `${agentSeed.agentFirstName || ''} ${agentSeed.agentLastName || ''}`.trim(),
-          writingNumber: agentSeed.agentNumber || null,
-          email: agentSeed.agentEmail || null,
-          phone: agentSeed.agentPhone || null,
-          address: [agentSeed.agentAddress, agentSeed.agentAddress2, [agentSeed.agentCity, agentSeed.agentState, agentSeed.agentZipCode].filter(Boolean).join(' ')].filter(Boolean).join(', '),
-        },
-        lineItems,
-        subtotal,
-        adjustments,
-        totalPayout,
-        statementNumber,
-        payoutBatchId,
-        status,
-      });
-    } catch (error: any) {
-      console.error('Error generating commission statement:', error);
-      res.status(500).json({ error: 'Failed to generate commission statement', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commissions/export', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      return res.status(410).json({
-        error: 'Legacy export workflow disabled',
-        message: 'Use ledger payout batch export endpoint: GET /api/admin/commissions/payout-batches/:batchId/export?format=quickbooks-csv|hexona-csv',
-      });
-
-      const {
-        format = 'quickbooks-csv',
-        startDate,
-        endDate,
-        agentId,
-        status = 'all',
-        expenseAccount = 'Commissions Expense',
-      } = req.query as {
-        format?: string;
-        startDate?: string;
-        endDate?: string;
-        agentId?: string;
-        status?: 'all' | 'paid' | 'scheduled' | 'unpaid';
-        expenseAccount?: string;
-      };
-
-      if (!startDate || !endDate) {
-        return res.status(400).json({ error: 'startDate and endDate are required' });
-      }
-
-      if (format !== 'quickbooks-csv' && format !== 'hexona-csv') {
-        return res.status(400).json({ error: `Unsupported export format: ${format}` });
-      }
-
-      const allCommissions = await storage.getAllCommissionsNew(startDate, endDate);
-      const now = new Date();
-      const statusOf = (commission: any): 'paid' | 'scheduled' | 'unpaid' => {
-        if (commission.paymentStatus === 'paid') {
-          if (commission.paymentDate && parseLocalDate(String(commission.paymentDate)) > parseLocalDate(now)) {
-            return 'scheduled';
-          }
-          return 'paid';
+  app.get(
+    "/api/admin/commissions/export",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
         }
-        return 'unpaid';
-      };
 
-      const filtered = (Array.isArray(allCommissions) ? allCommissions : []).filter((commission: any) => {
-        const agentMatches = agentId ? String(commission.agentId || '') === String(agentId) : true;
-        const statusMatches = status && status !== 'all' ? statusOf(commission) === status : true;
-        return agentMatches && statusMatches;
-      });
+        return res.status(410).json({
+          error: "Legacy export workflow disabled",
+          message:
+            "Use ledger payout batch export endpoint: GET /api/admin/commissions/payout-batches/:batchId/export?format=quickbooks-csv|hexona-csv",
+        });
 
-      const csvEscape = (value: any) => {
-        const text = value === null || value === undefined ? '' : String(value);
-        if (text.includes(',') || text.includes('"') || text.includes('\n')) {
-          return `"${text.replace(/"/g, '""')}"`;
-        }
-        return text;
-      };
-
-      const periodStamp = `${String(startDate).replace(/-/g, '')}-${String(endDate).replace(/-/g, '')}`;
-      const billDate = String(endDate);
-      const dueDate = String(endDate);
-
-      const grouped = new Map<string, any[]>();
-      for (const commission of filtered) {
-        const key = String(commission.agentId || 'unknown-agent');
-        const existing = grouped.get(key) || [];
-        existing.push(commission);
-        grouped.set(key, existing);
-      }
-
-      const rows: string[][] = [];
-      if (format === 'quickbooks-csv') {
-        rows.push([
-          'bill_number',
-          'supplier_vendor_name',
-          'bill_date',
-          'due_date',
-          'expense_account',
-          'description',
-          'line_amount',
-          'reference_memo',
-        ]);
-      } else {
-        rows.push([
-          'agent_name',
-          'writing_number',
-          'payout_period',
-          'member_name',
-          'membership_tier',
-          'commission_amount',
-          'statement_number',
-          'batch_id',
-        ]);
-      }
-
-      for (const [, items] of grouped) {
-        const seed = items[0];
-        const agentLabel = seed.agentName || seed.agentEmail || seed.agentId || 'Unknown Agent';
-        const agentNumber = seed.agentNumber || String(seed.agentId || 'AGENT').slice(0, 8);
-        const billNumber = `QB-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, '')}`;
-
-        for (const commission of items) {
-          const amount = Number(commission.commissionAmount || 0);
-          const description = `${commission.memberName || commission.userName || 'Member'} | ${commission.planName || commission.coverageType || 'Commission'} | ${commission.planType || commission.coverageType || ''}`.trim();
-          const memo = `Batch ${periodStamp} | Agent ${agentNumber} | Commission ${commission.id}`;
-
-          if (format === 'quickbooks-csv') {
-            rows.push([
-              billNumber,
-              agentLabel,
-              billDate,
-              dueDate,
-              String(expenseAccount),
-              description,
-              amount.toFixed(2),
-              memo,
-            ]);
-          } else {
-            rows.push([
-              agentLabel,
-              agentNumber,
-              `${startDate} -> ${endDate}`,
-              commission.memberName || commission.userName || 'Member',
-              commission.planTier || commission.planName || commission.coverageType || '',
-              amount.toFixed(2),
-              `ACS-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, '')}`,
-              `PB-${periodStamp}`,
-            ]);
-          }
-        }
-      }
-
-      const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      const exportName = format === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
-      res.setHeader('Content-Disposition', `attachment; filename="${exportName}-commissions-${periodStamp}.csv"`);
-      res.status(200).send(csv);
-    } catch (error: any) {
-      console.error('Error exporting commission QuickBooks CSV:', error);
-      res.status(500).json({ error: 'Failed to export QuickBooks CSV', details: error.message });
-    }
-  });
-
-  app.post('/api/admin/commissions/ledger/sync', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const {
-        startDate,
-        endDate,
-      } = req.body || {};
-
-      const feed = await storage.getAllCommissionsNew(startDate, endDate);
-      const result = await syncCommissionLedgerFromFeed(feed || []);
-
-      return res.status(200).json({
-        message: 'Commission ledger synchronized',
-        inserted: result.inserted,
-        skipped: result.skipped,
-        newlyEligible: result.newlyEligible,
-      });
-    } catch (error: any) {
-      console.error('Error syncing commission ledger:', error);
-      return res.status(500).json({ error: 'Failed to sync commission ledger', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commissions/payout-dashboard', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const dashboard = await getPayoutDashboardData();
-      return res.status(200).json(dashboard);
-    } catch (error: any) {
-      console.error('Error loading payout dashboard:', error);
-      return res.status(500).json({ error: 'Failed to load payout dashboard', details: error.message });
-    }
-  });
-
-  app.post('/api/admin/commissions/payout-batches/generate', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { cutoffDate } = req.body || {};
-      const normalizedCutoffDate = cutoffDate ? formatLocalDate(String(cutoffDate)) : formatLocalDate(new Date());
-      const batches = await buildDraftPayoutBatches(normalizedCutoffDate);
-      return res.status(200).json({
-        message: 'Draft payout batches generated',
-        count: batches.length,
-        batches,
-      });
-    } catch (error: any) {
-      console.error('Error generating payout batches:', error);
-      return res.status(500).json({ error: 'Failed to generate payout batches', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commissions/payout-batches/:batchId', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { batchId } = req.params;
-      const detail = await getBatchDetails(batchId);
-      const rows = Array.isArray(detail?.rows) ? detail.rows : [];
-      const normalizedRows = rows.map((row: any) => ({
-        ...row,
-        displayStatus: toCommissionDisplayStatus(row.status),
-      }));
-
-      const { data: carryForwardRows, error: carryForwardError } = await supabase
-        .from('commission_ledger')
-        .select('id, agent_id, agent_name, writing_number, member_name, member_id, commission_amount, commission_type, status, payout_batch_id')
-        .eq('payout_batch_id', batchId)
-        .eq('status', 'carry_forward')
-        .order('agent_name', { ascending: true })
-        .order('member_name', { ascending: true });
-
-      if (carryForwardError) {
-        throw new Error(`Failed to load carry-forward rows for batch detail: ${carryForwardError.message}`);
-      }
-
-      const payableByAgent = new Map<string, number>();
-      for (const row of normalizedRows) {
-        const key = String(row.agent_id || 'unknown');
-        const running = payableByAgent.get(key) || 0;
-        payableByAgent.set(key, running + Number(row.commission_amount || 0));
-      }
-
-      const carryByAgent = new Map<string, any[]>();
-      for (const row of (carryForwardRows || [])) {
-        const key = String(row.agent_id || 'unknown');
-        const existing = carryByAgent.get(key) || [];
-        existing.push(row);
-        carryByAgent.set(key, existing);
-      }
-
-      const carryForwardCandidates = Array.from(carryByAgent.entries()).map(([agentId, items]) => {
-        const currentCarryForwardTotal = items.reduce((sum: number, row: any) => sum + Number(row.commission_amount || 0), 0);
-        const existingPayableTotal = Number(payableByAgent.get(agentId) || 0);
-        return {
+        const {
+          format = "quickbooks-csv",
+          startDate,
+          endDate,
           agentId,
-          agentName: items[0]?.agent_name || 'Unknown Agent',
-          writingNumber: items[0]?.writing_number || null,
-          currentCarryForwardTotal,
-          existingPayableTotal,
-          resultingPayoutAmount: existingPayableTotal + currentCarryForwardTotal,
-          rowCount: items.length,
-          rowIds: items.map((row: any) => row.id),
-          rows: items,
+          status = "all",
+          expenseAccount = "Commissions Expense",
+        } = req.query as {
+          format?: string;
+          startDate?: string;
+          endDate?: string;
+          agentId?: string;
+          status?: "all" | "paid" | "scheduled" | "unpaid";
+          expenseAccount?: string;
         };
-      });
 
-      return res.status(200).json({
-        ...detail,
-        rows: normalizedRows,
-        carryForwardCandidates,
-      });
-    } catch (error: any) {
-      console.error('Error loading payout batch detail:', error);
-      return res.status(500).json({ error: 'Failed to load payout batch detail', details: error.message });
-    }
-  });
+        if (!startDate || !endDate) {
+          return res
+            .status(400)
+            .json({ error: "startDate and endDate are required" });
+        }
 
-  app.get('/api/admin/commissions/payout-batches/:batchId/statement', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
+        if (format !== "quickbooks-csv" && format !== "hexona-csv") {
+          return res
+            .status(400)
+            .json({ error: `Unsupported export format: ${format}` });
+        }
+
+        const allCommissions = await storage.getAllCommissionsNew(
+          startDate,
+          endDate,
+        );
+        const now = new Date();
+        const statusOf = (commission: any): "paid" | "scheduled" | "unpaid" => {
+          if (commission.paymentStatus === "paid") {
+            if (
+              commission.paymentDate &&
+              parseLocalDate(String(commission.paymentDate)) >
+                parseLocalDate(now)
+            ) {
+              return "scheduled";
+            }
+            return "paid";
+          }
+          return "unpaid";
+        };
+
+        const filtered = (
+          Array.isArray(allCommissions) ? allCommissions : []
+        ).filter((commission: any) => {
+          const agentMatches = agentId
+            ? String(commission.agentId || "") === String(agentId)
+            : true;
+          const statusMatches =
+            status && status !== "all" ? statusOf(commission) === status : true;
+          return agentMatches && statusMatches;
+        });
+
+        const csvEscape = (value: any) => {
+          const text =
+            value === null || value === undefined ? "" : String(value);
+          if (text.includes(",") || text.includes('"') || text.includes("\n")) {
+            return `"${text.replace(/"/g, '""')}"`;
+          }
+          return text;
+        };
+
+        const periodStamp = `${String(startDate).replace(/-/g, "")}-${String(endDate).replace(/-/g, "")}`;
+        const billDate = String(endDate);
+        const dueDate = String(endDate);
+
+        const grouped = new Map<string, any[]>();
+        for (const commission of filtered) {
+          const key = String(commission.agentId || "unknown-agent");
+          const existing = grouped.get(key) || [];
+          existing.push(commission);
+          grouped.set(key, existing);
+        }
+
+        const rows: string[][] = [];
+        if (format === "quickbooks-csv") {
+          rows.push([
+            "bill_number",
+            "supplier_vendor_name",
+            "bill_date",
+            "due_date",
+            "expense_account",
+            "description",
+            "line_amount",
+            "reference_memo",
+          ]);
+        } else {
+          rows.push([
+            "agent_name",
+            "writing_number",
+            "payout_period",
+            "member_name",
+            "membership_tier",
+            "commission_amount",
+            "statement_number",
+            "batch_id",
+          ]);
+        }
+
+        for (const [, items] of grouped) {
+          const seed = items[0];
+          const agentLabel =
+            seed.agentName ||
+            seed.agentEmail ||
+            seed.agentId ||
+            "Unknown Agent";
+          const agentNumber =
+            seed.agentNumber || String(seed.agentId || "AGENT").slice(0, 8);
+          const billNumber = `QB-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, "")}`;
+
+          for (const commission of items) {
+            const amount = Number(commission.commissionAmount || 0);
+            const description =
+              `${commission.memberName || commission.userName || "Member"} | ${commission.planName || commission.coverageType || "Commission"} | ${commission.planType || commission.coverageType || ""}`.trim();
+            const memo = `Batch ${periodStamp} | Agent ${agentNumber} | Commission ${commission.id}`;
+
+            if (format === "quickbooks-csv") {
+              rows.push([
+                billNumber,
+                agentLabel,
+                billDate,
+                dueDate,
+                String(expenseAccount),
+                description,
+                amount.toFixed(2),
+                memo,
+              ]);
+            } else {
+              rows.push([
+                agentLabel,
+                agentNumber,
+                `${startDate} -> ${endDate}`,
+                commission.memberName || commission.userName || "Member",
+                commission.planTier ||
+                  commission.planName ||
+                  commission.coverageType ||
+                  "",
+                amount.toFixed(2),
+                `ACS-${periodStamp}-${String(agentNumber).replace(/[^A-Za-z0-9]/g, "")}`,
+                `PB-${periodStamp}`,
+              ]);
+            }
+          }
+        }
+
+        const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        const exportName =
+          format === "quickbooks-csv" ? "quickbooks" : "hexona";
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${exportName}-commissions-${periodStamp}.csv"`,
+        );
+        res.status(200).send(csv);
+      } catch (error: any) {
+        console.error("Error exporting commission QuickBooks CSV:", error);
+        res.status(500).json({
+          error: "Failed to export QuickBooks CSV",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const { batchId } = req.params;
-      const { agentId } = req.query as { agentId?: string };
-      const detail = await getBatchDetails(batchId);
-      const grouped = Array.isArray(detail?.byAgent) ? detail.byAgent : [];
-      const target = agentId
-        ? grouped.find((group: any) => String(group.agentId || '') === String(agentId))
-        : grouped[0];
+  app.post(
+    "/api/admin/commissions/ledger/sync",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      if (!target) {
-        return res.status(404).json({ error: 'No statement rows found for this batch and agent filter' });
+        const { startDate, endDate } = req.body || {};
+
+        const feed = await storage.getAllCommissionsNew(startDate, endDate);
+        const result = await syncCommissionLedgerFromFeed(feed || []);
+
+        return res.status(200).json({
+          message: "Commission ledger synchronized",
+          inserted: result.inserted,
+          skipped: result.skipped,
+          newlyEligible: result.newlyEligible,
+        });
+      } catch (error: any) {
+        console.error("Error syncing commission ledger:", error);
+        return res.status(500).json({
+          error: "Failed to sync commission ledger",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const statementNumber = `ACS-${String(detail.batch.id).slice(0, 8)}-${String(target.writingNumber || target.agentId || 'AGENT').replace(/[^A-Za-z0-9]/g, '')}`;
+  app.get(
+    "/api/admin/commissions/payout-dashboard",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      const lineItems = (target.items || []).map((row: any) => ({
-        ledgerId: row.id,
-        memberName: row.member_name,
-        memberId: row.member_id,
-        effectiveDate: row.effective_date,
-        membershipTier: row.membership_tier,
-        coverageType: row.coverage_type,
-        commissionAmount: Number(row.commission_amount || 0),
-        commissionType: row.commission_type,
-        status: row.status,
-        cancellationDate: row.cancellation_date,
-        cancellationReason: row.cancellation_reason,
-      }));
-
-      const cancellationLineItems = lineItems.filter((item: any) => {
-        const normalizedType = String(item.commissionType || '').toLowerCase();
-        return Boolean(item.cancellationDate) || normalizedType === 'reversal' || normalizedType === 'adjustment';
-      });
-
-      const subtotal = lineItems
-        .filter((item: any) => item.commissionType !== 'adjustment' && item.commissionType !== 'reversal')
-        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
-      const adjustments = lineItems
-        .filter((item: any) => item.commissionType === 'adjustment' || item.commissionType === 'reversal')
-        .reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0);
-
-      return res.status(200).json({
-        statementDate: new Date().toISOString(),
-        payoutPeriod: {
-          startDate: detail.batch.cutoff_date,
-          endDate: detail.batch.scheduled_pay_date,
-        },
-        fromCompany: {
-          name: 'MyPremierPlans LLC',
-          address: process.env.COMPANY_ADDRESS || 'Company Address Not Configured',
-        },
-        agent: {
-          id: target.agentId,
-          fullName: target.agentName,
-          writingNumber: target.writingNumber,
-        },
-        lineItems,
-        cancellationLineItems,
-        subtotal,
-        adjustments,
-        cancellationAdjustmentsTotal: cancellationLineItems.reduce((sum: number, item: any) => sum + Number(item.commissionAmount || 0), 0),
-        totalPayout: subtotal + adjustments,
-        statementNumber,
-        payoutBatchId: detail.batch.id,
-        batchStatus: detail.batch.status,
-      });
-    } catch (error: any) {
-      console.error('Error generating payout batch statement:', error);
-      return res.status(500).json({ error: 'Failed to generate payout batch statement', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/commissions/payout-batches/:batchId/export', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
+        const dashboard = await getPayoutDashboardData();
+        return res.status(200).json(dashboard);
+      } catch (error: any) {
+        console.error("Error loading payout dashboard:", error);
+        return res.status(500).json({
+          error: "Failed to load payout dashboard",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const { batchId } = req.params;
-      const { format = 'quickbooks-csv' } = req.query as { format?: string };
+  app.post(
+    "/api/admin/commissions/payout-batches/generate",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      if (format !== 'quickbooks-csv' && format !== 'hexona-csv') {
-        return res.status(400).json({ error: `Unsupported export format: ${format}` });
+        const { cutoffDate } = req.body || {};
+        const normalizedCutoffDate = cutoffDate
+          ? formatLocalDate(String(cutoffDate))
+          : formatLocalDate(new Date());
+        const batches = await buildDraftPayoutBatches(normalizedCutoffDate);
+        return res.status(200).json({
+          message: "Draft payout batches generated",
+          count: batches.length,
+          batches,
+        });
+      } catch (error: any) {
+        console.error("Error generating payout batches:", error);
+        return res.status(500).json({
+          error: "Failed to generate payout batches",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      await prepareBatchForExport(batchId, format as 'quickbooks-csv' | 'hexona-csv');
-      const detail = await getBatchDetails(batchId);
-      const rows = detail.rows || [];
-      const csv = format === 'quickbooks-csv'
-        ? buildQuickBooksCsvFromBatch(detail.batch, rows)
-        : buildHexonaCsvFromBatch(detail.batch, rows);
+  app.get(
+    "/api/admin/commissions/payout-batches/:batchId",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      await supabase
-        .from('commission_payout_batches')
-        .update({ status: 'exported' })
-        .eq('id', batchId)
-        .in('status', ['draft', 'ready', 'exported']);
+        const { batchId } = req.params;
+        const detail = await getBatchDetails(batchId);
+        const rows = Array.isArray(detail?.rows) ? detail.rows : [];
+        const normalizedRows = rows.map((row: any) => ({
+          ...row,
+          displayStatus: toCommissionDisplayStatus(row.status),
+        }));
 
-      const filePrefix = format === 'quickbooks-csv' ? 'quickbooks' : 'hexona';
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${filePrefix}-payout-batch-${batchId}.csv"`);
-      return res.status(200).send(csv);
-    } catch (error: any) {
-      console.error('Error exporting payout batch CSV:', error);
-      if (error?.message && error.message.includes('Payout batch totals mismatch')) {
-        return res.status(409).json({ error: 'Payout batch header mismatch', details: error.message });
+        const { data: carryForwardRows, error: carryForwardError } =
+          await supabase
+            .from("commission_ledger")
+            .select(
+              "id, agent_id, agent_name, writing_number, member_name, member_id, commission_amount, commission_type, status, payout_batch_id",
+            )
+            .eq("payout_batch_id", batchId)
+            .eq("status", "carry_forward")
+            .order("agent_name", { ascending: true })
+            .order("member_name", { ascending: true });
+
+        if (carryForwardError) {
+          throw new Error(
+            `Failed to load carry-forward rows for batch detail: ${carryForwardError.message}`,
+          );
+        }
+
+        const payableByAgent = new Map<string, number>();
+        for (const row of normalizedRows) {
+          const key = String(row.agent_id || "unknown");
+          const running = payableByAgent.get(key) || 0;
+          payableByAgent.set(key, running + Number(row.commission_amount || 0));
+        }
+
+        const carryByAgent = new Map<string, any[]>();
+        for (const row of carryForwardRows || []) {
+          const key = String(row.agent_id || "unknown");
+          const existing = carryByAgent.get(key) || [];
+          existing.push(row);
+          carryByAgent.set(key, existing);
+        }
+
+        const carryForwardCandidates = Array.from(carryByAgent.entries()).map(
+          ([agentId, items]) => {
+            const currentCarryForwardTotal = items.reduce(
+              (sum: number, row: any) =>
+                sum + Number(row.commission_amount || 0),
+              0,
+            );
+            const existingPayableTotal = Number(
+              payableByAgent.get(agentId) || 0,
+            );
+            return {
+              agentId,
+              agentName: items[0]?.agent_name || "Unknown Agent",
+              writingNumber: items[0]?.writing_number || null,
+              currentCarryForwardTotal,
+              existingPayableTotal,
+              resultingPayoutAmount:
+                existingPayableTotal + currentCarryForwardTotal,
+              rowCount: items.length,
+              rowIds: items.map((row: any) => row.id),
+              rows: items,
+            };
+          },
+        );
+
+        return res.status(200).json({
+          ...detail,
+          rows: normalizedRows,
+          carryForwardCandidates,
+        });
+      } catch (error: any) {
+        console.error("Error loading payout batch detail:", error);
+        return res.status(500).json({
+          error: "Failed to load payout batch detail",
+          details: error.message,
+        });
       }
-      return res.status(500).json({ error: 'Failed to export payout batch CSV', details: error.message });
-    }
-  });
+    },
+  );
 
-  app.post('/api/admin/commissions/payout-batches/:batchId/mark-paid', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
+  app.get(
+    "/api/admin/commissions/payout-batches/:batchId/statement",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { batchId } = req.params;
+        const { agentId } = req.query as { agentId?: string };
+        const detail = await getBatchDetails(batchId);
+        const grouped = Array.isArray(detail?.byAgent) ? detail.byAgent : [];
+        const target = agentId
+          ? grouped.find(
+              (group: any) => String(group.agentId || "") === String(agentId),
+            )
+          : grouped[0];
+
+        if (!target) {
+          return res.status(404).json({
+            error: "No statement rows found for this batch and agent filter",
+          });
+        }
+
+        const statementNumber = `ACS-${String(detail.batch.id).slice(0, 8)}-${String(target.writingNumber || target.agentId || "AGENT").replace(/[^A-Za-z0-9]/g, "")}`;
+
+        const lineItems = (target.items || []).map((row: any) => ({
+          ledgerId: row.id,
+          memberName: row.member_name,
+          memberId: row.member_id,
+          effectiveDate: row.effective_date,
+          membershipTier: row.membership_tier,
+          coverageType: row.coverage_type,
+          commissionAmount: Number(row.commission_amount || 0),
+          commissionType: row.commission_type,
+          status: row.status,
+          cancellationDate: row.cancellation_date,
+          cancellationReason: row.cancellation_reason,
+        }));
+
+        const cancellationLineItems = lineItems.filter((item: any) => {
+          const normalizedType = String(
+            item.commissionType || "",
+          ).toLowerCase();
+          return (
+            Boolean(item.cancellationDate) ||
+            normalizedType === "reversal" ||
+            normalizedType === "adjustment"
+          );
+        });
+
+        const subtotal = lineItems
+          .filter(
+            (item: any) =>
+              item.commissionType !== "adjustment" &&
+              item.commissionType !== "reversal",
+          )
+          .reduce(
+            (sum: number, item: any) =>
+              sum + Number(item.commissionAmount || 0),
+            0,
+          );
+        const adjustments = lineItems
+          .filter(
+            (item: any) =>
+              item.commissionType === "adjustment" ||
+              item.commissionType === "reversal",
+          )
+          .reduce(
+            (sum: number, item: any) =>
+              sum + Number(item.commissionAmount || 0),
+            0,
+          );
+
+        return res.status(200).json({
+          statementDate: new Date().toISOString(),
+          payoutPeriod: {
+            startDate: detail.batch.cutoff_date,
+            endDate: detail.batch.scheduled_pay_date,
+          },
+          fromCompany: {
+            name: "MyPremierPlans LLC",
+            address:
+              process.env.COMPANY_ADDRESS || "Company Address Not Configured",
+          },
+          agent: {
+            id: target.agentId,
+            fullName: target.agentName,
+            writingNumber: target.writingNumber,
+          },
+          lineItems,
+          cancellationLineItems,
+          subtotal,
+          adjustments,
+          cancellationAdjustmentsTotal: cancellationLineItems.reduce(
+            (sum: number, item: any) =>
+              sum + Number(item.commissionAmount || 0),
+            0,
+          ),
+          totalPayout: subtotal + adjustments,
+          statementNumber,
+          payoutBatchId: detail.batch.id,
+          batchStatus: detail.batch.status,
+        });
+      } catch (error: any) {
+        console.error("Error generating payout batch statement:", error);
+        return res.status(500).json({
+          error: "Failed to generate payout batch statement",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const { batchId } = req.params;
-      await markBatchAsPaid(batchId);
-      return res.status(200).json({ message: 'Payout batch marked as paid' });
-    } catch (error: any) {
-      console.error('Error marking payout batch paid:', error);
-      if (error?.message && error.message.includes('Payout batch totals mismatch')) {
-        return res.status(409).json({ error: 'Payout batch header mismatch', details: error.message });
+  app.get(
+    "/api/admin/commissions/payout-batches/:batchId/export",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { batchId } = req.params;
+        const { format = "quickbooks-csv" } = req.query as { format?: string };
+
+        if (format !== "quickbooks-csv" && format !== "hexona-csv") {
+          return res
+            .status(400)
+            .json({ error: `Unsupported export format: ${format}` });
+        }
+
+        await prepareBatchForExport(
+          batchId,
+          format as "quickbooks-csv" | "hexona-csv",
+        );
+        const detail = await getBatchDetails(batchId);
+        const rows = detail.rows || [];
+        const csv =
+          format === "quickbooks-csv"
+            ? buildQuickBooksCsvFromBatch(detail.batch, rows)
+            : buildHexonaCsvFromBatch(detail.batch, rows);
+
+        await supabase
+          .from("commission_payout_batches")
+          .update({ status: "exported" })
+          .eq("id", batchId)
+          .in("status", ["draft", "ready", "exported"]);
+
+        const filePrefix =
+          format === "quickbooks-csv" ? "quickbooks" : "hexona";
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${filePrefix}-payout-batch-${batchId}.csv"`,
+        );
+        return res.status(200).send(csv);
+      } catch (error: any) {
+        console.error("Error exporting payout batch CSV:", error);
+        if (
+          error?.message &&
+          error.message.includes("Payout batch totals mismatch")
+        ) {
+          return res.status(409).json({
+            error: "Payout batch header mismatch",
+            details: error.message,
+          });
+        }
+        return res.status(500).json({
+          error: "Failed to export payout batch CSV",
+          details: error.message,
+        });
       }
-      return res.status(500).json({ error: 'Failed to mark payout batch as paid', details: error.message });
-    }
-  });
+    },
+  );
 
-  app.post('/api/admin/commissions/payout-batches/:batchId/override-carry-forward', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Forbidden: admin or super_admin required for carry-forward override' });
+  app.post(
+    "/api/admin/commissions/payout-batches/:batchId/mark-paid",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { batchId } = req.params;
+        await markBatchAsPaid(batchId);
+        return res.status(200).json({ message: "Payout batch marked as paid" });
+      } catch (error: any) {
+        console.error("Error marking payout batch paid:", error);
+        if (
+          error?.message &&
+          error.message.includes("Payout batch totals mismatch")
+        ) {
+          return res.status(409).json({
+            error: "Payout batch header mismatch",
+            details: error.message,
+          });
+        }
+        return res.status(500).json({
+          error: "Failed to mark payout batch as paid",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const { batchId } = req.params;
-      const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
-      const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+  app.post(
+    "/api/admin/commissions/payout-batches/:batchId/override-carry-forward",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({
+            error:
+              "Forbidden: admin or super_admin required for carry-forward override",
+          });
+        }
 
-      if (!reason) {
-        return res.status(400).json({ error: 'Override reason is required' });
+        const { batchId } = req.params;
+        const agentId =
+          typeof req.body?.agentId === "string" ? req.body.agentId.trim() : "";
+        const reason =
+          typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+
+        if (!reason) {
+          return res.status(400).json({ error: "Override reason is required" });
+        }
+
+        const actorRole = String(req.user?.role || "").trim();
+        if (actorRole !== "super_admin" && !agentId) {
+          return res.status(400).json({
+            error:
+              "agentId is required for admin under-minimum release actions",
+          });
+        }
+
+        const result = await adminOverrideCarryForwardForBatch(batchId, {
+          agentId: agentId || null,
+          actorUserId: req.user?.id || null,
+          actorRole: req.user?.role || null,
+          reason,
+        });
+
+        return res.status(200).json({
+          message: "Carry-forward override applied",
+          ...result,
+        });
+      } catch (error: any) {
+        console.error("Error overriding carry-forward payouts:", error);
+        return res.status(500).json({
+          error: "Failed to override carry-forward payouts",
+          details: error.message,
+        });
       }
+    },
+  );
 
-      const actorRole = String(req.user?.role || '').trim();
-      if (actorRole !== 'super_admin' && !agentId) {
-        return res.status(400).json({ error: 'agentId is required for admin under-minimum release actions' });
+  app.post(
+    "/api/admin/commissions/cancellations/apply",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const {
+          memberId,
+          cancellationDate,
+          cancellationReason,
+          createReversalForPaid = true,
+        } = req.body || {};
+
+        if (!memberId || !cancellationDate) {
+          return res
+            .status(400)
+            .json({ error: "memberId and cancellationDate are required" });
+        }
+
+        const result = await applyCancellationToLedger({
+          memberId: String(memberId),
+          cancellationDate: formatLocalDate(String(cancellationDate)),
+          cancellationReason: cancellationReason || null,
+          createReversalForPaid: Boolean(createReversalForPaid),
+        });
+
+        return res.status(200).json({
+          message: "Cancellation applied to commission ledger",
+          ...result,
+        });
+      } catch (error: any) {
+        console.error("Error applying cancellation to ledger:", error);
+        return res.status(500).json({
+          error: "Failed to apply cancellation to ledger",
+          details: error.message,
+        });
       }
-
-      const result = await adminOverrideCarryForwardForBatch(batchId, {
-        agentId: agentId || null,
-        actorUserId: req.user?.id || null,
-        actorRole: req.user?.role || null,
-        reason,
-      });
-
-      return res.status(200).json({
-        message: 'Carry-forward override applied',
-        ...result,
-      });
-    } catch (error: any) {
-      console.error('Error overriding carry-forward payouts:', error);
-      return res.status(500).json({ error: 'Failed to override carry-forward payouts', details: error.message });
-    }
-  });
-
-  app.post('/api/admin/commissions/cancellations/apply', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const {
-        memberId,
-        cancellationDate,
-        cancellationReason,
-        createReversalForPaid = true,
-      } = req.body || {};
-
-      if (!memberId || !cancellationDate) {
-        return res.status(400).json({ error: 'memberId and cancellationDate are required' });
-      }
-
-      const result = await applyCancellationToLedger({
-        memberId: String(memberId),
-        cancellationDate: formatLocalDate(String(cancellationDate)),
-        cancellationReason: cancellationReason || null,
-        createReversalForPaid: Boolean(createReversalForPaid),
-      });
-
-      return res.status(200).json({
-        message: 'Cancellation applied to commission ledger',
-        ...result,
-      });
-    } catch (error: any) {
-      console.error('Error applying cancellation to ledger:', error);
-      return res.status(500).json({ error: 'Failed to apply cancellation to ledger', details: error.message });
-    }
-  });
+    },
+  );
 
   // Admin: Mark commissions as paid
-  app.post('/api/admin/mark-commissions-paid', authMiddleware, async (req: any, res: any) => {
-    return res.status(410).json({
-      error: 'Legacy direct-pay workflow disabled',
-      message: 'Use payout batch workflow: generate batch, export, then mark batch as paid.',
-    });
-  });
+  app.post(
+    "/api/admin/mark-commissions-paid",
+    authMiddleware,
+    async (req: any, res: any) => {
+      return res.status(410).json({
+        error: "Legacy direct-pay workflow disabled",
+        message:
+          "Use payout batch workflow: generate batch, export, then mark batch as paid.",
+      });
+    },
+  );
 
   // Admin: Update single commission payout
-  app.post('/api/admin/commission/:commissionId/payout', authMiddleware, async (req: any, res: any) => {
-    return res.status(410).json({
-      error: 'Legacy direct-pay workflow disabled',
-      message: 'Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.',
-    });
-  });
+  app.post(
+    "/api/admin/commission/:commissionId/payout",
+    authMiddleware,
+    async (req: any, res: any) => {
+      return res.status(410).json({
+        error: "Legacy direct-pay workflow disabled",
+        message:
+          "Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.",
+      });
+    },
+  );
 
   // Admin: Batch update commission payouts
-  app.post('/api/admin/commissions/batch-payout', authMiddleware, async (req: any, res: any) => {
-    return res.status(410).json({
-      error: 'Legacy direct-pay workflow disabled',
-      message: 'Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.',
-    });
-  });
+  app.post(
+    "/api/admin/commissions/batch-payout",
+    authMiddleware,
+    async (req: any, res: any) => {
+      return res.status(410).json({
+        error: "Legacy direct-pay workflow disabled",
+        message:
+          "Use payout batch workflow: sync ledger, generate batch, export, then mark batch as paid.",
+      });
+    },
+  );
 
   // Admin: Get commissions for payout management
-  app.get('/api/admin/commissions/payout-list', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
+  app.get(
+    "/api/admin/commissions/payout-list",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      const { agentId, paymentStatus, minAmount } = req.query;
+        const { agentId, paymentStatus, minAmount } = req.query;
 
-      const commissions = await storage.getCommissionsForPayout(
-        agentId as string,
-        paymentStatus as string,
-        minAmount ? parseFloat(minAmount as string) : undefined
-      );
-
-      res.json(commissions);
-    } catch (error: any) {
-      console.error('Error fetching commissions for payout:', error);
-      res.status(500).json({ error: 'Failed to fetch commissions for payout', details: error.message });
-    }
-  });
-
-  app.get('/api/admin/login-sessions', authMiddleware, async (req: any, res: any) => {
-    try {
-      console.log("🔍 LOGIN SESSIONS ROUTE HIT");
-      console.log("User:", req.user?.email);
-      console.log("Role:", req.user?.role);
-
-      if (!isAdmin(req.user?.role)) {
-        console.log("❌ Access denied - not admin");
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { limit = "50" } = req.query;
-      const loginSessions = await storage.getAllLoginSessions(parseInt(limit as string));
-      console.log("✅ Got", loginSessions?.length || 0, "login sessions");
-      res.json(loginSessions);
-    } catch (error: any) {
-      console.error("❌ Error fetching login sessions:", error);
-      res.status(500).json({ error: 'Failed to fetch login sessions' });
-    }
-  });
-
-  app.put('/api/admin/users/:userId/role', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { userId } = req.params;
-      const { role } = req.body;
-
-      // Users table should ONLY contain 'admin' and 'agent' roles
-      // 'member' is NOT a user role - members are enrolled customers in separate members table
-      if (!["agent", "admin"].includes(role)) {
-        return res.status(400).json({
-          error: "Invalid role. Must be 'agent' or 'admin'. Note: 'member' is not a valid user role - members are enrolled customers in the members table."
-        });
-      }
-
-      const updatedUser = await storage.updateUser(userId, {
-        role,
-        updatedAt: new Date(),
-      });
-
-      res.json(updatedUser);
-    } catch (error: any) {
-      console.error("Error updating user role:", error);
-      res.status(500).json({ error: "Failed to update user role" });
-    }
-  });
-
-  app.put('/api/admin/users/:userId/agent-number', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { userId } = req.params;
-      const { agentNumber } = req.body;
-
-      // Get user to validate they can have an agent number
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      // Only agents, admins, or super admins should have agent numbers
-      if (!hasAgentOrAdminAccess(user.role)) {
-        return res.status(400).json({
-          error: 'Only agents and admins can be assigned agent numbers'
-        });
-      }
-
-      // Check for duplicate agent numbers if provided
-      if (agentNumber && agentNumber.trim() !== '') {
-        const normalizedAgentNumber = agentNumber.trim().toUpperCase();
-
-        const inUseByActiveAgent = await storage.isAgentNumberUsedByActiveAgent(
-          normalizedAgentNumber,
-          userId,
+        const commissions = await storage.getCommissionsForPayout(
+          agentId as string,
+          paymentStatus as string,
+          minAmount ? parseFloat(minAmount as string) : undefined,
         );
-        if (inUseByActiveAgent) {
-          return res.status(400).json({
-            error: 'Agent number already in use by an active agent'
-          });
-        }
 
-        const existingUser = await storage.getUserByAgentNumber(normalizedAgentNumber);
-        if (existingUser && existingUser.id !== userId) {
-          return res.status(400).json({
-            error: 'Agent number already in use'
-          });
-        }
-      }
-
-      const result = await storage.updateUser(userId, {
-        agentNumber: agentNumber?.trim()?.toUpperCase() || null,
-        updatedAt: new Date(),
-      });
-
-      res.json(result);
-    } catch (error: any) {
-      console.error("Error updating agent number:", error);
-      res.status(500).json({ error: "Failed to update agent number" });
-    }
-  });
-
-  app.put('/api/admin/users/:userId', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { userId } = req.params;
-      const { firstName, lastName, email, phone } = req.body;
-
-      // Validate required fields
-      if (!firstName || !lastName || !email) {
-        return res.status(400).json({ 
-          error: 'First name, last name, and email are required' 
+        res.json(commissions);
+      } catch (error: any) {
+        console.error("Error fetching commissions for payout:", error);
+        res.status(500).json({
+          error: "Failed to fetch commissions for payout",
+          details: error.message,
         });
       }
+    },
+  );
 
-      // Check if user exists
-      const existingUser = await storage.getUser(userId);
-      if (!existingUser) {
-        return res.status(404).json({ error: 'User not found' });
-      }
+  app.get(
+    "/api/admin/login-sessions",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        console.log("🔍 LOGIN SESSIONS ROUTE HIT");
+        console.log("User:", req.user?.email);
+        console.log("Role:", req.user?.role);
 
-      // If email is changing, check for duplicates
-      if (email !== existingUser.email) {
-        const duplicateUser = await storage.getUserByEmail(email);
-        if (duplicateUser && duplicateUser.id !== userId) {
-          return res.status(400).json({ error: 'Email already in use' });
+        if (!isAdmin(req.user?.role)) {
+          console.log("❌ Access denied - not admin");
+          return res.status(403).json({ error: "Admin access required" });
         }
+
+        const { limit = "50" } = req.query;
+        const loginSessions = await storage.getAllLoginSessions(
+          parseInt(limit as string),
+        );
+        console.log("✅ Got", loginSessions?.length || 0, "login sessions");
+        res.json(loginSessions);
+      } catch (error: any) {
+        console.error("❌ Error fetching login sessions:", error);
+        res.status(500).json({ error: "Failed to fetch login sessions" });
       }
+    },
+  );
 
-      // Update user in database
-      const updatedUser = await storage.updateUser(userId, {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone?.trim() || null,
-        updatedAt: new Date(),
-      });
+  app.put(
+    "/api/admin/users/:userId/role",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
 
-      // If email changed, update Supabase Auth email
-      if (email !== existingUser.email) {
-        try {
-          const { data, error } = await supabase.auth.admin.updateUserById(
-            userId,
-            { email: email.trim().toLowerCase() }
+        const { userId } = req.params;
+        const { role } = req.body;
+
+        // Users table should ONLY contain 'admin' and 'agent' roles
+        // 'member' is NOT a user role - members are enrolled customers in separate members table
+        if (!["agent", "admin"].includes(role)) {
+          return res.status(400).json({
+            error:
+              "Invalid role. Must be 'agent' or 'admin'. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
+          });
+        }
+
+        const updatedUser = await storage.updateUser(userId, {
+          role,
+          updatedAt: new Date(),
+        });
+
+        res.json(updatedUser);
+      } catch (error: any) {
+        console.error("Error updating user role:", error);
+        res.status(500).json({ error: "Failed to update user role" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/admin/users/:userId/agent-number",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { userId } = req.params;
+        const { agentNumber } = req.body;
+
+        // Get user to validate they can have an agent number
+        const user = await storage.getUser(userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        // Only agents, admins, or super admins should have agent numbers
+        if (!hasAgentOrAdminAccess(user.role)) {
+          return res.status(400).json({
+            error: "Only agents and admins can be assigned agent numbers",
+          });
+        }
+
+        // Check for duplicate agent numbers if provided
+        if (agentNumber && agentNumber.trim() !== "") {
+          const normalizedAgentNumber = agentNumber.trim().toUpperCase();
+
+          const inUseByActiveAgent =
+            await storage.isAgentNumberUsedByActiveAgent(
+              normalizedAgentNumber,
+              userId,
+            );
+          if (inUseByActiveAgent) {
+            return res.status(400).json({
+              error: "Agent number already in use by an active agent",
+            });
+          }
+
+          const existingUser = await storage.getUserByAgentNumber(
+            normalizedAgentNumber,
           );
-          
-          if (error) {
-            console.error('[Admin Update User] Failed to update Supabase Auth email:', error);
+          if (existingUser && existingUser.id !== userId) {
+            return res.status(400).json({
+              error: "Agent number already in use",
+            });
+          }
+        }
+
+        const result = await storage.updateUser(userId, {
+          agentNumber: agentNumber?.trim()?.toUpperCase() || null,
+          updatedAt: new Date(),
+        });
+
+        res.json(result);
+      } catch (error: any) {
+        console.error("Error updating agent number:", error);
+        res.status(500).json({ error: "Failed to update agent number" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/admin/users/:userId",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { userId } = req.params;
+        const { firstName, lastName, email, phone } = req.body;
+
+        // Validate required fields
+        if (!firstName || !lastName || !email) {
+          return res.status(400).json({
+            error: "First name, last name, and email are required",
+          });
+        }
+
+        // Check if user exists
+        const existingUser = await storage.getUser(userId);
+        if (!existingUser) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        // If email is changing, check for duplicates
+        if (email !== existingUser.email) {
+          const duplicateUser = await storage.getUserByEmail(email);
+          if (duplicateUser && duplicateUser.id !== userId) {
+            return res.status(400).json({ error: "Email already in use" });
+          }
+        }
+
+        // Update user in database
+        const updatedUser = await storage.updateUser(userId, {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone?.trim() || null,
+          updatedAt: new Date(),
+        });
+
+        // If email changed, update Supabase Auth email
+        if (email !== existingUser.email) {
+          try {
+            const { data, error } = await supabase.auth.admin.updateUserById(
+              userId,
+              { email: email.trim().toLowerCase() },
+            );
+
+            if (error) {
+              console.error(
+                "[Admin Update User] Failed to update Supabase Auth email:",
+                error,
+              );
+              // Continue anyway - database is updated
+            }
+          } catch (authError: any) {
+            console.error(
+              "[Admin Update User] Error updating Supabase Auth:",
+              authError,
+            );
             // Continue anyway - database is updated
           }
-        } catch (authError: any) {
-          console.error('[Admin Update User] Error updating Supabase Auth:', authError);
-          // Continue anyway - database is updated
         }
+
+        res.json(updatedUser);
+      } catch (error: any) {
+        console.error("Error updating user:", error);
+        res.status(500).json({ error: "Failed to update user" });
       }
+    },
+  );
 
-      res.json(updatedUser);
-    } catch (error: any) {
-      console.error("Error updating user:", error);
-      res.status(500).json({ error: "Failed to update user" });
-    }
-  });
-
-  app.put('/api/admin/users/:userId/suspend', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { userId } = req.params;
-      const { reason } = req.body;
-
-      const userSubscriptions = await storage.getUserSubscriptions(userId);
-      for (const subscription of userSubscriptions) {
-        if (subscription.status === 'active') {
-          await storage.updateSubscription(subscription.id, {
-            status: 'suspended',
-            pendingReason: 'admin_suspended',
-            pendingDetails: reason || 'Account suspended by administrator',
-            updatedAt: new Date(),
-          });
+  app.put(
+    "/api/admin/users/:userId/suspend",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
         }
-      }
 
-      const updatedUser = await storage.updateUser(userId, {
-        isActive: false,
-        approvalStatus: 'suspended',
-        rejectionReason: reason || 'Account suspended by administrator',
-        updatedAt: new Date(),
-      });
+        const { userId } = req.params;
+        const { reason } = req.body;
 
-      res.json(updatedUser);
-    } catch (error: any) {
-      console.error("Error suspending user:", error);
-      res.status(500).json({ error: "Failed to suspend user" });
-    }
-  });
-
-  app.put('/api/admin/users/:userId/reactivate', authMiddleware, async (req: any, res: any) => {
-    try {
-      if (!isAdmin(req.user?.role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-      }
-
-      const { userId } = req.params;
-      const { reactivateSubscriptions } = req.body;
-
-      const updatedUser = await storage.updateUser(userId, {
-        isActive: true,
-        approvalStatus: 'approved',
-        approvedAt: new Date(),
-        approvedBy: req.user.id,
-        rejectionReason: null,
-        updatedAt: new Date(),
-      });
-
-      if (reactivateSubscriptions) {
         const userSubscriptions = await storage.getUserSubscriptions(userId);
         for (const subscription of userSubscriptions) {
-          if (subscription.status === 'suspended') {
+          if (subscription.status === "active") {
             await storage.updateSubscription(subscription.id, {
-              status: 'active',
-              pendingReason: null,
-              pendingDetails: null,
+              status: "suspended",
+              pendingReason: "admin_suspended",
+              pendingDetails: reason || "Account suspended by administrator",
               updatedAt: new Date(),
             });
           }
         }
-      }
 
-      res.json(updatedUser);
-    } catch (error: any) {
-      console.error("Error reactivating user:", error);
-      res.status(500).json({ error: "Failed to reactivate user" });
-    }
-  });
+        const updatedUser = await storage.updateUser(userId, {
+          isActive: false,
+          approvalStatus: "suspended",
+          rejectionReason: reason || "Account suspended by administrator",
+          updatedAt: new Date(),
+        });
+
+        res.json(updatedUser);
+      } catch (error: any) {
+        console.error("Error suspending user:", error);
+        res.status(500).json({ error: "Failed to suspend user" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/admin/users/:userId/reactivate",
+    authMiddleware,
+    async (req: any, res: any) => {
+      try {
+        if (!isAdmin(req.user?.role)) {
+          return res.status(403).json({ error: "Admin access required" });
+        }
+
+        const { userId } = req.params;
+        const { reactivateSubscriptions } = req.body;
+
+        const updatedUser = await storage.updateUser(userId, {
+          isActive: true,
+          approvalStatus: "approved",
+          approvedAt: new Date(),
+          approvedBy: req.user.id,
+          rejectionReason: null,
+          updatedAt: new Date(),
+        });
+
+        if (reactivateSubscriptions) {
+          const userSubscriptions = await storage.getUserSubscriptions(userId);
+          for (const subscription of userSubscriptions) {
+            if (subscription.status === "suspended") {
+              await storage.updateSubscription(subscription.id, {
+                status: "active",
+                pendingReason: null,
+                pendingDetails: null,
+                updatedAt: new Date(),
+              });
+            }
+          }
+        }
+
+        res.json(updatedUser);
+      } catch (error: any) {
+        console.error("Error reactivating user:", error);
+        res.status(500).json({ error: "Failed to reactivate user" });
+      }
+    },
+  );
 
   // Fix: /api/user (404) - basic user endpoint
-  app.get('/api/user', authenticateToken, async (req: AuthRequest, res: any) => {
-    try {
-      // Return authenticated user from token
-      if (!req.user) {
-        return res.status(401).json({ error: 'Not authenticated' });
-      }
+  app.get(
+    "/api/user",
+    authenticateToken,
+    async (req: AuthRequest, res: any) => {
+      try {
+        // Return authenticated user from token
+        if (!req.user) {
+          return res.status(401).json({ error: "Not authenticated" });
+        }
 
-      // Get user details from database
-      const user = await storage.getUserByEmail(req.user.email);
-      if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-      }
+        // Get user details from database
+        const user = await storage.getUserByEmail(req.user.email);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
 
-      res.json({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: user.role,
-        agentNumber: user.agentNumber || null
-      });
-    } catch (error: any) {
-      console.error('[/api/user] Error:', error);
-      res.status(500).json({ error: 'Failed to fetch user' });
-    }
-  });
+        res.json({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          agentNumber: user.agentNumber || null,
+        });
+      } catch (error: any) {
+        console.error("[/api/user] Error:", error);
+        res.status(500).json({ error: "Failed to fetch user" });
+      }
+    },
+  );
 
   // Send confirmation email endpoint
-  app.post('/api/send-confirmation-email', async (req: any, res: any) => {
+  app.post("/api/send-confirmation-email", async (req: any, res: any) => {
     try {
-      const { email, customerNumber, memberName, planName, transactionId, amount } = req.body || {};
+      const {
+        email,
+        customerNumber,
+        memberName,
+        planName,
+        transactionId,
+        amount,
+      } = req.body || {};
 
       if (!email) {
-        return res.status(400).json({ error: 'Email is required' });
+        return res.status(400).json({ error: "Email is required" });
       }
 
       const normalizedAmount = (() => {
-        if (typeof amount === 'number') {
+        if (typeof amount === "number") {
           return Number.isFinite(amount) ? amount : undefined;
         }
-        if (typeof amount === 'string') {
+        if (typeof amount === "string") {
           const parsed = parseFloat(amount);
           return Number.isFinite(parsed) ? parsed : undefined;
         }
@@ -9031,20 +10944,20 @@ export async function registerRoutes(app: any) {
 
       await sendManualConfirmationEmail({
         recipientEmail: email,
-        memberName: memberName || 'My Premier Plans Member',
+        memberName: memberName || "My Premier Plans Member",
         customerNumber,
         planName,
         transactionId,
-        amount: normalizedAmount
+        amount: normalizedAmount,
       });
 
       res.json({
         success: true,
-        message: 'Confirmation email sent successfully'
+        message: "Confirmation email sent successfully",
       });
     } catch (error: any) {
-      console.error('[Email] Error sending confirmation:', error);
-      res.status(500).json({ error: 'Failed to send confirmation email' });
+      console.error("[Email] Error sending confirmation:", error);
+      res.status(500).json({ error: "Failed to send confirmation email" });
     }
   });
 
@@ -9053,53 +10966,70 @@ export async function registerRoutes(app: any) {
    * Public endpoint to fetch payment and member details by transaction ID
    * Used by confirmation page after EPX redirect
    */
-  router.get('/api/payments/by-transaction/:transactionId', async (req, res) => {
-    try {
-      const { transactionId } = req.params;
-      
-      if (!transactionId) {
-        return res.status(400).json({ success: false, error: 'Transaction ID required' });
-      }
+  router.get(
+    "/api/payments/by-transaction/:transactionId",
+    async (req, res) => {
+      try {
+        const { transactionId } = req.params;
 
-      const payment = await storage.getPaymentByTransactionId(transactionId);
-      
-      if (!payment) {
-        return res.status(404).json({ success: false, error: 'Payment not found' });
-      }
-
-      let member = null;
-      if (payment.member_id) {
-        try {
-          member = await storage.getMember(payment.member_id);
-        } catch (memberError) {
-          console.warn('[Payments] Could not fetch member for payment', { transactionId, memberId: payment.member_id });
+        if (!transactionId) {
+          return res
+            .status(400)
+            .json({ success: false, error: "Transaction ID required" });
         }
-      }
 
-      res.json({
-        success: true,
-        payment: {
-          id: payment.id,
-          transactionId: payment.transaction_id,
-          amount: payment.amount,
-          status: payment.status,
-          createdAt: payment.created_at
-        },
-        member: member ? {
-          id: member.id,
-          customerNumber: member.customerNumber,
-          memberPublicId: member.memberPublicId,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          email: member.email,
-          status: member.status
-        } : null
-      });
-    } catch (error: any) {
-      console.error('[Payments] Error fetching payment by transaction ID:', error);
-      res.status(500).json({ success: false, error: 'Failed to fetch payment details' });
-    }
-  });
+        const payment = await storage.getPaymentByTransactionId(transactionId);
+
+        if (!payment) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Payment not found" });
+        }
+
+        let member = null;
+        if (payment.member_id) {
+          try {
+            member = await storage.getMember(payment.member_id);
+          } catch (memberError) {
+            console.warn("[Payments] Could not fetch member for payment", {
+              transactionId,
+              memberId: payment.member_id,
+            });
+          }
+        }
+
+        res.json({
+          success: true,
+          payment: {
+            id: payment.id,
+            transactionId: payment.transaction_id,
+            amount: payment.amount,
+            status: payment.status,
+            createdAt: payment.created_at,
+          },
+          member: member
+            ? {
+                id: member.id,
+                customerNumber: member.customerNumber,
+                memberPublicId: member.memberPublicId,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                email: member.email,
+                status: member.status,
+              }
+            : null,
+        });
+      } catch (error: any) {
+        console.error(
+          "[Payments] Error fetching payment by transaction ID:",
+          error,
+        );
+        res
+          .status(500)
+          .json({ success: false, error: "Failed to fetch payment details" });
+      }
+    },
+  );
 
   /**
    * POST /api/payments/force-status-update
@@ -9107,101 +11037,117 @@ export async function registerRoutes(app: any) {
    * Used for stuck payments that didn't receive proper webhook callbacks
    * Requires admin authentication
    */
-  router.post('/api/payments/force-status-update', authenticateToken, async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+  router.post(
+    "/api/payments/force-status-update",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
 
-    try {
-      const { paymentId, transactionId, newStatus, reason } = req.body;
+      try {
+        const { paymentId, transactionId, newStatus, reason } = req.body;
 
-      if (!paymentId && !transactionId) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Either paymentId or transactionId is required' 
+        if (!paymentId && !transactionId) {
+          return res.status(400).json({
+            success: false,
+            error: "Either paymentId or transactionId is required",
+          });
+        }
+
+        if (
+          !newStatus ||
+          !["succeeded", "failed", "pending"].includes(newStatus)
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Valid newStatus required (succeeded, failed, or pending)",
+          });
+        }
+
+        let payment;
+        if (paymentId) {
+          payment = await storage.getPayment(paymentId);
+        } else if (transactionId) {
+          payment = await storage.getPaymentByTransactionId(transactionId);
+        }
+
+        if (!payment) {
+          return res.status(404).json({
+            success: false,
+            error: "Payment not found",
+          });
+        }
+
+        const oldStatus = payment.status;
+
+        // Update payment status
+        await storage.updatePayment(payment.id, {
+          status: newStatus,
+          metadata: {
+            ...(payment.metadata || {}),
+            manualStatusUpdate: {
+              updatedBy: req.user?.email || "admin",
+              updatedAt: new Date().toISOString(),
+              oldStatus,
+              newStatus,
+              reason:
+                reason ||
+                "Manual status update via force-status-update endpoint",
+              paymentId: payment.id,
+              transactionId: payment.transaction_id,
+            },
+          },
         });
-      }
 
-      if (!newStatus || !['succeeded', 'failed', 'pending'].includes(newStatus)) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Valid newStatus required (succeeded, failed, or pending)' 
-        });
-      }
-
-      let payment;
-      if (paymentId) {
-        payment = await storage.getPayment(paymentId);
-      } else if (transactionId) {
-        payment = await storage.getPaymentByTransactionId(transactionId);
-      }
-
-      if (!payment) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Payment not found' 
-        });
-      }
-
-      const oldStatus = payment.status;
-      
-      // Update payment status
-      await storage.updatePayment(payment.id, { 
-        status: newStatus,
-        metadata: {
-          ...(payment.metadata || {}),
-          manualStatusUpdate: {
-            updatedBy: req.user?.email || 'admin',
-            updatedAt: new Date().toISOString(),
-            oldStatus,
-            newStatus,
-            reason: reason || 'Manual status update via force-status-update endpoint',
-            paymentId: payment.id,
-            transactionId: payment.transaction_id
+        // If status changed to succeeded and there's a member, update member status
+        if (
+          newStatus === "succeeded" &&
+          payment.member_id &&
+          oldStatus !== "succeeded"
+        ) {
+          try {
+            await storage.updateMember(Number(payment.member_id), {
+              status: "active",
+              isActive: true,
+              firstPaymentDate: payment.created_at || new Date().toISOString(),
+            });
+          } catch (memberError) {
+            console.error(
+              "[Payments] Failed to activate member after manual status update",
+              memberError,
+            );
           }
         }
-      });
 
-      // If status changed to succeeded and there's a member, update member status
-      if (newStatus === 'succeeded' && payment.member_id && oldStatus !== 'succeeded') {
-        try {
-          await storage.updateMember(Number(payment.member_id), {
-            status: 'active',
-            isActive: true,
-            firstPaymentDate: payment.created_at || new Date().toISOString()
-          });
-        } catch (memberError) {
-          console.error('[Payments] Failed to activate member after manual status update', memberError);
-        }
-      }
-
-      console.log('[Payments] Manual status update', {
-        paymentId: payment.id,
-        transactionId: payment.transaction_id,
-        oldStatus,
-        newStatus,
-        updatedBy: req.user?.email || 'admin',
-        reason
-      });
-
-      res.json({
-        success: true,
-        payment: {
-          id: payment.id,
+        console.log("[Payments] Manual status update", {
+          paymentId: payment.id,
           transactionId: payment.transaction_id,
           oldStatus,
           newStatus,
-          updatedAt: new Date().toISOString()
-        }
-      });
-    } catch (error: any) {
-      console.error('[Payments] Error forcing status update:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to update payment status' 
-      });
-    }
-  });
+          updatedBy: req.user?.email || "admin",
+          reason,
+        });
+
+        res.json({
+          success: true,
+          payment: {
+            id: payment.id,
+            transactionId: payment.transaction_id,
+            oldStatus,
+            newStatus,
+            updatedAt: new Date().toISOString(),
+          },
+        });
+      } catch (error: any) {
+        console.error("[Payments] Error forcing status update:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to update payment status",
+        });
+      }
+    },
+  );
 
   /**
    * GET /api/payments/reconciliation/pending
@@ -9209,19 +11155,26 @@ export async function registerRoutes(app: any) {
    * Returns payments that are still "pending" after a threshold time (default 1 hour)
    * Requires admin authentication
    */
-  router.get('/api/payments/reconciliation/pending', authenticateToken, async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+  router.get(
+    "/api/payments/reconciliation/pending",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
 
-    try {
-      const thresholdMinutes = parseInt(req.query.thresholdMinutes as string) || 60;
-      const thresholdDate = new Date(Date.now() - thresholdMinutes * 60 * 1000);
+      try {
+        const thresholdMinutes =
+          parseInt(req.query.thresholdMinutes as string) || 60;
+        const thresholdDate = new Date(
+          Date.now() - thresholdMinutes * 60 * 1000,
+        );
 
-      // Query for pending payments older than threshold
-      const { data: pendingPayments, error } = await storage.supabase
-        .from('payments')
-        .select(`
+        // Query for pending payments older than threshold
+        const { data: pendingPayments, error } = await storage.supabase
+          .from("payments")
+          .select(
+            `
           id,
           transaction_id,
           amount,
@@ -9229,56 +11182,65 @@ export async function registerRoutes(app: any) {
           created_at,
           member_id,
           metadata
-        `)
-        .eq('status', 'pending')
-        .lt('created_at', thresholdDate.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(100);
+        `,
+          )
+          .eq("status", "pending")
+          .lt("created_at", thresholdDate.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(100);
 
-      if (error) {
-        throw error;
-      }
+        if (error) {
+          throw error;
+        }
 
-      // Enrich with member details
-      const enrichedPayments = await Promise.all(
-        (pendingPayments || []).map(async (payment) => {
-          let member = null;
-          if (payment.member_id) {
-            try {
-              member = await storage.getMember(payment.member_id);
-            } catch (err) {
-              console.warn('[Payments Reconciliation] Could not fetch member', { memberId: payment.member_id });
+        // Enrich with member details
+        const enrichedPayments = await Promise.all(
+          (pendingPayments || []).map(async (payment) => {
+            let member = null;
+            if (payment.member_id) {
+              try {
+                member = await storage.getMember(payment.member_id);
+              } catch (err) {
+                console.warn(
+                  "[Payments Reconciliation] Could not fetch member",
+                  { memberId: payment.member_id },
+                );
+              }
             }
-          }
 
-          return {
-            ...payment,
-            ageMinutes: Math.floor((Date.now() - new Date(payment.created_at).getTime()) / 60000),
-            member: member ? {
-              id: member.id,
-              firstName: member.firstName,
-              lastName: member.lastName,
-              email: member.email,
-              status: member.status
-            } : null
-          };
-        })
-      );
+            return {
+              ...payment,
+              ageMinutes: Math.floor(
+                (Date.now() - new Date(payment.created_at).getTime()) / 60000,
+              ),
+              member: member
+                ? {
+                    id: member.id,
+                    firstName: member.firstName,
+                    lastName: member.lastName,
+                    email: member.email,
+                    status: member.status,
+                  }
+                : null,
+            };
+          }),
+        );
 
-      res.json({
-        success: true,
-        thresholdMinutes,
-        count: enrichedPayments.length,
-        payments: enrichedPayments
-      });
-    } catch (error: any) {
-      console.error('[Payments] Error fetching pending payments:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to fetch pending payments' 
-      });
-    }
-  });
+        res.json({
+          success: true,
+          thresholdMinutes,
+          count: enrichedPayments.length,
+          payments: enrichedPayments,
+        });
+      } catch (error: any) {
+        console.error("[Payments] Error fetching pending payments:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to fetch pending payments",
+        });
+      }
+    },
+  );
 
   /**
    * POST /api/payments/reconciliation/batch-update
@@ -9286,125 +11248,140 @@ export async function registerRoutes(app: any) {
    * Accepts array of payment IDs or transaction IDs with their new statuses
    * Requires admin authentication
    */
-  router.post('/api/payments/reconciliation/batch-update', authenticateToken, async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
-    try {
-      const { updates, reason } = req.body;
-
-      if (!Array.isArray(updates) || updates.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'updates array is required' 
-        });
+  router.post(
+    "/api/payments/reconciliation/batch-update",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
-      const results = {
-        succeeded: [] as any[],
-        failed: [] as any[]
-      };
+      try {
+        const { updates, reason } = req.body;
 
-      for (const update of updates) {
-        try {
-          const { paymentId, transactionId, newStatus } = update;
-
-          if (!paymentId && !transactionId) {
-            results.failed.push({
-              update,
-              error: 'Either paymentId or transactionId is required'
-            });
-            continue;
-          }
-
-          if (!newStatus || !['succeeded', 'failed', 'pending'].includes(newStatus)) {
-            results.failed.push({
-              update,
-              error: 'Valid newStatus required'
-            });
-            continue;
-          }
-
-          let payment;
-          if (paymentId) {
-            payment = await storage.getPayment(paymentId);
-          } else if (transactionId) {
-            payment = await storage.getPaymentByTransactionId(transactionId);
-          }
-
-          if (!payment) {
-            results.failed.push({
-              update,
-              error: 'Payment not found'
-            });
-            continue;
-          }
-
-          const oldStatus = payment.status;
-
-          await storage.updatePayment(payment.id, {
-            status: newStatus,
-            metadata: {
-              ...(payment.metadata || {}),
-              batchStatusUpdate: {
-                updatedBy: req.user?.email || 'admin',
-                updatedAt: new Date().toISOString(),
-                oldStatus,
-                newStatus,
-                reason: reason || 'Batch reconciliation update',
-                paymentId: payment.id,
-                transactionId: payment.transaction_id
-              }
-            }
-          });
-
-          // If status changed to succeeded, activate member
-          if (newStatus === 'succeeded' && payment.member_id && oldStatus !== 'succeeded') {
-            try {
-              await storage.updateMember(Number(payment.member_id), {
-                status: 'active',
-                isActive: true,
-                firstPaymentDate: payment.created_at || new Date().toISOString()
-              });
-            } catch (memberError) {
-              console.error('[Payments] Failed to activate member in batch update', memberError);
-            }
-          }
-
-          results.succeeded.push({
-            paymentId: payment.id,
-            transactionId: payment.transaction_id,
-            oldStatus,
-            newStatus
-          });
-        } catch (updateError: any) {
-          results.failed.push({
-            update,
-            error: updateError.message
+        if (!Array.isArray(updates) || updates.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: "updates array is required",
           });
         }
+
+        const results = {
+          succeeded: [] as any[],
+          failed: [] as any[],
+        };
+
+        for (const update of updates) {
+          try {
+            const { paymentId, transactionId, newStatus } = update;
+
+            if (!paymentId && !transactionId) {
+              results.failed.push({
+                update,
+                error: "Either paymentId or transactionId is required",
+              });
+              continue;
+            }
+
+            if (
+              !newStatus ||
+              !["succeeded", "failed", "pending"].includes(newStatus)
+            ) {
+              results.failed.push({
+                update,
+                error: "Valid newStatus required",
+              });
+              continue;
+            }
+
+            let payment;
+            if (paymentId) {
+              payment = await storage.getPayment(paymentId);
+            } else if (transactionId) {
+              payment = await storage.getPaymentByTransactionId(transactionId);
+            }
+
+            if (!payment) {
+              results.failed.push({
+                update,
+                error: "Payment not found",
+              });
+              continue;
+            }
+
+            const oldStatus = payment.status;
+
+            await storage.updatePayment(payment.id, {
+              status: newStatus,
+              metadata: {
+                ...(payment.metadata || {}),
+                batchStatusUpdate: {
+                  updatedBy: req.user?.email || "admin",
+                  updatedAt: new Date().toISOString(),
+                  oldStatus,
+                  newStatus,
+                  reason: reason || "Batch reconciliation update",
+                  paymentId: payment.id,
+                  transactionId: payment.transaction_id,
+                },
+              },
+            });
+
+            // If status changed to succeeded, activate member
+            if (
+              newStatus === "succeeded" &&
+              payment.member_id &&
+              oldStatus !== "succeeded"
+            ) {
+              try {
+                await storage.updateMember(Number(payment.member_id), {
+                  status: "active",
+                  isActive: true,
+                  firstPaymentDate:
+                    payment.created_at || new Date().toISOString(),
+                });
+              } catch (memberError) {
+                console.error(
+                  "[Payments] Failed to activate member in batch update",
+                  memberError,
+                );
+              }
+            }
+
+            results.succeeded.push({
+              paymentId: payment.id,
+              transactionId: payment.transaction_id,
+              oldStatus,
+              newStatus,
+            });
+          } catch (updateError: any) {
+            results.failed.push({
+              update,
+              error: updateError.message,
+            });
+          }
+        }
+
+        console.log("[Payments] Batch reconciliation update completed", {
+          total: updates.length,
+          succeeded: results.succeeded.length,
+          failed: results.failed.length,
+          updatedBy: req.user?.email || "admin",
+        });
+
+        res.json({
+          success: true,
+          results,
+        });
+      } catch (error: any) {
+        console.error("[Payments] Error in batch update:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to perform batch update",
+        });
       }
-
-      console.log('[Payments] Batch reconciliation update completed', {
-        total: updates.length,
-        succeeded: results.succeeded.length,
-        failed: results.failed.length,
-        updatedBy: req.user?.email || 'admin'
-      });
-
-      res.json({
-        success: true,
-        results
-      });
-    } catch (error: any) {
-      console.error('[Payments] Error in batch update:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to perform batch update' 
-      });
-    }
-  });
+    },
+  );
 
   /**
    * GET /api/admin/member/:memberId/sensitive
@@ -9412,291 +11389,326 @@ export async function registerRoutes(app: any) {
    * Returns decrypted data with audit logging
    * Requires admin/super_admin authentication
    */
-  router.get('/api/admin/member/:memberId/sensitive', authenticateToken, async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
-    try {
-      const { memberId } = req.params;
-      const { reason } = req.query;
-      const revealSSN = isTruthyFlag(req.query?.revealSsn);
-      const revealBank = isTruthyFlag(req.query?.revealBank);
-
-      if (!memberId) {
-        return res.status(400).json({ 
-          success: false, 
-          error: 'Member ID is required' 
-        });
+  router.get(
+    "/api/admin/member/:memberId/sensitive",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
-      const member = await storage.getMember(Number(memberId));
-
-      if (!member) {
-        return res.status(404).json({ 
-          success: false, 
-          error: 'Member not found' 
-        });
-      }
-
-      // Decrypt sensitive data
-      let decryptedSSN = null;
-      let maskedSSN = null;
-      let ssnStatus: 'decrypted' | 'masked_only' | 'not_available' = 'not_available';
-      let ssnReason: string | null = null;
-      if (member.ssn) {
-        const { decryptSSN, formatSSN } = await import('./utils/encryption');
-
-        const storedRaw = String(member.ssn);
-        const decryptedCandidate = decryptSSN(storedRaw);
-        const decryptedDigits = String(decryptedCandidate || '').replace(/\D/g, '');
-        const storedDigits = storedRaw.replace(/\D/g, '');
-
-        if (decryptedDigits.length === 9) {
-          decryptedSSN = formatSSN(decryptedDigits);
-          maskedSSN = displaySSN(decryptedDigits, { reveal: false, role: '' });
-          ssnStatus = 'decrypted';
-        } else if (storedDigits.length === 9) {
-          // Legacy plaintext support
-          decryptedSSN = formatSSN(storedDigits);
-          maskedSSN = displaySSN(storedDigits, { reveal: false, role: '' });
-          ssnStatus = 'decrypted';
-        } else {
-          // Irrecoverable values (e.g. already-masked-only or malformed)
-          maskedSSN = displaySSN(storedRaw, { reveal: false, role: '' });
-          ssnStatus = 'masked_only';
-          ssnReason = storedRaw.includes(':')
-            ? 'Encrypted SSN could not be decrypted with configured keys'
-            : 'Only masked/partial SSN is available for this record';
-        }
-      }
-
-      const rawRoutingNumber = resolveRawOrDecryptedBankValue(member.bankRoutingNumber);
-      const rawAccountNumber = resolveRawOrDecryptedBankValue(member.bankAccountNumber);
-      const accountLastFour = member.bankAccountLastFour || (rawAccountNumber ? rawAccountNumber.replace(/\D/g, '').slice(-4) : null);
-
-      // Log access for audit trail
-      const accessLog = {
-        adminEmail: req.user?.email || 'unknown',
-        adminId: req.user?.id || 'unknown',
-        memberId: member.id,
-        memberEmail: member.email,
-        customerNumber: member.customerNumber,
-        accessedAt: new Date().toISOString(),
-        reason: reason || 'No reason provided',
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent')
-      };
-
-      console.log('[Admin Sensitive Data Access]', accessLog);
-
-      // Store audit log in database (if admin_logs table exists)
       try {
-        const fieldsAccessed = [
-          'ssn_masked',
-          'bank_masked',
-          ...(revealSSN ? ['ssn_raw'] : []),
-          ...(revealBank ? ['bank_raw'] : []),
-        ];
+        const { memberId } = req.params;
+        const { reason } = req.query;
+        const revealSSN = isTruthyFlag(req.query?.revealSsn);
+        const revealBank = isTruthyFlag(req.query?.revealBank);
 
-        await storage.supabase.from('admin_logs').insert({
-          log_type: 'sensitive_data_access',
-          admin_id: req.user?.id,
-          admin_email: req.user?.email,
-          member_id: memberId,
-          action: 'view_sensitive_member_data',
-          reason: reason || null,
-          metadata: {
-            fields_accessed: fieldsAccessed,
-            reveal_ssn: revealSSN,
-            reveal_bank: revealBank,
-            customer_number: member.customerNumber,
-            member_email: member.email
-          },
-          ip_address: req.ip,
-          user_agent: req.get('user-agent'),
-          created_at: new Date().toISOString()
-        });
-      } catch (logError) {
-        // If admin_logs table doesn't exist, just console log
-        console.warn('[Admin] Could not save audit log to database', logError);
-      }
-
-      res.json({
-        success: true,
-        member: {
-          id: member.id,
-          customerNumber: member.customerNumber,
-          memberPublicId: member.memberPublicId,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          email: member.email,
-          phone: member.phone,
-          dateOfBirth: member.dateOfBirth
-        },
-        sensitiveData: {
-          ssn: {
-            decrypted: revealSSN ? decryptedSSN : null,
-            masked: maskedSSN,
-            status: ssnStatus,
-            reason: ssnReason,
-            warning: 'This data is logged and monitored'
-          },
-          bankInfo: {
-            routingNumber: revealBank ? rawRoutingNumber : null,
-            routingNumberMasked: maskLastFour(rawRoutingNumber),
-            accountNumber: revealBank ? rawAccountNumber : null,
-            accountLastFour,
-            accountType: member.bankAccountType || null,
-            accountHolderName: member.bankAccountHolderName || null
-          }
-        },
-        auditLog: {
-          accessedBy: req.user?.email,
-          accessedAt: new Date().toISOString(),
-          reason: reason || 'No reason provided'
+        if (!memberId) {
+          return res.status(400).json({
+            success: false,
+            error: "Member ID is required",
+          });
         }
-      });
-    } catch (error: any) {
-      console.error('[Admin] Error accessing sensitive member data:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to retrieve sensitive data' 
-      });
-    }
-  });
+
+        const member = await storage.getMember(Number(memberId));
+
+        if (!member) {
+          return res.status(404).json({
+            success: false,
+            error: "Member not found",
+          });
+        }
+
+        // Decrypt sensitive data
+        let decryptedSSN = null;
+        let maskedSSN = null;
+        let ssnStatus: "decrypted" | "masked_only" | "not_available" =
+          "not_available";
+        let ssnReason: string | null = null;
+        if (member.ssn) {
+          const { decryptSSN, formatSSN } = await import("./utils/encryption");
+
+          const storedRaw = String(member.ssn);
+          const decryptedCandidate = decryptSSN(storedRaw);
+          const decryptedDigits = String(decryptedCandidate || "").replace(
+            /\D/g,
+            "",
+          );
+          const storedDigits = storedRaw.replace(/\D/g, "");
+
+          if (decryptedDigits.length === 9) {
+            decryptedSSN = formatSSN(decryptedDigits);
+            maskedSSN = displaySSN(decryptedDigits, {
+              reveal: false,
+              role: "",
+            });
+            ssnStatus = "decrypted";
+          } else if (storedDigits.length === 9) {
+            // Legacy plaintext support
+            decryptedSSN = formatSSN(storedDigits);
+            maskedSSN = displaySSN(storedDigits, { reveal: false, role: "" });
+            ssnStatus = "decrypted";
+          } else {
+            // Irrecoverable values (e.g. already-masked-only or malformed)
+            maskedSSN = displaySSN(storedRaw, { reveal: false, role: "" });
+            ssnStatus = "masked_only";
+            ssnReason = storedRaw.includes(":")
+              ? "Encrypted SSN could not be decrypted with configured keys"
+              : "Only masked/partial SSN is available for this record";
+          }
+        }
+
+        const rawRoutingNumber = resolveRawOrDecryptedBankValue(
+          member.bankRoutingNumber,
+        );
+        const rawAccountNumber = resolveRawOrDecryptedBankValue(
+          member.bankAccountNumber,
+        );
+        const accountLastFour =
+          member.bankAccountLastFour ||
+          (rawAccountNumber
+            ? rawAccountNumber.replace(/\D/g, "").slice(-4)
+            : null);
+
+        // Log access for audit trail
+        const accessLog = {
+          adminEmail: req.user?.email || "unknown",
+          adminId: req.user?.id || "unknown",
+          memberId: member.id,
+          memberEmail: member.email,
+          customerNumber: member.customerNumber,
+          accessedAt: new Date().toISOString(),
+          reason: reason || "No reason provided",
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent"),
+        };
+
+        console.log("[Admin Sensitive Data Access]", accessLog);
+
+        // Store audit log in database (if admin_logs table exists)
+        try {
+          const fieldsAccessed = [
+            "ssn_masked",
+            "bank_masked",
+            ...(revealSSN ? ["ssn_raw"] : []),
+            ...(revealBank ? ["bank_raw"] : []),
+          ];
+
+          await storage.supabase.from("admin_logs").insert({
+            log_type: "sensitive_data_access",
+            admin_id: req.user?.id,
+            admin_email: req.user?.email,
+            member_id: memberId,
+            action: "view_sensitive_member_data",
+            reason: reason || null,
+            metadata: {
+              fields_accessed: fieldsAccessed,
+              reveal_ssn: revealSSN,
+              reveal_bank: revealBank,
+              customer_number: member.customerNumber,
+              member_email: member.email,
+            },
+            ip_address: req.ip,
+            user_agent: req.get("user-agent"),
+            created_at: new Date().toISOString(),
+          });
+        } catch (logError) {
+          // If admin_logs table doesn't exist, just console log
+          console.warn(
+            "[Admin] Could not save audit log to database",
+            logError,
+          );
+        }
+
+        res.json({
+          success: true,
+          member: {
+            id: member.id,
+            customerNumber: member.customerNumber,
+            memberPublicId: member.memberPublicId,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            email: member.email,
+            phone: member.phone,
+            dateOfBirth: member.dateOfBirth,
+          },
+          sensitiveData: {
+            ssn: {
+              decrypted: revealSSN ? decryptedSSN : null,
+              masked: maskedSSN,
+              status: ssnStatus,
+              reason: ssnReason,
+              warning: "This data is logged and monitored",
+            },
+            bankInfo: {
+              routingNumber: revealBank ? rawRoutingNumber : null,
+              routingNumberMasked: maskLastFour(rawRoutingNumber),
+              accountNumber: revealBank ? rawAccountNumber : null,
+              accountLastFour,
+              accountType: member.bankAccountType || null,
+              accountHolderName: member.bankAccountHolderName || null,
+            },
+          },
+          auditLog: {
+            accessedBy: req.user?.email,
+            accessedAt: new Date().toISOString(),
+            reason: reason || "No reason provided",
+          },
+        });
+      } catch (error: any) {
+        console.error("[Admin] Error accessing sensitive member data:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to retrieve sensitive data",
+        });
+      }
+    },
+  );
 
   /**
    * POST /api/admin/members/backfill-ssn-encryption
    * Re-encrypts any legacy plaintext SSNs for existing members.
    * Supports dryRun mode to inspect impact before updates.
    */
-  router.post('/api/admin/members/backfill-ssn-encryption', authenticateToken, async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
-    try {
-      const dryRun = Boolean(req.body?.dryRun);
-      const batchSize = Math.min(Math.max(Number(req.body?.batchSize || 200), 1), 1000);
-      const { encryptSSN, isValidSSN } = await import('./utils/encryption');
-
-      let offset = 0;
-      let total = 0;
-      let encrypted = 0;
-      let alreadyEncrypted = 0;
-      let invalid = 0;
-      let errors = 0;
-      const invalidMemberIds: number[] = [];
-
-      while (true) {
-        const { data, error } = await supabase
-          .from('members')
-          .select('id, customer_number, ssn')
-          .not('ssn', 'is', null)
-          .neq('ssn', '')
-          .order('id', { ascending: true })
-          .range(offset, offset + batchSize - 1);
-
-        if (error) {
-          throw error;
-        }
-
-        if (!data || data.length === 0) {
-          break;
-        }
-
-        for (const row of data) {
-          total += 1;
-          const raw = String(row.ssn || '');
-
-          try {
-            if (raw.includes(':')) {
-              alreadyEncrypted += 1;
-              continue;
-            }
-
-            if (!isValidSSN(raw)) {
-              invalid += 1;
-              invalidMemberIds.push(row.id);
-              continue;
-            }
-
-            if (!dryRun) {
-              const nextValue = encryptSSN(raw);
-              const { error: updateError } = await supabase
-                .from('members')
-                .update({ ssn: nextValue, updated_at: new Date().toISOString() })
-                .eq('id', row.id);
-
-              if (updateError) {
-                throw updateError;
-              }
-            }
-
-            encrypted += 1;
-          } catch (innerError) {
-            errors += 1;
-            console.error('[SSN Backfill] Failed for member', {
-              memberId: row.id,
-              customerNumber: row.customer_number,
-              error: innerError,
-            });
-          }
-        }
-
-        if (data.length < batchSize) {
-          break;
-        }
-        offset += batchSize;
+  router.post(
+    "/api/admin/members/backfill-ssn-encryption",
+    authenticateToken,
+    async (req: AuthRequest, res) => {
+      if (!isAdmin(req.user?.role)) {
+        return res.status(403).json({ message: "Admin access required" });
       }
 
-      // Audit log for operational traceability
       try {
-        await storage.supabase.from('admin_logs').insert({
-          log_type: 'sensitive_data_backfill',
-          admin_id: req.user?.id,
-          admin_email: req.user?.email,
-          action: 'backfill_member_ssn_encryption',
-          metadata: {
-            dryRun,
-            batchSize,
+        const dryRun = Boolean(req.body?.dryRun);
+        const batchSize = Math.min(
+          Math.max(Number(req.body?.batchSize || 200), 1),
+          1000,
+        );
+        const { encryptSSN, isValidSSN } = await import("./utils/encryption");
+
+        let offset = 0;
+        let total = 0;
+        let encrypted = 0;
+        let alreadyEncrypted = 0;
+        let invalid = 0;
+        let errors = 0;
+        const invalidMemberIds: number[] = [];
+
+        while (true) {
+          const { data, error } = await supabase
+            .from("members")
+            .select("id, customer_number, ssn")
+            .not("ssn", "is", null)
+            .neq("ssn", "")
+            .order("id", { ascending: true })
+            .range(offset, offset + batchSize - 1);
+
+          if (error) {
+            throw error;
+          }
+
+          if (!data || data.length === 0) {
+            break;
+          }
+
+          for (const row of data) {
+            total += 1;
+            const raw = String(row.ssn || "");
+
+            try {
+              if (raw.includes(":")) {
+                alreadyEncrypted += 1;
+                continue;
+              }
+
+              if (!isValidSSN(raw)) {
+                invalid += 1;
+                invalidMemberIds.push(row.id);
+                continue;
+              }
+
+              if (!dryRun) {
+                const nextValue = encryptSSN(raw);
+                const { error: updateError } = await supabase
+                  .from("members")
+                  .update({
+                    ssn: nextValue,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq("id", row.id);
+
+                if (updateError) {
+                  throw updateError;
+                }
+              }
+
+              encrypted += 1;
+            } catch (innerError) {
+              errors += 1;
+              console.error("[SSN Backfill] Failed for member", {
+                memberId: row.id,
+                customerNumber: row.customer_number,
+                error: innerError,
+              });
+            }
+          }
+
+          if (data.length < batchSize) {
+            break;
+          }
+          offset += batchSize;
+        }
+
+        // Audit log for operational traceability
+        try {
+          await storage.supabase.from("admin_logs").insert({
+            log_type: "sensitive_data_backfill",
+            admin_id: req.user?.id,
+            admin_email: req.user?.email,
+            action: "backfill_member_ssn_encryption",
+            metadata: {
+              dryRun,
+              batchSize,
+              total,
+              encrypted,
+              alreadyEncrypted,
+              invalid,
+              errors,
+              invalidMemberIds: invalidMemberIds.slice(0, 100),
+            },
+            ip_address: req.ip,
+            user_agent: req.get("user-agent"),
+            created_at: new Date().toISOString(),
+          });
+        } catch (logError) {
+          console.warn(
+            "[Admin] Could not save SSN backfill audit log to database",
+            logError,
+          );
+        }
+
+        return res.json({
+          success: true,
+          dryRun,
+          summary: {
             total,
             encrypted,
             alreadyEncrypted,
             invalid,
             errors,
-            invalidMemberIds: invalidMemberIds.slice(0, 100),
           },
-          ip_address: req.ip,
-          user_agent: req.get('user-agent'),
-          created_at: new Date().toISOString(),
+          invalidMemberIds: invalidMemberIds.slice(0, 100),
         });
-      } catch (logError) {
-        console.warn('[Admin] Could not save SSN backfill audit log to database', logError);
+      } catch (error: any) {
+        console.error("[Admin] Error running SSN backfill:", error);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to run SSN backfill",
+          details: error?.message || "Unknown error",
+        });
       }
-
-      return res.json({
-        success: true,
-        dryRun,
-        summary: {
-          total,
-          encrypted,
-          alreadyEncrypted,
-          invalid,
-          errors,
-        },
-        invalidMemberIds: invalidMemberIds.slice(0, 100),
-      });
-    } catch (error: any) {
-      console.error('[Admin] Error running SSN backfill:', error);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to run SSN backfill',
-        details: error?.message || 'Unknown error',
-      });
-    }
-  });
+    },
+  );
 
   // Log the new routes
   console.log("[Route] POST /api/registration");
@@ -9704,7 +11716,7 @@ export async function registerRoutes(app: any) {
   console.log("[Route] POST /api/family-enrollment");
   console.log("[Route] GET /api/agent/:agentId");
   console.log("[Route] GET /api/agent/enrollments");
-  console.log("[Route] GET /api/agent/stats"); 
+  console.log("[Route] GET /api/agent/stats");
   console.log("[Route] GET /api/agent/commission-stats");
   console.log("[Route] GET /api/agent/commissions");
   console.log("[Route] GET /api/user");

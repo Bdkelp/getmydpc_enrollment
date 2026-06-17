@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -53,11 +53,29 @@ interface Agent {
   downlineCount?: number;
 }
 
-interface OverrideConfig {
-  agentId: string;
-  overrideAmount: number;
-  overrideType: 'fixed' | 'percentage';
-  notes?: string;
+interface AgencyUserOption {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  agentNumber?: string | null;
+}
+
+interface AssignmentAgentOption {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  agentNumber?: string | null;
+}
+
+interface AgencyAssignmentsResponse {
+  success: boolean;
+  agencyUsers: AgencyUserOption[];
+  assignableAgents: AssignmentAgentOption[];
+  assignments: Record<string, string[]>;
 }
 
 export default function AdminAgentHierarchy() {
@@ -72,10 +90,18 @@ export default function AdminAgentHierarchy() {
   const [newUplineId, setNewUplineId] = useState<string>("");
   const [overrideAmount, setOverrideAmount] = useState<number>(5);
   const [changeReason, setChangeReason] = useState("");
+  const [selectedAgencyUserId, setSelectedAgencyUserId] = useState<string>("");
+  const [selectedAssignedAgentIds, setSelectedAssignedAgentIds] = useState<string[]>([]);
+  const [assignmentReason, setAssignmentReason] = useState("");
 
   // Fetch all agents
   const { data: agents, isLoading } = useQuery<Agent[]>({
     queryKey: ["/api/admin/agents/hierarchy"],
+    enabled: !!user && isAdminUser,
+  });
+
+  const { data: assignmentDirectory, isLoading: assignmentsLoading } = useQuery<AgencyAssignmentsResponse>({
+    queryKey: ["/api/admin/agency-assignments"],
     enabled: !!user && isAdminUser,
   });
 
@@ -111,9 +137,60 @@ export default function AdminAgentHierarchy() {
     },
   });
 
+  const saveAssignmentsMutation = useMutation({
+    mutationFn: async (data: { agencyUserId: string; agentIds: string[]; reason: string }) => {
+      return await apiRequest(`/api/admin/agency-assignments/${data.agencyUserId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          agentIds: data.agentIds,
+          reason: data.reason,
+        }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Agency assignments saved successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/agency-assignments"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to save agency assignments",
+        variant: "destructive",
+      });
+    },
+  });
+
   const safeAgents = useMemo(() => {
     return Array.isArray(agents) ? agents : [];
   }, [agents]);
+
+  const agencyUsers = useMemo(() => {
+    return Array.isArray(assignmentDirectory?.agencyUsers)
+      ? assignmentDirectory!.agencyUsers
+      : [];
+  }, [assignmentDirectory]);
+
+  const assignableAgents = useMemo(() => {
+    return Array.isArray(assignmentDirectory?.assignableAgents)
+      ? assignmentDirectory!.assignableAgents
+      : [];
+  }, [assignmentDirectory]);
+
+  const assignmentMap = useMemo(() => {
+    return assignmentDirectory?.assignments || {};
+  }, [assignmentDirectory]);
+
+  const selectedAgencyAssignedIds = useMemo(() => {
+    if (!selectedAgencyUserId) return [];
+    return assignmentMap[selectedAgencyUserId] || [];
+  }, [assignmentMap, selectedAgencyUserId]);
+
+  const selectedAgencyUser = useMemo(() => {
+    return agencyUsers.find((u) => u.id === selectedAgencyUserId) || null;
+  }, [agencyUsers, selectedAgencyUserId]);
 
   // Group agents by hierarchy level
   const agentsByLevel = useMemo(() => {
@@ -150,6 +227,31 @@ export default function AdminAgentHierarchy() {
     });
   };
 
+  const toggleAssignedAgent = (agentId: string) => {
+    setSelectedAssignedAgentIds((current) =>
+      current.includes(agentId)
+        ? current.filter((id) => id !== agentId)
+        : [...current, agentId],
+    );
+  };
+
+  const handleSaveAssignments = () => {
+    if (!selectedAgencyUserId) {
+      toast({
+        title: "Select an agency user",
+        description: "Choose an agency user before saving assignments.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    saveAssignmentsMutation.mutate({
+      agencyUserId: selectedAgencyUserId,
+      agentIds: selectedAssignedAgentIds,
+      reason: assignmentReason,
+    });
+  };
+
   const stats = useMemo(() => {
     const totalAgents = safeAgents.length;
     const topLevelAgents = safeAgents.filter(a => !a.uplineAgentId).length;
@@ -161,7 +263,18 @@ export default function AdminAgentHierarchy() {
     return { totalAgents, topLevelAgents, agentsWithDownlines, avgOverride };
   }, [safeAgents]);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!selectedAgencyUserId) {
+      if (agencyUsers.length > 0) {
+        setSelectedAgencyUserId(agencyUsers[0].id);
+      }
+      return;
+    }
+
+    setSelectedAssignedAgentIds(selectedAgencyAssignedIds);
+  }, [selectedAgencyUserId, selectedAgencyAssignedIds, agencyUsers]);
+
+  if (isLoading || assignmentsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <LoadingSpinner />
@@ -304,6 +417,104 @@ export default function AdminAgentHierarchy() {
                 <p className="text-gray-500">No agents found.</p>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Agency Assignment Access</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Assign which agents each agency-level user can view across dashboards, enrollments, and commissions.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="agencyUser">Agency User</Label>
+              <Select
+                value={selectedAgencyUserId}
+                onValueChange={(value) => {
+                  setSelectedAgencyUserId(value);
+                  setAssignmentReason("");
+                }}
+              >
+                <SelectTrigger id="agencyUser">
+                  <SelectValue placeholder="Select agency user" />
+                </SelectTrigger>
+                <SelectContent>
+                  {agencyUsers.map((agencyUser) => (
+                    <SelectItem key={agencyUser.id} value={agencyUser.id}>
+                      {agencyUser.firstName} {agencyUser.lastName} ({agencyUser.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedAgencyUser && (
+              <div className="rounded-md border border-gray-200 p-3 bg-gray-50">
+                <div className="text-sm font-medium text-gray-900">
+                  {selectedAgencyUser.firstName} {selectedAgencyUser.lastName}
+                </div>
+                <div className="text-xs text-gray-600">{selectedAgencyUser.email}</div>
+                <div className="text-xs text-gray-600">Role: {selectedAgencyUser.role}</div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Assignable Agents</Label>
+              <div className="max-h-72 overflow-y-auto rounded-md border border-gray-200">
+                {assignableAgents.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">No active agents available.</div>
+                ) : (
+                  assignableAgents.map((agent) => {
+                    const checked = selectedAssignedAgentIds.includes(agent.id);
+                    return (
+                      <label
+                        key={agent.id}
+                        className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 hover:bg-gray-50"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
+                            {agent.firstName} {agent.lastName}
+                          </div>
+                          <div className="text-xs text-gray-600 truncate">
+                            {agent.email} {agent.agentNumber ? `• ${agent.agentNumber}` : ""}
+                          </div>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAssignedAgent(agent.id)}
+                          className="h-4 w-4"
+                        />
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="assignmentReason">Reason (optional)</Label>
+              <Input
+                id="assignmentReason"
+                placeholder="e.g., Team ownership update"
+                value={assignmentReason}
+                onChange={(e) => setAssignmentReason(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                {selectedAssignedAgentIds.length} agent{selectedAssignedAgentIds.length !== 1 ? "s" : ""} selected
+              </p>
+              <Button
+                onClick={handleSaveAssignments}
+                disabled={saveAssignmentsMutation.isPending || !selectedAgencyUserId}
+              >
+                {saveAssignmentsMutation.isPending ? "Saving..." : "Save Agency Assignments"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

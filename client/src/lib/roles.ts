@@ -1,6 +1,21 @@
-export type Role = "member" | "user" | "agent" | "admin" | "super_admin";
+export type Role =
+  | "member"
+  | "user"
+  | "agent"
+  | "agency_manager"
+  | "agency_admin"
+  | "admin"
+  | "super_admin";
 
-const ROLE_ORDER: Role[] = ["member", "user", "agent", "admin", "super_admin"];
+const ROLE_ORDER: Role[] = [
+  "member",
+  "user",
+  "agent",
+  "agency_manager",
+  "agency_admin",
+  "admin",
+  "super_admin",
+];
 const ROLE_SYNONYMS: Record<string, Role> = {
   member: "member",
   members: "member",
@@ -8,6 +23,12 @@ const ROLE_SYNONYMS: Record<string, Role> = {
   users: "user",
   agent: "agent",
   agents: "agent",
+  agency_manager: "agency_manager",
+  agency_managers: "agency_manager",
+  agencymanager: "agency_manager",
+  agency_admin: "agency_admin",
+  agency_admins: "agency_admin",
+  agencyadmin: "agency_admin",
   admin: "admin",
   admins: "admin",
   administrator: "admin",
@@ -35,7 +56,10 @@ export function normalizeRole(role: string | undefined | null): Role | null {
     return null;
   }
 
-  const cleaned = role.trim().toLowerCase().replace(/[\r\n\t]+/g, "");
+  const cleaned = role
+    .trim()
+    .toLowerCase()
+    .replace(/[\r\n\t]+/g, "");
   const slugged = cleaned.replace(/[\s-]+/g, "_");
   const mapped = ROLE_SYNONYMS[slugged];
   if (mapped) {
@@ -44,6 +68,12 @@ export function normalizeRole(role: string | undefined | null): Role | null {
 
   if (slugged.includes("super") && slugged.includes("admin")) {
     return "super_admin";
+  }
+  if (slugged.includes("agency") && slugged.includes("manager")) {
+    return "agency_manager";
+  }
+  if (slugged.includes("agency") && slugged.includes("admin")) {
+    return "agency_admin";
   }
   if (slugged.includes("admin")) {
     return "admin";

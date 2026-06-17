@@ -145,14 +145,19 @@ export default function AgentDashboard() {
   const [locationPath, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  const normalizedUserRole = normalizeRole(user?.role);
   const isAdminUser = hasAtLeastRole(user?.role, 'admin');
+  const isAgencyUser = normalizedUserRole === 'agency_admin' || normalizedUserRole === 'agency_manager';
+  const canSelectScopedAgent = isAdminUser || isAgencyUser;
   const isAgentOrAbove = hasAtLeastRole(user?.role, 'agent');
+  const AGENCY_AGGREGATE_SCOPE = '__ALL_ASSIGNED__';
   
-  // For admin/super_admin: allow viewing other agents' dashboards
+  // For admin/super-admin and agency roles: allow scoped single-agent drilldowns
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const viewingAgentId = selectedAgentId || user?.id;
+  const viewingAgentId = isAgencyUser ? selectedAgentId : (selectedAgentId || user?.id);
   const isAdminViewing = isAdminUser && selectedAgentId;
-  const scopedCommissionsPath = isAdminViewing && viewingAgentId
+  const isSingleAgentDrilldown = !!selectedAgentId && !!viewingAgentId;
+  const scopedCommissionsPath = isSingleAgentDrilldown && viewingAgentId
     ? `/agent/commissions?agentId=${encodeURIComponent(viewingAgentId)}`
     : '/agent/commissions';
 
@@ -162,7 +167,7 @@ export default function AgentDashboard() {
       commissionId: String(commissionId),
       alertType: String(alertType),
     });
-    if (isAdminViewing && viewingAgentId) {
+    if (isSingleAgentDrilldown && viewingAgentId) {
       params.set('agentId', viewingAgentId);
     }
     return `/agent/commissions?${params.toString()}`;
@@ -212,11 +217,37 @@ export default function AgentDashboard() {
     availablePlans,
     lifecycleAlerts,
   } = useAgentDashboardQueries({
-    isAdminUser,
+    canLoadAgentDirectory: canSelectScopedAgent,
     viewingAgentId,
     currentUserId: user?.id,
     dateFilter,
   });
+
+  const scopedAgentIds = Array.isArray((stats as any)?.scopedAgentIds)
+    ? ((stats as any).scopedAgentIds as string[])
+    : [];
+  const scopedAgentOptions = Array.isArray(allAgents)
+    ? allAgents.filter((agent: any) => {
+        if (normalizeRole(agent.role) !== 'agent') {
+          return false;
+        }
+        if (isAgencyUser && scopedAgentIds.length > 0) {
+          return scopedAgentIds.includes(agent.id);
+        }
+        return true;
+      })
+    : [];
+  const selectedScopeAgent = isSingleAgentDrilldown
+    ? scopedAgentOptions.find((agent: any) => agent.id === viewingAgentId)
+    : null;
+  const selectedScopeAgentLabel = selectedScopeAgent
+    ? (selectedScopeAgent.agentNumber
+        ? `Agent ${selectedScopeAgent.agentNumber}`
+        : `Agent ${selectedScopeAgent.firstName || ''} ${selectedScopeAgent.lastName || ''}`.trim())
+    : (viewingAgentId && isSingleAgentDrilldown ? 'Selected Agent' : null);
+  const currentScopeBadgeLabel = isAgencyUser
+    ? (isSingleAgentDrilldown ? selectedScopeAgentLabel || 'Selected Agent' : 'Assigned Aggregate')
+    : (isSingleAgentDrilldown ? selectedScopeAgentLabel || 'Selected Agent' : 'My Dashboard');
 
   const {
     businessFilter,
@@ -245,6 +276,7 @@ export default function AgentDashboard() {
     useAgentDashboardMutations({
       dateFilter,
       viewingAgentId,
+      currentUserId: user?.id,
       toast,
       onMembershipSuccess: () => {
         closeMembershipDialog();
@@ -381,29 +413,44 @@ export default function AgentDashboard() {
       }
     >
 
-        {/* Agent Selector for Admin/Super_Admin */}
-        {isAdminUser && (
+        {/* Agent Selector for Admin/Super_Admin and Agency Roles */}
+        {canSelectScopedAgent && (
           <Card className="mb-6 border-french-blue-200 bg-french-blue-50/70">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
                 <Shield className="h-5 w-5 text-french-blue-600" />
                 <div className="flex-1">
                   <label className="mb-2 block text-sm font-medium text-deep-twilight-900">
-                    {user?.role === 'super_admin' ? '🎸 Backstage Pass:' : '👔 Admin View:'} View Any Agent's Dashboard
+                    {isAgencyUser
+                      ? 'Agency View: choose assigned scope'
+                      : user?.role === 'super_admin'
+                        ? '🎸 Backstage Pass:'
+                        : '👔 Admin View:'}{' '}
+                    {isAgencyUser ? 'Aggregate or drill down by assigned agent' : "View Any Agent's Dashboard"}
                   </label>
                   <Select
-                    value={selectedAgentId || user?.id || ''}
-                    onValueChange={(value) => setSelectedAgentId(value === user?.id ? null : value)}
+                    value={isAgencyUser ? (selectedAgentId || AGENCY_AGGREGATE_SCOPE) : (selectedAgentId || user?.id || '')}
+                    onValueChange={(value) => {
+                      if (isAgencyUser) {
+                        setSelectedAgentId(value === AGENCY_AGGREGATE_SCOPE ? null : value);
+                        return;
+                      }
+                      setSelectedAgentId(value === user?.id ? null : value);
+                    }}
                   >
                     <SelectTrigger className="w-full bg-white md:w-96 border-french-blue-200 focus:ring-bright-teal-blue-500">
                       <SelectValue placeholder="Select an agent to view" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={user?.id || ''}>
-                        {user?.firstName} {user?.lastName} (Your Dashboard)
-                      </SelectItem>
-                      {Array.isArray(allAgents) && allAgents
-                        .filter((agent: any) => normalizeRole(agent.role) === 'agent' && agent.id !== user?.id)
+                      {isAgencyUser ? (
+                        <SelectItem value={AGENCY_AGGREGATE_SCOPE}>All Assigned Agents (Aggregate)</SelectItem>
+                      ) : (
+                        <SelectItem value={user?.id || ''}>
+                          {user?.firstName} {user?.lastName} (Your Dashboard)
+                        </SelectItem>
+                      )}
+                      {scopedAgentOptions
+                        .filter((agent: any) => (isAgencyUser ? true : agent.id !== user?.id))
                         .map((agent: any) => (
                         <SelectItem key={agent.id} value={agent.id}>
                           {agent.agentNumber} - {agent.firstName} {agent.lastName} ({agent.email})
@@ -412,29 +459,33 @@ export default function AgentDashboard() {
                     </SelectContent>
                   </Select>
                 </div>
-                {isAdminViewing && (
+                {isSingleAgentDrilldown && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setSelectedAgentId(null)}
                   >
-                    View My Dashboard
+                    {isAgencyUser ? 'View Assigned Aggregate' : 'View My Dashboard'}
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLocation('/admin/users')}
-                >
-                  Open Agent DB View
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLocation('/admin/users?tab=members')}
-                >
-                  Open Member Billing View
-                </Button>
+                {isAdminUser && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLocation('/admin/users')}
+                    >
+                      Open Agent DB View
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLocation('/admin/users?tab=members')}
+                    >
+                      Open Member Billing View
+                    </Button>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -451,6 +502,14 @@ export default function AgentDashboard() {
                 <p className="text-sky-aqua-100">
                   Your sales dashboard is ready. Keep up the excellent work helping members access quality healthcare membership!
                 </p>
+                <div className="mt-3">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-sky-aqua-100/90">
+                    Viewing Scope
+                  </p>
+                  <Badge className="border border-sky-aqua-100/40 bg-white/15 text-sky-aqua-50 hover:bg-white/20">
+                    Current Scope: {currentScopeBadgeLabel}
+                  </Badge>
+                </div>
                 <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                   <div className="bg-white/10 rounded-lg p-4">
                     <p className="text-sm text-sky-aqua-100">Monthly Enrollment Goal</p>
@@ -712,7 +771,7 @@ export default function AgentDashboard() {
         )}
 
         {/* Enhanced Dashboard Stats */}
-        <DashboardStats userRole="agent" agentId={viewingAgentId} />
+        <DashboardStats userRole="agent" agentId={viewingAgentId || undefined} />
 
         {/* Recent Enrollments */}
         <Card className="border-french-blue-100">

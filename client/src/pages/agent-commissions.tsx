@@ -1,6 +1,7 @@
 import React from "react";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
+import { apiRequest } from "@/lib/queryClient";
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -73,6 +75,11 @@ export default function AgentCommissions() {
     scopedAgentId,
   } = useAgentCommissionsFilters();
 
+  const { data: allAgents } = useQuery({
+    queryKey: ["/api/agents"],
+    queryFn: () => apiRequest("/api/agents"),
+  });
+
   const {
     stats,
     statsLoading,
@@ -95,6 +102,17 @@ export default function AgentCommissions() {
   const commissionsRootPath = scopedAgentId
     ? `/agent/commissions?agentId=${encodeURIComponent(scopedAgentId)}`
     : '/agent/commissions';
+
+  const scopedAgent = Array.isArray(allAgents)
+    ? allAgents.find((agent: any) => agent.id === scopedAgentId)
+    : null;
+  const currentScopeLabel = scopedAgentId
+    ? (scopedAgent?.agentNumber
+        ? `Agent ${scopedAgent.agentNumber}`
+        : scopedAgent
+          ? `Agent ${scopedAgent.firstName || ''} ${scopedAgent.lastName || ''}`.trim()
+          : 'Selected Agent')
+    : 'Assigned Aggregate';
 
   const buildCommissionFocusPath = (memberId: number, commissionId: string, alertType: string) => {
     const params = new URLSearchParams({
@@ -160,6 +178,15 @@ export default function AgentCommissions() {
       }
     >
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-1 sm:px-2 md:px-0">
+
+        <div>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-french-blue-700">
+            Viewing Scope
+          </p>
+          <Badge className="border border-french-blue-200 bg-french-blue-50 text-french-blue-800 hover:bg-french-blue-50">
+            Current Scope: {currentScopeLabel}
+          </Badge>
+        </div>
 
         {(focusMemberId || focusCommissionId) && (
           <Card className="mb-6 border-bright-teal-blue-200 bg-sky-aqua-50/70">

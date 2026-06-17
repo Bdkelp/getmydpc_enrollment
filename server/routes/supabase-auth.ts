@@ -1,9 +1,9 @@
-import { Router } from 'express';
-import { supabase } from '../lib/supabaseClient';
-import { storage, updateAgentHierarchy } from '../storage';
-import { sendEmailVerification, sendWelcomeWithPassword } from '../email';
-import { isAtLeastAdmin } from '../auth/roles';
-import axios from 'axios';
+import { Router } from "express";
+import { supabase } from "../lib/supabaseClient";
+import { storage, updateAgentHierarchy } from "../storage";
+import { sendEmailVerification, sendWelcomeWithPassword } from "../email";
+import { isAtLeastAdmin } from "../auth/roles";
+import axios from "axios";
 
 const router = Router();
 
@@ -13,19 +13,27 @@ const router = Router();
 
 // Store registration attempts by IP
 // Format: { ip: { count: number, resetTime: number } }
-const registrationAttempts = new Map<string, { count: number; resetTime: number }>();
+const registrationAttempts = new Map<
+  string,
+  { count: number; resetTime: number }
+>();
 
 // Configuration
 const RATE_LIMIT_WINDOW = 3600000; // 1 hour in milliseconds
 const RATE_LIMIT_MAX = 5; // Max registrations per window per IP
-const RECAPTCHA_VERIFICATION_URL = 'https://www.google.com/recaptcha/api/siteverify';
-const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || '';
+const RECAPTCHA_VERIFICATION_URL =
+  "https://www.google.com/recaptcha/api/siteverify";
+const RECAPTCHA_SECRET_KEY = process.env.RECAPTCHA_SECRET_KEY || "";
 const RECAPTCHA_SCORE_THRESHOLD = 0.5;
 
 /**
  * Check if IP has exceeded rate limit for registrations
  */
-function checkRateLimit(ip: string): { allowed: boolean; remaining: number; resetTime?: number } {
+function checkRateLimit(ip: string): {
+  allowed: boolean;
+  remaining: number;
+  resetTime?: number;
+} {
   const now = Date.now();
   const attempt = registrationAttempts.get(ip);
 
@@ -37,15 +45,18 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; rese
 
   if (!attempt) {
     // First attempt from this IP
-    registrationAttempts.set(ip, { count: 0, resetTime: now + RATE_LIMIT_WINDOW });
+    registrationAttempts.set(ip, {
+      count: 0,
+      resetTime: now + RATE_LIMIT_WINDOW,
+    });
     return { allowed: true, remaining: RATE_LIMIT_MAX };
   }
 
   if (attempt.count >= RATE_LIMIT_MAX) {
-    return { 
-      allowed: false, 
+    return {
+      allowed: false,
       remaining: 0,
-      resetTime: attempt.resetTime
+      resetTime: attempt.resetTime,
     };
   }
 
@@ -65,88 +76,99 @@ function recordRegistrationAttempt(ip: string): void {
 /**
  * Verify reCAPTCHA token with Google
  */
-async function verifyRecaptcha(token: string): Promise<{ success: boolean; score: number; action: string }> {
+async function verifyRecaptcha(
+  token: string,
+): Promise<{ success: boolean; score: number; action: string }> {
   if (!RECAPTCHA_SECRET_KEY) {
-    console.warn('[reCAPTCHA] Secret key not configured - skipping verification');
-    return { success: true, score: 1.0, action: 'register' };
+    console.warn(
+      "[reCAPTCHA] Secret key not configured - skipping verification",
+    );
+    return { success: true, score: 1.0, action: "register" };
   }
 
   if (!token) {
-    return { success: false, score: 0, action: 'register' };
+    return { success: false, score: 0, action: "register" };
   }
 
   try {
-    console.log('[reCAPTCHA] Verifying token with Google...');
-    const response = await axios.post(
-      RECAPTCHA_VERIFICATION_URL,
-      null,
-      {
-        params: {
-          secret: RECAPTCHA_SECRET_KEY,
-          response: token
-        },
-        timeout: 5000 // 5 second timeout
-      }
-    );
+    console.log("[reCAPTCHA] Verifying token with Google...");
+    const response = await axios.post(RECAPTCHA_VERIFICATION_URL, null, {
+      params: {
+        secret: RECAPTCHA_SECRET_KEY,
+        response: token,
+      },
+      timeout: 5000, // 5 second timeout
+    });
 
     const { success, score, action } = response.data;
-    console.log(`[reCAPTCHA] Verification result - success: ${success}, score: ${score}, action: ${action}`);
+    console.log(
+      `[reCAPTCHA] Verification result - success: ${success}, score: ${score}, action: ${action}`,
+    );
 
     return { success: success === true, score: score || 0, action };
   } catch (error) {
-    console.error('[reCAPTCHA] Verification failed:', error instanceof Error ? error.message : 'Unknown error');
+    console.error(
+      "[reCAPTCHA] Verification failed:",
+      error instanceof Error ? error.message : "Unknown error",
+    );
     // Fail open - allow registration if verification fails (network issue)
-    return { success: true, score: 0.5, action: 'register' };
+    return { success: true, score: 0.5, action: "register" };
   }
 }
 
 // Get current user endpoint
-router.get('/api/auth/me', async (req, res) => {
+router.get("/api/auth/me", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No token provided' });
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "No token provided" });
     }
-    
+
     const token = authHeader.substring(7);
-    
+
     // Verify token with Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
+
     if (error || !user) {
-      console.error('Token verification failed:', error?.message || 'No user found');
-      return res.status(401).json({ message: 'Invalid token' });
+      console.error(
+        "Token verification failed:",
+        error?.message || "No user found",
+      );
+      return res.status(401).json({ message: "Invalid token" });
     }
-    
+
     // Get user from our database
     const dbUser = await storage.getUser(user.id);
-    
+
     if (!dbUser) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: "User not found" });
     }
-    
+
     // Check approval status
-    if (dbUser.approvalStatus === 'pending') {
-      return res.status(403).json({ 
-        message: 'Account pending approval',
-        requiresApproval: true 
+    if (dbUser.approvalStatus === "pending") {
+      return res.status(403).json({
+        message: "Account pending approval",
+        requiresApproval: true,
       });
     }
-    
-    if (dbUser.approvalStatus === 'rejected') {
-      return res.status(403).json({ 
-        message: 'Account has been rejected',
-        rejected: true 
+
+    if (dbUser.approvalStatus === "rejected") {
+      return res.status(403).json({
+        message: "Account has been rejected",
+        rejected: true,
       });
     }
-    
+
     if (!dbUser.isActive) {
-      return res.status(403).json({ 
-        message: 'Account has been deactivated' 
+      return res.status(403).json({
+        message: "Account has been deactivated",
       });
     }
-    
+
     // Return user data
     res.json({
       id: dbUser.id,
@@ -156,67 +178,69 @@ router.get('/api/auth/me', async (req, res) => {
       role: dbUser.role,
       profileImageUrl: dbUser.profileImageUrl,
       lastLoginAt: dbUser.lastLoginAt,
-      createdAt: dbUser.createdAt
+      createdAt: dbUser.createdAt,
     });
   } catch (error: any) {
-    console.error('[Auth /me] Error:', error);
-    res.status(500).json({ message: 'Failed to fetch user data' });
+    console.error("[Auth /me] Error:", error);
+    res.status(500).json({ message: "Failed to fetch user data" });
   }
 });
 
 // Login endpoint using Supabase
-router.post('/api/auth/login', async (req, res) => {
+router.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
     }
-    
+
     // Sign in with Supabase
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
-      password
+      password,
     });
-    
+
     if (error) {
-      console.error('[Login] Supabase auth error:', error);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      console.error("[Login] Supabase auth error:", error);
+      return res.status(401).json({ message: "Invalid credentials" });
     }
-    
+
     if (!data.user || !data.session) {
-      return res.status(401).json({ message: 'Login failed' });
+      return res.status(401).json({ message: "Login failed" });
     }
-    
+
     // Get or create user in our database
     let dbUser = await storage.getUser(data.user.id);
-    
+
     if (!dbUser) {
       // Create user in our database
       dbUser = await storage.createUser({
         id: data.user.id,
         email: data.user.email!,
-        firstName: data.user.user_metadata?.firstName || 'User',
-        lastName: data.user.user_metadata?.lastName || '',
+        firstName: data.user.user_metadata?.firstName || "User",
+        lastName: data.user.user_metadata?.lastName || "",
         emailVerified: true,
         role: determineUserRole(data.user.email!),
         isActive: true,
-        approvalStatus: 'approved',
+        approvalStatus: "approved",
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
     }
-    
+
     // Update last login - temporarily skip due to RLS recursion issue
     try {
-      await storage.updateUser(dbUser.id, { 
-        lastLoginAt: new Date() 
+      await storage.updateUser(dbUser.id, {
+        lastLoginAt: new Date(),
       });
     } catch (updateError) {
-      console.warn('[Login] Could not update last login time:', updateError);
+      console.warn("[Login] Could not update last login time:", updateError);
       // Continue with login even if update fails
     }
-    
+
     // Return session data
     res.json({
       user: data.user,
@@ -226,33 +250,36 @@ router.post('/api/auth/login', async (req, res) => {
         email: dbUser.email,
         firstName: dbUser.firstName,
         lastName: dbUser.lastName,
-        role: dbUser.role
-      }
+        role: dbUser.role,
+      },
     });
   } catch (error: any) {
-    console.error('[Login] Error:', error);
-    res.status(500).json({ message: 'Login failed' });
+    console.error("[Login] Error:", error);
+    res.status(500).json({ message: "Login failed" });
   }
 });
 
 // Register endpoint using Supabase
-router.post('/api/auth/register', async (req, res) => {
+router.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, firstName, lastName, recaptchaToken } = req.body;
-    
-    // Extract client IP
-    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || 
-                     req.socket?.remoteAddress || 
-                     'unknown';
 
-    console.log(`[Register] New registration attempt from IP: ${clientIp}, email: ${email}`);
+    // Extract client IP
+    const clientIp =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0].trim() ||
+      req.socket?.remoteAddress ||
+      "unknown";
+
+    console.log(
+      `[Register] New registration attempt from IP: ${clientIp}, email: ${email}`,
+    );
 
     // ============================================
     // VALIDATION
     // ============================================
     if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ 
-        message: 'Email, password, first name, and last name are required' 
+      return res.status(400).json({
+        message: "Email, password, first name, and last name are required",
       });
     }
 
@@ -263,8 +290,8 @@ router.post('/api/auth/register', async (req, res) => {
     if (!rateLimitCheck.allowed) {
       console.warn(`[Rate Limit] IP ${clientIp} exceeded registration limit`);
       return res.status(429).json({
-        message: 'Too many registration attempts. Please try again later.',
-        retryAfter: Math.ceil((rateLimitCheck.resetTime! - Date.now()) / 1000)
+        message: "Too many registration attempts. Please try again later.",
+        retryAfter: Math.ceil((rateLimitCheck.resetTime! - Date.now()) / 1000),
       });
     }
 
@@ -272,16 +299,24 @@ router.post('/api/auth/register', async (req, res) => {
     // reCAPTCHA VERIFICATION
     // ============================================
     const recaptchaResult = await verifyRecaptcha(recaptchaToken);
-    if (!recaptchaResult.success || recaptchaResult.score < RECAPTCHA_SCORE_THRESHOLD) {
-      console.warn(`[reCAPTCHA] Registration failed verification - score: ${recaptchaResult.score}, threshold: ${RECAPTCHA_SCORE_THRESHOLD}`);
+    if (
+      !recaptchaResult.success ||
+      recaptchaResult.score < RECAPTCHA_SCORE_THRESHOLD
+    ) {
+      console.warn(
+        `[reCAPTCHA] Registration failed verification - score: ${recaptchaResult.score}, threshold: ${RECAPTCHA_SCORE_THRESHOLD}`,
+      );
       recordRegistrationAttempt(clientIp);
       return res.status(400).json({
-        message: 'Registration failed verification. Please try again or contact support if you continue to have issues.',
-        code: 'RECAPTCHA_FAILED'
+        message:
+          "Registration failed verification. Please try again or contact support if you continue to have issues.",
+        code: "RECAPTCHA_FAILED",
       });
     }
 
-    console.log(`[reCAPTCHA] Registration passed verification - score: ${recaptchaResult.score}`);
+    console.log(
+      `[reCAPTCHA] Registration passed verification - score: ${recaptchaResult.score}`,
+    );
 
     // ============================================
     // SIGN UP WITH SUPABASE
@@ -293,21 +328,21 @@ router.post('/api/auth/register', async (req, res) => {
         data: {
           firstName,
           lastName,
-          email
-        }
-      }
+          email,
+        },
+      },
     });
-    
+
     if (error) {
-      console.error('[Register] Supabase auth error:', error);
+      console.error("[Register] Supabase auth error:", error);
       recordRegistrationAttempt(clientIp);
       return res.status(400).json({ message: error.message });
     }
-    
+
     if (!data.user) {
-      console.error('[Register] No user returned from Supabase signup');
+      console.error("[Register] No user returned from Supabase signup");
       recordRegistrationAttempt(clientIp);
-      return res.status(400).json({ message: 'Registration failed' });
+      return res.status(400).json({ message: "Registration failed" });
     }
 
     // ============================================
@@ -321,48 +356,52 @@ router.post('/api/auth/register', async (req, res) => {
       emailVerified: false,
       role: determineUserRole(data.user.email!),
       isActive: true,
-      approvalStatus: 'pending',
+      approvalStatus: "pending",
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     // Record successful registration attempt
     recordRegistrationAttempt(clientIp);
-    
-    console.log(`[Register] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${dbUser.role}`);
+
+    console.log(
+      `[Register] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${dbUser.role}`,
+    );
 
     res.json({
-      message: 'Registration successful',
+      message: "Registration successful",
       user: data.user,
       session: data.session,
-      success: true
+      success: true,
     });
   } catch (error: any) {
-    console.error('[Register] Error:', error);
-    res.status(500).json({ message: 'Registration failed', error: error.message });
+    console.error("[Register] Error:", error);
+    res
+      .status(500)
+      .json({ message: "Registration failed", error: error.message });
   }
 });
 
 // Logout endpoint
-router.post('/api/auth/logout', async (req, res) => {
+router.post("/api/auth/logout", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (authHeader && authHeader.startsWith('Bearer ')) {
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.substring(7);
-      
+
       // Sign out from Supabase
       const { error } = await supabase.auth.admin.signOut(token);
-      
+
       if (error) {
-        console.error('[Logout] Supabase signout error:', error);
+        console.error("[Logout] Supabase signout error:", error);
       }
     }
-    
-    res.json({ message: 'Logged out successfully' });
+
+    res.json({ message: "Logged out successfully" });
   } catch (error: any) {
-    console.error('[Logout] Error:', error);
-    res.status(500).json({ message: 'Logout failed' });
+    console.error("[Logout] Error:", error);
+    res.status(500).json({ message: "Logout failed" });
   }
 });
 
@@ -373,47 +412,65 @@ router.post('/api/auth/logout', async (req, res) => {
 /**
  * Create a new user account as an admin
  * POST /api/admin/create-user
- * 
+ *
  * This endpoint allows admins to create user accounts directly from the app
  * with automatic audit trail (created_by field tracks which admin created the user)
  */
-router.post('/api/admin/create-user', async (req, res) => {
+router.post("/api/admin/create-user", async (req, res) => {
   try {
-    const { email, firstName, lastName, password, role, uplineAgentId, overrideCommissionRate } = req.body;
+    const {
+      email,
+      firstName,
+      lastName,
+      password,
+      role,
+      uplineAgentId,
+      overrideCommissionRate,
+    } = req.body;
     const authHeader = req.headers.authorization;
 
     // ============================================
     // AUTHENTICATION CHECK
     // ============================================
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'No authentication token provided' });
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res
+        .status(401)
+        .json({ message: "No authentication token provided" });
     }
 
     const token = authHeader.substring(7);
 
     // Verify token with Supabase
-    const { data: { user: adminUser }, error: authError } = await supabase.auth.getUser(token);
+    const {
+      data: { user: adminUser },
+      error: authError,
+    } = await supabase.auth.getUser(token);
 
     if (authError || !adminUser) {
-      console.error('[Admin Create User] Token verification failed:', authError?.message);
-      return res.status(401).json({ message: 'Invalid or expired token' });
+      console.error(
+        "[Admin Create User] Token verification failed:",
+        authError?.message,
+      );
+      return res.status(401).json({ message: "Invalid or expired token" });
     }
 
     // Get admin user from database
     const adminDbUser = await storage.getUser(adminUser.id);
 
     if (!adminDbUser) {
-      return res.status(401).json({ message: 'Admin user not found' });
+      return res.status(401).json({ message: "Admin user not found" });
     }
 
     // ============================================
     // PERMISSION CHECK
     // ============================================
     if (!isAtLeastAdmin(adminDbUser.role)) {
-      console.warn(`[Admin Create User] Unauthorized attempt by ${adminDbUser.email} with role ${adminDbUser.role}`);
-      return res.status(403).json({ 
-        message: 'Only admins can create user accounts',
-        code: 'INSUFFICIENT_PERMISSIONS'
+      console.warn(
+        `[Admin Create User] Unauthorized attempt by ${adminDbUser.email} with role ${adminDbUser.role}`,
+      );
+      return res.status(403).json({
+        message: "Only admins can create user accounts",
+        code: "INSUFFICIENT_PERMISSIONS",
       });
     }
 
@@ -422,8 +479,8 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     if (!email || !firstName || !lastName || !role) {
       return res.status(400).json({
-        message: 'Email, first name, last name, and role are required',
-        code: 'MISSING_REQUIRED_FIELDS'
+        message: "Email, first name, last name, and role are required",
+        code: "MISSING_REQUIRED_FIELDS",
       });
     }
 
@@ -431,16 +488,21 @@ router.post('/api/admin/create-user', async (req, res) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
-        message: 'Invalid email format',
-        code: 'INVALID_EMAIL'
+        message: "Invalid email format",
+        code: "INVALID_EMAIL",
       });
     }
 
     // Validate role
-    if (!['admin', 'agent', 'user'].includes(role)) {
+    if (
+      !["admin", "agent", "user", "agency_admin", "agency_manager"].includes(
+        role,
+      )
+    ) {
       return res.status(400).json({
-        message: 'Role must be one of: admin, agent, user',
-        code: 'INVALID_ROLE'
+        message:
+          "Role must be one of: admin, agent, user, agency_admin, agency_manager",
+        code: "INVALID_ROLE",
       });
     }
 
@@ -449,10 +511,12 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     const existingUser = await storage.getUserByEmail(email);
     if (existingUser) {
-      console.warn(`[Admin Create User] Email already exists in users table: ${email}`);
+      console.warn(
+        `[Admin Create User] Email already exists in users table: ${email}`,
+      );
       return res.status(409).json({
-        message: 'Email already exists',
-        code: 'EMAIL_EXISTS'
+        message: "Email already exists",
+        code: "EMAIL_EXISTS",
       });
     }
     // Note: we no longer pre-scan Supabase Auth with listUsers() — that API paginates
@@ -469,18 +533,19 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     console.log(`[Admin Create User] Creating Supabase Auth user: ${email}`);
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
-      email,
-      password: finalPassword,
-      email_confirm: true, // Auto-verify admin-created users
-      user_metadata: {
-        firstName,
-        lastName,
+    const { data: signUpData, error: signUpError } =
+      await supabase.auth.admin.createUser({
         email,
-        createdBy: adminUser.id,
-        createdByAdmin: adminDbUser.email
-      }
-    });
+        password: finalPassword,
+        email_confirm: true, // Auto-verify admin-created users
+        user_metadata: {
+          firstName,
+          lastName,
+          email,
+          createdBy: adminUser.id,
+          createdByAdmin: adminDbUser.email,
+        },
+      });
 
     // Resolve the auth user ID — either freshly created or recovered from a split-state
     let authUserId: string;
@@ -488,58 +553,84 @@ router.post('/api/admin/create-user', async (req, res) => {
 
     if (signUpError || !signUpData?.user) {
       const isDuplicate =
-        signUpError?.message?.toLowerCase().includes('already') ||
-        signUpError?.message?.toLowerCase().includes('registered') ||
+        signUpError?.message?.toLowerCase().includes("already") ||
+        signUpError?.message?.toLowerCase().includes("registered") ||
         (signUpError as any)?.status === 422;
 
       if (isDuplicate) {
         // Email exists in Auth but not in our DB — recover the existing Auth user
-        console.warn(`[Admin Create User] Split-state detected — recovering existing Auth user: ${email}`);
+        console.warn(
+          `[Admin Create User] Split-state detected — recovering existing Auth user: ${email}`,
+        );
         let authUsers: any[] = [];
 
         // Be defensive: listUsers response shape/params can vary by SDK version.
         try {
-          const listResult = await (supabase.auth.admin as any).listUsers({ perPage: 1000 });
+          const listResult = await (supabase.auth.admin as any).listUsers({
+            perPage: 1000,
+          });
           if (listResult?.error) {
-            console.error('[Admin Create User] Auth listUsers(perPage) failed:', listResult.error);
+            console.error(
+              "[Admin Create User] Auth listUsers(perPage) failed:",
+              listResult.error,
+            );
           } else {
             authUsers = listResult?.data?.users || [];
           }
         } catch (listErr) {
-          console.warn('[Admin Create User] Auth listUsers(perPage) threw, retrying with default params', listErr);
+          console.warn(
+            "[Admin Create User] Auth listUsers(perPage) threw, retrying with default params",
+            listErr,
+          );
         }
 
         // Fallback for environments where listUsers options are unsupported.
         if (!authUsers.length) {
           try {
-            const listResultFallback = await (supabase.auth.admin as any).listUsers();
+            const listResultFallback = await (
+              supabase.auth.admin as any
+            ).listUsers();
             if (listResultFallback?.error) {
-              console.error('[Admin Create User] Auth listUsers() fallback failed:', listResultFallback.error);
+              console.error(
+                "[Admin Create User] Auth listUsers() fallback failed:",
+                listResultFallback.error,
+              );
             } else {
               authUsers = listResultFallback?.data?.users || [];
             }
           } catch (fallbackErr) {
-            console.error('[Admin Create User] Auth listUsers() fallback threw:', fallbackErr);
+            console.error(
+              "[Admin Create User] Auth listUsers() fallback threw:",
+              fallbackErr,
+            );
           }
         }
 
         const existingAuthUser = authUsers.find(
-          (u: any) => u?.email?.toLowerCase() === email.toLowerCase()
+          (u: any) => u?.email?.toLowerCase() === email.toLowerCase(),
         );
         if (!existingAuthUser) {
           return res.status(409).json({
-            message: 'Email already exists in authentication. Unable to auto-link account. Contact support to complete linkage.',
-            code: 'AUTH_RECOVERY_NOT_FOUND'
+            message:
+              "Email already exists in authentication. Unable to auto-link account. Contact support to complete linkage.",
+            code: "AUTH_RECOVERY_NOT_FOUND",
           });
         }
         authUserId = existingAuthUser.id;
         isRecoveredAuthUser = true;
-        console.log(`[Admin Create User] Recovered Auth user ID: ${authUserId}`);
+        console.log(
+          `[Admin Create User] Recovered Auth user ID: ${authUserId}`,
+        );
       } else {
-        console.error('[Admin Create User] Supabase Auth creation failed:', signUpError);
+        console.error(
+          "[Admin Create User] Supabase Auth creation failed:",
+          signUpError,
+        );
         return res.status(400).json({
-          message: signUpError?.message || 'Failed to create user in authentication system',
-          code: 'AUTH_CREATION_FAILED'
+          message:
+            signUpError?.message ||
+            "Failed to create user in authentication system",
+          code: "AUTH_CREATION_FAILED",
         });
       }
     } else {
@@ -549,7 +640,9 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     // CREATE USER IN DATABASE WITH AUDIT TRAIL
     // ============================================
-    console.log(`[Admin Create User] Creating database user record: ${email} (recovered=${isRecoveredAuthUser})`);
+    console.log(
+      `[Admin Create User] Creating database user record: ${email} (recovered=${isRecoveredAuthUser})`,
+    );
 
     const dbUser = await storage.createUser({
       id: authUserId,
@@ -558,28 +651,42 @@ router.post('/api/admin/create-user', async (req, res) => {
       lastName,
       role,
       isActive: true,
-      approvalStatus: 'approved', // Admin-created users are auto-approved
+      approvalStatus: "approved", // Admin-created users are auto-approved
       emailVerified: true, // Auto-verified since admin created the account
       passwordChangeRequired: true, // Force password change on first login
       createdBy: adminUser.id, // AUDIT TRAIL: Track which admin created this user
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
-    console.log(`[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`);
+    console.log(
+      `[Admin Create User] User created successfully - ID: ${dbUser.id}, email: ${email}, role: ${role}, createdBy: ${adminUser.id}`,
+    );
 
     // ============================================
     // ASSIGN HIERARCHY IF PROVIDED
     // ============================================
     let hierarchyWarning: string | null = null;
     if (uplineAgentId) {
-      const rate = typeof overrideCommissionRate === 'number' ? overrideCommissionRate : 5;
+      const rate =
+        typeof overrideCommissionRate === "number" ? overrideCommissionRate : 5;
       try {
-        await updateAgentHierarchy(dbUser.id, uplineAgentId, rate, adminUser.id, 'Set at account creation');
-        console.log(`[Admin Create User] Hierarchy set: ${dbUser.id} → upline ${uplineAgentId}, rate $${rate}`);
+        await updateAgentHierarchy(
+          dbUser.id,
+          uplineAgentId,
+          rate,
+          adminUser.id,
+          "Set at account creation",
+        );
+        console.log(
+          `[Admin Create User] Hierarchy set: ${dbUser.id} → upline ${uplineAgentId}, rate $${rate}`,
+        );
       } catch (hierarchyError: any) {
-        hierarchyWarning = hierarchyError?.message || 'Failed to set hierarchy';
-        console.error('[Admin Create User] Failed to set hierarchy (non-fatal):', hierarchyWarning);
+        hierarchyWarning = hierarchyError?.message || "Failed to set hierarchy";
+        console.error(
+          "[Admin Create User] Failed to set hierarchy (non-fatal):",
+          hierarchyWarning,
+        );
         // Non-fatal — user is created; hierarchy can be set later via the hierarchy page
       }
     }
@@ -587,18 +694,21 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     // SEND WELCOME EMAIL WITH CREDENTIALS
     // ============================================
-    const loginUrl = `${process.env.FRONTEND_URL || 'https://enrollment.getmydpc.com'}/login`;
-    
+    const loginUrl = `${process.env.FRONTEND_URL || "https://enrollment.getmydpc.com"}/login`;
+
     try {
       await sendWelcomeWithPassword({
         email,
         firstName,
         temporaryPassword: finalPassword,
-        loginUrl
+        loginUrl,
       });
       console.log(`[Admin Create User] Welcome email sent to ${email}`);
     } catch (emailError) {
-      console.error(`[Admin Create User] Failed to send welcome email:`, emailError);
+      console.error(
+        `[Admin Create User] Failed to send welcome email:`,
+        emailError,
+      );
       // Continue anyway - admin can manually send credentials
     }
 
@@ -607,7 +717,7 @@ router.post('/api/admin/create-user', async (req, res) => {
     // ============================================
     res.json({
       success: true,
-      message: 'User account created successfully',
+      message: "User account created successfully",
       user: {
         id: dbUser.id,
         email: dbUser.email,
@@ -617,22 +727,24 @@ router.post('/api/admin/create-user', async (req, res) => {
         createdAt: dbUser.createdAt,
         createdBy: dbUser.createdBy,
         approvalStatus: dbUser.approvalStatus,
-        emailVerified: dbUser.emailVerified
+        emailVerified: dbUser.emailVerified,
       },
       temporaryPassword: password ? undefined : finalPassword, // Return temp password only if we generated it
       adminCreatedBy: {
         id: adminDbUser.id,
         email: adminDbUser.email,
-        name: `${adminDbUser.firstName} ${adminDbUser.lastName}`
+        name: `${adminDbUser.firstName} ${adminDbUser.lastName}`,
       },
-      warnings: hierarchyWarning ? [{ field: 'hierarchy', message: hierarchyWarning }] : []
+      warnings: hierarchyWarning
+        ? [{ field: "hierarchy", message: hierarchyWarning }]
+        : [],
     });
   } catch (error: any) {
-    console.error('[Admin Create User] Error:', error);
+    console.error("[Admin Create User] Error:", error);
     res.status(500).json({
-      message: 'Failed to create user account',
-      code: 'SERVER_ERROR',
-      error: error.message
+      message: "Failed to create user account",
+      code: "SERVER_ERROR",
+      error: error.message,
     });
   }
 });
@@ -643,72 +755,100 @@ router.post('/api/admin/create-user', async (req, res) => {
  * Example: BlueRaven42!
  */
 function generateTemporaryPassword(): string {
-  const adjectives = ['Blue', 'Green', 'Bright', 'Swift', 'Calm', 'Mighty', 'Quick', 'Smart', 'Cool', 'Happy'];
-  const nouns = ['Eagle', 'Tiger', 'Phoenix', 'Raven', 'Falcon', 'Dragon', 'Lion', 'Wolf', 'Bear', 'Fox'];
-  const specialChars = ['!', '@', '#', '$', '%'];
-  
+  const adjectives = [
+    "Blue",
+    "Green",
+    "Bright",
+    "Swift",
+    "Calm",
+    "Mighty",
+    "Quick",
+    "Smart",
+    "Cool",
+    "Happy",
+  ];
+  const nouns = [
+    "Eagle",
+    "Tiger",
+    "Phoenix",
+    "Raven",
+    "Falcon",
+    "Dragon",
+    "Lion",
+    "Wolf",
+    "Bear",
+    "Fox",
+  ];
+  const specialChars = ["!", "@", "#", "$", "%"];
+
   const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
   const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  const number = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-  const specialChar = specialChars[Math.floor(Math.random() * specialChars.length)];
-  
+  const number = Math.floor(Math.random() * 100)
+    .toString()
+    .padStart(2, "0");
+  const specialChar =
+    specialChars[Math.floor(Math.random() * specialChars.length)];
+
   return `${adjective}${noun}${number}${specialChar}`;
 }
 
 // Helper function to determine user role based on email
 function determineUserRole(email: string): string {
   const adminEmails = [
-    'michael@mypremierplans.com',
-    'travis@mypremierplans.com',
-    'richard@mypremierplans.com',
-    'joaquin@mypremierplans.com'
+    "michael@mypremierplans.com",
+    "travis@mypremierplans.com",
+    "richard@mypremierplans.com",
+    "joaquin@mypremierplans.com",
   ];
-  
+
   const agentEmails = [
-    'mdkeener@gmail.com',
-    'tmatheny77@gmail.com',
-    'svillarreal@cyariskmanagement.com',
-    'sarah.johnson@mypremierplans.com',
-    'addsumbalance@gmail.com',
-    'sean@sciahealthins.com',
-    'penningtonfinancialservices@gmail.com'
+    "mdkeener@gmail.com",
+    "tmatheny77@gmail.com",
+    "svillarreal@cyariskmanagement.com",
+    "sarah.johnson@mypremierplans.com",
+    "addsumbalance@gmail.com",
+    "sean@sciahealthins.com",
+    "penningtonfinancialservices@gmail.com",
   ];
-  
+
   const lowerEmail = email.toLowerCase();
-  
-  if (adminEmails.some(e => e.toLowerCase() === lowerEmail)) {
-    return 'admin';
+
+  if (adminEmails.some((e) => e.toLowerCase() === lowerEmail)) {
+    return "admin";
   }
-  
-  if (agentEmails.some(e => e.toLowerCase() === lowerEmail)) {
-    return 'agent';
+
+  if (agentEmails.some((e) => e.toLowerCase() === lowerEmail)) {
+    return "agent";
   }
-  
-  return 'agent';
+
+  return "agent";
 }
 
 // ============================================
 // PASSWORD CHANGE ENDPOINT
 // ============================================
-router.post('/change-password', async (req, res) => {
+router.post("/change-password", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = authHeader && authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({ 
-        message: 'No token provided',
-        code: 'NO_TOKEN'
+      return res.status(401).json({
+        message: "No token provided",
+        code: "NO_TOKEN",
       });
     }
 
     // Verify token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser(token);
+
     if (authError || !user) {
-      return res.status(401).json({ 
-        message: 'Invalid token',
-        code: 'INVALID_TOKEN'
+      return res.status(401).json({
+        message: "Invalid token",
+        code: "INVALID_TOKEN",
       });
     }
 
@@ -716,65 +856,68 @@ router.post('/change-password', async (req, res) => {
 
     // Validate inputs
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ 
-        message: 'Current password and new password are required',
-        code: 'MISSING_FIELDS'
+      return res.status(400).json({
+        message: "Current password and new password are required",
+        code: "MISSING_FIELDS",
       });
     }
 
     if (newPassword.length < 8) {
-      return res.status(400).json({ 
-        message: 'New password must be at least 8 characters',
-        code: 'PASSWORD_TOO_SHORT'
+      return res.status(400).json({
+        message: "New password must be at least 8 characters",
+        code: "PASSWORD_TOO_SHORT",
       });
     }
 
     if (currentPassword === newPassword) {
-      return res.status(400).json({ 
-        message: 'New password must be different from current password',
-        code: 'SAME_PASSWORD'
+      return res.status(400).json({
+        message: "New password must be different from current password",
+        code: "SAME_PASSWORD",
       });
     }
 
     // Verify current password by attempting to sign in
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: user.email!,
-      password: currentPassword
+      password: currentPassword,
     });
 
     if (signInError) {
-      return res.status(401).json({ 
-        message: 'Current password is incorrect',
-        code: 'WRONG_PASSWORD'
+      return res.status(401).json({
+        message: "Current password is incorrect",
+        code: "WRONG_PASSWORD",
       });
     }
 
     // Update password in Supabase Auth
     const { error: updateError } = await supabase.auth.admin.updateUserById(
       user.id,
-      { password: newPassword }
+      { password: newPassword },
     );
 
     if (updateError) {
-      console.error('[Password Change] Failed to update password:', updateError);
-      return res.status(500).json({ 
-        message: 'Failed to update password',
-        code: 'UPDATE_FAILED',
-        error: updateError.message
+      console.error(
+        "[Password Change] Failed to update password:",
+        updateError,
+      );
+      return res.status(500).json({
+        message: "Failed to update password",
+        code: "UPDATE_FAILED",
+        error: updateError.message,
       });
     }
 
     // Update database to clear password_change_required flag
     const { error: dbError } = await supabase
-      .from('users')
+      .from("users")
       .update({
         password_change_required: false,
-        last_password_change_at: new Date().toISOString()
+        last_password_change_at: new Date().toISOString(),
       })
-      .eq('id', user.id);
+      .eq("id", user.id);
 
     if (dbError) {
-      console.error('[Password Change] Failed to update database:', dbError);
+      console.error("[Password Change] Failed to update database:", dbError);
       // Continue anyway - password was changed successfully
     }
 
@@ -782,15 +925,14 @@ router.post('/change-password', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Password changed successfully'
+      message: "Password changed successfully",
     });
-
   } catch (error: any) {
-    console.error('[Password Change] Error:', error);
+    console.error("[Password Change] Error:", error);
     res.status(500).json({
-      message: 'Failed to change password',
-      code: 'SERVER_ERROR',
-      error: error.message
+      message: "Failed to change password",
+      code: "SERVER_ERROR",
+      error: error.message,
     });
   }
 });

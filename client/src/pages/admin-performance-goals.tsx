@@ -282,6 +282,7 @@ function AdminPerformanceGoals() {
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const hasExistingOverride = overridesForTable.some((record) => record.agentId === selectedAgentId);
+  const viewingScopeLabel = selectedAgent ? formatAgentLabel(selectedAgent) : "Default Platform Goals";
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
@@ -299,7 +300,14 @@ function AdminPerformanceGoals() {
               <p className="text-gray-600">Define enrollment, revenue, and commission targets.</p>
             </div>
           </div>
-          <Badge variant="outline" className="bg-white">Admin Tools</Badge>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-french-blue-700">
+              Viewing Scope
+            </p>
+            <Badge className="border border-french-blue-200 bg-french-blue-50 text-french-blue-800 hover:bg-french-blue-50">
+              Current Scope: {viewingScopeLabel}
+            </Badge>
+          </div>
         </div>
 
         <Alert>

@@ -1,1 +1,0 @@
-ALTER TABLE payments ADD COLUMN IF NOT EXISTS epx_auth_guid VARCHAR(255);

@@ -79,8 +79,8 @@ const registrationSchema = z.object({
   city: z.string().min(1, "City is required"),
   state: z.string().min(1, "State is required"),
   zipCode: z.string().min(5, "Valid ZIP code is required"),
-  // Enrolling agent
-  enrollingAgentId: z.string().min(1, "Enrolling agent is required"),
+  // Enrolling agent (optional)
+  enrollingAgentId: z.string().optional(),
   // Employment information (optional for non-individual plans)
   employerName: z.string().optional(),
   divisionName: z.string().optional(),
@@ -167,7 +167,7 @@ export default function Registration() {
     isActive?: boolean;
   }>>({
     queryKey: ['/api/agents', 'registration-enrolling-agent-options'],
-    queryFn: () => apiRequest('/api/agents'),
+    queryFn: () => apiRequest('/api/agents?includeAssignable=true'),
     enabled: isAuthenticated && isAdminUser,
     staleTime: 60_000,
   });
@@ -235,15 +235,53 @@ export default function Registration() {
     },
   });
 
-  // Auto-populate enrolling agent for logged-in user
+  // Auto-populate enrolling agent for logged-in user.
+  // For admins, default to MPP (or first MPP* agent number) and allow change.
   useEffect(() => {
-    if (currentUser?.id) {
-      const currentValue = form.getValues("enrollingAgentId");
-      if (!currentValue || currentValue === "") {
-        form.setValue("enrollingAgentId", currentUser.id, { shouldValidate: true });
-      }
+    const currentValue = form.getValues("enrollingAgentId");
+    if (currentValue && currentValue !== "") {
+      return;
     }
-  }, [currentUser?.id, form]);
+
+    if (isAdminUser) {
+      const mppDefault = enrollingAgents.find((agent) => {
+        const agentNumber = (agent.agentNumber || "").toUpperCase().trim();
+        return agentNumber === "MPP" || agentNumber === "MPP0001" || agentNumber.startsWith("MPP");
+      });
+
+      if (mppDefault?.id) {
+        form.setValue("enrollingAgentId", mppDefault.id, { shouldValidate: false });
+      }
+      return;
+    }
+
+    if (currentUser?.id) {
+      form.setValue("enrollingAgentId", currentUser.id, { shouldValidate: false });
+    }
+  }, [isAdminUser, enrollingAgents, currentUser?.id, form]);
+
+  const assignableEnrollmentUsers = useMemo(
+    () => [...enrollingAgents].sort((a, b) => {
+      const aNumber = (a.agentNumber || "").toUpperCase();
+      const bNumber = (b.agentNumber || "").toUpperCase();
+
+      const aIsMpp = aNumber === "MPP" || aNumber === "MPP0001" || aNumber.startsWith("MPP");
+      const bIsMpp = bNumber === "MPP" || bNumber === "MPP0001" || bNumber.startsWith("MPP");
+
+      if (aIsMpp && !bIsMpp) return -1;
+      if (!aIsMpp && bIsMpp) return 1;
+
+      const aName = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
+      const bName = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
+      return aName.localeCompare(bName);
+    }),
+    [enrollingAgents],
+  );
+
+  const isMppRecommendedUpline = (agentNumber?: string | null) => {
+    const normalized = (agentNumber || "").toUpperCase().trim();
+    return normalized === "MPP" || normalized === "MPP0001" || normalized.startsWith("MPP");
+  };
 
   const registrationMutation = useMutation({
     mutationFn: async (data: RegistrationForm) => {
@@ -288,7 +326,7 @@ export default function Registration() {
         communicationsConsent: data.communicationsConsent,
         faqDownloaded: data.faqDownloaded,
         discountCode: data.discountCode || null,
-        enrolledByAgentId: data.enrollingAgentId
+        enrolledByAgentId: data.enrollingAgentId || null
         // agentNumber removed - backend will look it up from database for accuracy
       };
 
@@ -849,23 +887,28 @@ export default function Registration() {
                           name="enrollingAgentId"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Enroll On Behalf Of *</FormLabel>
-                              <Select onValueChange={field.onChange} value={field.value}>
+                              <FormLabel>Enroll On Behalf Of</FormLabel>
+                              <Select
+                                onValueChange={(value) => field.onChange(value === "__none__" ? "" : value)}
+                                value={field.value || "__none__"}
+                              >
                                 <FormControl>
                                   <SelectTrigger>
-                                    <SelectValue placeholder="Select agent or admin" />
+                                    <SelectValue placeholder="Defaults to MPP upline - change if needed" />
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {enrollingAgents.map((agent) => (
+                                  <SelectItem value="__none__">No assignment (optional)</SelectItem>
+                                  {assignableEnrollmentUsers.map((agent) => (
                                     <SelectItem key={agent.id} value={agent.id}>
                                       {agent.agentNumber ? `${agent.agentNumber} - ` : ''}
                                       {`${agent.firstName || ''} ${agent.lastName || ''}`.trim() || agent.email || agent.id}
+                                      {isMppRecommendedUpline(agent.agentNumber) ? ' (MPP recommended)' : ''}
                                     </SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
-                              <p className="text-xs text-gray-500">Commission ownership will be assigned to this user after payment callback.</p>
+                              <p className="text-xs text-gray-500">Defaults to MPP upline. Change if needed. This field is optional.</p>
                               <FormMessage />
                             </FormItem>
                           )}

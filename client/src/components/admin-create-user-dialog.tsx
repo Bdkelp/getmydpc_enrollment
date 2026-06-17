@@ -336,12 +336,16 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
               disabled={createUserMutation.isPending}
             >
               <option value="agent">Agent (Commission Access)</option>
+              <option value="agency_manager">Agency Manager (Assigned Agent Visibility)</option>
+              <option value="agency_admin">Agency Admin (Agency-Level Visibility)</option>
               <option value="admin">Admin (Full Access)</option>
               <option value="user">User (Basic Access)</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {formData.role === 'admin' && 'Can create users, manage commissions, and access admin panel'}
               {formData.role === 'agent' && 'Can view commissions and manage their own accounts'}
+              {formData.role === 'agency_manager' && 'Can view agency-assigned agent business data (no global admin access)'}
+              {formData.role === 'agency_admin' && 'Can view full business across assigned agents and teams'}
               {formData.role === 'user' && 'Basic user with limited access'}
             </p>
           </div>

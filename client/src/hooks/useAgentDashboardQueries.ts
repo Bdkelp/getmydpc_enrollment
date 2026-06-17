@@ -2,14 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
 interface QueryParams {
-  isAdminUser: boolean;
+  canLoadAgentDirectory: boolean;
   viewingAgentId?: string | null;
   currentUserId?: string | null;
   dateFilter: { startDate: string; endDate: string };
 }
 
 export function useAgentDashboardQueries({
-  isAdminUser,
+  canLoadAgentDirectory,
   viewingAgentId,
   currentUserId,
   dateFilter,
@@ -17,17 +17,24 @@ export function useAgentDashboardQueries({
   const { data: allAgents } = useQuery({
     queryKey: ["/api/agents"],
     queryFn: () => apiRequest("/api/agents"),
-    enabled: isAdminUser,
+    enabled: canLoadAgentDirectory,
     staleTime: 1000 * 60,
   });
 
-  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
-    queryKey: ["/api/agent/stats", viewingAgentId],
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    error: statsError,
+  } = useQuery({
+    queryKey: ["/api/agent/stats", viewingAgentId ?? "__aggregate__"],
     queryFn: () => {
-      const query = viewingAgentId && viewingAgentId !== currentUserId ? `?agentId=${viewingAgentId}` : "";
+      const query =
+        viewingAgentId && viewingAgentId !== currentUserId
+          ? `?agentId=${viewingAgentId}`
+          : "";
       return apiRequest(`/api/agent/stats${query}`);
     },
-    enabled: !!viewingAgentId,
+    enabled: !!currentUserId,
   });
 
   const {
@@ -35,10 +42,16 @@ export function useAgentDashboardQueries({
     isLoading: enrollmentsLoading,
     error: enrollmentsError,
   } = useQuery({
-    queryKey: ["/api/agent/enrollments", viewingAgentId, dateFilter],
+    queryKey: [
+      "/api/agent/enrollments",
+      viewingAgentId ?? "__aggregate__",
+      dateFilter,
+    ],
     queryFn: async () => {
       const query = new URLSearchParams({
-        ...(viewingAgentId && viewingAgentId !== currentUserId ? { agentId: viewingAgentId } : {}),
+        ...(viewingAgentId && viewingAgentId !== currentUserId
+          ? { agentId: viewingAgentId }
+          : {}),
         ...dateFilter,
       }).toString();
       const response = await apiRequest(`/api/agent/enrollments?${query}`);
@@ -50,7 +63,7 @@ export function useAgentDashboardQueries({
       }
       return [];
     },
-    enabled: !!viewingAgentId,
+    enabled: !!currentUserId,
   });
 
   const { data: availablePlans = [] } = useQuery({
@@ -62,12 +75,18 @@ export function useAgentDashboardQueries({
   });
 
   const { data: lifecycleAlerts } = useQuery({
-    queryKey: ["/api/agent/lifecycle-alerts", viewingAgentId],
+    queryKey: [
+      "/api/agent/lifecycle-alerts",
+      viewingAgentId ?? "__aggregate__",
+    ],
     queryFn: async () => {
-      const query = viewingAgentId && viewingAgentId !== currentUserId ? `?agentId=${viewingAgentId}&days=7` : "?days=7";
+      const query =
+        viewingAgentId && viewingAgentId !== currentUserId
+          ? `?agentId=${viewingAgentId}&days=7`
+          : "?days=7";
       return apiRequest(`/api/agent/lifecycle-alerts${query}`);
     },
-    enabled: !!viewingAgentId,
+    enabled: !!currentUserId,
     refetchInterval: 60_000,
   });
 

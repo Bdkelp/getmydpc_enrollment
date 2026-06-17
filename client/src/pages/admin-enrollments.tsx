@@ -228,6 +228,15 @@ export default function AdminEnrollments() {
   const formatters = useEnrollmentFormatters();
   const [gapFilter, setGapFilter] = useState<string>("all");
   const [statusMismatchFilter, setStatusMismatchFilter] = useState<string>("all");
+  const selectedScopeAgent =
+    filters.selectedAgentId !== "all"
+      ? queries.agents.find((agent) => agent.id === filters.selectedAgentId)
+      : null;
+  const viewingScopeLabel = selectedScopeAgent
+    ? (selectedScopeAgent.agentNumber
+        ? `Agent ${selectedScopeAgent.agentNumber}`
+        : `Agent ${selectedScopeAgent.firstName || ""} ${selectedScopeAgent.lastName || ""}`.trim() || "Selected Agent")
+    : "All Agents";
 
   log("Component mounted", { user: user?.email, authLoading });
 
@@ -454,6 +463,14 @@ export default function AdminEnrollments() {
                 <p className="mt-2 text-sm text-gray-600">
                   Manage DPC enrollments, members, and agents
                 </p>
+                <div className="mt-3">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-french-blue-700">
+                    Viewing Scope
+                  </p>
+                  <Badge className="border border-french-blue-200 bg-french-blue-50 text-french-blue-800 hover:bg-french-blue-50">
+                    Current Scope: {viewingScopeLabel}
+                  </Badge>
+                </div>
                 <div className="mt-3 w-fit rounded-lg border border-gray-200 bg-gray-50 p-1">
                   <div className="flex items-center gap-1">
                     <Button
