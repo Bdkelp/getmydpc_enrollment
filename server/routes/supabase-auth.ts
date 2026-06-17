@@ -501,7 +501,7 @@ router.post("/api/admin/create-user", async (req, res) => {
     ) {
       return res.status(400).json({
         message:
-          "Role must be one of: admin, agent, user, agency_admin, agency_manager",
+          "Invalid access type. Choose one of: Platform Admin, Sales Agent, Agency Admin, Agency Manager, or Basic User.",
         code: "INVALID_ROLE",
       });
     }

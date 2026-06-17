@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { X, AlertCircle, CheckCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { apiClient } from '@/lib/apiClient';
 
 interface AdminCreateUserDialogProps {
@@ -16,6 +15,41 @@ interface AgentOption {
   agentNumber: string;
   overrideSuppressed: boolean;
 }
+
+const ROLE_OPTIONS = [
+  {
+    value: 'agent',
+    label: 'Sales Agent',
+    shortLabel: 'Agent',
+    description: 'Can enroll members and view their own production and commissions.',
+  },
+  {
+    value: 'agency_manager',
+    label: 'Agency Manager',
+    shortLabel: 'Agency Manager',
+    description: 'Can view data for agents assigned to their agency. No full admin access.',
+  },
+  {
+    value: 'agency_admin',
+    label: 'Agency Admin',
+    shortLabel: 'Agency Admin',
+    description: 'Can view agency-level performance for assigned teams. No full platform admin rights.',
+  },
+  {
+    value: 'admin',
+    label: 'Platform Admin',
+    shortLabel: 'Admin',
+    description: 'Can manage users and access admin tools across the platform.',
+  },
+  {
+    value: 'user',
+    label: 'Basic User',
+    shortLabel: 'Basic User',
+    description: 'Limited account access. Use only when agent or admin access is not needed.',
+  },
+] as const;
+
+type UserRole = (typeof ROLE_OPTIONS)[number]['value'];
 
 function mapHierarchyOptions(input: any): AgentOption[] {
   const list: any[] = Array.isArray(input)
@@ -37,8 +71,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
     email: '',
     firstName: '',
     lastName: '',
-    role: 'agent',
-    generatePassword: true
+    role: 'agent' as UserRole,
   });
   const [uplineAgentId, setUplineAgentId] = useState('');
   const [overrideRate, setOverrideRate] = useState(5);
@@ -79,17 +112,10 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
 
   const createUserMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      // Get current session with access token
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.access_token) {
-        throw new Error('Not authenticated. Please log in again.');
-      }
-
       const body: Record<string, any> = {
         email: data.email.toLowerCase(),
-        firstName: data.firstName,
-        lastName: data.lastName,
+        firstName: data.firstName.trim(),
+        lastName: data.lastName.trim(),
         role: data.role,
       };
 
@@ -100,21 +126,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         body.overrideCommissionRate = selectedUpline?.overrideSuppressed ? 0 : overrideRate;
       }
 
-      const response = await fetch('/api/admin/create-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create user');
-      }
-
-      return await response.json();
+      return apiClient.post('/api/admin/create-user', body);
     },
     onSuccess: (data: any) => {
       setSuccessMessage(`User "${data.user.email}" created successfully!`);
@@ -127,7 +139,6 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
         firstName: '',
         lastName: '',
         role: 'agent',
-        generatePassword: true
       });
       setUplineAgentId('');
       setOverrideRate(5);
@@ -181,6 +192,9 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
   };
 
   if (!isOpen) return null;
+
+  const selectedRoleOption = ROLE_OPTIONS.find((option) => option.value === formData.role);
+  const selectedUpline = agentOptions.find((a) => a.id === uplineAgentId);
 
   const handleCopyPassword = async () => {
     if (!tempPassword) return;
@@ -326,37 +340,33 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
           {/* Role Field */}
           <div>
             <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
-              User Role *
+              Access Type *
             </label>
             <select
               id="role"
               value={formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={createUserMutation.isPending}
             >
-              <option value="agent">Agent (Commission Access)</option>
-              <option value="agency_manager">Agency Manager (Assigned Agent Visibility)</option>
-              <option value="agency_admin">Agency Admin (Agency-Level Visibility)</option>
-              <option value="admin">Admin (Full Access)</option>
-              <option value="user">User (Basic Access)</option>
+              {ROLE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500">
-              {formData.role === 'admin' && 'Can create users, manage commissions, and access admin panel'}
-              {formData.role === 'agent' && 'Can view commissions and manage their own accounts'}
-              {formData.role === 'agency_manager' && 'Can view agency-assigned agent business data (no global admin access)'}
-              {formData.role === 'agency_admin' && 'Can view full business across assigned agents and teams'}
-              {formData.role === 'user' && 'Basic user with limited access'}
-            </p>
+            <p className="mt-1 text-xs text-gray-500">{selectedRoleOption?.description}</p>
           </div>
 
           {/* Hierarchy Assignment */}
           <div className="space-y-3 border border-gray-200 rounded-lg p-4">
-            <p className="text-sm font-medium text-gray-700">Hierarchy Assignment <span className="text-gray-400 font-normal">(optional)</span></p>
+            <p className="text-sm font-medium text-gray-700">
+              Reporting Structure <span className="text-gray-400 font-normal">(optional)</span>
+            </p>
 
             <div>
               <label htmlFor="uplineAgent" className="block text-sm font-medium text-gray-700 mb-1">
-                Upline Agent
+                Who should this person report to?
               </label>
               <select
                 id="uplineAgent"
@@ -365,10 +375,10 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={createUserMutation.isPending}
               >
-                <option value="">Direct (No Upline)</option>
+                <option value="">No reporting manager (top-level user)</option>
                 {agentOptions.map(a => (
                   <option key={a.id} value={a.id}>
-                    {a.name} ({a.agentNumber}){a.overrideSuppressed ? ' — Admin (no override pay)' : ''}
+                    {a.name} ({a.agentNumber}){a.overrideSuppressed ? ' - Admin (no override payout)' : ''}
                   </option>
                 ))}
               </select>
@@ -376,7 +386,9 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                 <p className="mt-1 text-xs text-red-600">{uplineLoadError}</p>
               )}
               {!uplineLoadError && agentOptions.length > 0 && (
-                <p className="mt-1 text-xs text-gray-500">{agentOptions.length} active users available for upline assignment</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Pick a manager only if this user should roll up under someone in the hierarchy.
+                </p>
               )}
             </div>
 
@@ -392,7 +404,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
               return (
                 <div>
                   <label htmlFor="overrideRate" className="block text-sm font-medium text-gray-700 mb-1">
-                    Override Commission Rate ($)
+                    Manager Override Payout Per Enrollment ($)
                   </label>
                   <input
                     id="overrideRate"
@@ -405,31 +417,26 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     disabled={createUserMutation.isPending}
                   />
-                  <p className="mt-1 text-xs text-gray-500">Amount per enrollment the upline receives ($1–$10)</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    This is extra payout to the selected manager for each enrollment by this user (range: $1 to $10).
+                  </p>
                 </div>
               );
             })()}
           </div>
 
-          {/* Password Generation Checkbox */}
-          <div className="flex items-center gap-2">
-            <input
-              id="generatePassword"
-              type="checkbox"
-              checked={formData.generatePassword}
-              onChange={(e) => setFormData({ ...formData, generatePassword: e.target.checked })}
-              className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-              disabled={createUserMutation.isPending}
-            />
-            <label htmlFor="generatePassword" className="text-sm text-gray-700">
-              Generate temporary password
-            </label>
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+            A temporary password is always auto-generated during user creation. After you create the account,
+            you will see the one-time password and can copy it. The user will also receive a welcome email.
           </div>
 
-          <p className="text-xs text-gray-500 bg-blue-50 p-3 rounded">
-            💡 If enabled, a temporary password will be generated and returned. Share it securely with the user.
-            They can change it after login.
-          </p>
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs text-gray-700">
+            <p className="font-medium mb-1">Review before creating:</p>
+            <p>Name: {formData.firstName.trim() || '-'} {formData.lastName.trim() || '-'}</p>
+            <p>Email: {formData.email.trim().toLowerCase() || '-'}</p>
+            <p>Access type: {selectedRoleOption?.shortLabel || formData.role}</p>
+            <p>Reports to: {selectedUpline ? `${selectedUpline.name} (${selectedUpline.agentNumber})` : 'No reporting manager'}</p>
+          </div>
         </form>
 
         {/* Footer */}
@@ -452,7 +459,7 @@ export function AdminCreateUserDialog({ isOpen, onClose, onUserCreated }: AdminC
                 Creating...
               </>
             ) : (
-              'Create Account'
+              'Create User Now'
             )}
           </button>
         </div>

@@ -412,16 +412,10 @@ async function resolveScopedAgentIds(
 
   if (isAgencyScopedRole(normalized)) {
     const assignedAgentIds = await storage.getAgencyAssignedAgentIds(user.id);
-    if (assignedAgentIds.length === 0) {
-      return {
-        ok: false,
-        status: 403,
-        message: "No agents are assigned to this agency user",
-      };
-    }
+    const scopedIds = Array.from(new Set([user.id, ...assignedAgentIds]));
 
     if (requestedAgentId) {
-      if (!assignedAgentIds.includes(requestedAgentId)) {
+      if (!scopedIds.includes(requestedAgentId)) {
         return {
           ok: false,
           status: 403,
@@ -431,7 +425,7 @@ async function resolveScopedAgentIds(
       return { ok: true, allAgents: false, agentIds: [requestedAgentId] };
     }
 
-    return { ok: true, allAgents: false, agentIds: assignedAgentIds };
+    return { ok: true, allAgents: false, agentIds: scopedIds };
   }
 
   if (normalized === "agent") {
@@ -781,6 +775,22 @@ async function canManageMemberForUser(
 
   if (member.enrolledByAgentId === user.id) {
     return true;
+  }
+
+  if (isAgencyScopedRole(user.role)) {
+    const scope = await resolveScopedAgentIds(user, undefined, {
+      allowAdminAll: false,
+    });
+    if (!scope.ok) {
+      return false;
+    }
+
+    if (
+      member.enrolledByAgentId &&
+      scope.agentIds.includes(member.enrolledByAgentId)
+    ) {
+      return true;
+    }
   }
 
   const commissionAccess = await storage.getCommissionByUserId(
@@ -3740,10 +3750,8 @@ router.get(
   "/api/admin/members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!hasAgentOrAdminAccess(req.user!.role)) {
-      return res
-        .status(403)
-        .json({ message: "Admin or agent access required" });
+    if (!isAdmin(req.user!.role)) {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
@@ -3793,6 +3801,25 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       req.query.includeAssignable === "true" ||
       req.query.includeAssignable === "1";
 
+    const requesterRole = normalizeRole(req.user.role);
+    const requesterIsAdmin = hasAtLeastRole(requesterRole, "admin");
+    const requesterIsAgencyScoped = isAgencyScopedRole(requesterRole);
+    const requesterIsAgent = requesterRole === "agent";
+
+    if (!requesterIsAdmin && !requesterIsAgencyScoped && !requesterIsAgent) {
+      return res.status(403).json({ message: "Insufficient permissions" });
+    }
+
+    let scopedIds: Set<string> | null = null;
+    if (requesterIsAgencyScoped) {
+      const assignedAgentIds = await storage.getAgencyAssignedAgentIds(
+        req.user.id,
+      );
+      scopedIds = new Set([req.user.id, ...assignedAgentIds]);
+    } else if (requesterIsAgent) {
+      scopedIds = new Set([req.user.id]);
+    }
+
     const sourceUsers = includeAssignable
       ? (await storage.getAllUsers())?.users || []
       : await storage.getAgents();
@@ -3810,9 +3837,15 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       }))
       .filter((user) => {
         if (!user.isActive) return false;
+
+        if (scopedIds && !scopedIds.has(user.id)) {
+          return false;
+        }
+
         if (includeAssignable) {
           return hasEnrollmentAttributionAccess(user.role);
         }
+
         return user.role === "agent" || hasAtLeastRole(user.role, "admin");
       });
 
@@ -6212,37 +6245,55 @@ router.get(
   "/api/agent/members",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     try {
-      // Get all users enrolled by this agent plus users they have commissions for
-      const enrolledUsers = await storage.getAgentEnrollments(
-        req.user!.id,
-        undefined,
-        undefined,
-        req.user!.agentNumber || null,
-      );
+      const scope = await resolveScopedAgentIds(req.user!, req.query.agentId, {
+        allowAdminAll: false,
+      });
+      if (!scope.ok) {
+        return res.status(scope.status).json({ message: scope.message });
+      }
 
-      // Get users from commissions in Supabase
-      const { data: agentCommissions } = await supabase
-        .from("agent_commissions")
-        .select("member_id")
-        .eq("agent_id", req.user!.id);
+      const memberMap = new Map<string, any>();
 
-      const commissionUserIds = agentCommissions?.map((c) => c.member_id) || [];
+      for (const scopedAgentId of scope.agentIds) {
+        const enrolledUsers = await storage.getAgentEnrollments(
+          scopedAgentId,
+          undefined,
+          undefined,
+          null,
+        );
 
-      // Fetch additional users from commissions that weren't directly enrolled
-      const additionalUsers = [];
-      for (const userId of commissionUserIds) {
-        if (!enrolledUsers.find((u) => u.id === userId)) {
-          const user = await storage.getUser(userId);
-          if (user) additionalUsers.push(user);
+        for (const enrolledUser of enrolledUsers) {
+          memberMap.set(String(enrolledUser.id), enrolledUser);
+        }
+
+        const { data: agentCommissions } = await supabase
+          .from("agent_commissions")
+          .select("member_id")
+          .eq("agent_id", scopedAgentId);
+
+        const commissionUserIds =
+          agentCommissions?.map((c) => c.member_id) || [];
+        for (const userId of commissionUserIds) {
+          const normalizedId = String(userId);
+          if (memberMap.has(normalizedId)) {
+            continue;
+          }
+
+          const user = await storage.getUser(normalizedId);
+          if (user) {
+            memberMap.set(normalizedId, user);
+          }
         }
       }
 
-      const allMembers = [...enrolledUsers, ...additionalUsers];
+      const allMembers = Array.from(memberMap.values());
       const revealSsn = shouldRevealEnrollmentSsn(req);
       const revealRole = req.user?.role || "";
       const { decryptSSN } = await import("./utils/encryption");
@@ -6281,8 +6332,10 @@ router.get(
   "/api/agent/members/:memberId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -6293,9 +6346,7 @@ router.get(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const hasAccess =
-        member.enrolledByAgentId === req.user!.id ||
-        (await storage.getCommissionByUserId(memberId, req.user!.id));
+      const hasAccess = await canManageMemberForUser(memberId, req.user);
 
       if (!hasAccess) {
         return res
@@ -6338,8 +6389,10 @@ router.put(
   "/api/agent/members/:memberId",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -6352,9 +6405,7 @@ router.put(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const hasAccess =
-        member.enrolledByAgentId === req.user!.id ||
-        (await storage.getCommissionByUserId(memberId, req.user!.id));
+      const hasAccess = await canManageMemberForUser(memberId, req.user);
 
       if (!hasAccess) {
         return res
@@ -6406,8 +6457,10 @@ router.put(
   "/api/agent/members/:memberId/subscription",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -6420,9 +6473,7 @@ router.put(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const hasAccess =
-        member.enrolledByAgentId === req.user!.id ||
-        (await storage.getCommissionByUserId(memberId, req.user!.id));
+      const hasAccess = await canManageMemberForUser(memberId, req.user);
 
       if (!hasAccess) {
         return res
@@ -6489,8 +6540,10 @@ router.post(
   "/api/agent/members/:memberId/family",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAgentRole(req.user!.role)) {
-      return res.status(403).json({ message: "Agent access required" });
+    if (!hasAgentOrAdminAccess(req.user!.role)) {
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
 
     try {
@@ -6503,9 +6556,7 @@ router.post(
         return res.status(404).json({ message: "Member not found" });
       }
 
-      const hasAccess =
-        member.enrolledByAgentId === req.user!.id ||
-        (await storage.getCommissionByUserId(memberId, req.user!.id));
+      const hasAccess = await canManageMemberForUser(memberId, req.user);
 
       if (!hasAccess) {
         return res
@@ -9615,8 +9666,15 @@ export async function registerRoutes(app: any) {
 
   // Agent lookup endpoint - MUST come AFTER specific /api/agent/* routes
   // Dynamic routes like :agentId catch everything if they come first
-  app.get("/api/agent/:agentId", async (req: any, res: any) => {
+  app.get("/api/agent/:agentId", authMiddleware, async (req: any, res: any) => {
     try {
+      const userRole = req.user?.role?.trim();
+      if (!hasAgentOrAdminAccess(userRole)) {
+        return res
+          .status(403)
+          .json({ error: "Agent or admin access required" });
+      }
+
       const { agentId } = req.params;
       console.log("[Agent Lookup] Looking up agent:", agentId);
 
@@ -9642,6 +9700,25 @@ export async function registerRoutes(app: any) {
           error: "Agent not found",
           agentId: agentId,
         });
+      }
+
+      const requesterRole = normalizeRole(req.user?.role);
+      if (requesterRole === "agent" && agent.id !== req.user?.id) {
+        return res
+          .status(403)
+          .json({ error: "Requested agent is outside your assigned scope" });
+      }
+
+      if (isAgencyScopedRole(requesterRole)) {
+        const assignedAgentIds = await storage.getAgencyAssignedAgentIds(
+          req.user.id,
+        );
+        const scopedIds = new Set([req.user.id, ...assignedAgentIds]);
+        if (!scopedIds.has(agent.id)) {
+          return res
+            .status(403)
+            .json({ error: "Requested agent is outside your assigned scope" });
+        }
       }
 
       res.json({

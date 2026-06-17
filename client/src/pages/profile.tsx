@@ -22,11 +22,16 @@ import apiClient from "@/lib/apiClient";
 import { hasAtLeastRole } from "@/lib/roles";
 
 const profileSchema = z.object({
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string().trim().min(1, "Last name is required"),
   middleName: z.string().optional(),
-  email: z.string().email("Valid email is required"),
-  phone: z.string().min(10, "Phone number is required"),
+  email: z.string().trim().email("Valid email is required"),
+  phone: z
+    .string()
+    .optional()
+    .refine((val) => !val || val.replace(/\D/g, "").length >= 10, {
+      message: "Phone number must be at least 10 digits",
+    }),
   dateOfBirth: z.string().optional(),
   gender: z.string().optional(),
   address: z.string().optional(),
@@ -61,6 +66,90 @@ const passwordChangeSchema = z.object({
 type ProfileFormData = z.infer<typeof profileSchema>;
 type PasswordChangeData = z.infer<typeof passwordChangeSchema>;
 
+const OPTIONAL_PROFILE_FIELDS = new Set<keyof ProfileFormData>([
+  "middleName",
+  "phone",
+  "dateOfBirth",
+  "gender",
+  "address",
+  "address2",
+  "city",
+  "state",
+  "zipCode",
+  "emergencyContactName",
+  "emergencyContactPhone",
+  "agentNumber",
+  "employerName",
+  "divisionName",
+  "bankName",
+  "routingNumber",
+  "accountNumber",
+  "accountType",
+  "accountHolderName",
+]);
+
+function asText(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value);
+}
+
+function normalizeProfileFormValues(
+  profile: any,
+  agentNumber?: string,
+): ProfileFormData {
+  return {
+    firstName: asText(profile?.firstName),
+    lastName: asText(profile?.lastName),
+    middleName: asText(profile?.middleName),
+    email: asText(profile?.email),
+    phone: asText(profile?.phone),
+    dateOfBirth: asText(profile?.dateOfBirth),
+    gender: asText(profile?.gender),
+    address: asText(profile?.address),
+    address2: asText(profile?.address2),
+    city: asText(profile?.city),
+    state: asText(profile?.state),
+    zipCode: asText(profile?.zipCode),
+    emergencyContactName: asText(profile?.emergencyContactName),
+    emergencyContactPhone: asText(profile?.emergencyContactPhone),
+    agentNumber: asText(agentNumber || profile?.agentNumber),
+    employerName: asText(profile?.employerName),
+    divisionName: asText(profile?.divisionName),
+    bankName: asText(profile?.bankName),
+    routingNumber: asText(profile?.routingNumber),
+    accountNumber: asText(profile?.accountNumber),
+    accountType: asText(profile?.accountType),
+    accountHolderName: asText(profile?.accountHolderName),
+  };
+}
+
+function normalizeProfileUpdatePayload(
+  data: ProfileFormData,
+): Partial<ProfileFormData> {
+  const normalized: Partial<ProfileFormData> = {};
+
+  Object.entries(data).forEach(([key, value]) => {
+    const typedKey = key as keyof ProfileFormData;
+
+    if (typeof value !== "string") {
+      return;
+    }
+
+    const trimmed = value.trim();
+
+    if (trimmed.length === 0 && OPTIONAL_PROFILE_FIELDS.has(typedKey)) {
+      return;
+    }
+
+    normalized[typedKey] = trimmed as any;
+  });
+
+  return normalized;
+}
+
 export default function Profile() {
   const { user } = useAuth();
   const isAdminUser = hasAtLeastRole(user?.role, "admin");
@@ -92,11 +181,7 @@ export default function Profile() {
 
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    values: {
-      ...profile,
-      // Ensure agent number is populated from user auth data (read-only, system-assigned)
-      agentNumber: user?.agentNumber || profile?.agentNumber || '',
-    },
+    values: normalizeProfileFormValues(profile, user?.agentNumber),
   });
 
   const passwordForm = useForm<PasswordChangeData>({
@@ -112,7 +197,8 @@ export default function Profile() {
     mutationFn: async (data: ProfileFormData) => {
       // Remove agent number from update data - it's system-assigned and read-only
       const { agentNumber, ...updateData } = data;
-      return await apiClient.put("/api/user/profile", updateData);
+      const payload = normalizeProfileUpdatePayload(updateData);
+      return await apiClient.put("/api/user/profile", payload);
     },
     onSuccess: async () => {
       toast({
@@ -127,10 +213,10 @@ export default function Profile() {
       // Trigger auth state refresh for dashboard updates
       await supabase.auth.refreshSession();
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "Failed to update profile. Please try again.",
+        description: error?.message || "Failed to update profile. Please try again.",
         variant: "destructive",
       });
     },
@@ -513,7 +599,7 @@ export default function Profile() {
                               name="phone"
                               render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel>Phone Number *</FormLabel>
+                                  <FormLabel>Phone Number</FormLabel>
                                   <FormControl>
                                     <Input type="tel" {...field} />
                                   </FormControl>
