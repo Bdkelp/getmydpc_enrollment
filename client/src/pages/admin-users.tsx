@@ -57,6 +57,13 @@ interface UserType {
   };
 }
 
+const AGENT_SCOPE_ROLES = new Set(['agent', 'agency_admin', 'agency_manager']);
+const PLATFORM_ADMIN_ROLES = new Set(['admin', 'super_admin']);
+
+const isAgentScopeRole = (role?: string) => AGENT_SCOPE_ROLES.has(String(role || '').toLowerCase());
+const isPlatformAdminRole = (role?: string) => PLATFORM_ADMIN_ROLES.has(String(role || '').toLowerCase());
+const isStaffProfileRole = (role?: string) => isAgentScopeRole(role) || isPlatformAdminRole(role);
+
 export default function AdminUsers() {
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,8 +95,8 @@ export default function AdminUsers() {
 
   // Filter users by role
   const members = safeMembers; // DPC members from Neon database
-  const agents = safeUsers.filter((u: UserType) => u && u.role === 'agent');
-  const admins = safeUsers.filter((u: UserType) => u && (u.role === 'admin' || u.role === 'super_admin'));
+  const agents = safeUsers.filter((u: UserType) => u && isAgentScopeRole(u.role));
+  const admins = safeUsers.filter((u: UserType) => u && isPlatformAdminRole(u.role));
 
   // Search filter
   const filterBySearch = (users: UserType[]) => {
@@ -111,6 +118,8 @@ export default function AdminUsers() {
         return 'destructive'; // Red badge for super admin
       case 'admin':
         return 'default';
+      case 'agency_admin':
+      case 'agency_manager':
       case 'agent':
         return 'secondary';
       default:
@@ -124,6 +133,8 @@ export default function AdminUsers() {
         return <Shield className="h-3 w-3 text-red-600" />;
       case 'admin':
         return <Shield className="h-3 w-3" />;
+      case 'agency_admin':
+      case 'agency_manager':
       case 'agent':
         return <UserCheck className="h-3 w-3" />;
       default:
@@ -137,6 +148,10 @@ export default function AdminUsers() {
         return 'Super Admin';
       case 'admin':
         return 'Admin';
+      case 'agency_admin':
+        return 'Agency Admin';
+      case 'agency_manager':
+        return 'Agency Manager';
       case 'agent':
         return 'Agent';
       default:
@@ -212,7 +227,7 @@ export default function AdminUsers() {
                         }
                       </p>
                       <p className="text-sm text-gray-500">{user.email}</p>
-                      {(user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin') && (
+                      {isStaffProfileRole(user.role) && (
                         <div className="mt-1 flex items-center gap-2">
                           <Badge variant="outline" className={hasAddressProfile(user) ? 'text-green-700 border-green-300' : 'text-amber-700 border-amber-300'}>
                             <MapPin className="h-3 w-3 mr-1" />
@@ -268,7 +283,7 @@ export default function AdminUsers() {
                   </TableCell>
                 )}
                 <TableCell>
-                  {user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin' ? (
+                  {isStaffProfileRole(user.role) ? (
                     <Input
                       id={`agent-number-${user.id}`}
                       name="agentNumber"
@@ -374,7 +389,7 @@ export default function AdminUsers() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end space-x-2">
-                    {(user.role === 'agent' || user.role === 'admin' || user.role === 'super_admin') && (
+                    {isStaffProfileRole(user.role) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -604,7 +619,7 @@ export default function AdminUsers() {
               <CardHeader>
                 <CardTitle>Agents</CardTitle>
                 <CardDescription>
-                  Sales agents who can enroll members and track commissions
+                  Sales and agency users who can enroll members and track commissions
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
