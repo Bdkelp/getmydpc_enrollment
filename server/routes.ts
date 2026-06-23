@@ -8443,7 +8443,16 @@ export async function registerRoutes(app: any) {
         scopedAgentIds.map(async (agentId) => {
           const [individualEnrollments, groupEnrollments] = await Promise.all([
             storage.getEnrollmentsByAgent(agentId),
-            getGroupEnrollmentRecordsForAgent(agentId),
+            getGroupEnrollmentRecordsForAgent(agentId).catch((error) => {
+              console.warn(
+                "[Agent Stats] Group enrollment records unavailable; continuing without group records",
+                {
+                  agentId,
+                  error: error?.message || error,
+                },
+              );
+              return [];
+            }),
           ]);
           return [...individualEnrollments, ...groupEnrollments];
         }),
@@ -8543,7 +8552,24 @@ export async function registerRoutes(app: any) {
       const todayIso = endOfTodayDate.toISOString();
 
       const commissionStatsList = await Promise.all(
-        scopedAgentIds.map((agentId) => storage.getCommissionStatsNew(agentId)),
+        scopedAgentIds.map((agentId) =>
+          storage.getCommissionStatsNew(agentId).catch((error) => {
+            console.warn(
+              "[Agent Stats] Commission stats unavailable for agent; using zeros",
+              {
+                agentId,
+                error: error?.message || error,
+              },
+            );
+            return {
+              totalEarned: 0,
+              totalPending: 0,
+              totalPaid: 0,
+              byStatus: {},
+              byPaymentStatus: {},
+            };
+          }),
+        ),
       );
       const commissionStats = commissionStatsList.reduce(
         (acc: any, item: any) => ({
@@ -8559,12 +8585,28 @@ export async function registerRoutes(app: any) {
         scopedAgentIds,
         startOfMonthIso,
         todayIso,
-      );
+      ).catch((error) => {
+        console.warn(
+          "[Agent Stats] Monthly commissions unavailable; using empty set",
+          {
+            error: error?.message || error,
+          },
+        );
+        return [];
+      });
       const yearlyCommissions = await getScopedCommissions(
         scopedAgentIds,
         startOfYearIso,
         todayIso,
-      );
+      ).catch((error) => {
+        console.warn(
+          "[Agent Stats] Yearly commissions unavailable; using empty set",
+          {
+            error: error?.message || error,
+          },
+        );
+        return [];
+      });
 
       const monthlyCommissionTotal = parseFloat(
         sumCommissionAmounts(monthlyCommissions).toFixed(2),
@@ -8572,10 +8614,22 @@ export async function registerRoutes(app: any) {
       const yearlyCommissionTotal = parseFloat(
         sumCommissionAmounts(yearlyCommissions).toFixed(2),
       );
-      const performanceGoalData =
-        scopedAgentIds.length === 1
-          ? await storage.resolvePerformanceGoalsForAgent(primaryAgentId)
-          : await storage.resolvePerformanceGoalsForAgent(undefined);
+      const performanceGoalData = await (scopedAgentIds.length === 1
+        ? storage.resolvePerformanceGoalsForAgent(primaryAgentId)
+        : storage.resolvePerformanceGoalsForAgent(undefined)
+      ).catch((error) => {
+        console.warn(
+          "[Agent Stats] Performance goals unavailable; returning without goal targets",
+          {
+            error: error?.message || error,
+          },
+        );
+        return {
+          defaults: null,
+          override: null,
+          resolved: null,
+        };
+      });
 
       const responsePayload = {
         success: true,
