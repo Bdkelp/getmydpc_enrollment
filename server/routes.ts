@@ -8447,7 +8447,16 @@ export async function registerRoutes(app: any) {
       const enrollmentPages = await Promise.all(
         scopedAgentIds.map(async (agentId) => {
           const [individualEnrollments, groupEnrollments] = await Promise.all([
-            storage.getEnrollmentsByAgent(agentId),
+            storage.getEnrollmentsByAgent(agentId).catch((error) => {
+              console.warn(
+                "[Agent Stats] Individual enrollment records unavailable; continuing with empty set",
+                {
+                  agentId,
+                  error: error?.message || error,
+                },
+              );
+              return [];
+            }),
             getGroupEnrollmentRecordsForAgent(agentId).catch((error) => {
               console.warn(
                 "[Agent Stats] Group enrollment records unavailable; continuing without group records",

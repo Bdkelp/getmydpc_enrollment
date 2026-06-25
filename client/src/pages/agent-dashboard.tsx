@@ -414,7 +414,7 @@ export default function AgentDashboard() {
     >
 
         {/* Agent Selector for Admin/Super_Admin and Agency Roles */}
-        {canSelectScopedAgent && (
+        {(canSelectScopedAgent || isAdminUser) && (
           <Card className="mb-6 border-french-blue-200 bg-french-blue-50/70">
             <CardContent className="p-4">
               <div className="flex items-center gap-4">
