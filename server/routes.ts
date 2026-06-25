@@ -412,7 +412,23 @@ async function resolveScopedAgentIds(
 
   if (isAgencyScopedRole(normalized)) {
     const assignedAgentIds = await storage.getAgencyAssignedAgentIds(user.id);
-    const scopedIds = Array.from(new Set([user.id, ...assignedAgentIds]));
+    const hierarchyFromSelf = await storage.getHierarchyDownlineUserIds(
+      user.id,
+    );
+    const hierarchyFromAssignedRoots = (
+      await Promise.all(
+        assignedAgentIds.map((id) => storage.getHierarchyDownlineUserIds(id)),
+      )
+    ).flat();
+
+    const scopedIds = Array.from(
+      new Set([
+        user.id,
+        ...assignedAgentIds,
+        ...hierarchyFromSelf,
+        ...hierarchyFromAssignedRoots,
+      ]),
+    );
 
     if (requestedAgentId) {
       if (!scopedIds.includes(requestedAgentId)) {

@@ -1045,6 +1045,7 @@ export interface IStorage {
   listAgencyUsers(): Promise<any[]>;
   listAssignableAgents(): Promise<any[]>;
   getAgencyAssignmentsSnapshot(): Promise<Record<string, string[]>>;
+  getHierarchyDownlineUserIds(userId: string): Promise<string[]>;
   getAllUsersForAdmin(): Promise<{ users: User[]; totalCount: number }>;
   setAgencyAssignments(
     agencyUserId: string,
@@ -2490,7 +2491,7 @@ async function getDownlineAgentIds(
       .from("users")
       .select("id")
       .eq("upline_agent_id", agentId)
-      .eq("role", "agent");
+      .eq("is_active", true);
 
     if (error) {
       console.error("[Storage] Error fetching downline agents:", error);
@@ -2515,6 +2516,18 @@ async function getDownlineAgentIds(
     console.error("[Storage] Error in getDownlineAgentIds:", error);
     return [];
   }
+}
+
+export async function getHierarchyDownlineUserIds(
+  userId: string,
+): Promise<string[]> {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    return [];
+  }
+
+  const descendants = await getDownlineAgentIds(normalizedUserId);
+  return Array.from(new Set(descendants));
 }
 
 export async function getAgencyAssignedAgentIds(
@@ -9743,6 +9756,7 @@ export const storage = {
   getAgentEnrollments,
   getAllEnrollments,
   getEnrollmentsByAgent,
+  getHierarchyDownlineUserIds,
   getAgencyAssignedAgentIds,
   listAgencyUsers,
   listAssignableAgents,
