@@ -2972,7 +2972,18 @@ export async function getEnrollmentsByAgent(
     groupSql +=
       " ORDER BY COALESCE(gm.registered_at, gm.updated_at, g.created_at) DESC";
 
-    const groupResult = await query(groupSql, groupParams);
+    let groupResult: { rows: any[] } = { rows: [] };
+    try {
+      groupResult = await query(groupSql, groupParams);
+    } catch (groupError: any) {
+      console.warn(
+        "[Storage] Group enrollment query failed; returning individual enrollments only",
+        {
+          agentId,
+          error: groupError?.message || groupError,
+        },
+      );
+    }
 
     console.log("[Storage] getEnrollmentsByAgent - Query params:", {
       agentCount: allAgentIds.length,

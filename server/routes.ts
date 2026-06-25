@@ -466,11 +466,22 @@ async function getScopedEnrollments(
 ): Promise<any[]> {
   const includeDownline = agentIds.length <= 1;
   const pages = await Promise.all(
-    agentIds.map((id) =>
-      storage.getEnrollmentsByAgent(id, startDate, endDate, {
-        includeDownline,
-      }),
-    ),
+    agentIds.map(async (id) => {
+      try {
+        return await storage.getEnrollmentsByAgent(id, startDate, endDate, {
+          includeDownline,
+        });
+      } catch (error: any) {
+        console.warn(
+          "[Scoped Enrollments] Failed for scoped agent; continuing with remaining scope",
+          {
+            agentId: id,
+            error: error?.message || error,
+          },
+        );
+        return [];
+      }
+    }),
   );
 
   const deduped = new Map<string, any>();
