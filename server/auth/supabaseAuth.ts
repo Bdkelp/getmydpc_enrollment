@@ -1,28 +1,40 @@
-import { Request, Response, NextFunction } from 'express';
-import { storage } from '../storage';
-import { supabase } from '../lib/supabaseClient';
-import { isFullAccessEmail, normalizeRole, type Role } from './roles';
+import { Request, Response, NextFunction } from "express";
+import { storage } from "../storage";
+import { supabase } from "../lib/supabaseClient";
+import { isFullAccessEmail, normalizeRole, type Role } from "./roles";
 
 export interface AuthRequest extends Request {
   user?: any;
+  realUser?: any;
+  impersonationSession?: any;
   token?: string;
 }
 
-export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authenticateToken = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = authHeader && authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
+      return res.status(401).json({ message: "No token provided" });
     }
 
     // Use the server-side supabase client with service role key to verify the token
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(token);
 
     if (error || !user) {
-      console.error('Token verification failed:', error?.message || 'No user found');
-      return res.status(401).json({ message: 'Invalid token' });
+      console.error(
+        "Token verification failed:",
+        error?.message || "No user found",
+      );
+      return res.status(401).json({ message: "Invalid token" });
     }
 
     // Try to get user from our database
@@ -30,40 +42,44 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
 
     if (!dbUser) {
       // Create user in our database if they don't exist
-      console.log('Creating new user in database:', user.email);
+      console.log("Creating new user in database:", user.email);
 
       dbUser = await storage.createUser({
         id: user.id,
         email: user.email!,
-        firstName: user.user_metadata?.firstName || user.user_metadata?.first_name || 'User',
-        lastName: user.user_metadata?.lastName || user.user_metadata?.last_name || '',
+        firstName:
+          user.user_metadata?.firstName ||
+          user.user_metadata?.first_name ||
+          "User",
+        lastName:
+          user.user_metadata?.lastName || user.user_metadata?.last_name || "",
         emailVerified: user.email_confirmed_at ? true : false,
         role: determineUserRole(user.email!),
         isActive: true,
-        approvalStatus: 'approved',
+        approvalStatus: "approved",
         createdAt: new Date(),
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
     }
 
     // Check if user needs approval
-    if (dbUser.approvalStatus === 'pending') {
-      return res.status(403).json({ 
-        message: 'Account pending approval',
-        requiresApproval: true 
+    if (dbUser.approvalStatus === "pending") {
+      return res.status(403).json({
+        message: "Account pending approval",
+        requiresApproval: true,
       });
     }
 
-    if (dbUser.approvalStatus === 'rejected') {
-      return res.status(403).json({ 
-        message: 'Account has been rejected',
-        rejected: true 
+    if (dbUser.approvalStatus === "rejected") {
+      return res.status(403).json({
+        message: "Account has been rejected",
+        rejected: true,
       });
     }
 
     if (!dbUser.isActive) {
-      return res.status(403).json({ 
-        message: 'Account has been deactivated' 
+      return res.status(403).json({
+        message: "Account has been deactivated",
       });
     }
 
@@ -72,107 +88,154 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     if (isEmailVerified === false && user.email_confirmed_at) {
       try {
         await supabase
-          .from('users')
+          .from("users")
           .update({
             email_verified: true,
-            email_verified_at: user.email_confirmed_at
+            email_verified_at: user.email_confirmed_at,
           })
-          .eq('id', dbUser.id);
+          .eq("id", dbUser.id);
 
         isEmailVerified = true;
         dbUser.emailVerified = true;
       } catch (syncError) {
-        console.warn('[Auth] Failed to sync email verification status:', syncError);
+        console.warn(
+          "[Auth] Failed to sync email verification status:",
+          syncError,
+        );
       }
     }
 
     if (isEmailVerified === false) {
-      return res.status(403).json({ 
-        message: 'Email verification required. Please check your email for a verification link.',
+      return res.status(403).json({
+        message:
+          "Email verification required. Please check your email for a verification link.",
         requiresEmailVerification: true,
         user: {
           id: dbUser.id,
           email: dbUser.email,
           firstName: dbUser.firstName,
-          lastName: dbUser.lastName
-        }
+          lastName: dbUser.lastName,
+        },
       });
     }
 
     // Check if user needs to change password
     if (dbUser.passwordChangeRequired) {
-      return res.status(403).json({ 
-        message: 'Password change required',
+      return res.status(403).json({
+        message: "Password change required",
         requiresPasswordChange: true,
         user: {
           id: dbUser.id,
           email: dbUser.email,
           firstName: dbUser.firstName,
-          lastName: dbUser.lastName
-        }
+          lastName: dbUser.lastName,
+        },
       });
     }
 
-    const normalizedRole = normalizeRole(dbUser.role) || determineUserRole(dbUser.email);
+    const normalizedRole =
+      normalizeRole(dbUser.role) || determineUserRole(dbUser.email);
 
     if (dbUser.role !== normalizedRole) {
-      console.info('[Auth] Normalizing user role', {
+      console.info("[Auth] Normalizing user role", {
         userId: dbUser.id,
         previousRole: dbUser.role,
-        normalizedRole
+        normalizedRole,
       });
       dbUser.role = normalizedRole;
     }
 
     let authUser: typeof dbUser & { role: Role } = {
       ...dbUser,
-      role: normalizedRole as Role
+      role: normalizedRole as Role,
     };
 
     if (isFullAccessEmail(dbUser.email)) {
       authUser = {
         ...authUser,
         originalRole: authUser.role,
-        role: 'super_admin'
+        role: "super_admin",
       };
 
-      console.log('[Auth] Elevated allow-listed user to super_admin:', dbUser.email);
+      console.log(
+        "[Auth] Elevated allow-listed user to super_admin:",
+        dbUser.email,
+      );
     }
 
+    req.realUser = authUser;
     req.user = authUser;
+
+    if (authUser.role === "super_admin") {
+      try {
+        const activeImpersonation = await storage.getActiveImpersonationSession(
+          authUser.id,
+        );
+        if (activeImpersonation?.target_user_id) {
+          const targetUser = await storage.getUser(
+            activeImpersonation.target_user_id,
+          );
+
+          if (
+            targetUser &&
+            targetUser.isActive &&
+            targetUser.approvalStatus === "approved"
+          ) {
+            req.user = targetUser;
+            req.impersonationSession = activeImpersonation;
+            console.log("[Auth] Super admin impersonation active:", {
+              impersonatorUserId: authUser.id,
+              targetUserId: targetUser.id,
+              targetRole: targetUser.role,
+              path: req.path,
+            });
+          } else {
+            console.warn("[Auth] Ignoring invalid impersonation target user:", {
+              impersonatorUserId: authUser.id,
+              targetUserId: activeImpersonation.target_user_id,
+            });
+          }
+        }
+      } catch (impersonationError) {
+        console.warn(
+          "[Auth] Failed to resolve impersonation session:",
+          impersonationError,
+        );
+      }
+    }
+
     req.token = token;
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
-    return res.status(401).json({ message: 'Authentication failed' });
+    console.error("Authentication error:", error);
+    return res.status(401).json({ message: "Authentication failed" });
   }
 };
 
 function determineUserRole(email: string): "super_admin" | "admin" | "agent" {
   // Super admin
-  if (email === 'michael@mypremierplans.com') {
+  if (email === "michael@mypremierplans.com") {
     return "super_admin";
   }
 
   // Admins
   const adminEmails = [
-    'travis@mypremierplans.com', 
-    'richard@mypremierplans.com',
-    'joaquin@mypremierplans.com'
+    "travis@mypremierplans.com",
+    "richard@mypremierplans.com",
+    "joaquin@mypremierplans.com",
   ];
 
   const agentEmails = [
-    'mdkeener@gmail.com',
-    'tmatheny77@gmail.com',
-    'svillarreal@cyariskmanagement.com',
-    'sarah.johnson@mypremierplans.com',
-    'addsumbalance@gmail.com',
-    'sean@sciahealthins.com',
-    'penningtonfinancialservices@gmail.com'
+    "mdkeener@gmail.com",
+    "tmatheny77@gmail.com",
+    "svillarreal@cyariskmanagement.com",
+    "sarah.johnson@mypremierplans.com",
+    "addsumbalance@gmail.com",
+    "sean@sciahealthins.com",
+    "penningtonfinancialservices@gmail.com",
   ];
 
   if (adminEmails.includes(email)) return "admin";
   if (agentEmails.includes(email)) return "agent";
   return "agent";
 }
-

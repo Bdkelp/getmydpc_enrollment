@@ -680,6 +680,38 @@ export const agentPerformanceGoals = pgTable(
   (table) => [index("idx_agent_performance_goals_agent").on(table.agentId)],
 );
 
+export const impersonationSessions = pgTable(
+  "impersonation_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    impersonatorUserId: uuid("impersonator_user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    targetUserId: uuid("target_user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    reason: text("reason"),
+    status: varchar("status", { length: 20 }).default("active").notNull(),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
+    endedAt: timestamp("ended_at"),
+    expiresAt: timestamp("expires_at"),
+    startedIp: varchar("started_ip", { length: 100 }),
+    startedUserAgent: text("started_user_agent"),
+    endedIp: varchar("ended_ip", { length: 100 }),
+    endedUserAgent: text("ended_user_agent"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_impersonation_sessions_impersonator").on(
+      table.impersonatorUserId,
+    ),
+    index("idx_impersonation_sessions_target").on(table.targetUserId),
+    index("idx_impersonation_sessions_status").on(table.status),
+    index("idx_impersonation_sessions_started").on(table.startedAt),
+  ],
+);
+
 // Relations
 export const usersRelations = relations(users, ({ many, one }: any) => ({
   subscriptions: many(subscriptions),
@@ -1033,3 +1065,6 @@ export type InsertPlatformSetting = typeof platformSettings.$inferInsert;
 export type AgentPerformanceGoal = typeof agentPerformanceGoals.$inferSelect;
 export type InsertAgentPerformanceGoal =
   typeof agentPerformanceGoals.$inferInsert;
+export type ImpersonationSession = typeof impersonationSessions.$inferSelect;
+export type InsertImpersonationSession =
+  typeof impersonationSessions.$inferInsert;

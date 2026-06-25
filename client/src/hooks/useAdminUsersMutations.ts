@@ -212,6 +212,63 @@ export function useAdminUsersMutations() {
     },
   });
 
+  const startImpersonationMutation = useMutation({
+    mutationFn: (payload: {
+      targetUserId: string;
+      reason?: string;
+      durationMinutes?: number;
+    }) =>
+      authedFetch(`/api/admin/impersonation/start`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Drop-in started",
+        description: "Live drop-in session is active.",
+      });
+      if (typeof window !== "undefined") {
+        localStorage.setItem("impersonation_active_hint", "1");
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["/api/admin/impersonation/current"],
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start drop-in session.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const stopImpersonationMutation = useMutation({
+    mutationFn: () =>
+      authedFetch(`/api/admin/impersonation/stop`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Drop-in ended",
+        description: "Returned to your super admin identity.",
+      });
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("impersonation_active_hint");
+      }
+      queryClient.invalidateQueries({
+        queryKey: ["/api/admin/impersonation/current"],
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to end drop-in session.",
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     updateRoleMutation,
     updateAgentNumberMutation,
@@ -221,5 +278,7 @@ export function useAdminUsersMutations() {
     reactivateMemberMutation,
     approveUserMutation,
     removeUserMutation,
+    startImpersonationMutation,
+    stopImpersonationMutation,
   };
 }

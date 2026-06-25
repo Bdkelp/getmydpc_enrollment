@@ -1,8 +1,11 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { hasAtLeastRole } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import apiClient from "@/lib/apiClient";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getDefaultAvatar, getUserInitials } from "@/lib/avatarUtils";
@@ -17,6 +20,7 @@ import {
 import {
   BarChart2,
   Bell,
+  AlertTriangle,
   ChevronRight,
   DollarSign,
   FileText,
@@ -43,6 +47,23 @@ interface AppShellProps {
   breadcrumb?: string[];
   actions?: ReactNode;
 }
+
+type ImpersonationCurrentResponse = {
+  active: boolean;
+  session?: {
+    id: string;
+    targetUser?: {
+      id: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      role?: string;
+      agentNumber?: string;
+    };
+    startedAt?: string;
+    reason?: string;
+  };
+};
 
 function getNavItems(role: string | undefined): NavItem[] {
   const isAdmin = hasAtLeastRole(role, "admin");
@@ -73,8 +94,58 @@ function getNavItems(role: string | undefined): NavItem[] {
 export default function AppShell({ children, title, breadcrumb, actions }: AppShellProps) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
+
+  const { data: impersonationState } = useQuery<ImpersonationCurrentResponse>({
+    queryKey: ["/api/admin/impersonation/current"],
+    queryFn: () => apiClient.get("/api/admin/impersonation/current"),
+    enabled: isSuperAdmin,
+    staleTime: 0,
+    refetchInterval: 15_000,
+  });
+
+  const activeImpersonation = impersonationState?.active ? impersonationState.session : null;
+
+  const impersonationDisplayName = useMemo(() => {
+    if (!activeImpersonation?.targetUser) return "Target user";
+    const first = activeImpersonation.targetUser.firstName || "";
+    const last = activeImpersonation.targetUser.lastName || "";
+    const full = `${first} ${last}`.trim();
+    return full || activeImpersonation.targetUser.email || "Target user";
+  }, [activeImpersonation]);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    if (activeImpersonation) {
+      localStorage.setItem("impersonation_active_hint", "1");
+      return;
+    }
+    localStorage.removeItem("impersonation_active_hint");
+  }, [activeImpersonation, isSuperAdmin]);
+
+  const handleStopImpersonation = async () => {
+    try {
+      await apiClient.post("/api/admin/impersonation/stop");
+      localStorage.removeItem("impersonation_active_hint");
+      await queryClient.invalidateQueries({ queryKey: ["/api/admin/impersonation/current"] });
+      toast({
+        title: "Drop-in ended",
+        description: "You are back in your super admin account.",
+      });
+      window.location.assign("/admin/users");
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to end drop-in session.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const navItems = getNavItems(user?.role);
   const userFullName = `${user?.firstName || ""} ${user?.lastName || ""}`.trim();
@@ -259,6 +330,27 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
 
         {/* Main area */}
         <div className="flex flex-col min-h-screen overflow-hidden">
+          {activeImpersonation && (
+            <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-amber-900 text-sm min-w-0">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <span className="font-semibold">Live Drop-In Active:</span>
+                <span className="truncate">{impersonationDisplayName}</span>
+                {activeImpersonation.targetUser?.agentNumber && (
+                  <span className="text-amber-700">({activeImpersonation.targetUser.agentNumber})</span>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-amber-300 text-amber-900 hover:bg-amber-100"
+                onClick={handleStopImpersonation}
+              >
+                End Drop-In
+              </Button>
+            </div>
+          )}
+
           {/* Top bar */}
           <header className="border-b border-french-blue-100 bg-white/95 px-5 py-3 flex items-center justify-between gap-4 flex-shrink-0 backdrop-blur-sm">
             <div className="flex items-center gap-3 min-w-0">

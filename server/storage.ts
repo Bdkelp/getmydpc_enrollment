@@ -740,6 +740,32 @@ const handleLoginSessionError = (error: any, operation: string) => {
   return false;
 };
 
+const isImpersonationSessionsTableMissing = (error: any) => {
+  if (!error) return false;
+  const message = [error.message, error.details, error.hint, error.code]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return (
+    message.includes("impersonation_sessions") &&
+    (message.includes("does not exist") || message.includes("relation"))
+  );
+};
+
+const warnMissingImpersonationSessionsTable = (operation: string) => {
+  console.warn(
+    `[Storage] impersonation_sessions table not found; skipping ${operation}. Run scripts/sql/2026-06-25_impersonation_sessions.sql to enable live drop-in sessions.`,
+  );
+};
+
+const handleImpersonationSessionError = (error: any, operation: string) => {
+  if (isImpersonationSessionsTableMissing(error)) {
+    warnMissingImpersonationSessionsTable(operation);
+    return true;
+  }
+  return false;
+};
+
 const isAgentPerformanceGoalsTableMissing = (error: any) => {
   if (!error) return false;
   const fingerprint = [error.code, error.message, error.details, error.hint]
@@ -1074,6 +1100,22 @@ export interface IStorage {
   ): Promise<any>;
   getUserLoginSessions(userId: string, limit?: number): Promise<any[]>;
   getAllLoginSessions(limit?: number): Promise<any[]>;
+  getActiveImpersonationSession(
+    impersonatorUserId: string,
+  ): Promise<any | null>;
+  startImpersonationSession(input: {
+    impersonatorUserId: string;
+    targetUserId: string;
+    reason?: string;
+    expiresAt?: Date;
+    startedIp?: string;
+    startedUserAgent?: string;
+  }): Promise<any | null>;
+  stopImpersonationSession(input: {
+    impersonatorUserId: string;
+    endedIp?: string;
+    endedUserAgent?: string;
+  }): Promise<any | null>;
 }
 
 // --- Supabase Implementation ---
@@ -10198,6 +10240,135 @@ export const storage = {
       console.error("Unexpected error fetching login sessions:", error);
       return [];
     }
+  },
+
+  getActiveImpersonationSession: async (impersonatorUserId: string) => {
+    const { data, error } = await supabase
+      .from("impersonation_sessions")
+      .select("*")
+      .eq("impersonator_user_id", impersonatorUserId)
+      .eq("status", "active")
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (
+        handleImpersonationSessionError(error, "getActiveImpersonationSession")
+      ) {
+        return null;
+      }
+      throw new Error(
+        `Failed to fetch active impersonation session: ${error.message}`,
+      );
+    }
+
+    return data || null;
+  },
+
+  startImpersonationSession: async (input: {
+    impersonatorUserId: string;
+    targetUserId: string;
+    reason?: string;
+    expiresAt?: Date;
+    startedIp?: string;
+    startedUserAgent?: string;
+  }) => {
+    const now = new Date().toISOString();
+
+    const { error: closeError } = await supabase
+      .from("impersonation_sessions")
+      .update({
+        status: "ended",
+        ended_at: now,
+        updated_at: now,
+      })
+      .eq("impersonator_user_id", input.impersonatorUserId)
+      .eq("status", "active");
+
+    if (closeError) {
+      if (
+        handleImpersonationSessionError(
+          closeError,
+          "startImpersonationSession:close-previous",
+        )
+      ) {
+        return null;
+      }
+      throw new Error(
+        `Failed to close previous impersonation session: ${closeError.message}`,
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("impersonation_sessions")
+      .insert({
+        impersonator_user_id: input.impersonatorUserId,
+        target_user_id: input.targetUserId,
+        reason: input.reason || null,
+        status: "active",
+        started_at: now,
+        expires_at: input.expiresAt ? input.expiresAt.toISOString() : null,
+        started_ip: input.startedIp || null,
+        started_user_agent: input.startedUserAgent || null,
+        created_at: now,
+        updated_at: now,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      if (
+        handleImpersonationSessionError(
+          error,
+          "startImpersonationSession:insert",
+        )
+      ) {
+        return null;
+      }
+      throw new Error(
+        `Failed to start impersonation session: ${error.message}`,
+      );
+    }
+
+    return data;
+  },
+
+  stopImpersonationSession: async (input: {
+    impersonatorUserId: string;
+    endedIp?: string;
+    endedUserAgent?: string;
+  }) => {
+    const activeSession = await storage.getActiveImpersonationSession(
+      input.impersonatorUserId,
+    );
+
+    if (!activeSession) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("impersonation_sessions")
+      .update({
+        status: "ended",
+        ended_at: now,
+        ended_ip: input.endedIp || null,
+        ended_user_agent: input.endedUserAgent || null,
+        updated_at: now,
+      })
+      .eq("id", activeSession.id)
+      .select("*")
+      .single();
+
+    if (error) {
+      if (handleImpersonationSessionError(error, "stopImpersonationSession")) {
+        return null;
+      }
+      throw new Error(`Failed to stop impersonation session: ${error.message}`);
+    }
+
+    return data;
   },
 
   getAdminDashboardStats: async () => {

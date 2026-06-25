@@ -12,6 +12,8 @@ import { useLocation } from "wouter";
 import { format } from "date-fns";
 import { useAdminUsersQueries } from "@/hooks/useAdminUsersQueries";
 import { useAdminUsersMutations } from "@/hooks/useAdminUsersMutations";
+import { useAuth } from "@/hooks/useAuth";
+import { hasAtLeastRole } from "@/lib/roles";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { CardDescription } from "@/components/ui/card";
 import { 
@@ -67,6 +69,8 @@ const isStaffProfileRole = (role?: string) => isAgentScopeRole(role) || isPlatfo
 
 export default function AdminUsers() {
   const [, setLocation] = useLocation();
+  const { user: currentUser } = useAuth();
+  const isCurrentUserSuperAdmin = hasAtLeastRole(currentUser?.role, "super_admin");
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState(() => {
     const tab = new URLSearchParams(window.location.search).get('tab');
@@ -84,7 +88,8 @@ export default function AdminUsers() {
     reactivateUserMutation,
     reactivateMemberMutation,
     approveUserMutation,
-      removeUserMutation,
+    removeUserMutation,
+    startImpersonationMutation,
   } = useAdminUsersMutations();
 
   // Safe array handling for users data (agents and admins)
@@ -506,6 +511,42 @@ export default function AdminUsers() {
                       </Button>
                     ) : null}
                     {user.role !== 'member' && user.id && (
+                      <>
+                        {isCurrentUserSuperAdmin &&
+                          user.id !== currentUser?.id &&
+                          user.role !== 'super_admin' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-indigo-600 hover:text-indigo-700"
+                              onClick={() => {
+                                const userName = user.firstName && user.lastName
+                                  ? `${user.firstName} ${user.lastName}`
+                                  : user.firstName || user.lastName || user.email || "this user";
+                                const reason = prompt(
+                                  `Reason for live drop-in as ${userName}:`,
+                                  "Support investigation",
+                                );
+                                if (reason === null) return;
+
+                                startImpersonationMutation.mutate(
+                                  {
+                                    targetUserId: user.id,
+                                    reason: reason.trim() || "Super admin live drop-in",
+                                    durationMinutes: 60,
+                                  },
+                                  {
+                                    onSuccess: () => {
+                                      setLocation('/agent');
+                                    },
+                                  },
+                                );
+                              }}
+                              disabled={startImpersonationMutation.isPending}
+                            >
+                              {startImpersonationMutation.isPending ? 'Starting...' : 'Drop In'}
+                            </Button>
+                          )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -525,6 +566,7 @@ export default function AdminUsers() {
                         <Trash2 className="h-3 w-3 mr-1" />
                         {removeUserMutation.isPending ? 'Removing...' : 'Remove'}
                       </Button>
+                      </>
                     )}
                   </div>
                 </TableCell>

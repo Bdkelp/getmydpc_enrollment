@@ -6891,7 +6891,43 @@ export async function registerRoutes(app: any) {
         });
       }
 
+      req.realUser = userData;
       req.user = userData;
+
+      if (normalizeRole(userData.role) === "super_admin") {
+        try {
+          const activeImpersonation =
+            await storage.getActiveImpersonationSession(userData.id);
+
+          if (activeImpersonation?.target_user_id) {
+            const targetUser = await storage.getUser(
+              activeImpersonation.target_user_id,
+            );
+
+            if (
+              targetUser &&
+              targetUser.isActive &&
+              targetUser.approvalStatus === "approved"
+            ) {
+              req.user = targetUser;
+              req.impersonationSession = activeImpersonation;
+
+              console.log("[Auth] App route impersonation active:", {
+                impersonatorUserId: userData.id,
+                targetUserId: targetUser.id,
+                targetRole: targetUser.role,
+                path: req.path,
+              });
+            }
+          }
+        } catch (impersonationError) {
+          console.warn(
+            "[Auth] Failed to resolve app-route impersonation session:",
+            impersonationError,
+          );
+        }
+      }
+
       next();
     } catch (error) {
       console.error("[Auth] Auth middleware error:", error);
