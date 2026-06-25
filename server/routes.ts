@@ -3463,12 +3463,17 @@ router.put(
       const { userId } = req.params;
       const { role } = req.body;
 
-      // Users table should ONLY contain 'admin' and 'agent' roles
-      // 'member' is NOT a user role - members are enrolled customers in separate members table
-      if (!["agent", "admin"].includes(role)) {
+      const allowedRoles = [
+        "agent",
+        "admin",
+        "user",
+        "agency_admin",
+        "agency_manager",
+      ];
+      if (!allowedRoles.includes(role)) {
         return res.status(400).json({
           message:
-            "Invalid role. Must be 'agent' (enrollment agent) or 'admin' (system administrator). Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
+            "Invalid role. Must be one of: agent, admin, user, agency_admin, agency_manager. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
         });
       }
 
@@ -8614,9 +8619,10 @@ export async function registerRoutes(app: any) {
       const yearlyCommissionTotal = parseFloat(
         sumCommissionAmounts(yearlyCommissions).toFixed(2),
       );
-      const performanceGoalData = await (scopedAgentIds.length === 1
-        ? storage.resolvePerformanceGoalsForAgent(primaryAgentId)
-        : storage.resolvePerformanceGoalsForAgent(undefined)
+      const performanceGoalData = await (
+        scopedAgentIds.length === 1
+          ? storage.resolvePerformanceGoalsForAgent(primaryAgentId)
+          : storage.resolvePerformanceGoalsForAgent(undefined)
       ).catch((error) => {
         console.warn(
           "[Agent Stats] Performance goals unavailable; returning without goal targets",
@@ -10773,12 +10779,17 @@ export async function registerRoutes(app: any) {
         const { userId } = req.params;
         const { role } = req.body;
 
-        // Users table should ONLY contain 'admin' and 'agent' roles
-        // 'member' is NOT a user role - members are enrolled customers in separate members table
-        if (!["agent", "admin"].includes(role)) {
+        const allowedRoles = [
+          "agent",
+          "admin",
+          "user",
+          "agency_admin",
+          "agency_manager",
+        ];
+        if (!allowedRoles.includes(role)) {
           return res.status(400).json({
             error:
-              "Invalid role. Must be 'agent' or 'admin'. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
+              "Invalid role. Must be one of: agent, admin, user, agency_admin, agency_manager. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
           });
         }
 

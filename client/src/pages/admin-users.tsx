@@ -24,7 +24,8 @@ import {
   Mail, 
   Eye,
   CreditCard,
-  MapPin
+  MapPin,
+  Trash2,
 } from "lucide-react";
 
 interface UserType {
@@ -57,7 +58,7 @@ interface UserType {
   };
 }
 
-const AGENT_SCOPE_ROLES = new Set(['agent', 'agency_admin', 'agency_manager']);
+const AGENT_SCOPE_ROLES = new Set(['agent', 'agency_admin', 'agency_manager', 'user']);
 const PLATFORM_ADMIN_ROLES = new Set(['admin', 'super_admin']);
 
 const isAgentScopeRole = (role?: string) => AGENT_SCOPE_ROLES.has(String(role || '').toLowerCase());
@@ -83,6 +84,7 @@ export default function AdminUsers() {
     reactivateUserMutation,
     reactivateMemberMutation,
     approveUserMutation,
+      removeUserMutation,
   } = useAdminUsersMutations();
 
   // Safe array handling for users data (agents and admins)
@@ -154,6 +156,8 @@ export default function AdminUsers() {
         return 'Agency Manager';
       case 'agent':
         return 'Agent';
+      case 'user':
+        return 'Basic User';
       default:
         return role;
     }
@@ -266,16 +270,28 @@ export default function AdminUsers() {
                             Admin
                           </div>
                         </SelectItem>
+                        <SelectItem value="agency_admin">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="h-3 w-3" />
+                            Agency Admin
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="agency_manager">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="h-3 w-3" />
+                            Agency Manager
+                          </div>
+                        </SelectItem>
                         <SelectItem value="agent">
                           <div className="flex items-center gap-2">
                             <UserCheck className="h-3 w-3" />
                             Agent
                           </div>
                         </SelectItem>
-                        <SelectItem value="member">
+                        <SelectItem value="user">
                           <div className="flex items-center gap-2">
                             <User className="h-3 w-3" />
-                            DPC Member
+                            Basic User
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -489,6 +505,27 @@ export default function AdminUsers() {
                         {(suspendUserMutation.isPending || suspendMemberMutation.isPending) ? 'Suspending...' : 'Suspend'}
                       </Button>
                     ) : null}
+                    {user.role !== 'member' && user.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          const userName = user.firstName && user.lastName
+                            ? `${user.firstName} ${user.lastName}`
+                            : user.firstName || user.lastName || user.email || 'this user';
+                          const confirmRemove = confirm(
+                            `Remove ${userName} from active access? This sets the account inactive and suspended.`
+                          );
+                          if (!confirmRemove) return;
+                          removeUserMutation.mutate(user.id);
+                        }}
+                        disabled={removeUserMutation.isPending}
+                      >
+                        <Trash2 className="h-3 w-3 mr-1" />
+                        {removeUserMutation.isPending ? 'Removing...' : 'Remove'}
+                      </Button>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -520,7 +557,7 @@ export default function AdminUsers() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Agents</p>
+                  <p className="text-sm font-medium text-gray-600">Agents & Users</p>
                   <p className="text-2xl font-bold text-gray-900">{agents.length}</p>
                 </div>
                 <UserCheck className="h-8 w-8 text-green-600" />
@@ -581,7 +618,7 @@ export default function AdminUsers() {
               DPC Members ({filterBySearch(members).length})
             </TabsTrigger>
             <TabsTrigger value="agents">
-              Agents ({filterBySearch(agents).length})
+              Agents & Users ({filterBySearch(agents).length})
             </TabsTrigger>
             <TabsTrigger value="admins">
               Administrators ({filterBySearch(admins).length})
@@ -617,9 +654,9 @@ export default function AdminUsers() {
           <TabsContent value="agents">
             <Card>
               <CardHeader>
-                <CardTitle>Agents</CardTitle>
+                <CardTitle>Agents & Agency Users</CardTitle>
                 <CardDescription>
-                  Sales and agency users who can enroll members and track commissions
+                  Sales, agency, and basic users who can be managed by platform admins
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -632,7 +669,7 @@ export default function AdminUsers() {
                     Error loading users: {error.message}
                   </div>
                 ) : (
-                  <UserTable users={filterBySearch(agents)} showRole={false} showPlan={false} />
+                  <UserTable users={filterBySearch(agents)} showRole={true} showPlan={false} />
                 )}
               </CardContent>
             </Card>
@@ -657,7 +694,7 @@ export default function AdminUsers() {
                     Error loading users: {error.message}
                   </div>
                 ) : (
-                  <UserTable users={filterBySearch(admins)} showRole={false} showPlan={false} />
+                  <UserTable users={filterBySearch(admins)} showRole={true} showPlan={false} />
                 )}
               </CardContent>
             </Card>

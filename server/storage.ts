@@ -1019,6 +1019,7 @@ export interface IStorage {
   listAgencyUsers(): Promise<any[]>;
   listAssignableAgents(): Promise<any[]>;
   getAgencyAssignmentsSnapshot(): Promise<Record<string, string[]>>;
+  getAllUsersForAdmin(): Promise<{ users: User[]; totalCount: number }>;
   setAgencyAssignments(
     agencyUserId: string,
     agentIds: string[],
@@ -2035,6 +2036,61 @@ export async function getAllUsers(
     };
   } catch (error: any) {
     console.error("[Storage] Error in getAllUsers:", error);
+    throw error;
+  }
+}
+
+export async function getAllUsersForAdmin(): Promise<{
+  users: User[];
+  totalCount: number;
+}> {
+  try {
+    console.log("[Storage] Fetching ALL users for admin view via Supabase...");
+
+    const { data: users, error: usersError } = await supabase
+      .from("users")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (usersError) {
+      console.error("[Storage] Supabase users error (admin all):", usersError);
+      throw usersError;
+    }
+
+    if (!users) {
+      return { users: [], totalCount: 0 };
+    }
+
+    const { data: subscriptions, error: subsError } = await supabase
+      .from("subscriptions")
+      .select("*");
+
+    if (subsError) {
+      console.warn(
+        "[Storage] Supabase subscriptions error (admin all, continuing without):",
+        subsError,
+      );
+    }
+
+    const usersWithSubscriptions = users
+      .map((user) => {
+        const userSubscription = subscriptions?.find(
+          (sub) => sub.user_id === user.id,
+        );
+        const mappedUser = mapUserFromDB(user);
+        return {
+          ...mappedUser,
+          subscription: userSubscription || null,
+        };
+      })
+      .filter((u) => u !== null);
+
+    return {
+      users: usersWithSubscriptions,
+      totalCount: usersWithSubscriptions.length,
+    };
+  } catch (error: any) {
+    console.error("[Storage] Error in getAllUsersForAdmin:", error);
     throw error;
   }
 }
@@ -9626,6 +9682,7 @@ export const storage = {
   upsertUser,
   updateUserProfile,
   getAllUsers,
+  getAllUsersForAdmin,
   getUsersCount,
   getRevenueStats,
   getSubscriptionStats,
