@@ -2471,10 +2471,12 @@ export async function getAllEnrollments(
   }
 }
 
-// Helper function to get all downline agents recursively (for agent tree view)
+// Helper function to get all downline users recursively.
+// `allowedRoles` narrows traversal when a caller only needs enrollment-capable descendants.
 async function getDownlineAgentIds(
   agentId: string,
   visited: Set<string> = new Set(),
+  allowedRoles?: string[],
 ): Promise<string[]> {
   try {
     if (visited.has(agentId)) {
@@ -2487,11 +2489,17 @@ async function getDownlineAgentIds(
 
     visited.add(agentId);
 
-    const { data, error } = await supabase
+    let downlineQuery = supabase
       .from("users")
       .select("id")
       .eq("upline_agent_id", agentId)
       .eq("is_active", true);
+
+    if (Array.isArray(allowedRoles) && allowedRoles.length > 0) {
+      downlineQuery = downlineQuery.in("role", allowedRoles);
+    }
+
+    const { data, error } = await downlineQuery;
 
     if (error) {
       console.error("[Storage] Error fetching downline agents:", error);
@@ -2507,7 +2515,9 @@ async function getDownlineAgentIds(
 
     // Recursively get downline of downline
     const nestedDownline = await Promise.all(
-      directDownline.map((id) => getDownlineAgentIds(id, new Set(visited))),
+      directDownline.map((id) =>
+        getDownlineAgentIds(id, new Set(visited), allowedRoles),
+      ),
     );
 
     // Flatten and combine all levels
@@ -2832,8 +2842,12 @@ export async function getEnrollmentsByAgent(
   endDate?: string,
 ): Promise<User[]> {
   try {
-    // Get all downline agents for this agent
-    const downlineAgentIds = await getDownlineAgentIds(agentId);
+    // Enrollment scope should only include roles that can directly produce enrollments.
+    const downlineAgentIds = await getDownlineAgentIds(agentId, new Set(), [
+      "agent",
+      "agency_admin",
+      "agency_manager",
+    ]);
     const allAgentIds = [agentId, ...downlineAgentIds];
 
     console.log("[Storage] getEnrollmentsByAgent - Agent hierarchy:", {
