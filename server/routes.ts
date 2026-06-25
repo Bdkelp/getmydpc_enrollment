@@ -464,8 +464,13 @@ async function getScopedEnrollments(
   startDate?: string,
   endDate?: string,
 ): Promise<any[]> {
+  const includeDownline = agentIds.length <= 1;
   const pages = await Promise.all(
-    agentIds.map((id) => storage.getEnrollmentsByAgent(id, startDate, endDate)),
+    agentIds.map((id) =>
+      storage.getEnrollmentsByAgent(id, startDate, endDate, {
+        includeDownline,
+      }),
+    ),
   );
 
   const deduped = new Map<string, any>();
@@ -8498,17 +8503,22 @@ export async function registerRoutes(app: any) {
 
       const enrollmentPages = await Promise.all(
         scopedAgentIds.map(async (agentId) => {
+          const includeDownline = scopedAgentIds.length <= 1;
           const [individualEnrollments, groupEnrollments] = await Promise.all([
-            storage.getEnrollmentsByAgent(agentId).catch((error) => {
-              console.warn(
-                "[Agent Stats] Individual enrollment records unavailable; continuing with empty set",
-                {
-                  agentId,
-                  error: error?.message || error,
-                },
-              );
-              return [];
-            }),
+            storage
+              .getEnrollmentsByAgent(agentId, undefined, undefined, {
+                includeDownline,
+              })
+              .catch((error) => {
+                console.warn(
+                  "[Agent Stats] Individual enrollment records unavailable; continuing with empty set",
+                  {
+                    agentId,
+                    error: error?.message || error,
+                  },
+                );
+                return [];
+              }),
             getGroupEnrollmentRecordsForAgent(agentId).catch((error) => {
               console.warn(
                 "[Agent Stats] Group enrollment records unavailable; continuing without group records",

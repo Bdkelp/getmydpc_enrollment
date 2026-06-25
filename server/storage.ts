@@ -2840,14 +2840,18 @@ export async function getEnrollmentsByAgent(
   agentId: string,
   startDate?: string,
   endDate?: string,
+  options?: { includeDownline?: boolean },
 ): Promise<User[]> {
   try {
+    const includeDownline = options?.includeDownline !== false;
     // Enrollment scope should only include roles that can directly produce enrollments.
-    const downlineAgentIds = await getDownlineAgentIds(agentId, new Set(), [
-      "agent",
-      "agency_admin",
-      "agency_manager",
-    ]);
+    const downlineAgentIds = includeDownline
+      ? await getDownlineAgentIds(agentId, new Set(), [
+          "agent",
+          "agency_admin",
+          "agency_manager",
+        ])
+      : [];
     const allAgentIds = [agentId, ...downlineAgentIds];
 
     console.log("[Storage] getEnrollmentsByAgent - Agent hierarchy:", {
