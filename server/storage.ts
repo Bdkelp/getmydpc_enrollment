@@ -6216,7 +6216,13 @@ export async function getAgentHierarchy(): Promise<any[]> {
         can_receive_overrides
       `,
       )
-      .in("role", ["agent", "admin", "super_admin"])
+      .in("role", [
+        "agent",
+        "agency_manager",
+        "agency_admin",
+        "admin",
+        "super_admin",
+      ])
       .eq("is_active", true)
       .order("hierarchy_level", { ascending: true })
       .order("agent_number", { ascending: true });
@@ -6269,7 +6275,13 @@ export async function getAgentHierarchy(): Promise<any[]> {
   }
 }
 
-const HIERARCHY_ASSIGNABLE_ROLES = ["agent", "admin", "super_admin"];
+const HIERARCHY_ASSIGNABLE_ROLES = [
+  "agent",
+  "agency_manager",
+  "agency_admin",
+  "admin",
+  "super_admin",
+];
 
 const normalizeHierarchyOverrideAmount = (value: unknown): number => {
   const parsed = Number(value);

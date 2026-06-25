@@ -195,8 +195,8 @@ export default function AdminUsers() {
     Boolean(user.address && user.city && user.state && user.zipCode);
 
   const UserTable = ({ users, showRole = false, showPlan = true }: { users: UserType[], showRole?: boolean, showPlan?: boolean }) => (
-    <div className="overflow-x-auto">
-      <Table>
+    <div className="w-full overflow-x-auto">
+      <Table className="min-w-[1220px]">
         <TableHeader>
           <TableRow>
             <TableHead>User</TableHead>
@@ -207,7 +207,7 @@ export default function AdminUsers() {
             <TableHead>Created By</TableHead>
             <TableHead>Joined</TableHead>
             <TableHead>Last Login</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead className="text-right min-w-[260px]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -408,7 +408,7 @@ export default function AdminUsers() {
                     }
                   })() : 'Never'}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right min-w-[260px]">
                   <div className="flex items-center justify-end space-x-2">
                     {isStaffProfileRole(user.role) && (
                       <Button
