@@ -292,9 +292,18 @@ export default function Profile() {
         description: "Your profile photo has been updated.",
       });
     } catch (error: any) {
+      console.error('[Profile] Image upload failed:', {
+        message: error?.message,
+        statusCode: error?.statusCode,
+        error: error?.error,
+        details: error?.details,
+      });
       toast({
         title: "Upload failed",
-        description: error.message || "Failed to upload photo. Please try again.",
+        description:
+          error?.message ||
+          error?.error ||
+          "Failed to upload photo. Please try again.",
         variant: "destructive",
       });
     } finally {

@@ -184,14 +184,14 @@ export const refreshSession = async () => {
 export const uploadProfileImage = async (file: File, userId: string) => {
   try {
     const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}-${Math.random()}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
+    const safeExt = (fileExt || 'jpg').toLowerCase();
+    const filePath = `${userId}/profile.${safeExt}`;
 
     const { data, error } = await supabase.storage
       .from('profile-images')
       .upload(filePath, file, {
         cacheControl: '3600',
-        upsert: false
+        upsert: true
       });
 
     if (error) {
