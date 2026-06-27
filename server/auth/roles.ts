@@ -17,6 +17,11 @@ const ROLE_ORDER: Role[] = [
 const ROLE_SYNONYMS: Record<string, Role> = {
   agent: "agent",
   agents: "agent",
+  field_agent: "agent",
+  fieldagent: "agent",
+  field_agents: "agent",
+  producer: "agent",
+  producers: "agent",
   agency_manager: "agency_manager",
   agency_managers: "agency_manager",
   agencymanager: "agency_manager",
@@ -94,6 +99,12 @@ export function normalizeRole(
   }
   if (slugged.includes("admin")) {
     return "admin";
+  }
+  if (slugged.includes("producer")) {
+    return "agent";
+  }
+  if (slugged.includes("field") && slugged.includes("agent")) {
+    return "agent";
   }
   if (slugged.includes("agent")) {
     return "agent";

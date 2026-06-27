@@ -633,11 +633,11 @@ async function getScopedLifecycleSummary(
 }
 
 const hasEnrollmentAttributionAccess = (role: string | undefined): boolean => {
-  const normalized = (role || "").toLowerCase().trim();
+  const normalized = normalizeRole(role);
   return (
     normalized === "agent" ||
-    normalized === "staff" ||
-    normalized === "user" ||
+    normalized === "agency_admin" ||
+    normalized === "agency_manager" ||
     hasAtLeastRole(role, "admin")
   );
 };
@@ -3487,30 +3487,70 @@ router.put(
   "/api/admin/users/:userId/role",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user!.role)) {
+    const requesterRole = normalizeRole(req.user?.role);
+    const requesterIsPlatformAdmin = isAdmin(req.user!.role);
+    const requesterIsAgencyScoped = isAgencyScopedRole(req.user?.role);
+
+    if (!requesterIsPlatformAdmin && !requesterIsAgencyScoped) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
       const { userId } = req.params;
       const { role } = req.body;
+      const normalizedRequestedRole = normalizeRole(role);
+
+      if (!normalizedRequestedRole) {
+        return res.status(400).json({
+          message:
+            "Invalid role. Must be one of: agent, agency_admin, agency_manager, admin, super_admin.",
+        });
+      }
+
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
 
       const allowedRoles = [
         "agent",
         "admin",
-        "user",
+        "super_admin",
         "agency_admin",
         "agency_manager",
       ];
-      if (!allowedRoles.includes(role)) {
+      if (!allowedRoles.includes(normalizedRequestedRole)) {
         return res.status(400).json({
           message:
-            "Invalid role. Must be one of: agent, admin, user, agency_admin, agency_manager. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
+            "Invalid role. Must be one of: agent, admin, super_admin, agency_admin, agency_manager. Note: 'member' is not a valid user role - members are enrolled customers in the members table.",
         });
       }
 
+      if (requesterIsAgencyScoped) {
+        if (normalizedRequestedRole === "admin" || normalizedRequestedRole === "super_admin") {
+          return res.status(403).json({
+            message: "Agency admins cannot assign platform admin roles",
+          });
+        }
+
+        const targetRole = normalizeRole(targetUser.role);
+        if (targetRole === "admin" || targetRole === "super_admin") {
+          return res.status(403).json({
+            message: "Agency admins cannot modify platform admin accounts",
+          });
+        }
+
+        const scope = await resolveScopedAgentIds(req.user!, userId, {
+          allowAdminAll: false,
+        });
+
+        if (!scope.ok) {
+          return res.status(scope.status).json({ error: scope.message });
+        }
+      }
+
       const updatedUser = await storage.updateUser(userId, {
-        role,
+        role: normalizedRequestedRole,
         updatedAt: new Date(),
       });
 
@@ -4624,6 +4664,16 @@ router.patch(
       return res.status(400).json({
         message: "Invalid action",
         allowedActions: ["change", "cancel", "reactivate"],
+      });
+    }
+
+    if (
+      (normalizedAction === "cancel" || normalizedAction === "reactivate") &&
+      !isAdmin(req.user?.role)
+    ) {
+      return res.status(403).json({
+        message:
+          "Only platform admins can cancel or reactivate memberships",
       });
     }
 
