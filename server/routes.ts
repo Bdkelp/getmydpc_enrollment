@@ -3852,7 +3852,21 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       const assignedAgentIds = await storage.getAgencyAssignedAgentIds(
         req.user.id,
       );
-      scopedIds = new Set([req.user.id, ...assignedAgentIds]);
+      const hierarchyFromSelf = await storage.getHierarchyDownlineUserIds(
+        req.user.id,
+      );
+      const hierarchyFromAssignedRoots = (
+        await Promise.all(
+          assignedAgentIds.map((id) => storage.getHierarchyDownlineUserIds(id)),
+        )
+      ).flat();
+
+      scopedIds = new Set([
+        req.user.id,
+        ...assignedAgentIds,
+        ...hierarchyFromSelf,
+        ...hierarchyFromAssignedRoots,
+      ]);
     } else if (requesterIsAgent) {
       scopedIds = new Set([req.user.id]);
     }
