@@ -124,12 +124,10 @@ export function requireRole(minRole: Role) {
       (user.role || user.user_role) as string | undefined,
     );
     if (!userRole || !hasAtLeastRole(userRole, minRole)) {
-      return res
-        .status(403)
-        .json({
-          message: "Forbidden: insufficient role",
-          requiredRole: minRole,
-        });
+      return res.status(403).json({
+        message: "Forbidden: insufficient role",
+        requiredRole: minRole,
+      });
     }
 
     return next();

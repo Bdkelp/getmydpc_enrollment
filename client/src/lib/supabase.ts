@@ -1,11 +1,14 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
 // Clean up URL - remove any quotes that might be in the environment variable
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string)?.replace(/['"]/g, '') || '';
+const supabaseUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string)?.replace(/['"]/g, "") || "";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  throw new Error(
+    "Missing Supabase environment variables. Please check your .env file.",
+  );
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -13,34 +16,40 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce',
+    flowType: "pkce",
     storage: window.localStorage,
-    redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
+    redirectTo:
+      typeof window !== "undefined" ? window.location.origin : undefined,
     // Use default storage key - removing custom key to avoid issues
-  }
+  },
 });
 
 // Check if profile images bucket exists (only when explicitly called)
 export async function checkProfileImagesBucket() {
   try {
-    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    const { data: buckets, error: listError } =
+      await supabase.storage.listBuckets();
 
     if (listError) {
-      console.warn('Storage access limited:', listError.message);
+      console.warn("Storage access limited:", listError.message);
       return { exists: false, error: listError };
     }
 
-    const bucketExists = buckets?.some(bucket => bucket.name === 'profile-images');
-    
+    const bucketExists = buckets?.some(
+      (bucket) => bucket.name === "profile-images",
+    );
+
     if (bucketExists) {
-      console.log('Profile-images bucket exists and accessible');
+      console.log("Profile-images bucket exists and accessible");
       return { exists: true, error: null };
     } else {
-      console.warn('Profile-images bucket not found - profile uploads may not work');
+      console.warn(
+        "Profile-images bucket not found - profile uploads may not work",
+      );
       return { exists: false, error: null };
     }
   } catch (error) {
-    console.warn('Storage check failed:', error);
+    console.warn("Storage check failed:", error);
     return { exists: false, error };
   }
 }
@@ -49,19 +58,23 @@ export async function checkProfileImagesBucket() {
 export const signIn = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
-    password
+    password,
   });
 
   return { data, error };
 };
 
-export const signUp = async (email: string, password: string, metadata?: any) => {
+export const signUp = async (
+  email: string,
+  password: string,
+  metadata?: any,
+) => {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: metadata
-    }
+      data: metadata,
+    },
   });
 
   return { data, error };
@@ -74,40 +87,54 @@ export const signOut = async () => {
 
 export const resetPassword = async (email: string) => {
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`
+    redirectTo: `${window.location.origin}/reset-password`,
   });
 
   return { data, error };
 };
 
 export const getSession = async () => {
-  const { data: { session }, error } = await supabase.auth.getSession();
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
   return session;
 };
 
 export const getUser = async () => {
-  const { data: { user }, error } = await supabase.auth.getUser();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
   return user;
 };
 
-export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter' | 'linkedin' | 'microsoft' | 'apple') => {
+export const signInWithOAuth = async (
+  provider:
+    | "google"
+    | "facebook"
+    | "twitter"
+    | "linkedin"
+    | "microsoft"
+    | "apple",
+) => {
   try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth-callback`
-      }
+        redirectTo: `${window.location.origin}/auth-callback`,
+      },
     });
 
     if (error) {
       // Handle specific OAuth errors
-      if (error.message?.includes('provider is not enabled')) {
-        return { 
-          data: null, 
+      if (error.message?.includes("provider is not enabled")) {
+        return {
+          data: null,
           error: {
             ...error,
-            message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} login is not configured. Please use email/password login instead.`
-          }
+            message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} login is not configured. Please use email/password login instead.`,
+          },
         };
       }
       return { data, error };
@@ -120,47 +147,49 @@ export const signInWithOAuth = async (provider: 'google' | 'facebook' | 'twitter
       error: {
         message: `Social login with ${provider} is currently unavailable. Please use email/password login.`,
         __isAuthError: true,
-        name: 'AuthApiError',
-        status: 400
-      }
+        name: "AuthApiError",
+        status: 400,
+      },
     };
   }
 };
 
-export const onAuthStateChange = (callback: (event: any, session: any) => void) => {
+export const onAuthStateChange = (
+  callback: (event: any, session: any) => void,
+) => {
   return supabase.auth.onAuthStateChange(callback);
 };
 
 // Monitor and handle token refresh
 export const setupTokenRefreshHandling = () => {
   const { data } = supabase.auth.onAuthStateChange((event, session) => {
-    console.log('[Supabase] Auth event:', event);
-    
+    console.log("[Supabase] Auth event:", event);
+
     switch (event) {
-      case 'TOKEN_REFRESHED':
-        console.log('[Supabase] Token refreshed successfully');
+      case "TOKEN_REFRESHED":
+        console.log("[Supabase] Token refreshed successfully");
         // Store the new token if needed
         if (session?.access_token) {
-          localStorage.setItem('supabase_token', session.access_token);
+          localStorage.setItem("supabase_token", session.access_token);
         }
         break;
-        
-      case 'SIGNED_OUT':
-        console.log('[Supabase] User signed out');
+
+      case "SIGNED_OUT":
+        console.log("[Supabase] User signed out");
         // Clear stored tokens
-        localStorage.removeItem('supabase_token');
-        localStorage.removeItem('auth_token');
+        localStorage.removeItem("supabase_token");
+        localStorage.removeItem("auth_token");
         break;
-        
-      case 'SIGNED_IN':
-        console.log('[Supabase] User signed in');
+
+      case "SIGNED_IN":
+        console.log("[Supabase] User signed in");
         if (session?.access_token) {
-          localStorage.setItem('supabase_token', session.access_token);
+          localStorage.setItem("supabase_token", session.access_token);
         }
         break;
     }
   });
-  
+
   return data.subscription;
 };
 
@@ -169,13 +198,13 @@ export const refreshSession = async () => {
   try {
     const { data, error } = await supabase.auth.refreshSession();
     if (error) {
-      console.error('[Supabase] Failed to refresh session:', error);
+      console.error("[Supabase] Failed to refresh session:", error);
       return { data: null, error };
     }
-    console.log('[Supabase] Session refreshed successfully');
+    console.log("[Supabase] Session refreshed successfully");
     return { data, error: null };
   } catch (err) {
-    console.error('[Supabase] Error refreshing session:', err);
+    console.error("[Supabase] Error refreshing session:", err);
     return { data: null, error: err };
   }
 };
@@ -183,15 +212,15 @@ export const refreshSession = async () => {
 // Storage upload for profile images
 export const uploadProfileImage = async (file: File, userId: string) => {
   try {
-    const fileExt = file.name.split('.').pop();
-    const safeExt = (fileExt || 'jpg').toLowerCase();
+    const fileExt = file.name.split(".").pop();
+    const safeExt = (fileExt || "jpg").toLowerCase();
     const filePath = `${userId}/profile.${safeExt}`;
 
     const { data, error } = await supabase.storage
-      .from('profile-images')
+      .from("profile-images")
       .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: true
+        cacheControl: "3600",
+        upsert: true,
       });
 
     if (error) {
@@ -199,13 +228,13 @@ export const uploadProfileImage = async (file: File, userId: string) => {
     }
 
     // Get public URL
-    const { data: { publicUrl } } = supabase.storage
-      .from('profile-images')
-      .getPublicUrl(filePath);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("profile-images").getPublicUrl(filePath);
 
     return { data: { path: filePath, publicUrl }, error: null };
   } catch (error) {
-    console.error('Profile image upload failed:', error);
+    console.error("Profile image upload failed:", error);
     return { data: null, error };
   }
 };
@@ -214,17 +243,17 @@ export const uploadProfileImage = async (file: File, userId: string) => {
 export const deleteProfileImage = async (filePath: string) => {
   try {
     const { error } = await supabase.storage
-      .from('profile-images')
+      .from("profile-images")
       .remove([filePath]);
 
     if (error) {
-      console.error('Storage delete error:', error);
+      console.error("Storage delete error:", error);
       throw error;
     }
 
     return { error: null };
   } catch (error) {
-    console.error('Profile image delete failed:', error);
+    console.error("Profile image delete failed:", error);
     return { error };
   }
 };

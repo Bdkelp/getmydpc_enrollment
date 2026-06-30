@@ -3527,7 +3527,10 @@ router.put(
       }
 
       if (requesterIsAgencyScoped) {
-        if (normalizedRequestedRole === "admin" || normalizedRequestedRole === "super_admin") {
+        if (
+          normalizedRequestedRole === "admin" ||
+          normalizedRequestedRole === "super_admin"
+        ) {
           return res.status(403).json({
             message: "Agency admins cannot assign platform admin roles",
           });
@@ -4672,8 +4675,7 @@ router.patch(
       !isAdmin(req.user?.role)
     ) {
       return res.status(403).json({
-        message:
-          "Only platform admins can cancel or reactivate memberships",
+        message: "Only platform admins can cancel or reactivate memberships",
       });
     }
 

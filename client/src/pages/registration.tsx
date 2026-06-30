@@ -617,6 +617,7 @@ export default function Registration() {
   }
 
   const selectedPlan = Array.isArray(plans) ? plans.find((plan: any) => plan.id === selectedPlanId) : null;
+  const childCount = familyMembers.filter((member) => member.relationship === "child").length;
   const currentPlanStartDateValue = form.watch("planStartDate");
   const planStartDateDisplay =
     planStartDateOptions.find((option) => option.value === currentPlanStartDateValue)?.label ||
@@ -1486,7 +1487,7 @@ export default function Registration() {
                             </div>
                           </div>
                           {/* Remove child button */}
-                          {familyMembers.filter(m => m.relationship === "child").length > 1 && (
+                          {childCount > 1 && (
                             <Button
                               type="button"
                               variant="ghost"
@@ -1505,25 +1506,28 @@ export default function Registration() {
                     })}
                     
                     {/* Add child button */}
-                    {familyMembers.filter(m => m.relationship === "child").length < 5 ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          const newChild = { relationship: "child" };
-                          setFamilyMembers([...familyMembers, newChild]);
-                        }}
-                        className="w-full"
-                      >
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Child
-                      </Button>
-                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const newChild = { relationship: "child" };
+                        setFamilyMembers([...familyMembers, newChild]);
+                      }}
+                      className="w-full"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Child
+                    </Button>
                     
                     <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                       <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> You can add up to 5 children to your healthcare membership.
+                        <strong>Note:</strong> You can add children as needed. We typically expect up to 10 children in this flow.
                       </p>
+                      {childCount >= 10 ? (
+                        <p className="text-sm text-blue-800 mt-2">
+                          You already have {childCount} children added. You can still continue adding more if needed.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 )}
